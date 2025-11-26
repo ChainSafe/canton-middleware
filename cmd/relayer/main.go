@@ -1,0 +1,169 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/db"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
+)
+
+var (
+	configPath = flag.String("config", "config.yaml", "Path to configuration file")
+	version    = "dev"
+)
+
+func main() {
+	flag.Parse()
+
+	// Load configuration
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize logger
+	logger, err := config.NewLogger(cfg.Logging)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
+	logger.Info("Starting Canton-Ethereum Bridge Relayer", zap.String("version", version))
+
+	// Initialize database
+	store, err := db.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		logger.Fatal("Failed to connect to database", zap.Error(err))
+	}
+	defer store.Close()
+	logger.Info("Database connection established")
+
+	// Initialize Canton client
+	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize Canton client", zap.Error(err))
+	}
+	defer cantonClient.Close()
+
+	// Initialize Ethereum client
+	ethClient, err := ethereum.NewClient(&cfg.Ethereum, logger)
+	if err != nil {
+		logger.Fatal("Failed to initialize Ethereum client", zap.Error(err))
+	}
+	defer ethClient.Close()
+
+	// Setup HTTP server for API and metrics
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Health check endpoint
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Metrics endpoint
+	if cfg.Monitoring.Enabled {
+		r.Handle("/metrics", promhttp.Handler())
+		logger.Info("Metrics enabled", zap.Int("port", cfg.Monitoring.MetricsPort))
+	}
+
+	// API routes
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/transfers", handleGetTransfers(store, logger))
+		r.Get("/transfers/{id}", handleGetTransfer(store, logger))
+		r.Get("/status", handleGetStatus(logger))
+	})
+
+	// Start HTTP server
+	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	server := &http.Server{
+		Addr:         serverAddr,
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	go func() {
+		logger.Info("Starting HTTP server", zap.String("address", serverAddr))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to start server", zap.Error(err))
+		}
+	}()
+
+	// Start relayer engine
+	ctx := context.Background()
+	engine := relayer.NewEngine(cfg, cantonClient, ethClient, store, logger)
+	if err := engine.Start(ctx); err != nil {
+		logger.Fatal("Failed to start relayer engine", zap.Error(err))
+	}
+	defer engine.Stop()
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+
+	logger.Info("Shutdown signal received, gracefully shutting down...")
+
+	// Graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("Server shutdown error", zap.Error(err))
+	}
+
+	logger.Info("Relayer stopped")
+}
+
+func handleGetTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// TODO: Implement transfer listing
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"transfers":[]}`))
+	}
+}
+
+func handleGetTransfer(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		transfer, err := store.GetTransfer(id)
+		if err != nil {
+			logger.Error("Failed to get transfer", zap.Error(err), zap.String("id", id))
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		// TODO: Return JSON response
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"id":"%s","status":"%s"}`, transfer.ID, transfer.Status)
+	}
+}
+
+func handleGetStatus(logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"running","version":"` + version + `"}`))
+	}
+}

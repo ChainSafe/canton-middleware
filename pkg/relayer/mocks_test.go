@@ -1,0 +1,102 @@
+package relayer
+
+import (
+	"context"
+	"math/big"
+
+	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/db"
+	"github.com/ethereum/go-ethereum/common"
+)
+
+// MockCantonClient is a mock implementation of CantonBridgeClient
+type MockCantonClient struct {
+	StreamDepositsFunc   func(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error)
+	SubmitWithdrawalFunc func(ctx context.Context, req *canton.WithdrawalRequest) error
+}
+
+func (m *MockCantonClient) StreamDeposits(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error) {
+	if m.StreamDepositsFunc != nil {
+		return m.StreamDepositsFunc(ctx, startOffset)
+	}
+	return nil, nil
+}
+
+func (m *MockCantonClient) SubmitWithdrawal(ctx context.Context, req *canton.WithdrawalRequest) error {
+	if m.SubmitWithdrawalFunc != nil {
+		return m.SubmitWithdrawalFunc(ctx, req)
+	}
+	return nil
+}
+
+// MockEthereumClient is a mock implementation of EthereumBridgeClient
+type MockEthereumClient struct {
+	GetLatestBlockNumberFunc func(ctx context.Context) (uint64, error)
+	WithdrawFromCantonFunc   func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+}
+
+func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
+	if m.GetLatestBlockNumberFunc != nil {
+		return m.GetLatestBlockNumberFunc(ctx)
+	}
+	return 0, nil
+}
+
+func (m *MockEthereumClient) WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error) {
+	if m.WithdrawFromCantonFunc != nil {
+		return m.WithdrawFromCantonFunc(ctx, token, recipient, amount, nonce, cantonTxHash)
+	}
+	return common.Hash{}, nil
+}
+
+// MockStore is a mock implementation of BridgeStore
+type MockStore struct {
+	GetTransferFunc          func(id string) (*db.Transfer, error)
+	CreateTransferFunc       func(transfer *db.Transfer) error
+	UpdateTransferStatusFunc func(id string, status db.TransferStatus, destTxHash *string) error
+	GetChainStateFunc        func(chainID string) (*db.ChainState, error)
+	SetChainStateFunc        func(chainID string, blockNumber int64, blockHash string) error
+	GetPendingTransfersFunc  func(direction db.TransferDirection) ([]*db.Transfer, error)
+}
+
+func (m *MockStore) GetTransfer(id string) (*db.Transfer, error) {
+	if m.GetTransferFunc != nil {
+		return m.GetTransferFunc(id)
+	}
+	return nil, nil
+}
+
+func (m *MockStore) CreateTransfer(transfer *db.Transfer) error {
+	if m.CreateTransferFunc != nil {
+		return m.CreateTransferFunc(transfer)
+	}
+	return nil
+}
+
+func (m *MockStore) UpdateTransferStatus(id string, status db.TransferStatus, destTxHash *string) error {
+	if m.UpdateTransferStatusFunc != nil {
+		return m.UpdateTransferStatusFunc(id, status, destTxHash)
+	}
+	return nil
+}
+
+func (m *MockStore) GetChainState(chainID string) (*db.ChainState, error) {
+	if m.GetChainStateFunc != nil {
+		return m.GetChainStateFunc(chainID)
+	}
+	return nil, nil
+}
+
+func (m *MockStore) SetChainState(chainID string, blockNumber int64, blockHash string) error {
+	if m.SetChainStateFunc != nil {
+		return m.SetChainStateFunc(chainID, blockNumber, blockHash)
+	}
+	return nil
+}
+
+func (m *MockStore) GetPendingTransfers(direction db.TransferDirection) ([]*db.Transfer, error) {
+	if m.GetPendingTransfersFunc != nil {
+		return m.GetPendingTransfersFunc(direction)
+	}
+	return nil, nil
+}

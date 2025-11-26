@@ -1,0 +1,50 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "bridge"
+  password: "changeme"
+  database: "canton_bridge"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
+  ws_url: "wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY"
+  chain_id: 1
+  bridge_contract: "0x0000000000000000000000000000000000000000"
+  relayer_private_key: ""  # Set via environment variable ETHEREUM_RELAYER_PRIVATE_KEY
+  confirmation_blocks: 12
+  gas_limit: 300000
+  max_gas_price: "100000000000"  # 100 Gwei
+  polling_interval: "15s"
+  start_block: 0
+
+canton:
+  rpc_url: "https://canton-partner-node:8080"
+  chain_id: "canton-network"
+  bridge_contract: "canton-bridge-contract-address"
+  relayer_private_key: ""  # Set via environment variable CANTON_RELAYER_PRIVATE_KEY
+  confirmation_blocks: 1
+  polling_interval: "10s"
+  start_block: 0
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"  # 1000 tokens (18 decimals)
+  min_transfer_amount: "1000000000000000"        # 0.001 tokens (18 decimals)
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "1m"
+  processing_interval: "30s"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json or console
+  output_path: "stdout"

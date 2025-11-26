@@ -1,0 +1,251 @@
+-- Tests for Canton Bridge
+module BridgeTest where
+
+import Daml.Script
+import CantonBridge
+
+-- Test data
+setupParties : Script (Party, Party, Party)
+setupParties = do
+  operator <- allocateParty "BridgeOperator"
+  alice <- allocateParty "Alice"
+  bob <- allocateParty "Bob"
+  return (operator, alice, bob)
+
+-- Test: Create bridge
+testCreateBridge : Script ()
+testCreateBridge = script do
+  (operator, _, _) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "USDC"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = LockUnlock
+      ethChainId = 11155111  -- Sepolia testnet
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  Some bridge <- queryContractId operator bridgeCid
+  assert (bridge.operator == operator)
+  assert (bridge.tokenRef.symbol == "USDC")
+  return ()
+
+-- Test: User initiates deposit
+testInitiateDeposit : Script ()
+testInitiateDeposit = script do
+  (operator, alice, _) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "USDC"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = LockUnlock
+      ethChainId = 11155111
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  -- Alice initiates deposit
+  depositCid <- submit alice do
+    exerciseCmd bridgeCid InitiateDeposit with
+      depositor = alice
+      amount = 100.0
+      ethRecipient = "0x1234567890123456789012345678901234567890"
+      clientNonce = "alice-deposit-1"
+  
+  Some deposit <- queryContractId alice depositCid
+  assert (deposit.depositor == alice)
+  assert (deposit.amount == 100.0)
+  assert (deposit.ethRecipient == "0x1234567890123456789012345678901234567890")
+  
+  -- Operator should see the deposit request
+  deposits <- query @DepositRequest operator
+  assert (length deposits == 1)
+  return ()
+
+-- Test: Deposit below minimum fails
+testDepositBelowMinimum : Script ()
+testDepositBelowMinimum = script do
+  (operator, alice, _) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "USDC"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = LockUnlock
+      ethChainId = 11155111
+      minAmount = 1.0
+      maxAmount = 1000.0
+  
+  -- Should fail: amount below minimum
+  submitMustFail alice do
+    exerciseCmd bridgeCid InitiateDeposit with
+      depositor = alice
+      amount = 0.5
+      ethRecipient = "0x1234567890123456789012345678901234567890"
+      clientNonce = "alice-deposit-2"
+  
+  return ()
+
+-- Test: Operator confirms withdrawal
+testConfirmWithdrawal : Script ()
+testConfirmWithdrawal = script do
+  (operator, _, bob) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "WETH"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = MintBurn
+      ethChainId = 1  -- Mainnet
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  -- Operator confirms withdrawal from Ethereum
+  receiptCid <- submit operator do
+    exerciseCmd bridgeCid ConfirmWithdrawal with
+      ethTxHash = "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+      ethSender = "0x9876543210987654321098765432109876543210"
+      recipient = bob
+      amount = 5.0
+      nonce = 1
+  
+  Some receipt <- queryContractId bob receiptCid
+  assert (receipt.recipient == bob)
+  assert (receipt.amount == 5.0)
+  assert (receipt.mode == MintBurn)
+  
+  -- Processed event should exist
+  events <- query @ProcessedEthEvent operator
+  assert (length events == 1)
+  return ()
+
+-- Test: Replay protection (same tx hash twice fails)
+testReplayProtection : Script ()
+testReplayProtection = script do
+  (operator, _, bob) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "WETH"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = MintBurn
+      ethChainId = 1
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  let ethTxHash = "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+  
+  -- First withdrawal succeeds
+  _ <- submit operator do
+    exerciseCmd bridgeCid ConfirmWithdrawal with
+      ethTxHash
+      ethSender = "0x9876543210987654321098765432109876543210"
+      recipient = bob
+      amount = 5.0
+      nonce = 1
+  
+  -- Second withdrawal with same tx hash fails (key conflict)
+  submitMustFail operator do
+    exerciseCmd bridgeCid ConfirmWithdrawal with
+      ethTxHash
+      ethSender = "0x9876543210987654321098765432109876543210"
+      recipient = bob
+      amount = 5.0
+      nonce = 2
+  
+  return ()
+
+-- Test: Pause and unpause bridge
+testPauseUnpause : Script ()
+testPauseUnpause = script do
+  (operator, _, _) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "USDC"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = LockUnlock
+      ethChainId = 11155111
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  -- Pause bridge
+  pausedCid <- submit operator do
+    exerciseCmd bridgeCid Pause
+  
+  Some paused <- queryContractId operator pausedCid
+  assert (paused.bridge.operator == operator)
+  
+  -- Unpause bridge
+  newBridgeCid <- submit operator do
+    exerciseCmd pausedCid Unpause
+  
+  Some newBridge <- queryContractId operator newBridgeCid
+  assert (newBridge.operator == operator)
+  return ()
+
+-- Test: Update limits
+testUpdateLimits : Script ()
+testUpdateLimits = script do
+  (operator, _, _) <- setupParties
+  
+  let tokenRef = TokenRef with
+        issuer = operator
+        symbol = "USDC"
+  
+  bridgeCid <- submit operator do
+    createCmd Bridge with
+      operator
+      tokenRef
+      mode = LockUnlock
+      ethChainId = 11155111
+      minAmount = 0.001
+      maxAmount = 1000.0
+  
+  -- Update limits
+  newBridgeCid <- submit operator do
+    exerciseCmd bridgeCid UpdateLimits with
+      newMinAmount = 0.01
+      newMaxAmount = 5000.0
+  
+  Some newBridge <- queryContractId operator newBridgeCid
+  assert (newBridge.minAmount == 0.01)
+  assert (newBridge.maxAmount == 5000.0)
+  return ()
+
+-- Run all tests
+runAllTests : Script ()
+runAllTests = script do
+  testCreateBridge
+  testInitiateDeposit
+  testDepositBelowMinimum
+  testConfirmWithdrawal
+  testReplayProtection
+  testPauseUnpause
+  testUpdateLimits
+  return ()

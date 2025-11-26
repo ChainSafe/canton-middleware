@@ -1,0 +1,9 @@
+sdk-version: 2.10.2
+name: canton-bridge
+version: 1.0.0
+source: daml
+dependencies:
+  - daml-prim
+  - daml-stdlib
+build-options:
+  - --target=1.dev

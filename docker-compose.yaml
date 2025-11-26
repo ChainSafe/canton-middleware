@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: canton-bridge-db
+    environment:
+      POSTGRES_USER: bridge
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: canton_bridge
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bridge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  relayer:
+    build: .
+    container_name: canton-bridge-relayer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - ETHEREUM_RELAYER_PRIVATE_KEY=${ETHEREUM_RELAYER_PRIVATE_KEY}
+      - CANTON_RELAYER_PRIVATE_KEY=${CANTON_RELAYER_PRIVATE_KEY}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: canton-bridge-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deployments/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  prometheus_data:
