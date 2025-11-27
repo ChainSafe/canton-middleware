@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/relayer /app/relayer
 
 # Copy config example
-COPY config.example.yaml /app/config.yaml
+COPY example.yaml /app/config.yaml
 
 EXPOSE 8080 9090
 

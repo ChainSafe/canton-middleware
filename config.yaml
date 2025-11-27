@@ -6,8 +6,8 @@ database:
   host: "localhost"
   port: 5432
   user: "postgres"
-  password: "password"
-  database: "canton_bridge"
+  password: "p@ssw0rd"
+  database: "relayer"
   ssl_mode: "disable"
 
 ethereum:
@@ -23,7 +23,7 @@ ethereum:
   start_block: 0
 
 canton:
-  address: "localhost:1234" # User specified port
+  rpc_url: "http://localhost:5001"
   ledger_id: "canton-ledger-id"
   application_id: "canton-middleware"
   relayer_party: "Relayer::1220..." # Placeholder

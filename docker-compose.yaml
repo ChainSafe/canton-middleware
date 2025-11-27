@@ -1,52 +1,97 @@
-version: '3.8'
-
 services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry
+    container_name: anvil
+    environment:
+      ANVIL_IP_ADDR: "0.0.0.0"
+    working_dir: /anvil
+    ports:
+      - "8545:8545"
+    command: anvil
+
+  canton:
+    image: chainsafe/canton:3.5.0
+    container_name: canton
+    ports:
+      # Sequencer
+      - "5001:5001" # Public API
+      - "5002:5002" # Admin API
+
+      # Mediator
+      - "5202:5202" # Admin API
+
+      # Participant 1
+      - "5011:5011" # Ledger API
+      - "5012:5012" # Admin API
+      - "5013:5013" # HTTP Ledger API
+
+      # Participant 2
+      - "5021:5021" # Ledger API
+      - "5022:5022" # Admin API
+      - "5023:5023" # HTTP Ledger API
+
+    # Run the canton daemon with the simple topology configuration
+    command: [ "daemon", "--config", "simple-topology.conf" ]
+
+    # Healthcheck using the tools installed in the Dockerfile (grpcurl, jq)
+    healthcheck:
+      test: "grpcurl --plaintext localhost:5012 com.digitalasset.canton.health.admin.v0.StatusService.Status | jq -e '.success | select(.active)'"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    environment:
+      JDK_JAVA_OPTIONS: "-XX:+ExitOnOutOfMemoryError -Xmx8G"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:15-alpine
-    container_name: canton-bridge-db
+    container_name: postgres
     environment:
-      POSTGRES_USER: bridge
-      POSTGRES_PASSWORD: changeme
-      POSTGRES_DB: canton_bridge
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: p@ssw0rd
+      POSTGRES_DB: relayer
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bridge"]
+      test: [ "CMD-SHELL", "pg_isready -U bridge" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  relayer:
-    build: .
-    container_name: canton-bridge-relayer
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "8080:8080"
-      - "9090:9090"
-    volumes:
-      - ./config.yaml:/app/config.yaml
-    environment:
-      - ETHEREUM_RELAYER_PRIVATE_KEY=${ETHEREUM_RELAYER_PRIVATE_KEY}
-      - CANTON_RELAYER_PRIVATE_KEY=${CANTON_RELAYER_PRIVATE_KEY}
-    restart: unless-stopped
+#  relayer:
+#    build: .
+#    container_name: canton-bridge-relayer
+#    depends_on:
+#      postgres:
+#        condition: service_healthy
+#    ports:
+#      - "8080:8080"
+#      - "9090:9090"
+#    volumes:
+#      - ./config.yaml:/app/config.yaml
+#    environment:
+#      - ETHEREUM_RELAYER_PRIVATE_KEY=${ETHEREUM_RELAYER_PRIVATE_KEY}
+#      - CANTON_RELAYER_PRIVATE_KEY=${CANTON_RELAYER_PRIVATE_KEY}
+#    restart: unless-stopped
 
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: canton-bridge-prometheus
-    ports:
-      - "9091:9090"
-    volumes:
-      - ./deployments/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-    restart: unless-stopped
+#   prometheus:
+#     image: prom/prometheus:latest
+#     container_name: canton-bridge-prometheus
+#     ports:
+#       - "9091:9090"
+#     volumes:
+#       - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+#       - prometheus_data:/prometheus
+#     command:
+#       - '--config.file=/etc/prometheus/prometheus.yml'
+#       - '--storage.tsdb.path=/prometheus'
+#     restart: unless-stopped
 
 volumes:
   postgres_data:
