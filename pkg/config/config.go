@@ -36,22 +36,23 @@ type DatabaseConfig struct {
 
 // EthereumConfig contains Ethereum client settings
 type EthereumConfig struct {
-	RPCURL              string        `mapstructure:"rpc_url"`
-	WSUrl               string        `mapstructure:"ws_url"`
-	ChainID             int64         `mapstructure:"chain_id"`
-	BridgeContract      string        `mapstructure:"bridge_contract"`
-	RelayerPrivateKey   string        `mapstructure:"relayer_private_key"`
-	ConfirmationBlocks  int           `mapstructure:"confirmation_blocks"`
-	GasLimit            uint64        `mapstructure:"gas_limit"`
-	MaxGasPrice         string        `mapstructure:"max_gas_price"`
-	PollingInterval     time.Duration `mapstructure:"polling_interval"`
-	StartBlock          int64         `mapstructure:"start_block"`
+	RPCURL             string        `mapstructure:"rpc_url"`
+	WSUrl              string        `mapstructure:"ws_url"`
+	ChainID            int64         `mapstructure:"chain_id"`
+	BridgeContract     string        `mapstructure:"bridge_contract"`
+	RelayerPrivateKey  string        `mapstructure:"relayer_private_key"`
+	ConfirmationBlocks int           `mapstructure:"confirmation_blocks"`
+	GasLimit           uint64        `mapstructure:"gas_limit"`
+	MaxGasPrice        string        `mapstructure:"max_gas_price"`
+	PollingInterval    time.Duration `mapstructure:"polling_interval"`
+	StartBlock         int64         `mapstructure:"start_block"`
 }
 
 // CantonConfig contains Canton Network client settings
 type CantonConfig struct {
 	RPCURL             string        `mapstructure:"rpc_url"`
 	LedgerID           string        `mapstructure:"ledger_id"`
+	DomainID           string        `mapstructure:"domain_id"`
 	ApplicationID      string        `mapstructure:"application_id"`
 	ChainID            string        `mapstructure:"chain_id"`
 	BridgeContract     string        `mapstructure:"bridge_contract"`

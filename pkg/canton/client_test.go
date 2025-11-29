@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
+	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -37,14 +38,18 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 	mockACSClient := &MockGetActiveContractsClient{
 		RecvFunc: func() (*lapi.GetActiveContractsResponse, error) {
 			return &lapi.GetActiveContractsResponse{
-				ActiveContracts: []*lapi.CreatedEvent{
-					{ContractId: "config-cid"},
+				ContractEntry: &lapi.GetActiveContractsResponse_ActiveContract{
+					ActiveContract: &lapi.ActiveContract{
+						CreatedEvent: &lapiv1.CreatedEvent{
+							ContractId: "config-cid",
+						},
+					},
 				},
 			}, nil
 		},
 	}
 
-	mockActiveContractsService := &MockActiveContractsService{
+	mockStateService := &MockStateService{
 		GetActiveContractsFunc: func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
 			return mockACSClient, nil
 		},
@@ -55,14 +60,15 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 		RelayerParty:    "RelayerParty",
 		BridgePackageID: "pkg-id",
 		BridgeModule:    "Wayfinder.Bridge",
+		DomainID:        "domain-id",
 	}
 	logger := zap.NewNop()
 
 	client := &Client{
-		config:                 cfg,
-		logger:                 logger,
-		commandService:         mockCmdService,
-		activeContractsService: mockActiveContractsService,
+		config:         cfg,
+		logger:         logger,
+		commandService: mockCmdService,
+		stateService:   mockStateService,
 	}
 
 	req := &MintProposalRequest{
@@ -77,43 +83,17 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 	}
 }
 
-// Manual Mocks
-
-type MockActiveContractsService struct {
-	lapi.ActiveContractsServiceClient
-	GetActiveContractsFunc func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error)
-}
-
-func (m *MockActiveContractsService) GetActiveContracts(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
-	if m.GetActiveContractsFunc != nil {
-		return m.GetActiveContractsFunc(ctx, in, opts...)
-	}
-	return nil, nil
-}
-
-type MockGetActiveContractsClient struct {
-	grpc.ServerStreamingClient[lapi.GetActiveContractsResponse]
-	RecvFunc func() (*lapi.GetActiveContractsResponse, error)
-}
-
-func (m *MockGetActiveContractsClient) Recv() (*lapi.GetActiveContractsResponse, error) {
-	if m.RecvFunc != nil {
-		return m.RecvFunc()
-	}
-	return nil, io.EOF
-}
-
 func TestClient_StreamBurnEvents(t *testing.T) {
 	// Setup mock stream
-	mockStream := &MockGetTransactionsClient{
-		RecvFunc: func() (*lapi.GetTransactionsResponse, error) {
+	mockStream := &MockGetUpdatesClient{
+		RecvFunc: func() (*lapi.GetUpdatesResponse, error) {
 			return nil, io.EOF // End of stream immediately for this test
 		},
 	}
 
-	// Setup mock transaction service
-	mockTxService := &MockTransactionService{
-		GetTransactionsFunc: func(ctx context.Context, in *lapi.GetTransactionsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetTransactionsResponse], error) {
+	// Setup mock update service
+	mockUpdateService := &MockUpdateService{
+		GetUpdatesFunc: func(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
 			return mockStream, nil
 		},
 	}
@@ -126,9 +106,10 @@ func TestClient_StreamBurnEvents(t *testing.T) {
 			BridgeContract:  "contract-id",
 			LedgerID:        "ledger-id",
 			ApplicationID:   "app-id",
+			DomainID:        "domain-id",
 		},
-		logger:             zap.NewNop(),
-		transactionService: mockTxService,
+		logger:        zap.NewNop(),
+		updateService: mockUpdateService,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -151,8 +132,8 @@ func TestClient_StreamBurnEvents(t *testing.T) {
 
 func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 	// Create a fake burn event
-	burnRecord := &lapi.Record{
-		Fields: []*lapi.RecordField{
+	burnRecord := &lapiv1.Record{
+		Fields: []*lapiv1.RecordField{
 			{Label: "operator", Value: PartyValue("Alice")},
 			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},
@@ -161,11 +142,11 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 		},
 	}
 
-	event := &lapi.Event{
-		Event: &lapi.Event_Created{
-			Created: &lapi.CreatedEvent{
+	event := &lapiv1.Event{
+		Event: &lapiv1.Event_Created{
+			Created: &lapiv1.CreatedEvent{
 				EventId: "event-1",
-				TemplateId: &lapi.Identifier{
+				TemplateId: &lapiv1.Identifier{
 					EntityName: "BurnEvent",
 				},
 				CreateArguments: burnRecord,
@@ -174,26 +155,28 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 	}
 
 	tx := &lapi.Transaction{
-		TransactionId: "tx-1",
-		Events:        []*lapi.Event{event},
+		UpdateId: "tx-1",
+		Events:   []*lapiv1.Event{event},
 	}
 
 	// Setup mock stream
 	sent := false
-	mockStream := &MockGetTransactionsClient{
-		RecvFunc: func() (*lapi.GetTransactionsResponse, error) {
+	mockStream := &MockGetUpdatesClient{
+		RecvFunc: func() (*lapi.GetUpdatesResponse, error) {
 			if !sent {
 				sent = true
-				return &lapi.GetTransactionsResponse{
-					Transactions: []*lapi.Transaction{tx},
+				return &lapi.GetUpdatesResponse{
+					Update: &lapi.GetUpdatesResponse_Transaction{
+						Transaction: tx,
+					},
 				}, nil
 			}
 			return nil, io.EOF
 		},
 	}
 
-	mockTxService := &MockTransactionService{
-		GetTransactionsFunc: func(ctx context.Context, in *lapi.GetTransactionsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetTransactionsResponse], error) {
+	mockUpdateService := &MockUpdateService{
+		GetUpdatesFunc: func(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
 			return mockStream, nil
 		},
 	}
@@ -206,9 +189,10 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 			BridgeContract:  "contract-id",
 			LedgerID:        "ledger-id",
 			ApplicationID:   "app-id",
+			DomainID:        "domain-id",
 		},
-		logger:             zap.NewNop(),
-		transactionService: mockTxService,
+		logger:        zap.NewNop(),
+		updateService: mockUpdateService,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

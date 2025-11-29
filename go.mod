@@ -9,7 +9,9 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/viper v1.21.0
 	go.uber.org/zap v1.27.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b
 	google.golang.org/grpc v1.76.0
+	google.golang.org/protobuf v1.36.8
 )
 
 require (
@@ -29,7 +31,6 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
@@ -56,6 +57,4 @@ require (
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
 )

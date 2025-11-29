@@ -5,13 +5,13 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
+	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 )
 
 // EncodeMintProposalArgs encodes the arguments for the CreateMintProposal choice
-func EncodeMintProposalArgs(req *MintProposalRequest) *lapi.Record {
-	return &lapi.Record{
-		Fields: []*lapi.RecordField{
+func EncodeMintProposalArgs(req *MintProposalRequest) *lapiv1.Record {
+	return &lapiv1.Record{
+		Fields: []*lapiv1.RecordField{
 			{
 				Label: "recipient",
 				Value: PartyValue(req.Recipient),
@@ -29,8 +29,8 @@ func EncodeMintProposalArgs(req *MintProposalRequest) *lapi.Record {
 }
 
 // DecodeBurnEvent decodes Daml created event into BurnEvent
-func DecodeBurnEvent(eventID, txID string, record *lapi.Record) (*BurnEvent, error) {
-	fields := make(map[string]*lapi.Value)
+func DecodeBurnEvent(eventID, txID string, record *lapiv1.Record) (*BurnEvent, error) {
+	fields := make(map[string]*lapiv1.Value)
 	for _, field := range record.Fields {
 		fields[field.Label] = field.Value
 	}
@@ -76,41 +76,41 @@ func DecodeBurnEvent(eventID, txID string, record *lapi.Record) (*BurnEvent, err
 
 // Helper encoding functions
 
-func TextValue(s string) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_Text{
+func TextValue(s string) *lapiv1.Value {
+	return &lapiv1.Value{
+		Sum: &lapiv1.Value_Text{
 			Text: s,
 		},
 	}
 }
 
-func PartyValue(s string) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_Party{
+func PartyValue(s string) *lapiv1.Value {
+	return &lapiv1.Value{
+		Sum: &lapiv1.Value_Party{
 			Party: s,
 		},
 	}
 }
 
-func Int64Value(n int64) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_Int64{
+func Int64Value(n int64) *lapiv1.Value {
+	return &lapiv1.Value{
+		Sum: &lapiv1.Value_Int64{
 			Int64: n,
 		},
 	}
 }
 
-func NumericValue(s string) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_Numeric{
+func NumericValue(s string) *lapiv1.Value {
+	return &lapiv1.Value{
+		Sum: &lapiv1.Value_Numeric{
 			Numeric: s,
 		},
 	}
 }
 
-func ContractIdValue(cid string) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_ContractId{
+func ContractIdValue(cid string) *lapiv1.Value {
+	return &lapiv1.Value{
+		Sum: &lapiv1.Value_ContractId{
 			ContractId: cid,
 		},
 	}
@@ -118,41 +118,41 @@ func ContractIdValue(cid string) *lapi.Value {
 
 // Helper extraction functions
 
-func extractText(v *lapi.Value) (string, error) {
+func extractText(v *lapiv1.Value) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("nil value")
 	}
-	if t, ok := v.Sum.(*lapi.Value_Text); ok {
+	if t, ok := v.Sum.(*lapiv1.Value_Text); ok {
 		return t.Text, nil
 	}
 	return "", fmt.Errorf("not a text value")
 }
 
-func extractParty(v *lapi.Value) (string, error) {
+func extractParty(v *lapiv1.Value) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("nil value")
 	}
-	if p, ok := v.Sum.(*lapi.Value_Party); ok {
+	if p, ok := v.Sum.(*lapiv1.Value_Party); ok {
 		return p.Party, nil
 	}
 	return "", fmt.Errorf("not a party value")
 }
 
-func extractInt64(v *lapi.Value) (int64, error) {
+func extractInt64(v *lapiv1.Value) (int64, error) {
 	if v == nil {
 		return 0, fmt.Errorf("nil value")
 	}
-	if i, ok := v.Sum.(*lapi.Value_Int64); ok {
+	if i, ok := v.Sum.(*lapiv1.Value_Int64); ok {
 		return i.Int64, nil
 	}
 	return 0, fmt.Errorf("not an int64 value")
 }
 
-func extractNumeric(v *lapi.Value) (string, error) {
+func extractNumeric(v *lapiv1.Value) (string, error) {
 	if v == nil {
 		return "", fmt.Errorf("nil value")
 	}
-	if n, ok := v.Sum.(*lapi.Value_Numeric); ok {
+	if n, ok := v.Sum.(*lapiv1.Value_Numeric); ok {
 		return n.Numeric, nil
 	}
 	return "", fmt.Errorf("not a numeric value")

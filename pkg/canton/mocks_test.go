@@ -9,44 +9,64 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// MockTransactionService is a mock implementation of lapi.TransactionServiceClient
-type MockTransactionService struct {
-	GetTransactionsFunc func(ctx context.Context, in *lapi.GetTransactionsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetTransactionsResponse], error)
-	GetLedgerEndFunc    func(ctx context.Context, in *lapi.GetLedgerEndRequest, opts ...grpc.CallOption) (*lapi.GetLedgerEndResponse, error)
+// MockStateService is a mock implementation of lapi.StateServiceClient
+type MockStateService struct {
+	lapi.StateServiceClient
+	GetActiveContractsFunc func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error)
+	GetLedgerEndFunc       func(ctx context.Context, in *lapi.GetLedgerEndRequest, opts ...grpc.CallOption) (*lapi.GetLedgerEndResponse, error)
 }
 
-func (m *MockTransactionService) GetTransactions(ctx context.Context, in *lapi.GetTransactionsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetTransactionsResponse], error) {
-	if m.GetTransactionsFunc != nil {
-		return m.GetTransactionsFunc(ctx, in, opts...)
+func (m *MockStateService) GetActiveContracts(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
+	if m.GetActiveContractsFunc != nil {
+		return m.GetActiveContractsFunc(ctx, in, opts...)
 	}
 	return nil, nil
 }
 
-func (m *MockTransactionService) GetLedgerEnd(ctx context.Context, in *lapi.GetLedgerEndRequest, opts ...grpc.CallOption) (*lapi.GetLedgerEndResponse, error) {
+func (m *MockStateService) GetLedgerEnd(ctx context.Context, in *lapi.GetLedgerEndRequest, opts ...grpc.CallOption) (*lapi.GetLedgerEndResponse, error) {
 	if m.GetLedgerEndFunc != nil {
 		return m.GetLedgerEndFunc(ctx, in, opts...)
 	}
 	return &lapi.GetLedgerEndResponse{}, nil
 }
 
-// Implement other methods of TransactionServiceClient as needed (returning nil/errors for now)
-func (m *MockTransactionService) GetTransactionTrees(ctx context.Context, in *lapi.GetTransactionsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetTransactionTreesResponse], error) {
+// MockGetActiveContractsClient is a mock implementation of grpc.ServerStreamingClient[lapi.GetActiveContractsResponse]
+type MockGetActiveContractsClient struct {
+	grpc.ServerStreamingClient[lapi.GetActiveContractsResponse]
+	RecvFunc func() (*lapi.GetActiveContractsResponse, error)
+}
+
+func (m *MockGetActiveContractsClient) Recv() (*lapi.GetActiveContractsResponse, error) {
+	if m.RecvFunc != nil {
+		return m.RecvFunc()
+	}
+	return nil, io.EOF
+}
+
+// MockUpdateService is a mock implementation of lapi.UpdateServiceClient
+type MockUpdateService struct {
+	lapi.UpdateServiceClient
+	GetUpdatesFunc func(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error)
+}
+
+func (m *MockUpdateService) GetUpdates(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
+	if m.GetUpdatesFunc != nil {
+		return m.GetUpdatesFunc(ctx, in, opts...)
+	}
 	return nil, nil
 }
-func (m *MockTransactionService) GetTransactionByEventId(ctx context.Context, in *lapi.GetTransactionByEventIdRequest, opts ...grpc.CallOption) (*lapi.GetTransactionResponse, error) {
-	return nil, nil
+
+// MockGetUpdatesClient is a mock implementation of grpc.ServerStreamingClient[lapi.GetUpdatesResponse]
+type MockGetUpdatesClient struct {
+	grpc.ServerStreamingClient[lapi.GetUpdatesResponse]
+	RecvFunc func() (*lapi.GetUpdatesResponse, error)
 }
-func (m *MockTransactionService) GetTransactionById(ctx context.Context, in *lapi.GetTransactionByIdRequest, opts ...grpc.CallOption) (*lapi.GetTransactionResponse, error) {
-	return nil, nil
-}
-func (m *MockTransactionService) GetFlatTransactionByEventId(ctx context.Context, in *lapi.GetTransactionByEventIdRequest, opts ...grpc.CallOption) (*lapi.GetFlatTransactionResponse, error) {
-	return nil, nil
-}
-func (m *MockTransactionService) GetFlatTransactionById(ctx context.Context, in *lapi.GetTransactionByIdRequest, opts ...grpc.CallOption) (*lapi.GetFlatTransactionResponse, error) {
-	return nil, nil
-}
-func (m *MockTransactionService) GetLatestPrunedOffsets(ctx context.Context, in *lapi.GetLatestPrunedOffsetsRequest, opts ...grpc.CallOption) (*lapi.GetLatestPrunedOffsetsResponse, error) {
-	return nil, nil
+
+func (m *MockGetUpdatesClient) Recv() (*lapi.GetUpdatesResponse, error) {
+	if m.RecvFunc != nil {
+		return m.RecvFunc()
+	}
+	return nil, io.EOF
 }
 
 // MockCommandService is a mock implementation of lapi.CommandServiceClient
@@ -62,7 +82,7 @@ func (m *MockCommandService) SubmitAndWait(ctx context.Context, in *lapi.SubmitA
 }
 
 // Implement other methods of CommandServiceClient as needed
-func (m *MockCommandService) SubmitAndWaitForTransactionId(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*lapi.SubmitAndWaitForTransactionIdResponse, error) {
+func (m *MockCommandService) SubmitAndWaitForUpdateId(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*lapi.SubmitAndWaitForUpdateIdResponse, error) {
 	return nil, nil
 }
 func (m *MockCommandService) SubmitAndWaitForTransaction(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*lapi.SubmitAndWaitForTransactionResponse, error) {
@@ -70,17 +90,4 @@ func (m *MockCommandService) SubmitAndWaitForTransaction(ctx context.Context, in
 }
 func (m *MockCommandService) SubmitAndWaitForTransactionTree(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*lapi.SubmitAndWaitForTransactionTreeResponse, error) {
 	return nil, nil
-}
-
-// MockGetTransactionsClient is a mock implementation of grpc.ServerStreamingClient[lapi.GetTransactionsResponse]
-type MockGetTransactionsClient struct {
-	grpc.ClientStream
-	RecvFunc func() (*lapi.GetTransactionsResponse, error)
-}
-
-func (m *MockGetTransactionsClient) Recv() (*lapi.GetTransactionsResponse, error) {
-	if m.RecvFunc != nil {
-		return m.RecvFunc()
-	}
-	return nil, io.EOF
 }

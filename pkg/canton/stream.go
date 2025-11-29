@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
+	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 	"go.uber.org/zap"
 )
 
@@ -24,10 +25,10 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 
 		// Create the transaction filter
 		filter := &lapi.TransactionFilter{
-			FiltersByParty: map[string]*lapi.Filters{
+			FiltersByParty: map[string]*lapiv1.Filters{
 				c.config.RelayerParty: {
-					Inclusive: &lapi.InclusiveFilters{
-						TemplateIds: []*lapi.Identifier{
+					Inclusive: &lapiv1.InclusiveFilters{
+						TemplateIds: []*lapiv1.Identifier{
 							{
 								PackageId:  c.config.BridgePackageID,
 								ModuleName: c.config.BridgeModule,
@@ -40,26 +41,25 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 		}
 
 		// Set the starting offset
-		var begin *lapi.LedgerOffset
+		var begin *lapi.ParticipantOffset
 		if startOffset == "BEGIN" || startOffset == "" {
-			begin = &lapi.LedgerOffset{
-				Value: &lapi.LedgerOffset_Boundary{
-					Boundary: lapi.LedgerOffset_LEDGER_BEGIN,
+			begin = &lapi.ParticipantOffset{
+				Value: &lapi.ParticipantOffset_Boundary{
+					Boundary: lapi.ParticipantOffset_PARTICIPANT_BEGIN,
 				},
 			}
 		} else {
-			begin = &lapi.LedgerOffset{
-				Value: &lapi.LedgerOffset_Absolute{
+			begin = &lapi.ParticipantOffset{
+				Value: &lapi.ParticipantOffset_Absolute{
 					Absolute: startOffset,
 				},
 			}
 		}
 
-		// Start streaming transactions
-		stream, err := c.transactionService.GetTransactions(authCtx, &lapi.GetTransactionsRequest{
-			LedgerId: c.config.LedgerID,
-			Begin:    begin,
-			Filter:   filter,
+		// Start streaming updates
+		stream, err := c.updateService.GetUpdates(authCtx, &lapi.GetUpdatesRequest{
+			BeginExclusive: begin,
+			Filter:         filter,
 		})
 		if err != nil {
 			errCh <- fmt.Errorf("failed to start stream: %w", err)
@@ -76,15 +76,16 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 				return
 			}
 
-			for _, tx := range resp.Transactions {
+			// Handle transaction updates
+			if tx := resp.GetTransaction(); tx != nil {
 				for _, event := range tx.Events {
-					if createdEvent, ok := event.Event.(*lapi.Event_Created); ok {
+					if createdEvent := event.GetCreated(); createdEvent != nil {
 						// Check if it matches our template
-						if createdEvent.Created.TemplateId.EntityName == "BurnEvent" {
+						if createdEvent.TemplateId.EntityName == "BurnEvent" {
 							burnEvent, err := DecodeBurnEvent(
-								createdEvent.Created.EventId,
-								tx.TransactionId,
-								createdEvent.Created.CreateArguments,
+								createdEvent.EventId,
+								tx.UpdateId,
+								createdEvent.CreateArguments,
 							)
 							if err != nil {
 								c.logger.Error("Failed to decode burn event", zap.Error(err))

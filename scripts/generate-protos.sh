@@ -32,29 +32,50 @@ if [ ! -d "$PROTO_DIR/daml" ]; then
 fi
 
 # Find proto files
-DAML_PROTO_DIR="$PROTO_DIR/daml/com/daml/ledger/api/v1"
+DAML_PROTO_V1_DIR="$PROTO_DIR/daml/com/daml/ledger/api/v1"
+DAML_PROTO_V2_DIR="$PROTO_DIR/daml/com/daml/ledger/api/v2"
 
-if [ ! -d "$DAML_PROTO_DIR" ]; then
-    echo "Error: Daml proto directory not found at $DAML_PROTO_DIR"
+if [ ! -d "$DAML_PROTO_V1_DIR" ]; then
+    echo "Error: Daml proto V1 directory not found at $DAML_PROTO_V1_DIR"
     exit 1
 fi
 
-# Generate Go code from proto files
-echo "Injecting go_package option..."
-for f in "$DAML_PROTO_DIR"/*.proto; do
-    if ! grep -q "option go_package" "$f"; then
-        # Insert after syntax declaration or at the top
-        if grep -q "syntax =" "$f"; then
-            sed -i '' '/syntax =/a\
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";
+if [ ! -d "$DAML_PROTO_V2_DIR" ]; then
+    echo "Error: Daml proto V2 directory not found at $DAML_PROTO_V2_DIR"
+    exit 1
+fi
+
+# Inject go_package option for V1
+echo "Injecting go_package option for V1..."
+for f in "$DAML_PROTO_V1_DIR"/*.proto; do
+    # Remove existing go_package option if present
+    sed -i '' '/option go_package/d' "$f"
+    
+    if grep -q "syntax =" "$f"; then
+        sed -i '' '/syntax =/a\
+option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1";
 ' "$f"
-        else
-            echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";' | cat - "$f" > temp && mv temp "$f"
-        fi
+    else
+        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1";' | cat - "$f" > temp && mv temp "$f"
     fi
 done
 
-echo "Generating Go code..."
+# Inject go_package option for V2
+echo "Injecting go_package option for V2..."
+for f in "$DAML_PROTO_V2_DIR"/*.proto; do
+    # Remove existing go_package option if present
+    sed -i '' '/option go_package/d' "$f"
+
+    if grep -q "syntax =" "$f"; then
+        sed -i '' '/syntax =/a\
+option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";
+' "$f"
+    else
+        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";' | cat - "$f" > temp && mv temp "$f"
+    fi
+done
+
+echo "Generating Go code for V1..."
 protoc \
     --proto_path="$PROTO_DIR/daml" \
     --proto_path="$PROTO_DIR" \
@@ -62,7 +83,17 @@ protoc \
     --go_opt=module=github.com/chainsafe/canton-middleware \
     --go-grpc_out="$PROJECT_ROOT" \
     --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
-    "$DAML_PROTO_DIR"/*.proto
+    "$DAML_PROTO_V1_DIR"/*.proto
+
+echo "Generating Go code for V2..."
+protoc \
+    --proto_path="$PROTO_DIR/daml" \
+    --proto_path="$PROTO_DIR" \
+    --go_out="$PROJECT_ROOT" \
+    --go_opt=module=github.com/chainsafe/canton-middleware \
+    --go-grpc_out="$PROJECT_ROOT" \
+    --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
+    "$DAML_PROTO_V2_DIR"/*.proto
 
 echo "✓ Proto generation complete"
 echo "Generated files in: $OUT_DIR"

@@ -3,7 +3,7 @@ package canton
 import (
 	"testing"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
+	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 )
 
 func TestEncodeMintProposalArgs(t *testing.T) {
@@ -19,7 +19,7 @@ func TestEncodeMintProposalArgs(t *testing.T) {
 		t.Errorf("Expected 3 fields, got %d", len(record.Fields))
 	}
 
-	fields := make(map[string]*lapi.Value)
+	fields := make(map[string]*lapiv1.Value)
 	for _, f := range record.Fields {
 		fields[f.Label] = f.Value
 	}
@@ -36,8 +36,8 @@ func TestEncodeMintProposalArgs(t *testing.T) {
 }
 
 func TestDecodeBurnEvent(t *testing.T) {
-	record := &lapi.Record{
-		Fields: []*lapi.RecordField{
+	record := &lapiv1.Record{
+		Fields: []*lapiv1.RecordField{
 			{Label: "operator", Value: PartyValue("Alice")},
 			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},

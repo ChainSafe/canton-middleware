@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
+	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -15,16 +16,15 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// Client represents a Canton Network gRPC client
+// Client is a wrapper around the Canton gRPC client
 type Client struct {
 	config *config.CantonConfig
 	conn   *grpc.ClientConn
 	logger *zap.Logger
 
-	transactionService     lapi.TransactionServiceClient
-	commandService         lapi.CommandServiceClient
-	activeContractsService lapi.ActiveContractsServiceClient
-	ledgerIdentityService  lapi.LedgerIdentityServiceClient
+	stateService   lapi.StateServiceClient
+	commandService lapi.CommandServiceClient
+	updateService  lapi.UpdateServiceClient
 }
 
 // MintProposalRequest represents a request to mint tokens on Canton
@@ -80,41 +80,28 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		zap.String("ledger_id", config.LedgerID))
 
 	return &Client{
-		config:                 config,
-		conn:                   conn,
-		logger:                 logger,
-		transactionService:     lapi.NewTransactionServiceClient(conn),
-		commandService:         lapi.NewCommandServiceClient(conn),
-		activeContractsService: lapi.NewActiveContractsServiceClient(conn),
-		ledgerIdentityService:  lapi.NewLedgerIdentityServiceClient(conn),
+		config:         config,
+		conn:           conn,
+		logger:         logger,
+		stateService:   lapi.NewStateServiceClient(conn),
+		commandService: lapi.NewCommandServiceClient(conn),
+		updateService:  lapi.NewUpdateServiceClient(conn),
 	}, nil
 }
 
-// Close closes the gRPC connection
+// Close closes the connection to the Canton node
 func (c *Client) Close() error {
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
+	return c.conn.Close()
 }
 
-// GetAuthContext returns a context with JWT authorization
+// GetAuthContext returns a context with the JWT token if configured
 func (c *Client) GetAuthContext(ctx context.Context) context.Context {
-	// Generate JWT token with actAs and readAs claims
-	token := c.generateJWT()
-	md := metadata.Pairs("authorization", "Bearer "+token)
-	return metadata.NewOutgoingContext(ctx, md)
-}
-
-// generateJWT generates a JWT token for Canton authentication
-// TODO: Implement proper JWT generation with HS256/RS256
-func (c *Client) generateJWT() string {
-	// Placeholder - in production, generate a proper JWT with:
-	// - actAs: [c.config.RelayerParty]
-	// - readAs: [c.config.RelayerParty]
-	// - exp: time.Now().Add(1 hour)
-	// - iss: c.config.Auth.JWTIssuer
-	return c.config.Auth.JWTSecret
+	// TODO: Implement JWT generation/loading
+	if c.config.Auth.JWTSecret != "" {
+		md := metadata.Pairs("authorization", "Bearer "+c.config.Auth.JWTSecret)
+		return metadata.NewOutgoingContext(ctx, md)
+	}
+	return ctx
 }
 
 // loadTLSConfig loads TLS configuration from files
@@ -165,17 +152,17 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 	authCtx := c.GetAuthContext(ctx)
 
 	// Create the exercise command
-	cmd := &lapi.Command{
-		Command: &lapi.Command_Exercise{
-			Exercise: &lapi.ExerciseCommand{
-				TemplateId: &lapi.Identifier{
+	cmd := &lapiv1.Command{
+		Command: &lapiv1.Command_Exercise{
+			Exercise: &lapiv1.ExerciseCommand{
+				TemplateId: &lapiv1.Identifier{
 					PackageId:  c.config.BridgePackageID, // Assuming same package for now, or needs config update
 					ModuleName: "Wayfinder.Bridge",
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCid,
 				Choice:         "CreateMintProposal",
-				ChoiceArgument: &lapi.Value{Sum: &lapi.Value_Record{Record: EncodeMintProposalArgs(req)}},
+				ChoiceArgument: &lapiv1.Value{Sum: &lapiv1.Value_Record{Record: EncodeMintProposalArgs(req)}},
 			},
 		},
 	}
@@ -183,11 +170,11 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 	// Submit command
 	_, err = c.commandService.SubmitAndWait(authCtx, &lapi.SubmitAndWaitRequest{
 		Commands: &lapi.Commands{
-			LedgerId:      c.config.LedgerID,
+			DomainId:      c.config.DomainID,
 			ApplicationId: c.config.ApplicationID,
 			CommandId:     generateUUID(),
 			ActAs:         []string{c.config.RelayerParty},
-			Commands:      []*lapi.Command{cmd},
+			Commands:      []*lapiv1.Command{cmd},
 		},
 	})
 
@@ -202,19 +189,15 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
-	// Search for WayfinderBridgeConfig
-	// Note: In a real implementation, we might want to cache this or be more specific with queries
-	// For now, we assume there's one valid config visible to the relayer
-	resp, err := c.activeContractsService.GetActiveContracts(authCtx, &lapi.GetActiveContractsRequest{
-		LedgerId: c.config.LedgerID,
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapi.GetActiveContractsRequest{
 		Filter: &lapi.TransactionFilter{
-			FiltersByParty: map[string]*lapi.Filters{
+			FiltersByParty: map[string]*lapiv1.Filters{
 				c.config.RelayerParty: {
-					Inclusive: &lapi.InclusiveFilters{
-						TemplateIds: []*lapi.Identifier{
+					Inclusive: &lapiv1.InclusiveFilters{
+						TemplateIds: []*lapiv1.Identifier{
 							{
-								PackageId:  c.config.BridgePackageID, // TODO: Make sure this matches Wayfinder package
-								ModuleName: "Wayfinder.Bridge",
+								PackageId:  c.config.BridgePackageID,
+								ModuleName: c.config.BridgeModule,
 								EntityName: "WayfinderBridgeConfig",
 							},
 						},
@@ -228,15 +211,14 @@ func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 	}
 
 	// Read the stream
-	// We just take the first one we find for now
 	for {
 		msg, err := resp.Recv()
 		if err != nil {
-			// EOF or error
-			break
+			break // EOF or error
 		}
-		for _, event := range msg.ActiveContracts {
-			return event.ContractId, nil
+		// In V2, ActiveContracts are delivered via ContractEntry oneof
+		if contract := msg.GetActiveContract(); contract != nil {
+			return contract.CreatedEvent.ContractId, nil
 		}
 	}
 
@@ -247,9 +229,7 @@ func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 func (c *Client) GetLedgerEnd(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
-	resp, err := c.transactionService.GetLedgerEnd(authCtx, &lapi.GetLedgerEndRequest{
-		LedgerId: c.config.LedgerID,
-	})
+	resp, err := c.stateService.GetLedgerEnd(authCtx, &lapi.GetLedgerEndRequest{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get ledger end: %w", err)
 	}
@@ -258,7 +238,7 @@ func (c *Client) GetLedgerEnd(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("received empty ledger offset")
 	}
 
-	if abs, ok := resp.Offset.Value.(*lapi.LedgerOffset_Absolute); ok {
+	if abs, ok := resp.Offset.Value.(*lapi.ParticipantOffset_Absolute); ok {
 		return abs.Absolute, nil
 	}
 
