@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -140,9 +141,17 @@ func main() {
 
 func handleGetTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement transfer listing
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"transfers":[]}`))
+		transfers, err := store.ListTransfers(100) // Default limit
+		if err != nil {
+			logger.Error("Failed to list transfers", zap.Error(err))
+			http.Error(w, "Failed to list transfers", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"transfers": transfers}); err != nil {
+			logger.Error("Failed to encode response", zap.Error(err))
+		}
 	}
 }
 

@@ -66,6 +66,7 @@ type MockStore struct {
 	GetChainStateFunc        func(chainID string) (*db.ChainState, error)
 	SetChainStateFunc        func(chainID string, blockNumber int64, blockHash string) error
 	GetPendingTransfersFunc  func(direction db.TransferDirection) ([]*db.Transfer, error)
+	ListTransfersFunc        func(limit int) ([]*db.Transfer, error)
 }
 
 func (m *MockStore) GetTransfer(id string) (*db.Transfer, error) {
@@ -106,6 +107,13 @@ func (m *MockStore) SetChainState(chainID string, blockNumber int64, blockHash s
 func (m *MockStore) GetPendingTransfers(direction db.TransferDirection) ([]*db.Transfer, error) {
 	if m.GetPendingTransfersFunc != nil {
 		return m.GetPendingTransfersFunc(direction)
+	}
+	return nil, nil
+}
+
+func (m *MockStore) ListTransfers(limit int) ([]*db.Transfer, error) {
+	if m.ListTransfersFunc != nil {
+		return m.ListTransfersFunc(limit)
 	}
 	return nil, nil
 }

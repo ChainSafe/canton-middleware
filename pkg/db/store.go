@@ -124,6 +124,43 @@ func (s *Store) GetPendingTransfers(direction TransferDirection) ([]*Transfer, e
 	return transfers, rows.Err()
 }
 
+// ListTransfers retrieves the most recent transfers
+func (s *Store) ListTransfers(limit int) ([]*Transfer, error) {
+	query := `
+		SELECT id, direction, status, source_chain, destination_chain,
+			source_tx_hash, destination_tx_hash, token_address, amount,
+			sender, recipient, nonce, source_block_number, confirmation_count,
+			created_at, updated_at, completed_at, error_message, retry_count
+		FROM transfers 
+		ORDER BY created_at DESC
+		LIMIT $1
+	`
+	rows, err := s.db.Query(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transfers []*Transfer
+	for rows.Next() {
+		transfer := &Transfer{}
+		err := rows.Scan(
+			&transfer.ID, &transfer.Direction, &transfer.Status,
+			&transfer.SourceChain, &transfer.DestinationChain,
+			&transfer.SourceTxHash, &transfer.DestinationTxHash,
+			&transfer.TokenAddress, &transfer.Amount, &transfer.Sender,
+			&transfer.Recipient, &transfer.Nonce, &transfer.SourceBlockNumber,
+			&transfer.ConfirmationCount, &transfer.CreatedAt, &transfer.UpdatedAt,
+			&transfer.CompletedAt, &transfer.ErrorMessage, &transfer.RetryCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+		transfers = append(transfers, transfer)
+	}
+	return transfers, rows.Err()
+}
+
 // SetChainState updates the last processed block for a chain
 func (s *Store) SetChainState(chainID string, blockNumber int64, blockHash string) error {
 	query := `

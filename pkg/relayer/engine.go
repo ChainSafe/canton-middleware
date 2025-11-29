@@ -37,6 +37,7 @@ type BridgeStore interface {
 	GetChainState(chainID string) (*db.ChainState, error)
 	SetChainState(chainID string, blockNumber int64, blockHash string) error
 	GetPendingTransfers(direction db.TransferDirection) ([]*db.Transfer, error)
+	ListTransfers(limit int) ([]*db.Transfer, error)
 }
 
 // Engine orchestrates the bridge relayer operations
