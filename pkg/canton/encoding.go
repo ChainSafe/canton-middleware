@@ -8,34 +8,41 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
 )
 
-// EncodeWithdrawalArgs encodes withdrawal request into Daml Value
-func EncodeWithdrawalArgs(req *WithdrawalRequest) *lapi.Value {
-	return &lapi.Value{
-		Sum: &lapi.Value_Record{
-			Record: &lapi.Record{
-				Fields: []*lapi.RecordField{
-					{Label: "ethTxHash", Value: TextValue(req.EthTxHash)},
-					{Label: "ethSender", Value: TextValue(req.EthSender)},
-					{Label: "recipient", Value: PartyValue(req.Recipient)},
-					{Label: "amount", Value: NumericValue(req.Amount)},
-					{Label: "nonce", Value: Int64Value(req.Nonce)},
-					{Label: "ethChainId", Value: Int64Value(req.EthChainID)},
-				},
+// EncodeMintProposalArgs encodes the arguments for the CreateMintProposal choice
+func EncodeMintProposalArgs(req *MintProposalRequest) *lapi.Record {
+	return &lapi.Record{
+		Fields: []*lapi.RecordField{
+			{
+				Label: "recipient",
+				Value: PartyValue(req.Recipient),
+			},
+			{
+				Label: "amount",
+				Value: NumericValue(req.Amount),
+			},
+			{
+				Label: "txHash",
+				Value: TextValue(req.Reference),
 			},
 		},
 	}
 }
 
-// DecodeDepositRequest decodes Daml created event into DepositRequest
-func DecodeDepositRequest(eventID, txID string, record *lapi.Record) (*DepositRequest, error) {
+// DecodeBurnEvent decodes Daml created event into BurnEvent
+func DecodeBurnEvent(eventID, txID string, record *lapi.Record) (*BurnEvent, error) {
 	fields := make(map[string]*lapi.Value)
 	for _, field := range record.Fields {
 		fields[field.Label] = field.Value
 	}
 
-	depositor, err := extractParty(fields["depositor"])
+	operator, err := extractParty(fields["operator"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract depositor: %w", err)
+		return nil, fmt.Errorf("failed to extract operator: %w", err)
+	}
+
+	owner, err := extractParty(fields["owner"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract owner: %w", err)
 	}
 
 	amount, err := extractNumeric(fields["amount"])
@@ -43,39 +50,27 @@ func DecodeDepositRequest(eventID, txID string, record *lapi.Record) (*DepositRe
 		return nil, fmt.Errorf("failed to extract amount: %w", err)
 	}
 
-	ethRecipient, err := extractText(fields["ethRecipient"])
+	destination, err := extractText(fields["destination"]) // EvmAddress is Text
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract ethRecipient: %w", err)
+		return nil, fmt.Errorf("failed to extract destination: %w", err)
 	}
 
-	ethChainID, err := extractInt64(fields["ethChainId"])
+	reference, err := extractText(fields["reference"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract ethChainId: %w", err)
+		return nil, fmt.Errorf("failed to extract reference: %w", err)
 	}
 
-	clientNonce, err := extractText(fields["clientNonce"])
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract clientNonce: %w", err)
-	}
+	// direction is an enum, but for now we might just ignore it or extract as variant if needed
+	// Assuming we only listen to BurnEvent where direction is ToEvm
 
-	// Extract token info
-	tokenSymbol, err := extractText(fields["tokenSymbol"])
-	if err != nil {
-		// Fallback or error? For now, let's error if missing as it's required
-		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
-	}
-	mode := AssetModeLockUnlock // TODO: extract from mode field
-
-	return &DepositRequest{
+	return &BurnEvent{
 		EventID:       eventID,
 		TransactionID: txID,
-		Depositor:     depositor,
-		TokenSymbol:   tokenSymbol,
+		Operator:      operator,
+		Owner:         owner,
 		Amount:        amount,
-		EthChainID:    ethChainID,
-		EthRecipient:  ethRecipient,
-		Mode:          mode,
-		ClientNonce:   clientNonce,
+		Destination:   destination,
+		Reference:     reference,
 	}, nil
 }
 
@@ -109,6 +104,14 @@ func NumericValue(s string) *lapi.Value {
 	return &lapi.Value{
 		Sum: &lapi.Value_Numeric{
 			Numeric: s,
+		},
+	}
+}
+
+func ContractIdValue(cid string) *lapi.Value {
+	return &lapi.Value{
+		Sum: &lapi.Value_ContractId{
+			ContractId: cid,
 		},
 	}
 }

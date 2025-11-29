@@ -9,16 +9,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// StreamDeposits streams DepositRequest events from Canton
-func (c *Client) StreamDeposits(ctx context.Context, startOffset string) (<-chan *DepositRequest, <-chan error) {
-	depositCh := make(chan *DepositRequest, 10)
+// StreamBurnEvents streams BurnEvent events from Canton
+func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *BurnEvent, <-chan error) {
+	burnCh := make(chan *BurnEvent, 10)
 	errCh := make(chan error, 1)
 
 	go func() {
-		defer close(depositCh)
+		defer close(burnCh)
 		defer close(errCh)
 
-		c.logger.Info("Starting Canton deposit stream", zap.String("offset", startOffset))
+		c.logger.Info("Starting Canton burn event stream", zap.String("offset", startOffset))
 
 		authCtx := c.GetAuthContext(ctx)
 
@@ -31,7 +31,7 @@ func (c *Client) StreamDeposits(ctx context.Context, startOffset string) (<-chan
 							{
 								PackageId:  c.config.BridgePackageID,
 								ModuleName: c.config.BridgeModule,
-								EntityName: "DepositRequest",
+								EntityName: "BurnEvent",
 							},
 						},
 					},
@@ -80,19 +80,19 @@ func (c *Client) StreamDeposits(ctx context.Context, startOffset string) (<-chan
 				for _, event := range tx.Events {
 					if createdEvent, ok := event.Event.(*lapi.Event_Created); ok {
 						// Check if it matches our template
-						if createdEvent.Created.TemplateId.EntityName == "DepositRequest" {
-							deposit, err := DecodeDepositRequest(
+						if createdEvent.Created.TemplateId.EntityName == "BurnEvent" {
+							burnEvent, err := DecodeBurnEvent(
 								createdEvent.Created.EventId,
 								tx.TransactionId,
 								createdEvent.Created.CreateArguments,
 							)
 							if err != nil {
-								c.logger.Error("Failed to decode deposit", zap.Error(err))
+								c.logger.Error("Failed to decode burn event", zap.Error(err))
 								continue
 							}
 
 							select {
-							case depositCh <- deposit:
+							case burnCh <- burnEvent:
 							case <-ctx.Done():
 								return
 							}
@@ -103,7 +103,7 @@ func (c *Client) StreamDeposits(ctx context.Context, startOffset string) (<-chan
 		}
 	}()
 
-	return depositCh, errCh
+	return burnCh, errCh
 }
 
 func generateUUID() string {

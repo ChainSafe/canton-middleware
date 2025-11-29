@@ -68,22 +68,23 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 
 func TestCantonSource_StreamEvents(t *testing.T) {
 	// Setup mocks
-	depositCh := make(chan *canton.DepositRequest, 1)
+	burnCh := make(chan *canton.BurnEvent, 1)
 	errCh := make(chan error, 1)
 
-	depositCh <- &canton.DepositRequest{
+	burnCh <- &canton.BurnEvent{
 		EventID:       "event-1",
 		TransactionID: "tx-1",
-		TokenSymbol:   "ETH",
-		EthRecipient:  "0xRecipient",
+		Operator:      "Alice",
+		Owner:         "Bob",
 		Amount:        "10",
-		Depositor:     "Alice",
+		Destination:   "0xRecipient",
+		Reference:     "ref-123",
 	}
-	close(depositCh)
+	close(burnCh)
 
 	mockCantonClient := &MockCantonClient{
-		StreamDepositsFunc: func(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error) {
-			return depositCh, errCh
+		StreamBurnEventsFunc: func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
+			return burnCh, errCh
 		},
 	}
 
@@ -101,6 +102,12 @@ func TestCantonSource_StreamEvents(t *testing.T) {
 		}
 		if event.SourceChain != "canton" {
 			t.Errorf("Expected SourceChain canton, got %s", event.SourceChain)
+		}
+		if event.Amount != "10" {
+			t.Errorf("Expected Amount 10, got %s", event.Amount)
+		}
+		if event.Recipient != "0xRecipient" {
+			t.Errorf("Expected Recipient 0xRecipient, got %s", event.Recipient)
 		}
 	case <-ctx.Done():
 		t.Errorf("Timed out waiting for event")

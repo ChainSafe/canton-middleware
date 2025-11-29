@@ -17,8 +17,8 @@ import (
 
 // CantonBridgeClient defines the interface for Canton interactions
 type CantonBridgeClient interface {
-	StreamDeposits(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error)
-	SubmitWithdrawal(ctx context.Context, req *canton.WithdrawalRequest) error
+	StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
+	SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error
 }
 
 // EthereumBridgeClient defines the interface for Ethereum interactions
@@ -85,7 +85,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor")
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum)
-	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum)
+	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum, e.config.Canton.RelayerParty)
 	ethProcessor := NewProcessor(ethSource, cantonDest, e.store, e.logger, "ethereum_processor")
 
 	// Start Canton processor

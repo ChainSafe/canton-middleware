@@ -11,20 +11,20 @@ import (
 
 // MockCantonClient is a mock implementation of CantonBridgeClient
 type MockCantonClient struct {
-	StreamDepositsFunc   func(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error)
-	SubmitWithdrawalFunc func(ctx context.Context, req *canton.WithdrawalRequest) error
+	StreamBurnEventsFunc   func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
+	SubmitMintProposalFunc func(ctx context.Context, req *canton.MintProposalRequest) error
 }
 
-func (m *MockCantonClient) StreamDeposits(ctx context.Context, startOffset string) (<-chan *canton.DepositRequest, <-chan error) {
-	if m.StreamDepositsFunc != nil {
-		return m.StreamDepositsFunc(ctx, startOffset)
+func (m *MockCantonClient) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
+	if m.StreamBurnEventsFunc != nil {
+		return m.StreamBurnEventsFunc(ctx, startOffset)
 	}
 	return nil, nil
 }
 
-func (m *MockCantonClient) SubmitWithdrawal(ctx context.Context, req *canton.WithdrawalRequest) error {
-	if m.SubmitWithdrawalFunc != nil {
-		return m.SubmitWithdrawalFunc(ctx, req)
+func (m *MockCantonClient) SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error {
+	if m.SubmitMintProposalFunc != nil {
+		return m.SubmitMintProposalFunc(ctx, req)
 	}
 	return nil
 }

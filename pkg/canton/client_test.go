@@ -13,54 +13,97 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestClient_SubmitWithdrawal(t *testing.T) {
+func TestClient_SubmitMintProposal(t *testing.T) {
 	mockCmdService := &MockCommandService{
 		SubmitAndWaitFunc: func(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-			// Verify request fields
 			if len(in.Commands.Commands) != 1 {
 				t.Errorf("Expected 1 command, got %d", len(in.Commands.Commands))
 			}
 			cmd := in.Commands.Commands[0].GetExercise()
 			if cmd == nil {
 				t.Errorf("Expected Exercise command")
+				return nil, nil
 			}
-			if cmd.Choice != "ConfirmWithdrawal" {
-				t.Errorf("Expected choice ConfirmWithdrawal, got %s", cmd.Choice)
+			if cmd.ContractId != "config-cid" {
+				t.Errorf("Expected ContractId config-cid, got %s", cmd.ContractId)
+			}
+			if cmd.Choice != "CreateMintProposal" {
+				t.Errorf("Expected Choice CreateMintProposal, got %s", cmd.Choice)
 			}
 			return &emptypb.Empty{}, nil
 		},
 	}
 
-	client := &Client{
-		config: &config.CantonConfig{
-			RelayerParty:    "Alice",
-			BridgePackageID: "pkg-id",
-			BridgeModule:    "Module",
-			BridgeContract:  "contract-id",
-			LedgerID:        "ledger-id",
-			ApplicationID:   "app-id",
+	mockACSClient := &MockGetActiveContractsClient{
+		RecvFunc: func() (*lapi.GetActiveContractsResponse, error) {
+			return &lapi.GetActiveContractsResponse{
+				ActiveContracts: []*lapi.CreatedEvent{
+					{ContractId: "config-cid"},
+				},
+			}, nil
 		},
-		logger:         zap.NewNop(),
-		commandService: mockCmdService,
 	}
 
-	req := &WithdrawalRequest{
-		EthTxHash:   "0x123",
-		EthSender:   "0xabc",
-		Recipient:   "Bob",
-		Amount:      "100",
-		Nonce:       1,
-		EthChainID:  1,
-		TokenSymbol: "ETH",
+	mockActiveContractsService := &MockActiveContractsService{
+		GetActiveContractsFunc: func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
+			return mockACSClient, nil
+		},
 	}
 
-	err := client.SubmitWithdrawal(context.Background(), req)
+	// Setup config
+	cfg := &config.CantonConfig{
+		RelayerParty:    "RelayerParty",
+		BridgePackageID: "pkg-id",
+		BridgeModule:    "Wayfinder.Bridge",
+	}
+	logger := zap.NewNop()
+
+	client := &Client{
+		config:                 cfg,
+		logger:                 logger,
+		commandService:         mockCmdService,
+		activeContractsService: mockActiveContractsService,
+	}
+
+	req := &MintProposalRequest{
+		Recipient: "Bob",
+		Amount:    "100.0",
+		Reference: "tx-hash",
+	}
+
+	err := client.SubmitMintProposal(context.Background(), req)
 	if err != nil {
-		t.Errorf("SubmitWithdrawal failed: %v", err)
+		t.Errorf("SubmitMintProposal failed: %v", err)
 	}
 }
 
-func TestClient_StreamDeposits(t *testing.T) {
+// Manual Mocks
+
+type MockActiveContractsService struct {
+	lapi.ActiveContractsServiceClient
+	GetActiveContractsFunc func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error)
+}
+
+func (m *MockActiveContractsService) GetActiveContracts(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
+	if m.GetActiveContractsFunc != nil {
+		return m.GetActiveContractsFunc(ctx, in, opts...)
+	}
+	return nil, nil
+}
+
+type MockGetActiveContractsClient struct {
+	grpc.ServerStreamingClient[lapi.GetActiveContractsResponse]
+	RecvFunc func() (*lapi.GetActiveContractsResponse, error)
+}
+
+func (m *MockGetActiveContractsClient) Recv() (*lapi.GetActiveContractsResponse, error) {
+	if m.RecvFunc != nil {
+		return m.RecvFunc()
+	}
+	return nil, io.EOF
+}
+
+func TestClient_StreamBurnEvents(t *testing.T) {
 	// Setup mock stream
 	mockStream := &MockGetTransactionsClient{
 		RecvFunc: func() (*lapi.GetTransactionsResponse, error) {
@@ -91,29 +134,30 @@ func TestClient_StreamDeposits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	depositCh, errCh := client.StreamDeposits(ctx, "BEGIN")
+	burnCh, errCh := client.StreamBurnEvents(ctx, "BEGIN")
 
 	// Wait for completion
 	select {
-	case <-depositCh:
+	case <-burnCh:
 		// Channel closed
 	case err := <-errCh:
 		if err != nil {
-			t.Errorf("StreamDeposits returned error: %v", err)
+			t.Errorf("StreamBurnEvents returned error: %v", err)
 		}
 	case <-ctx.Done():
 		t.Errorf("Test timed out")
 	}
 }
 
-func TestClient_StreamDeposits_WithData(t *testing.T) {
-	// Create a fake deposit event
-	depositRecord := &lapi.Record{
+func TestClient_StreamBurnEvents_WithData(t *testing.T) {
+	// Create a fake burn event
+	burnRecord := &lapi.Record{
 		Fields: []*lapi.RecordField{
-			{Label: "ethRecipient", Value: TextValue("0xRecipient")},
-			{Label: "tokenSymbol", Value: TextValue("ETH")},
+			{Label: "operator", Value: PartyValue("Alice")},
+			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},
-			{Label: "nonce", Value: Int64Value(42)},
+			{Label: "destination", Value: TextValue("0xRecipient")},
+			{Label: "reference", Value: TextValue("ref-123")},
 		},
 	}
 
@@ -122,9 +166,9 @@ func TestClient_StreamDeposits_WithData(t *testing.T) {
 			Created: &lapi.CreatedEvent{
 				EventId: "event-1",
 				TemplateId: &lapi.Identifier{
-					EntityName: "DepositRequest",
+					EntityName: "BurnEvent",
 				},
-				CreateArguments: depositRecord,
+				CreateArguments: burnRecord,
 			},
 		},
 	}
@@ -170,21 +214,21 @@ func TestClient_StreamDeposits_WithData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	depositCh, errCh := client.StreamDeposits(ctx, "BEGIN")
+	burnCh, errCh := client.StreamBurnEvents(ctx, "BEGIN")
 
 	select {
-	case deposit := <-depositCh:
-		if deposit.EventID != "event-1" {
-			t.Errorf("Expected EventID event-1, got %s", deposit.EventID)
+	case burn := <-burnCh:
+		if burn.EventID != "event-1" {
+			t.Errorf("Expected EventID event-1, got %s", burn.EventID)
 		}
-		if deposit.Amount != "50.00" {
-			t.Errorf("Expected Amount 50.00, got %s", deposit.Amount)
+		if burn.Amount != "50.00" {
+			t.Errorf("Expected Amount 50.00, got %s", burn.Amount)
 		}
 	case err := <-errCh:
 		if err != nil {
-			t.Errorf("StreamDeposits returned error: %v", err)
+			t.Errorf("StreamBurnEvents returned error: %v", err)
 		}
 	case <-ctx.Done():
-		t.Errorf("Test timed out waiting for deposit")
+		t.Errorf("Test timed out waiting for burn event")
 	}
 }

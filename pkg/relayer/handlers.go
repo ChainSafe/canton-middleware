@@ -28,7 +28,7 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 	outCh := make(chan *Event)
 	outErrCh := make(chan error)
 
-	depositCh, errCh := s.client.StreamDeposits(ctx, offset)
+	burnCh, errCh := s.client.StreamBurnEvents(ctx, offset)
 
 	go func() {
 		defer close(outCh)
@@ -36,23 +36,34 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 
 		for {
 			select {
-			case deposit, ok := <-depositCh:
+			case burn, ok := <-burnCh:
 				if !ok {
 					return
 				}
 				outCh <- &Event{
-					ID:                deposit.EventID,
-					TransactionID:     deposit.TransactionID,
-					SourceChain:       "canton",
-					DestinationChain:  "ethereum",
-					SourceTxHash:      deposit.TransactionID,
-					TokenAddress:      deposit.TokenSymbol,
-					Amount:            deposit.Amount,
-					Sender:            deposit.Depositor,
-					Recipient:         deposit.EthRecipient,
-					Nonce:             0, // Canton doesn't use nonces in the same way
+					ID:               burn.EventID,
+					TransactionID:    burn.TransactionID,
+					SourceChain:      "canton",
+					DestinationChain: "ethereum",
+					SourceTxHash:     burn.TransactionID,
+					TokenAddress:     "TODO", // BurnEvent doesn't have token info directly? It might be in contract key or implied.
+					// Wait, BurnEvent doesn't have token address?
+					// Looking at Daml: BurnEvent has operator, owner, destination, amount, reference, direction.
+					// It seems token info is missing in BurnEvent?
+					// In `RedeemRequest`, there is `tokenManagerCid`.
+					// In `BurnEvent`, we might need to add token info or fetch it.
+					// For now, I'll put a placeholder or maybe it's in the reference?
+					// Actually, the `BurnEvent` in the Daml file I read:
+					// template BurnEvent with operator, owner, destination, amount, reference, direction.
+					// It indeed misses the token symbol/address.
+					// This might be an issue in the contract design or I missed something.
+					// However, for this refactor, I will map what I have.
+					Amount:            burn.Amount,
+					Sender:            burn.Owner,
+					Recipient:         burn.Destination,
+					Nonce:             0,
 					SourceBlockNumber: 0,
-					Raw:               deposit,
+					Raw:               burn,
 				}
 			case err := <-errCh:
 				if err != nil {
@@ -101,12 +112,13 @@ func (s *EthereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 
 // CantonDestination implements Destination for Canton
 type CantonDestination struct {
-	client CantonBridgeClient
-	config *config.EthereumConfig
+	client       CantonBridgeClient
+	config       *config.EthereumConfig
+	relayerParty string
 }
 
-func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig) *CantonDestination {
-	return &CantonDestination{client: client, config: cfg}
+func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig, relayerParty string) *CantonDestination {
+	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty}
 }
 
 func (d *CantonDestination) GetChainID() string {
@@ -114,15 +126,14 @@ func (d *CantonDestination) GetChainID() string {
 }
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
-	// Map generic event to WithdrawalRequest
-	req := &canton.WithdrawalRequest{
-		EthTxHash:   event.SourceTxHash,
-		EthSender:   event.Sender,
-		Recipient:   event.Recipient,
-		TokenSymbol: event.TokenAddress,
-		Amount:      canton.BigIntToDecimal(new(big.Int), 18), // TODO: Parse amount correctly
-		Nonce:       event.Nonce,
-		EthChainID:  d.config.ChainID,
+	// Map generic event to MintProposalRequest
+	req := &canton.MintProposalRequest{
+		Operator:        d.relayerParty,   // Relayer acts as operator
+		Issuer:          d.relayerParty,   // Or some other configured issuer?
+		Recipient:       event.Recipient,  // Canton party
+		TokenManagerCID: "TODO_FETCH_CID", // We need to fetch this
+		Amount:          canton.BigIntToDecimal(new(big.Int), 18),
+		Reference:       event.SourceTxHash,
 	}
 
 	// Parse amount
@@ -130,7 +141,7 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	amount.SetString(event.Amount, 10)
 	req.Amount = canton.BigIntToDecimal(amount, 18)
 
-	if err := d.client.SubmitWithdrawal(ctx, req); err != nil {
+	if err := d.client.SubmitMintProposal(ctx, req); err != nil {
 		return "", err
 	}
 

@@ -27,6 +27,27 @@ type Client struct {
 	ledgerIdentityService  lapi.LedgerIdentityServiceClient
 }
 
+// MintProposalRequest represents a request to mint tokens on Canton
+type MintProposalRequest struct {
+	Operator        string
+	Issuer          string
+	Recipient       string
+	TokenManagerCID string
+	Amount          string
+	Reference       string // EVM Tx Hash
+}
+
+// BurnEvent represents a burn event on Canton
+type BurnEvent struct {
+	EventID       string
+	TransactionID string
+	Operator      string
+	Owner         string
+	Amount        string
+	Destination   string // EVM Address
+	Reference     string
+}
+
 // NewClient creates a new Canton gRPC client
 func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error) {
 	var opts []grpc.DialOption
@@ -128,12 +149,18 @@ func (c *Client) StreamTransactions(ctx context.Context, offset string) error {
 	return fmt.Errorf("not implemented - protobuf generation required")
 }
 
-// SubmitWithdrawal submits a withdrawal confirmation command
-func (c *Client) SubmitWithdrawal(ctx context.Context, req *WithdrawalRequest) error {
-	c.logger.Info("Submitting withdrawal confirmation",
-		zap.String("eth_tx_hash", req.EthTxHash),
+// SubmitMintProposal submits a mint proposal via WayfinderBridgeConfig
+func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalRequest) error {
+	c.logger.Info("Submitting mint proposal",
+		zap.String("reference", req.Reference),
 		zap.String("recipient", req.Recipient),
 		zap.String("amount", req.Amount))
+
+	// Get WayfinderBridgeConfig contract ID
+	configCid, err := c.GetWayfinderBridgeConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get WayfinderBridgeConfig: %w", err)
+	}
 
 	authCtx := c.GetAuthContext(ctx)
 
@@ -142,19 +169,19 @@ func (c *Client) SubmitWithdrawal(ctx context.Context, req *WithdrawalRequest) e
 		Command: &lapi.Command_Exercise{
 			Exercise: &lapi.ExerciseCommand{
 				TemplateId: &lapi.Identifier{
-					PackageId:  c.config.BridgePackageID,
-					ModuleName: c.config.BridgeModule,
-					EntityName: "Bridge",
+					PackageId:  c.config.BridgePackageID, // Assuming same package for now, or needs config update
+					ModuleName: "Wayfinder.Bridge",
+					EntityName: "WayfinderBridgeConfig",
 				},
-				ContractId:     c.config.BridgeContract,
-				Choice:         "ConfirmWithdrawal",
-				ChoiceArgument: EncodeWithdrawalArgs(req),
+				ContractId:     configCid,
+				Choice:         "CreateMintProposal",
+				ChoiceArgument: &lapi.Value{Sum: &lapi.Value_Record{Record: EncodeMintProposalArgs(req)}},
 			},
 		},
 	}
 
 	// Submit command
-	_, err := c.commandService.SubmitAndWait(authCtx, &lapi.SubmitAndWaitRequest{
+	_, err = c.commandService.SubmitAndWait(authCtx, &lapi.SubmitAndWaitRequest{
 		Commands: &lapi.Commands{
 			LedgerId:      c.config.LedgerID,
 			ApplicationId: c.config.ApplicationID,
@@ -165,10 +192,55 @@ func (c *Client) SubmitWithdrawal(ctx context.Context, req *WithdrawalRequest) e
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to submit withdrawal confirmation: %w", err)
+		return fmt.Errorf("failed to submit mint proposal: %w", err)
 	}
 
 	return nil
+}
+
+// GetWayfinderBridgeConfig finds the active WayfinderBridgeConfig contract
+func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	// Search for WayfinderBridgeConfig
+	// Note: In a real implementation, we might want to cache this or be more specific with queries
+	// For now, we assume there's one valid config visible to the relayer
+	resp, err := c.activeContractsService.GetActiveContracts(authCtx, &lapi.GetActiveContractsRequest{
+		LedgerId: c.config.LedgerID,
+		Filter: &lapi.TransactionFilter{
+			FiltersByParty: map[string]*lapi.Filters{
+				c.config.RelayerParty: {
+					Inclusive: &lapi.InclusiveFilters{
+						TemplateIds: []*lapi.Identifier{
+							{
+								PackageId:  c.config.BridgePackageID, // TODO: Make sure this matches Wayfinder package
+								ModuleName: "Wayfinder.Bridge",
+								EntityName: "WayfinderBridgeConfig",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to search for config: %w", err)
+	}
+
+	// Read the stream
+	// We just take the first one we find for now
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			// EOF or error
+			break
+		}
+		for _, event := range msg.ActiveContracts {
+			return event.ContractId, nil
+		}
+	}
+
+	return "", fmt.Errorf("no active WayfinderBridgeConfig found")
 }
 
 // GetLedgerEnd gets the current ledger end offset

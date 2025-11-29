@@ -6,26 +6,17 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
 )
 
-func TestEncodeWithdrawalArgs(t *testing.T) {
-	req := &WithdrawalRequest{
-		EthTxHash:   "0x123",
-		EthSender:   "0xabc",
-		Recipient:   "Alice",
-		Amount:      "100.50",
-		Nonce:       1,
-		EthChainID:  5,
-		TokenSymbol: "ETH",
+func TestEncodeMintProposalArgs(t *testing.T) {
+	req := &MintProposalRequest{
+		Recipient: "Bob",
+		Amount:    "100.0",
+		Reference: "tx-hash",
 	}
 
-	val := EncodeWithdrawalArgs(req)
+	record := EncodeMintProposalArgs(req)
 
-	if val == nil {
-		t.Fatal("EncodeWithdrawalArgs returned nil")
-	}
-
-	record := val.GetRecord()
-	if record == nil {
-		t.Fatal("Expected Record value")
+	if len(record.Fields) != 3 {
+		t.Errorf("Expected 3 fields, got %d", len(record.Fields))
 	}
 
 	fields := make(map[string]*lapi.Value)
@@ -33,60 +24,53 @@ func TestEncodeWithdrawalArgs(t *testing.T) {
 		fields[f.Label] = f.Value
 	}
 
-	if fields["ethTxHash"].GetText() != req.EthTxHash {
-		t.Errorf("Expected ethTxHash %s, got %s", req.EthTxHash, fields["ethTxHash"].GetText())
-	}
-	if fields["ethSender"].GetText() != req.EthSender {
-		t.Errorf("Expected ethSender %s, got %s", req.EthSender, fields["ethSender"].GetText())
-	}
 	if fields["recipient"].GetParty() != req.Recipient {
 		t.Errorf("Expected recipient %s, got %s", req.Recipient, fields["recipient"].GetParty())
 	}
 	if fields["amount"].GetNumeric() != req.Amount {
 		t.Errorf("Expected amount %s, got %s", req.Amount, fields["amount"].GetNumeric())
 	}
-	if fields["nonce"].GetInt64() != req.Nonce {
-		t.Errorf("Expected nonce %d, got %d", req.Nonce, fields["nonce"].GetInt64())
-	}
-	if fields["ethChainId"].GetInt64() != req.EthChainID {
-		t.Errorf("Expected ethChainId %d, got %d", req.EthChainID, fields["ethChainId"].GetInt64())
+	if fields["txHash"].GetText() != req.Reference {
+		t.Errorf("Expected txHash %s, got %s", req.Reference, fields["txHash"].GetText())
 	}
 }
 
-func TestDecodeDepositRequest(t *testing.T) {
+func TestDecodeBurnEvent(t *testing.T) {
 	record := &lapi.Record{
 		Fields: []*lapi.RecordField{
-			{Label: "depositor", Value: PartyValue("Alice")},
+			{Label: "operator", Value: PartyValue("Alice")},
+			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},
-			{Label: "ethRecipient", Value: TextValue("0xRecipient")},
-			{Label: "ethChainId", Value: Int64Value(5)},
-			{Label: "clientNonce", Value: TextValue("nonce-123")},
-			{Label: "tokenSymbol", Value: TextValue("ETH")},
+			{Label: "destination", Value: TextValue("0xRecipient")},
+			{Label: "reference", Value: TextValue("ref-123")},
 		},
 	}
 
-	deposit, err := DecodeDepositRequest("event-1", "tx-1", record)
+	burn, err := DecodeBurnEvent("event-1", "tx-1", record)
 	if err != nil {
-		t.Fatalf("DecodeDepositRequest failed: %v", err)
+		t.Fatalf("DecodeBurnEvent failed: %v", err)
 	}
 
-	if deposit.EventID != "event-1" {
-		t.Errorf("Expected EventID event-1, got %s", deposit.EventID)
+	if burn.EventID != "event-1" {
+		t.Errorf("Expected EventID event-1, got %s", burn.EventID)
 	}
-	if deposit.TransactionID != "tx-1" {
-		t.Errorf("Expected TransactionID tx-1, got %s", deposit.TransactionID)
+	if burn.TransactionID != "tx-1" {
+		t.Errorf("Expected TransactionID tx-1, got %s", burn.TransactionID)
 	}
-	if deposit.EthRecipient != "0xRecipient" {
-		t.Errorf("Expected EthRecipient 0xRecipient, got %s", deposit.EthRecipient)
+	if burn.Operator != "Alice" {
+		t.Errorf("Expected Operator Alice, got %s", burn.Operator)
 	}
-	if deposit.TokenSymbol != "ETH" {
-		t.Errorf("Expected TokenSymbol ETH, got %s", deposit.TokenSymbol)
+	if burn.Owner != "Bob" {
+		t.Errorf("Expected Owner Bob, got %s", burn.Owner)
 	}
-	if deposit.Amount != "50.00" {
-		t.Errorf("Expected Amount 50.00, got %s", deposit.Amount)
+	if burn.Amount != "50.00" {
+		t.Errorf("Expected Amount 50.00, got %s", burn.Amount)
 	}
-	if deposit.ClientNonce != "nonce-123" {
-		t.Errorf("Expected ClientNonce nonce-123, got %s", deposit.ClientNonce)
+	if burn.Destination != "0xRecipient" {
+		t.Errorf("Expected Destination 0xRecipient, got %s", burn.Destination)
+	}
+	if burn.Reference != "ref-123" {
+		t.Errorf("Expected Reference ref-123, got %s", burn.Reference)
 	}
 }
 
