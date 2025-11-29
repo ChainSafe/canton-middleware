@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -94,20 +96,58 @@ func (s *EthereumSource) GetChainID() string {
 }
 
 func (s *EthereumSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
-	// TODO: Implement proper streaming/polling for Ethereum
-	// For now, this is a placeholder that would wrap WatchDepositEvents or polling logic
-	// Since the original code had polling logic in processEthereumEvents, we should ideally move that here
-	// But for the sake of this refactor, we might need to adapt the polling loop to a channel-based stream
+	outCh := make(chan *Event, 10)
+	errCh := make(chan error, 1)
 
-	outCh := make(chan *Event)
-	outErrCh := make(chan error)
+	go func() {
+		defer close(outCh)
+		defer close(errCh)
 
-	// Note: In a real implementation, we would start a goroutine here to poll/watch
-	// and push events to outCh.
-	// The original code passed a handler to processEthBlock.
-	// We'll leave this as a TODO or implement a basic poller if needed.
+		var fromBlock uint64
+		if offset != "" && offset != "BEGIN" {
+			var err error
+			fromBlock, err = strconv.ParseUint(offset, 10, 64)
+			if err != nil {
+				errCh <- fmt.Errorf("invalid offset: %w", err)
+				return
+			}
+		}
 
-	return outCh, outErrCh
+		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
+			// Convert to generic Event
+			relayerEvent := &Event{
+				ID:                fmt.Sprintf("%s-%d", event.TxHash.Hex(), event.LogIndex),
+				TransactionID:     event.TxHash.Hex(),
+				SourceChain:       "ethereum",
+				DestinationChain:  "canton",
+				SourceTxHash:      event.TxHash.Hex(),
+				TokenAddress:      event.Token.Hex(),
+				Amount:            event.Amount.String(),
+				Sender:            event.Sender.Hex(),
+				Recipient:         fmt.Sprintf("%x", event.CantonRecipient),
+				Nonce:             event.Nonce.Int64(),
+				SourceBlockNumber: int64(event.BlockNumber),
+				Raw:               event,
+			}
+
+			select {
+			case outCh <- relayerEvent:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+
+		if err != nil {
+			// Check if it's just a context cancellation
+			if ctx.Err() != nil {
+				return
+			}
+			errCh <- err
+		}
+	}()
+
+	return outCh, errCh
 }
 
 // CantonDestination implements Destination for Canton

@@ -11,6 +11,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 )
@@ -25,6 +26,7 @@ type CantonBridgeClient interface {
 type EthereumBridgeClient interface {
 	GetLatestBlockNumber(ctx context.Context) (uint64, error)
 	WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
 }
 
 // BridgeStore defines the interface for database operations

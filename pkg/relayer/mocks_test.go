@@ -6,6 +6,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/db"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -33,6 +34,7 @@ func (m *MockCantonClient) SubmitMintProposal(ctx context.Context, req *canton.M
 type MockEthereumClient struct {
 	GetLatestBlockNumberFunc func(ctx context.Context) (uint64, error)
 	WithdrawFromCantonFunc   func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WatchDepositEventsFunc   func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
 }
 
 func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
@@ -47,6 +49,13 @@ func (m *MockEthereumClient) WithdrawFromCanton(ctx context.Context, token commo
 		return m.WithdrawFromCantonFunc(ctx, token, recipient, amount, nonce, cantonTxHash)
 	}
 	return common.Hash{}, nil
+}
+
+func (m *MockEthereumClient) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error {
+	if m.WatchDepositEventsFunc != nil {
+		return m.WatchDepositEventsFunc(ctx, fromBlock, handler)
+	}
+	return nil
 }
 
 // MockStore is a mock implementation of BridgeStore
