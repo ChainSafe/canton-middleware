@@ -55,10 +55,10 @@ Canton Network uses Daml smart contracts (not EVM/Solidity) and provides the Dam
 - Language-agnostic protocol buffers
 
 **How:**
-1. Generate Go client stubs from Daml Ledger API protobufs
+1. Generate Go client stubs from Daml Ledger API protobufs (V2)
 2. Connect via gRPC with TLS
 3. Authenticate with JWT tokens
-4. Stream events and submit commands
+4. Stream events and submit commands using `lapiv2` alias
 
 ### 2. Authentication & Authorization
 
@@ -140,11 +140,11 @@ type DepositRequest struct {
     Token     string  // Contract ID
 }
 
-func (d *DepositRequest) ToDamlValue() *lapi.Value {
-    return &lapi.Value{
-        Sum: &lapi.Value_Record{
-            Record: &lapi.Record{
-                Fields: []*lapi.RecordField{
+func (d *DepositRequest) ToDamlValue() *lapiv1.Value {
+    return &lapiv1.Value{
+        Sum: &lapiv1.Value_Record{
+            Record: &lapiv1.Record{
+                Fields: []*lapiv1.RecordField{
                     {Label: "amount", Value: numericValue(d.Amount)},
                     {Label: "recipient", Value: partyValue(d.Recipient)},
                     {Label: "token", Value: contractIdValue(d.Token)},
@@ -194,16 +194,16 @@ func (d *DepositRequest) ToDamlValue() *lapi.Value {
 ## Implementation Checklist
 
 ### Phase 1: Setup
-- [ ] Pull Daml Ledger API protobuf definitions
-- [ ] Generate Go stubs with protoc
-- [ ] Configure TLS certificates
+- [x] Pull Daml Ledger API protobuf definitions
+- [x] Generate Go stubs with protoc
+- [x] Configure TLS certificates
 - [ ] Set up JWT authentication service
 - [ ] Create Canton party for relayer
 
 ### Phase 2: Event Monitoring
-- [ ] Implement GetTransactions streaming
-- [ ] Parse Created/Exercised events
-- [ ] Filter by bridge template identifiers
+- [x] Implement GetTransactions streaming
+- [x] Parse Created/Exercised events
+- [x] Filter by bridge template identifiers
 - [ ] Persist offsets in database
 - [ ] Implement reconnect with resume from offset
 - [ ] Add metrics for stream lag and events processed

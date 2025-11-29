@@ -24,6 +24,7 @@ canton-middleware/
 │   └── canton/            # Canton contracts
 ├── pkg/
 │   ├── canton/            # Canton client and utilities
+│   │   └── lapi/          # Generated Ledger API protobufs (v1 & v2)
 │   ├── ethereum/          # Ethereum client and utilities
 │   ├── relayer/           # Core relayer logic
 │   ├── db/                # Database models and queries
@@ -38,7 +39,7 @@ canton-middleware/
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.24+
 - PostgreSQL 15+
 - Access to Canton Network Partner Node
 - Ethereum node access (Infura or similar)

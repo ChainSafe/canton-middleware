@@ -9,8 +9,8 @@ sequenceDiagram
     participant Main
     participant Engine
     participant Store as Database
-    participant CP as CantonProcessor
-    participant EP as EthereumProcessor
+    participant C2E as TransferProcessor (Canton->Eth)
+    participant E2C as TransferProcessor (Eth->Canton)
     participant CS as CantonSource
     participant ED as EthereumDestination
     participant ES as EthereumSource
@@ -28,47 +28,47 @@ sequenceDiagram
 
     Note over Engine: Initialize Processors
 
-    Engine->>CP: NewProcessor(CantonSource, EthereumDestination)
-    Engine->>EP: NewProcessor(EthereumSource, CantonDestination)
+    Engine->>C2E: NewTransferProcessor(CantonSource, EthereumDestination)
+    Engine->>E2C: NewTransferProcessor(EthereumSource, CantonDestination)
 
-    par Start Canton Processor
-        Engine->>CP: Start(offset)
-        activate CP
-        CP->>CS: StreamEvents(offset)
+    par Start Canton->Eth Processor
+        Engine->>C2E: Start(offset)
+        activate C2E
+        C2E->>CS: StreamEvents(offset)
         activate CS
         loop Every Event
-            CS-->>CP: Event (DepositRequest)
-            CP->>Store: GetTransfer(id)
+            CS-->>C2E: Event (DepositRequest)
+            C2E->>Store: GetTransfer(id)
             alt Not Processed
-                CP->>Store: CreateTransfer(Pending)
-                CP->>ED: SubmitTransfer(event)
+                C2E->>Store: CreateTransfer(Pending)
+                C2E->>ED: SubmitTransfer(event)
                 activate ED
-                ED-->>CP: txHash
+                ED-->>C2E: txHash
                 deactivate ED
-                CP->>Store: UpdateTransferStatus(Completed)
+                C2E->>Store: UpdateTransferStatus(Completed)
             end
         end
         deactivate CS
-        deactivate CP
-    and Start Ethereum Processor
-        Engine->>EP: Start(offset)
-        activate EP
-        EP->>ES: StreamEvents(offset)
+        deactivate C2E
+    and Start Eth->Canton Processor
+        Engine->>E2C: Start(offset)
+        activate E2C
+        E2C->>ES: StreamEvents(offset)
         activate ES
         loop Every Event
-            ES-->>EP: Event (Lock/Burn)
-            EP->>Store: GetTransfer(id)
+            ES-->>E2C: Event (Lock/Burn)
+            E2C->>Store: GetTransfer(id)
             alt Not Processed
-                EP->>Store: CreateTransfer(Pending)
-                EP->>CD: SubmitTransfer(event)
+                E2C->>Store: CreateTransfer(Pending)
+                E2C->>CD: SubmitTransfer(event)
                 activate CD
-                CD-->>EP: txHash
+                CD-->>E2C: txHash
                 deactivate CD
-                EP->>Store: UpdateTransferStatus(Completed)
+                E2C->>Store: UpdateTransferStatus(Completed)
             end
         end
         deactivate ES
-        deactivate EP
+        deactivate E2C
     and Start Reconciliation Loop
         Engine->>Engine: reconcile() (Loop 5m)
     end
@@ -80,7 +80,7 @@ sequenceDiagram
 
 *   **Main**: Entry point. Initializes configuration, database connection, clients, and the Engine. Starts the HTTP server for metrics/API.
 *   **Engine**: Orchestrator. Manages the lifecycle of the application. It initializes the bidirectional processors and the reconciliation loop. It handles graceful shutdown.
-*   **Processor**: The core worker. There are two instances: one for Canton->Ethereum and one for Ethereum->Canton. It abstracts the logic of "Listen -> Persist -> Submit".
+*   **TransferProcessor**: The core worker. There are two instances: one for Canton->Ethereum and one for Ethereum->Canton. It uses a generic `Source` and `Destination` interface to abstract the logic of "Listen -> Persist -> Submit".
 *   **Source (Interface)**: Abstraction for fetching events (e.g., `CantonSource` streams from Canton Ledger API).
 *   **Destination (Interface)**: Abstraction for submitting transactions (e.g., `EthereumDestination` submits to a smart contract).
 *   **Store**: Persistence layer (PostgreSQL) for tracking transfer state and chain offsets.
