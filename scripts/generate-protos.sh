@@ -68,10 +68,10 @@ for f in "$DAML_PROTO_V2_DIR"/*.proto; do
 
     if grep -q "syntax =" "$f"; then
         sed -i '' '/syntax =/a\
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";
+option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";
 ' "$f"
     else
-        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi";' | cat - "$f" > temp && mv temp "$f"
+        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";' | cat - "$f" > temp && mv temp "$f"
     fi
 done
 

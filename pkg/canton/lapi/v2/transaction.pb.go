@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/transaction.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -329,8 +329,8 @@ const file_com_daml_ledger_api_v2_transaction_proto_rawDesc = "" +
 	"\x06events\x18\x05 \x03(\v2\x1d.com.daml.ledger.api.v1.EventR\x06events\x12\x16\n" +
 	"\x06offset\x18\x06 \x01(\tR\x06offset\x12\x1b\n" +
 	"\tdomain_id\x18\a \x01(\tR\bdomainId\x12I\n" +
-	"\rtrace_context\x18\b \x01(\v2$.com.daml.ledger.api.v1.TraceContextR\ftraceContextB\x80\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x15TransactionOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\rtrace_context\x18\b \x01(\v2$.com.daml.ledger.api.v1.TraceContextR\ftraceContextB\x83\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x15TransactionOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_transaction_proto_rawDescOnce sync.Once

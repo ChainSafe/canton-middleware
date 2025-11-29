@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/completion.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -227,8 +227,8 @@ const file_com_daml_ledger_api_v2_completion_proto_rawDesc = "" +
 	"\x14deduplication_offset\x18\a \x01(\tH\x00R\x13deduplicationOffset\x12R\n" +
 	"\x16deduplication_duration\x18\b \x01(\v2\x19.google.protobuf.DurationH\x00R\x15deduplicationDuration\x12I\n" +
 	"\rtrace_context\x18\t \x01(\v2$.com.daml.ledger.api.v1.TraceContextR\ftraceContextB\x16\n" +
-	"\x14deduplication_periodB\x7f\n" +
-	"\x16com.daml.ledger.api.v2B\x14CompletionOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x14deduplication_periodB\x82\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x14CompletionOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_completion_proto_rawDescOnce sync.Once

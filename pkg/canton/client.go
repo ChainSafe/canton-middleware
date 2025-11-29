@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
 	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -23,9 +23,9 @@ type Client struct {
 	conn   *grpc.ClientConn
 	logger *zap.Logger
 
-	stateService   lapi.StateServiceClient
-	commandService lapi.CommandServiceClient
-	updateService  lapi.UpdateServiceClient
+	stateService   lapiv2.StateServiceClient
+	commandService lapiv2.CommandServiceClient
+	updateService  lapiv2.UpdateServiceClient
 }
 
 // MintProposalRequest represents a request to mint tokens on Canton
@@ -84,9 +84,9 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		config:         config,
 		conn:           conn,
 		logger:         logger,
-		stateService:   lapi.NewStateServiceClient(conn),
-		commandService: lapi.NewCommandServiceClient(conn),
-		updateService:  lapi.NewUpdateServiceClient(conn),
+		stateService:   lapiv2.NewStateServiceClient(conn),
+		commandService: lapiv2.NewCommandServiceClient(conn),
+		updateService:  lapiv2.NewUpdateServiceClient(conn),
 	}, nil
 }
 
@@ -129,24 +129,24 @@ func loadTLSConfig(tlsCfg *config.TLSConfig) (*tls.Config, error) {
 }
 
 // StreamTransactions streams transactions from the Canton ledger
-func (c *Client) StreamTransactions(ctx context.Context, offset string, filter *lapi.TransactionFilter) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
+func (c *Client) StreamTransactions(ctx context.Context, offset string, filter *lapiv2.TransactionFilter) (grpc.ServerStreamingClient[lapiv2.GetUpdatesResponse], error) {
 	authCtx := c.GetAuthContext(ctx)
 
 	// Set the starting offset
-	var begin *lapi.ParticipantOffset
+	var begin *lapiv2.ParticipantOffset
 	if offset == "BEGIN" || offset == "" {
-		begin = &lapi.ParticipantOffset{
-			Value: &lapi.ParticipantOffset_Boundary{
-				Boundary: lapi.ParticipantOffset_PARTICIPANT_BEGIN,
+		begin = &lapiv2.ParticipantOffset{
+			Value: &lapiv2.ParticipantOffset_Boundary{
+				Boundary: lapiv2.ParticipantOffset_PARTICIPANT_BEGIN,
 			},
 		}
 	} else {
-		begin = &lapi.ParticipantOffset{
-			Value: &lapi.ParticipantOffset_Absolute{Absolute: offset},
+		begin = &lapiv2.ParticipantOffset{
+			Value: &lapiv2.ParticipantOffset_Absolute{Absolute: offset},
 		}
 	}
 
-	req := &lapi.GetUpdatesRequest{
+	req := &lapiv2.GetUpdatesRequest{
 		BeginExclusive: begin,
 		Filter:         filter,
 	}
@@ -186,8 +186,8 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 	}
 
 	// Submit command
-	_, err = c.commandService.SubmitAndWait(authCtx, &lapi.SubmitAndWaitRequest{
-		Commands: &lapi.Commands{
+	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
 			DomainId:      c.config.DomainID,
 			ApplicationId: c.config.ApplicationID,
 			CommandId:     generateUUID(),
@@ -207,8 +207,8 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
-	resp, err := c.stateService.GetActiveContracts(authCtx, &lapi.GetActiveContractsRequest{
-		Filter: &lapi.TransactionFilter{
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		Filter: &lapiv2.TransactionFilter{
 			FiltersByParty: map[string]*lapiv1.Filters{
 				c.config.RelayerParty: {
 					Inclusive: &lapiv1.InclusiveFilters{
@@ -247,7 +247,7 @@ func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 func (c *Client) GetLedgerEnd(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
-	resp, err := c.stateService.GetLedgerEnd(authCtx, &lapi.GetLedgerEndRequest{})
+	resp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get ledger end: %w", err)
 	}
@@ -256,7 +256,7 @@ func (c *Client) GetLedgerEnd(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("received empty ledger offset")
 	}
 
-	if abs, ok := resp.Offset.Value.(*lapi.ParticipantOffset_Absolute); ok {
+	if abs, ok := resp.Offset.Value.(*lapiv2.ParticipantOffset_Absolute); ok {
 		return abs.Absolute, nil
 	}
 

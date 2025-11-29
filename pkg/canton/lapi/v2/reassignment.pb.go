@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/reassignment.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -448,8 +448,8 @@ const file_com_daml_ledger_api_v2_reassignment_proto_rawDesc = "" +
 	"unassignId\x12\x1c\n" +
 	"\tsubmitter\x18\x04 \x01(\tR\tsubmitter\x121\n" +
 	"\x14reassignment_counter\x18\x05 \x01(\x04R\x13reassignmentCounter\x12I\n" +
-	"\rcreated_event\x18\x06 \x01(\v2$.com.daml.ledger.api.v1.CreatedEventR\fcreatedEventB\x81\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x16ReassignmentOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\rcreated_event\x18\x06 \x01(\v2$.com.daml.ledger.api.v1.CreatedEventR\fcreatedEventB\x84\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x16ReassignmentOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_reassignment_proto_rawDescOnce sync.Once

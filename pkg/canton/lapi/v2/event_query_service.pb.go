@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/event_query_service.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -208,8 +208,8 @@ const file_com_daml_ledger_api_v2_event_query_service_proto_rawDesc = "" +
 	"\x0earchived_event\x18\x01 \x01(\v2%.com.daml.ledger.api.v1.ArchivedEventR\rarchivedEvent\x12\x1b\n" +
 	"\tdomain_id\x18\x02 \x01(\tR\bdomainId2\x9a\x01\n" +
 	"\x11EventQueryService\x12\x84\x01\n" +
-	"\x15GetEventsByContractId\x124.com.daml.ledger.api.v1.GetEventsByContractIdRequest\x1a5.com.daml.ledger.api.v2.GetEventsByContractIdResponseB\x86\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1bEventQueryServiceOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x15GetEventsByContractId\x124.com.daml.ledger.api.v1.GetEventsByContractIdRequest\x1a5.com.daml.ledger.api.v2.GetEventsByContractIdResponseB\x89\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1bEventQueryServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_event_query_service_proto_rawDescOnce sync.Once

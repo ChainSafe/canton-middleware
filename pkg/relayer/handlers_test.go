@@ -37,7 +37,7 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 		SourceTxHash: "0xsrc-tx-hash",
 		Sender:       "0xAlice",
 		Recipient:    "Bob",
-		Amount:       "100", // 100 tokens
+		Amount:       "100000000000000000000", // 100 tokens
 		TokenAddress: "0xToken",
 	}
 

@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/participant_offset.proto
 
-package lapi
+package v2
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -194,8 +194,8 @@ const file_com_daml_ledger_api_v2_participant_offset_proto_rawDesc = "" +
 	"\x13ParticipantBoundary\x12\x15\n" +
 	"\x11PARTICIPANT_BEGIN\x10\x00\x12\x13\n" +
 	"\x0fPARTICIPANT_END\x10\x01B\a\n" +
-	"\x05valueB\x86\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1bParticipantOffsetOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x05valueB\x89\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1bParticipantOffsetOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_participant_offset_proto_rawDescOnce sync.Once

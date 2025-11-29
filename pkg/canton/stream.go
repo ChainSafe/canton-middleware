@@ -5,26 +5,26 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
 	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"go.uber.org/zap"
 )
 
 // StreamBurnEvents streams BurnEvent events from Canton
-func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *BurnEvent, <-chan error) {
-	burnCh := make(chan *BurnEvent, 10)
+func (c *Client) StreamBurnEvents(ctx context.Context, offset string) (<-chan *BurnEvent, <-chan error) {
+	outCh := make(chan *BurnEvent, 10)
 	errCh := make(chan error, 1)
 
 	go func() {
-		defer close(burnCh)
+		defer close(outCh)
 		defer close(errCh)
 
-		c.logger.Info("Starting Canton burn event stream", zap.String("offset", startOffset))
+		c.logger.Info("Starting Canton burn event stream", zap.String("offset", offset))
 
 		authCtx := c.GetAuthContext(ctx)
 
 		// Create the transaction filter
-		filter := &lapi.TransactionFilter{
+		filter := &lapiv2.TransactionFilter{
 			FiltersByParty: map[string]*lapiv1.Filters{
 				c.config.RelayerParty: {
 					Inclusive: &lapiv1.InclusiveFilters{
@@ -41,23 +41,23 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 		}
 
 		// Set the starting offset
-		var begin *lapi.ParticipantOffset
-		if startOffset == "BEGIN" || startOffset == "" {
-			begin = &lapi.ParticipantOffset{
-				Value: &lapi.ParticipantOffset_Boundary{
-					Boundary: lapi.ParticipantOffset_PARTICIPANT_BEGIN,
+		var begin *lapiv2.ParticipantOffset
+		if offset == "BEGIN" || offset == "" {
+			begin = &lapiv2.ParticipantOffset{
+				Value: &lapiv2.ParticipantOffset_Boundary{
+					Boundary: lapiv2.ParticipantOffset_PARTICIPANT_BEGIN,
 				},
 			}
 		} else {
-			begin = &lapi.ParticipantOffset{
-				Value: &lapi.ParticipantOffset_Absolute{
-					Absolute: startOffset,
+			begin = &lapiv2.ParticipantOffset{
+				Value: &lapiv2.ParticipantOffset_Absolute{
+					Absolute: offset,
 				},
 			}
 		}
 
 		// Start streaming updates
-		stream, err := c.updateService.GetUpdates(authCtx, &lapi.GetUpdatesRequest{
+		stream, err := c.updateService.GetUpdates(authCtx, &lapiv2.GetUpdatesRequest{
 			BeginExclusive: begin,
 			Filter:         filter,
 		})
@@ -93,7 +93,7 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 							}
 
 							select {
-							case burnCh <- burnEvent:
+							case outCh <- burnEvent:
 							case <-ctx.Done():
 								return
 							}
@@ -104,7 +104,7 @@ func (c *Client) StreamBurnEvents(ctx context.Context, startOffset string) (<-ch
 		}
 	}()
 
-	return burnCh, errCh
+	return outCh, errCh
 }
 
 func generateUUID() string {

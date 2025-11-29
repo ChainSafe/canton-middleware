@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/version_service.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -68,8 +68,8 @@ const file_com_daml_ledger_api_v2_version_service_proto_rawDesc = "" +
 	",com/daml/ledger/api/v2/version_service.proto\x12\x16com.daml.ledger.api.v2\x1a,com/daml/ledger/api/v1/version_service.proto\"\x1c\n" +
 	"\x1aGetLedgerApiVersionRequest2\x90\x01\n" +
 	"\x0eVersionService\x12~\n" +
-	"\x13GetLedgerApiVersion\x122.com.daml.ledger.api.v2.GetLedgerApiVersionRequest\x1a3.com.daml.ledger.api.v1.GetLedgerApiVersionResponseB\x83\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x18VersionServiceOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x13GetLedgerApiVersion\x122.com.daml.ledger.api.v2.GetLedgerApiVersionRequest\x1a3.com.daml.ledger.api.v1.GetLedgerApiVersionResponseB\x86\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x18VersionServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_version_service_proto_rawDescOnce sync.Once

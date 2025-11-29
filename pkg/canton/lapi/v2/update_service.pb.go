@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/update_service.proto
 
-package lapi
+package v2
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -557,8 +557,8 @@ const file_com_daml_ledger_api_v2_update_service_proto_rawDesc = "" +
 	"\x1bGetTransactionTreeByEventId\x126.com.daml.ledger.api.v2.GetTransactionByEventIdRequest\x1a2.com.daml.ledger.api.v2.GetTransactionTreeResponse\x12\x7f\n" +
 	"\x16GetTransactionTreeById\x121.com.daml.ledger.api.v2.GetTransactionByIdRequest\x1a2.com.daml.ledger.api.v2.GetTransactionTreeResponse\x12\x81\x01\n" +
 	"\x17GetTransactionByEventId\x126.com.daml.ledger.api.v2.GetTransactionByEventIdRequest\x1a..com.daml.ledger.api.v2.GetTransactionResponse\x12w\n" +
-	"\x12GetTransactionById\x121.com.daml.ledger.api.v2.GetTransactionByIdRequest\x1a..com.daml.ledger.api.v2.GetTransactionResponseB\x82\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x17UpdateServiceOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x12GetTransactionById\x121.com.daml.ledger.api.v2.GetTransactionByIdRequest\x1a..com.daml.ledger.api.v2.GetTransactionResponseB\x85\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x17UpdateServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_update_service_proto_rawDescOnce sync.Once

@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/transaction_filter.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -92,8 +92,8 @@ const file_com_daml_ledger_api_v2_transaction_filter_proto_rawDesc = "" +
 	"\x10filters_by_party\x18\x01 \x03(\v2=.com.daml.ledger.api.v2.TransactionFilter.FiltersByPartyEntryR\x0efiltersByParty\x1ab\n" +
 	"\x13FiltersByPartyEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x125\n" +
-	"\x05value\x18\x02 \x01(\v2\x1f.com.daml.ledger.api.v1.FiltersR\x05value:\x028\x01B\x86\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1bTransactionFilterOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x1f.com.daml.ledger.api.v1.FiltersR\x05value:\x028\x01B\x89\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1bTransactionFilterOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_transaction_filter_proto_rawDescOnce sync.Once

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton/lapi"
 	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -16,7 +16,7 @@ import (
 
 func TestClient_SubmitMintProposal(t *testing.T) {
 	mockCmdService := &MockCommandService{
-		SubmitAndWaitFunc: func(ctx context.Context, in *lapi.SubmitAndWaitRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+		SubmitAndWaitFunc: func(ctx context.Context, in *lapiv2.SubmitAndWaitRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 			if len(in.Commands.Commands) != 1 {
 				t.Errorf("Expected 1 command, got %d", len(in.Commands.Commands))
 			}
@@ -36,10 +36,10 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 	}
 
 	mockACSClient := &MockGetActiveContractsClient{
-		RecvFunc: func() (*lapi.GetActiveContractsResponse, error) {
-			return &lapi.GetActiveContractsResponse{
-				ContractEntry: &lapi.GetActiveContractsResponse_ActiveContract{
-					ActiveContract: &lapi.ActiveContract{
+		RecvFunc: func() (*lapiv2.GetActiveContractsResponse, error) {
+			return &lapiv2.GetActiveContractsResponse{
+				ContractEntry: &lapiv2.GetActiveContractsResponse_ActiveContract{
+					ActiveContract: &lapiv2.ActiveContract{
 						CreatedEvent: &lapiv1.CreatedEvent{
 							ContractId: "config-cid",
 						},
@@ -50,7 +50,7 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 	}
 
 	mockStateService := &MockStateService{
-		GetActiveContractsFunc: func(ctx context.Context, in *lapi.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetActiveContractsResponse], error) {
+		GetActiveContractsFunc: func(ctx context.Context, in *lapiv2.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapiv2.GetActiveContractsResponse], error) {
 			return mockACSClient, nil
 		},
 	}
@@ -86,14 +86,14 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 func TestClient_StreamBurnEvents(t *testing.T) {
 	// Setup mock stream
 	mockStream := &MockGetUpdatesClient{
-		RecvFunc: func() (*lapi.GetUpdatesResponse, error) {
+		RecvFunc: func() (*lapiv2.GetUpdatesResponse, error) {
 			return nil, io.EOF // End of stream immediately for this test
 		},
 	}
 
 	// Setup mock update service
 	mockUpdateService := &MockUpdateService{
-		GetUpdatesFunc: func(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
+		GetUpdatesFunc: func(ctx context.Context, in *lapiv2.GetUpdatesRequest, opts ...grpc.CallOption) (lapiv2.UpdateService_GetUpdatesClient, error) {
 			return mockStream, nil
 		},
 	}
@@ -154,7 +154,7 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 		},
 	}
 
-	tx := &lapi.Transaction{
+	tx := &lapiv2.Transaction{
 		UpdateId: "tx-1",
 		Events:   []*lapiv1.Event{event},
 	}
@@ -162,11 +162,11 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 	// Setup mock stream
 	sent := false
 	mockStream := &MockGetUpdatesClient{
-		RecvFunc: func() (*lapi.GetUpdatesResponse, error) {
+		RecvFunc: func() (*lapiv2.GetUpdatesResponse, error) {
 			if !sent {
 				sent = true
-				return &lapi.GetUpdatesResponse{
-					Update: &lapi.GetUpdatesResponse_Transaction{
+				return &lapiv2.GetUpdatesResponse{
+					Update: &lapiv2.GetUpdatesResponse_Transaction{
 						Transaction: tx,
 					},
 				}, nil
@@ -176,7 +176,7 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 	}
 
 	mockUpdateService := &MockUpdateService{
-		GetUpdatesFunc: func(ctx context.Context, in *lapi.GetUpdatesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
+		GetUpdatesFunc: func(ctx context.Context, in *lapiv2.GetUpdatesRequest, opts ...grpc.CallOption) (lapiv2.UpdateService_GetUpdatesClient, error) {
 			return mockStream, nil
 		},
 	}

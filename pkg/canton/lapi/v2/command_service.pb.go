@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/command_service.proto
 
-package lapi
+package v2
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -261,8 +261,8 @@ const file_com_daml_ledger_api_v2_command_service_proto_rawDesc = "" +
 	"\rSubmitAndWait\x12,.com.daml.ledger.api.v2.SubmitAndWaitRequest\x1a\x16.google.protobuf.Empty\x12\x82\x01\n" +
 	"\x18SubmitAndWaitForUpdateId\x12,.com.daml.ledger.api.v2.SubmitAndWaitRequest\x1a8.com.daml.ledger.api.v2.SubmitAndWaitForUpdateIdResponse\x12\x88\x01\n" +
 	"\x1bSubmitAndWaitForTransaction\x12,.com.daml.ledger.api.v2.SubmitAndWaitRequest\x1a;.com.daml.ledger.api.v2.SubmitAndWaitForTransactionResponse\x12\x90\x01\n" +
-	"\x1fSubmitAndWaitForTransactionTree\x12,.com.daml.ledger.api.v2.SubmitAndWaitRequest\x1a?.com.daml.ledger.api.v2.SubmitAndWaitForTransactionTreeResponseB\x83\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x18CommandServiceOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x1fSubmitAndWaitForTransactionTree\x12,.com.daml.ledger.api.v2.SubmitAndWaitRequest\x1a?.com.daml.ledger.api.v2.SubmitAndWaitForTransactionTreeResponseB\x86\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x18CommandServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_command_service_proto_rawDescOnce sync.Once

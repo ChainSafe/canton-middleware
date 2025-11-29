@@ -7,7 +7,7 @@
 // - protoc             v6.33.1
 // source: com/daml/ledger/api/v2/version_service.proto
 
-package lapi
+package v2
 
 import (
 	context "context"

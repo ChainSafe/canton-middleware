@@ -7,7 +7,7 @@
 // 	protoc        v6.33.1
 // source: com/daml/ledger/api/v2/command_completion_service.proto
 
-package lapi
+package v2
 
 import (
 	v1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
@@ -186,8 +186,8 @@ const file_com_daml_ledger_api_v2_command_completion_service_proto_rawDesc = "" 
 	"completion\x12\x1b\n" +
 	"\tdomain_id\x18\x03 \x01(\tR\bdomainId2\x93\x01\n" +
 	"\x18CommandCompletionService\x12w\n" +
-	"\x10CompletionStream\x12/.com.daml.ledger.api.v2.CompletionStreamRequest\x1a0.com.daml.ledger.api.v2.CompletionStreamResponse0\x01B\x8d\x01\n" +
-	"\x16com.daml.ledger.api.v2B\"CommandCompletionServiceOuterClassZ6github.com/chainsafe/canton-middleware/pkg/canton/lapi\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x10CompletionStream\x12/.com.daml.ledger.api.v2.CompletionStreamRequest\x1a0.com.daml.ledger.api.v2.CompletionStreamResponse0\x01B\x90\x01\n" +
+	"\x16com.daml.ledger.api.v2B\"CommandCompletionServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_command_completion_service_proto_rawDescOnce sync.Once
