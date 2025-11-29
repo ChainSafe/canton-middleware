@@ -164,15 +164,18 @@ func handleGetTransfer(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		// TODO: Return JSON response
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"id":"%s","status":"%s"}`, transfer.ID, transfer.Status)
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(transfer); err != nil {
+			logger.Error("Failed to encode response", zap.Error(err))
+		}
 	}
 }
 
 func handleGetStatus(logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"running","version":"` + version + `"}`))
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"status": "running", "version": version}); err != nil {
+			logger.Error("Failed to encode response", zap.Error(err))
+		}
 	}
 }
