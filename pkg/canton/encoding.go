@@ -3,9 +3,9 @@ package canton
 import (
 	"fmt"
 	"math/big"
-	"strings"
 
 	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
+	"github.com/shopspring/decimal"
 )
 
 // EncodeMintProposalArgs encodes the arguments for the CreateMintProposal choice
@@ -160,54 +160,17 @@ func extractNumeric(v *lapiv1.Value) (string, error) {
 
 // BigIntToDecimal converts big.Int to Daml decimal string
 func BigIntToDecimal(amount *big.Int, decimals int) string {
-	// Canton typically uses 10 decimal places
-	// Format: amount / 10^decimals
-	// This is a simplified implementation
-	// In a real implementation, we should use a proper decimal library
-
-	// For now, just return string representation if decimals is 0
-	if decimals == 0 {
-		return amount.String()
-	}
-
-	// TODO: Implement proper decimal formatting
-	return amount.String()
+	d := decimal.NewFromBigInt(amount, int32(-decimals))
+	return d.String()
 }
 
 // DecimalToBigInt converts Daml decimal string to big.Int
-func DecimalToBigInt(decimal string, decimals int) (*big.Int, error) {
-	// Simple implementation: remove dot and parse as int, then adjust scale
-	// Note: This assumes the decimal string has correct number of decimal places or fewer
-	// In production, use a proper decimal library
-
-	parts := strings.Split(decimal, ".")
-	if len(parts) > 2 {
-		return nil, fmt.Errorf("invalid decimal format: %s", decimal)
+func DecimalToBigInt(s string, decimals int) (*big.Int, error) {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid decimal format: %w", err)
 	}
-
-	integerPart := parts[0]
-	fractionalPart := ""
-	if len(parts) == 2 {
-		fractionalPart = parts[1]
-	}
-
-	// Pad fractional part if needed (or truncate if too long - simplified)
-	if len(fractionalPart) > decimals {
-		// Truncate
-		fractionalPart = fractionalPart[:decimals]
-	} else {
-		// Pad
-		for len(fractionalPart) < decimals {
-			fractionalPart += "0"
-		}
-	}
-
-	combined := integerPart + fractionalPart
-	result := new(big.Int)
-	_, ok := result.SetString(combined, 10)
-	if !ok {
-		return nil, fmt.Errorf("invalid number: %s", combined)
-	}
-
-	return result, nil
+	// Multiply by 10^decimals to get the integer representation
+	d = d.Mul(decimal.New(1, int32(decimals)))
+	return d.BigInt(), nil
 }

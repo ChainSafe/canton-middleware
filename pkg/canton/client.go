@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -61,7 +62,7 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
-		opts = append(opts, grpc.WithInsecure())
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
 	// Set max message size
@@ -70,9 +71,9 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 	}
 
 	// Connect to Canton participant node
-	conn, err := grpc.Dial(config.RPCURL, opts...)
+	conn, err := grpc.NewClient(config.RPCURL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial Canton node: %w", err)
+		return nil, fmt.Errorf("failed to create Canton client: %w", err)
 	}
 
 	logger.Info("Connected to Canton Network",
