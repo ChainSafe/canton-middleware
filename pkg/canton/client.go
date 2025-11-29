@@ -128,13 +128,30 @@ func loadTLSConfig(tlsCfg *config.TLSConfig) (*tls.Config, error) {
 	}, nil
 }
 
-// Placeholder methods - will be implemented once protobufs are generated
+// StreamTransactions streams transactions from the Canton ledger
+func (c *Client) StreamTransactions(ctx context.Context, offset string, filter *lapi.TransactionFilter) (grpc.ServerStreamingClient[lapi.GetUpdatesResponse], error) {
+	authCtx := c.GetAuthContext(ctx)
 
-// StreamTransactions streams transactions from Canton
-func (c *Client) StreamTransactions(ctx context.Context, offset string) error {
-	c.logger.Info("Starting transaction stream", zap.String("offset", offset))
-	// TODO: Implement using TransactionService.GetTransactions
-	return fmt.Errorf("not implemented - protobuf generation required")
+	// Set the starting offset
+	var begin *lapi.ParticipantOffset
+	if offset == "BEGIN" || offset == "" {
+		begin = &lapi.ParticipantOffset{
+			Value: &lapi.ParticipantOffset_Boundary{
+				Boundary: lapi.ParticipantOffset_PARTICIPANT_BEGIN,
+			},
+		}
+	} else {
+		begin = &lapi.ParticipantOffset{
+			Value: &lapi.ParticipantOffset_Absolute{Absolute: offset},
+		}
+	}
+
+	req := &lapi.GetUpdatesRequest{
+		BeginExclusive: begin,
+		Filter:         filter,
+	}
+
+	return c.updateService.GetUpdates(authCtx, req)
 }
 
 // SubmitMintProposal submits a mint proposal via WayfinderBridgeConfig
