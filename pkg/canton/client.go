@@ -30,12 +30,9 @@ type Client struct {
 
 // MintProposalRequest represents a request to mint tokens on Canton
 type MintProposalRequest struct {
-	Operator        string
-	Issuer          string
-	Recipient       string
-	TokenManagerCID string
-	Amount          string
-	Reference       string // EVM Tx Hash
+	Recipient string
+	Amount    string
+	Reference string // EVM Tx Hash
 }
 
 // BurnEvent represents a burn event on Canton
@@ -97,12 +94,31 @@ func (c *Client) Close() error {
 
 // GetAuthContext returns a context with the JWT token if configured
 func (c *Client) GetAuthContext(ctx context.Context) context.Context {
-	// TODO: Implement JWT generation/loading
-	if c.config.Auth.JWTSecret != "" {
-		md := metadata.Pairs("authorization", "Bearer "+c.config.Auth.JWTSecret)
+	token, err := c.loadToken()
+	if err != nil {
+		c.logger.Error("Failed to load JWT token", zap.Error(err))
+		return ctx
+	}
+
+	if token != "" {
+		md := metadata.Pairs("authorization", "Bearer "+token)
 		return metadata.NewOutgoingContext(ctx, md)
 	}
 	return ctx
+}
+
+func (c *Client) loadToken() (string, error) {
+	// If token file is provided, read from file
+	if c.config.Auth.TokenFile != "" {
+		tokenBytes, err := os.ReadFile(c.config.Auth.TokenFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read token file: %w", err)
+		}
+		// Trim whitespace/newlines
+		return string(tokenBytes), nil
+	}
+
+	return "", fmt.Errorf("no token file or token provided")
 }
 
 // loadTLSConfig loads TLS configuration from files

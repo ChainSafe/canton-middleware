@@ -40,6 +40,7 @@ type EthereumConfig struct {
 	WSUrl              string        `mapstructure:"ws_url"`
 	ChainID            int64         `mapstructure:"chain_id"`
 	BridgeContract     string        `mapstructure:"bridge_contract"`
+	TokenContract      string        `mapstructure:"token_contract"`
 	RelayerPrivateKey  string        `mapstructure:"relayer_private_key"`
 	ConfirmationBlocks int           `mapstructure:"confirmation_blocks"`
 	GasLimit           uint64        `mapstructure:"gas_limit"`
@@ -80,7 +81,7 @@ type TLSConfig struct {
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
 	JWTIssuer string `mapstructure:"jwt_issuer"`
-	JWTSecret string `mapstructure:"jwt_secret"`
+	TokenFile string `mapstructure:"token_file"`
 }
 
 // BridgeConfig contains bridge operation settings

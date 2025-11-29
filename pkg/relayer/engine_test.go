@@ -88,7 +88,7 @@ func TestCantonSource_StreamEvents(t *testing.T) {
 		},
 	}
 
-	source := NewCantonSource(mockCantonClient)
+	source := NewCantonSource(mockCantonClient, "0xTokenAddress")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()

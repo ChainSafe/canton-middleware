@@ -15,11 +15,15 @@ import (
 
 // CantonSource implements Source for Canton
 type CantonSource struct {
-	client CantonBridgeClient
+	client        CantonBridgeClient
+	tokenContract string
 }
 
-func NewCantonSource(client CantonBridgeClient) *CantonSource {
-	return &CantonSource{client: client}
+func NewCantonSource(client CantonBridgeClient, tokenContract string) *CantonSource {
+	return &CantonSource{
+		client:        client,
+		tokenContract: tokenContract,
+	}
 }
 
 func (s *CantonSource) GetChainID() string {
@@ -28,13 +32,13 @@ func (s *CantonSource) GetChainID() string {
 
 func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
 	outCh := make(chan *Event)
-	outErrCh := make(chan error)
-
-	burnCh, errCh := s.client.StreamBurnEvents(ctx, offset)
+	errCh := make(chan error, 1)
 
 	go func() {
 		defer close(outCh)
-		defer close(outErrCh)
+		defer close(errCh)
+
+		burnCh, burnErrCh := s.client.StreamBurnEvents(ctx, offset)
 
 		for {
 			select {
@@ -43,23 +47,12 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					return
 				}
 				outCh <- &Event{
-					ID:               burn.EventID,
-					TransactionID:    burn.TransactionID,
-					SourceChain:      "canton",
-					DestinationChain: "ethereum",
-					SourceTxHash:     burn.TransactionID,
-					TokenAddress:     "TODO", // BurnEvent doesn't have token info directly? It might be in contract key or implied.
-					// Wait, BurnEvent doesn't have token address?
-					// Looking at Daml: BurnEvent has operator, owner, destination, amount, reference, direction.
-					// It seems token info is missing in BurnEvent?
-					// In `RedeemRequest`, there is `tokenManagerCid`.
-					// In `BurnEvent`, we might need to add token info or fetch it.
-					// For now, I'll put a placeholder or maybe it's in the reference?
-					// Actually, the `BurnEvent` in the Daml file I read:
-					// template BurnEvent with operator, owner, destination, amount, reference, direction.
-					// It indeed misses the token symbol/address.
-					// This might be an issue in the contract design or I missed something.
-					// However, for this refactor, I will map what I have.
+					ID:                burn.EventID,
+					TransactionID:     burn.TransactionID,
+					SourceChain:       "canton",
+					DestinationChain:  "ethereum",
+					SourceTxHash:      burn.TransactionID,
+					TokenAddress:      s.tokenContract,
 					Amount:            burn.Amount,
 					Sender:            burn.Owner,
 					Recipient:         burn.Destination,
@@ -67,18 +60,18 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					SourceBlockNumber: 0,
 					Raw:               burn,
 				}
-			case err := <-errCh:
-				if err != nil {
-					outErrCh <- err
+			case err := <-burnErrCh:
+				select {
+				case errCh <- err:
+				default:
 				}
-				return
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 
-	return outCh, outErrCh
+	return outCh, errCh
 }
 
 // EthereumSource implements Source for Ethereum
@@ -168,12 +161,9 @@ func (d *CantonDestination) GetChainID() string {
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
 	// Map generic event to MintProposalRequest
 	req := &canton.MintProposalRequest{
-		Operator:        d.relayerParty,   // Relayer acts as operator
-		Issuer:          d.relayerParty,   // Or some other configured issuer?
-		Recipient:       event.Recipient,  // Canton party
-		TokenManagerCID: "TODO_FETCH_CID", // We need to fetch this
-		Amount:          canton.BigIntToDecimal(new(big.Int), 18),
-		Reference:       event.SourceTxHash,
+		Recipient: event.Recipient, // Canton party
+		Amount:    canton.BigIntToDecimal(new(big.Int), 18),
+		Reference: event.SourceTxHash,
 	}
 
 	// Parse amount

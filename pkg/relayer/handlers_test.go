@@ -12,9 +12,6 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 	// Setup mock client
 	mockClient := &MockCantonClient{
 		SubmitMintProposalFunc: func(ctx context.Context, req *canton.MintProposalRequest) error {
-			if req.Operator != "RelayerParty" {
-				t.Errorf("Expected Operator RelayerParty, got %s", req.Operator)
-			}
 			if req.Recipient != "Bob" {
 				t.Errorf("Expected Recipient Bob, got %s", req.Recipient)
 			}
@@ -65,7 +62,7 @@ func TestCantonSource_StreamEvents_Error(t *testing.T) {
 		},
 	}
 
-	source := NewCantonSource(mockClient)
+	source := NewCantonSource(mockClient, "0xTokenAddress")
 	_, outErrCh := source.StreamEvents(context.Background(), "BEGIN")
 
 	err := <-outErrCh

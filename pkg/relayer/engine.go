@@ -83,7 +83,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	}
 
 	// Initialize processors
-	cantonSource := NewCantonSource(e.cantonClient)
+	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract)
 	ethDest := NewEthereumDestination(e.ethClient)
 	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor")
 
