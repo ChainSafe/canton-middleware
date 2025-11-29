@@ -177,7 +177,7 @@ func (e *Engine) reconcile(ctx context.Context) {
 }
 
 // runReconciliation checks for stuck transfers and retries
-func (e *Engine) runReconciliation(ctx context.Context) error {
+func (e *Engine) runReconciliation(_ context.Context) error {
 	e.logger.Info("Running reconciliation")
 
 	// Get pending Canton->Ethereum transfers

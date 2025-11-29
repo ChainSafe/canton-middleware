@@ -7,6 +7,7 @@ import (
 
 	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -108,7 +109,5 @@ func (c *Client) StreamBurnEvents(ctx context.Context, offset string) (<-chan *B
 }
 
 func generateUUID() string {
-	// Simple UUID generation
-	// In production, use github.com/google/uuid
-	return fmt.Sprintf("%d", 1234567890)
+	return uuid.New().String()
 }
