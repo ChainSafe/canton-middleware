@@ -34,25 +34,24 @@ The bridge implementation is **~95% complete**! The core infrastructure, smart c
 
 ### 1. Integration Testing & Deployment
 
-**Prerequisite**: Access to a running Canton Participant Node and an Ethereum testnet (e.g., Sepolia).
+**Prerequisite**: Access to a local running Canton Node and an Ethereum devnet (e.g., Anvil).
 
 **Steps:**
 
-1.  **Deploy Daml Contracts**:
+1.  **Build Daml Contracts**:
     ```bash
-    cd contracts/canton
-    daml build
-    daml ledger upload-dar .daml/dist/canton-bridge-0.1.0.dar
+    cd contracts/canton-erc20
+    ./scripts/build-all.sh
     ```
 
 2.  **Deploy Solidity Contracts**:
     ```bash
     cd contracts/ethereum
-    forge script script/Deploy.s.sol:DeployScript --rpc-url $SEPOLIA_RPC_URL --broadcast
+    forge script script/Deploy.s.sol:DeployScript --rpc-url localhost:8545 --broadcast
     ```
 
 3.  **Configure Relayer**:
-    Update `config.yaml` with the deployed contract addresses, package IDs, and node URLs.
+    Update `config.yaml` (if needed) with the deployed contract addresses, package IDs, and node URLs.
 
 4.  **Run End-to-End Tests**:
     - Perform a deposit on Canton and verify minting on Ethereum.
