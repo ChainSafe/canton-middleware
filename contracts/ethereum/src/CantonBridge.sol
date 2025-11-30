@@ -42,7 +42,10 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
 
     event TokenMappingRemoved(address indexed ethereumToken);
 
-    event RelayerUpdated(address indexed oldRelayer, address indexed newRelayer);
+    event RelayerUpdated(
+        address indexed oldRelayer,
+        address indexed newRelayer
+    );
 
     event BridgeLimitsUpdated(
         uint256 maxTransferAmount,
@@ -61,7 +64,7 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
     mapping(address => bool) public isWrappedToken;
     // Canton token ID => Ethereum address
     mapping(bytes32 => address) public cantonToEthereumToken;
-    
+
     // Processed Canton transaction hashes to prevent replay
     mapping(bytes32 => bool) public processedCantonTxs;
 
@@ -78,7 +81,7 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
     ) Ownable(msg.sender) {
         require(_relayer != address(0), "Invalid relayer address");
         require(_maxTransferAmount > _minTransferAmount, "Invalid limits");
-        
+
         relayer = _relayer;
         maxTransferAmount = _maxTransferAmount;
         minTransferAmount = _minTransferAmount;
@@ -99,10 +102,13 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
         require(amount >= minTransferAmount, "Amount below minimum");
         require(amount <= maxTransferAmount, "Amount exceeds maximum");
         require(cantonRecipient != bytes32(0), "Invalid Canton recipient");
-        require(ethereumToCantonToken[token] != bytes32(0), "Token not supported");
+        require(
+            ethereumToCantonToken[token] != bytes32(0),
+            "Token not supported"
+        );
 
         bool wrapped = isWrappedToken[token];
-        
+
         if (wrapped) {
             // Burn wrapped tokens
             IWrappedToken(token).burnFrom(msg.sender, amount);
@@ -145,7 +151,10 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
         require(amount <= maxTransferAmount, "Amount exceeds maximum");
         require(cantonTxHash != bytes32(0), "Invalid Canton tx hash");
         require(!processedCantonTxs[cantonTxHash], "Already processed");
-        require(ethereumToCantonToken[token] != bytes32(0), "Token not supported");
+        require(
+            ethereumToCantonToken[token] != bytes32(0),
+            "Token not supported"
+        );
 
         // Mark as processed to prevent replay
         processedCantonTxs[cantonTxHash] = true;
@@ -177,7 +186,10 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
     ) external onlyOwner {
         require(ethereumToken != address(0), "Invalid token address");
         require(cantonTokenId != bytes32(0), "Invalid Canton token ID");
-        require(ethereumToCantonToken[ethereumToken] == bytes32(0), "Token already mapped");
+        require(
+            ethereumToCantonToken[ethereumToken] == bytes32(0),
+            "Token already mapped"
+        );
 
         ethereumToCantonToken[ethereumToken] = cantonTokenId;
         cantonToEthereumToken[cantonTokenId] = ethereumToken;
@@ -192,7 +204,10 @@ contract CantonBridge is Ownable, Pausable, ReentrancyGuard {
      * @param ethereumToken Ethereum ERC-20 token address
      */
     function removeTokenMapping(address ethereumToken) external onlyOwner {
-        require(ethereumToCantonToken[ethereumToken] != bytes32(0), "Token not mapped");
+        require(
+            ethereumToCantonToken[ethereumToken] != bytes32(0),
+            "Token not mapped"
+        );
 
         bytes32 cantonTokenId = ethereumToCantonToken[ethereumToken];
         delete ethereumToCantonToken[ethereumToken];

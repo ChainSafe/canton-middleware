@@ -11,24 +11,28 @@ database:
   ssl_mode: "disable"
 
 ethereum:
-  rpc_url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
-  ws_url: "wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY"
-  chain_id: 1
-  bridge_contract: "0x0000000000000000000000000000000000000000"
+  rpc_url: "http://localhost:8545"
+  ws_url: "ws://localhost:8545"
+  chain_id: 31337
+  bridge_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3" # Deterministic address for Anvil Account 0, Nonce 0
+  token_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"  # Deterministic address for Anvil Account 0, Nonce 1
   relayer_private_key: ""  # Set via environment variable ETHEREUM_RELAYER_PRIVATE_KEY
-  confirmation_blocks: 12
+  confirmation_blocks: 1
   gas_limit: 300000
   max_gas_price: "100000000000"  # 100 Gwei
-  polling_interval: "15s"
+  polling_interval: "5s"
   start_block: 0
 
 canton:
-  rpc_url: "https://canton-partner-node:8080"
-  chain_id: "canton-network"
-  bridge_contract: "canton-bridge-contract-address"
-  relayer_private_key: ""  # Set via environment variable CANTON_RELAYER_PRIVATE_KEY
-  confirmation_blocks: 1
-  polling_interval: "10s"
+  rpc_url: "localhost:5001"
+  ledger_id: "canton-ledger-id"
+  application_id: "canton-middleware"
+  relayer_party: "" # Set via environment variable CANTON_RELAYER_PARTY or update here
+  bridge_package_id: "bridge-wayfinder-1.0.0" # Or the actual package ID hash if known
+  bridge_module: "Wayfinder.Bridge"
+  bridge_contract: "WayfinderBridgeConfig"
+  tls_enabled: false
+  polling_interval: "1s"
   start_block: 0
 
 bridge:

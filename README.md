@@ -59,19 +59,11 @@ go build -o bin/relayer ./cmd/relayer
 
 ### Configuration
 
-See `docs/configuration.md` for detailed configuration options.
+See `config.example.yaml` for detailed configuration options.
 
 ## Documentation
 
 See the [docs](docs/) directory for detailed documentation:
-- [Implementation Plan](BRIDGE_IMPLEMENTATION_PLAN.md)
-- [Architecture](docs/architecture.md)
-- [API Reference](docs/api.md)
-
-## Security
-
-This is a centralized bridge operated by a single relayer. Users must trust the relayer operator. See [Security Considerations](BRIDGE_IMPLEMENTATION_PLAN.md#security-considerations) for details.
-
-## License
-
-TBD
+- [Architecture Design](docs/architecture-design.md)
+- [General Relayer Logic](docs/relayer-logic.md)
+- [Integration with Canton](docs/canton-integration.md)
