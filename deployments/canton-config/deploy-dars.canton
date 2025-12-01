@@ -9,6 +9,7 @@ bootstrap.synchronizer_local()
 // The macro is convenient for local testing, but obviously doesn't work in a distributed setup.
 participant1.synchronizers.connect_local(sequencer1, alias = "da")
 
+// Upload DARs to participant1 (SDK 3.4.8 produces DAML-LF 2.x compatible with Canton 3.4.8)
 val dars = Seq(
   "/canton/contracts/daml/common/.daml/dist/common-1.0.0.dar",
   "/canton/contracts/daml/cip56-token/.daml/dist/cip56-token-1.0.0.dar",
@@ -25,6 +26,8 @@ dars.foreach { darPath =>
     case e: Exception => println(s"Failed to upload $darPath: ${e.getMessage}")
   }
 }
+
+println("Canton network initialized with DARs uploaded")
 
 val daPort = Option(System.getProperty("canton-examples.da-port")).getOrElse("5001")
 
@@ -51,4 +54,3 @@ utils.retry_until_true {
 }
 
 participant2.health.ping(participant1)
-
