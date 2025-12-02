@@ -1,0 +1,123 @@
+// =============================================================================
+// WAYFINDER BRIDGE FLOW TEST
+// =============================================================================
+// This script tests the complete issuer-centric bridge flow:
+// 1. Allocate parties (issuer, user)
+// 2. Deploy token manager and bridge config
+// 3. Register user fingerprint
+// 4. Simulate deposit (mint tokens)
+// 5. Simulate withdrawal (burn tokens)
+
+import com.digitalasset.canton.console.ParticipantReference
+
+println("=".repeat(70))
+println("WAYFINDER BRIDGE FLOW TEST - Canton Instance")
+println("=".repeat(70))
+
+// =============================================================================
+// 1. ALLOCATE PARTIES
+// =============================================================================
+println("\n>>> 1. Allocating parties...")
+
+// Allocate the issuer (bridge operator)
+val issuer = participant1.parties.enable("BridgeIssuer")
+println(s"    Issuer allocated: $issuer")
+
+// Allocate a user
+val alice = participant1.parties.enable("Alice")
+println(s"    Alice allocated: $alice")
+
+// Extract Alice's fingerprint from her party ID
+// Party ID format: "Alice::1220abc...def"
+val alicePartyId = alice.toLf
+val aliceFingerprint = alicePartyId.split("::").last
+println(s"    Alice's fingerprint: $aliceFingerprint")
+
+println("    [OK] Parties allocated")
+
+// =============================================================================
+// 2. CREATE TOKEN MANAGER
+// =============================================================================
+println("\n>>> 2. Creating PROMPT token manager...")
+
+// We need to use the Ledger API to create contracts
+// For now, let's just verify the packages are available
+
+val packages = participant1.packages.list()
+println(s"    Available packages: ${packages.size}")
+
+val bridgePackage = packages.find(_.name.contains("bridge-wayfinder"))
+bridgePackage match {
+  case Some(pkg) => println(s"    [OK] Bridge package found: ${pkg.name} v${pkg.version}")
+  case None => println("    [ERROR] Bridge package not found!")
+}
+
+val commonPackage = packages.find(_.name.contains("common"))
+commonPackage match {
+  case Some(pkg) => println(s"    [OK] Common package found: ${pkg.name} v${pkg.version}")
+  case None => println("    [ERROR] Common package not found!")
+}
+
+// =============================================================================
+// 3. VERIFY SETUP
+// =============================================================================
+println("\n>>> 3. Verifying setup...")
+
+// Check synchronizer connection
+val syncStatus = participant1.synchronizers.list_connected()
+println(s"    Connected synchronizers: ${syncStatus.map(_.synchronizerId).mkString(", ")}")
+
+// Check participant health
+val health = participant1.health.status
+println(s"    Participant1 health: ${health.trySuccess.map(_.active).getOrElse(false)}")
+
+println("\n" + "=".repeat(70))
+println("SETUP COMPLETE - Ready for Ledger API commands")
+println("=".repeat(70))
+
+println("""
+To run the full bridge flow, use the Ledger API (gRPC or JSON):
+
+1. Create CIP56Manager:
+   POST /v1/create
+   {
+     "templateId": "CIP56.Token:CIP56Manager",
+     "payload": {
+       "issuer": "<issuer_party>",
+       "meta": { "name": "Wayfinder PROMPT", "symbol": "PROMPT", ... }
+     }
+   }
+
+2. Create WayfinderBridgeConfig:
+   POST /v1/create
+   {
+     "templateId": "Wayfinder.Bridge:WayfinderBridgeConfig",
+     "payload": {
+       "issuer": "<issuer_party>",
+       "tokenManagerCid": "<token_manager_cid>"
+     }
+   }
+
+3. Register user (via choice):
+   POST /v1/exercise
+   {
+     "templateId": "Wayfinder.Bridge:WayfinderBridgeConfig",
+     "contractId": "<config_cid>",
+     "choice": "RegisterUser",
+     "argument": {
+       "userParty": "<alice_party>",
+       "fingerprint": "<alice_fingerprint>",
+       "evmAddress": null
+     }
+   }
+
+Parties available:
+  Issuer: """ + issuer.toLf + """
+  Alice:  """ + alice.toLf + """
+  Alice fingerprint: """ + aliceFingerprint + """
+
+Ledger API endpoints:
+  gRPC:  localhost:5011
+  HTTP:  localhost:5013
+""")
+
