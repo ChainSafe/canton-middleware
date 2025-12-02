@@ -87,8 +87,9 @@ cast call 0x5FbDB2315678afecb367f032d93F642f64180aa3 "relayer()" --rpc-url http:
 # Should return the relayer address:
 # 0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266
 
-# Check wrapped token contract
-cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "name()" --rpc-url http://localhost:8545
+# Check wrapped token contract name
+cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "name()(string)" --rpc-url http://localhost:8545
+# Should return: "Wrapped Canton Token"
 ```
 
 ### Step 3: Verify Canton DARs Uploaded
@@ -98,8 +99,9 @@ cast call 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 "name()" --rpc-url http://l
 curl -s http://localhost:5013/v2/packages | jq '.packageIds | length'
 # Should return 30+ packages
 
-# Check specific package exists
-curl -s http://localhost:5013/v2/packages | jq '.packageIds[]' | grep "6694b7794de78352"
+# Check parties exist
+curl -s http://localhost:5013/v2/parties | jq '.partyDetails[].party'
+# Should include BridgeIssuer party
 ```
 
 ### Step 4: Allocate Bridge Issuer Party (if not done)
@@ -127,6 +129,23 @@ go run scripts/bootstrap-bridge.go \
 This creates:
 - **CIP56Manager**: Token manager for minting/burning wrapped PROMPT
 - **WayfinderBridgeConfig**: Bridge configuration contract
+
+Expected output on first run:
+```
+>>> Step 3: Checking for existing WayfinderBridgeConfig...
+    No existing config found, creating new one...
+>>> Step 4: Creating CIP56Manager for PROMPT token...
+    CIP56Manager Contract ID: 00...
+>>> Step 5: Creating WayfinderBridgeConfig...
+    WayfinderBridgeConfig Contract ID: 00...
+```
+
+On subsequent runs:
+```
+>>> Step 3: Checking for existing WayfinderBridgeConfig...
+    [EXISTS] WayfinderBridgeConfig: 00...
+Bridge is already bootstrapped!
+```
 
 ### Step 6: Start the Relayer
 
@@ -198,19 +217,9 @@ Private Key: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 
 **Flow: Lock PROMPT on EVM → Relayer detects → Mint wrapped PROMPT on Canton**
 
-### Step 1: Register User on Canton (One-time setup)
+> **Note**: The full deposit flow requires a `FingerprintMapping` to be registered on Canton for the recipient. Without this, the relayer will detect the deposit but fail at the "get fingerprint mapping" step. This is expected behavior - see [Next Steps](#next-steps) for implementing user registration.
 
-Before a user can receive tokens on Canton, they need a `FingerprintMapping` that links their Canton fingerprint to their EVM address.
-
-```bash
-# This would be done by the issuer when onboarding a user
-# The fingerprint comes from the Party ID allocated for the user
-
-# For testing, we'll use the issuer's fingerprint as the recipient
-FINGERPRINT="122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
-```
-
-### Step 2: Add Token Mapping on Bridge (One-time setup)
+### Step 1: Add Token Mapping on Bridge (One-time setup)
 
 ```bash
 # Add token mapping (relayer only)
@@ -224,9 +233,11 @@ cast send $BRIDGE "addTokenMapping(address,bytes32,bool)" \
   $TOKEN $CANTON_TOKEN_ID true \
   --rpc-url http://localhost:8545 \
   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+
+# Note: This will fail with "Token already mapped" if already done - that's OK
 ```
 
-### Step 3: Mint Test Tokens (for testing)
+### Step 2: Mint Test Tokens (for testing)
 
 ```bash
 # Mint wrapped tokens to user account for testing
@@ -239,10 +250,10 @@ cast send $TOKEN "mint(address,uint256)" $USER $AMOUNT \
   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 # Check balance
-cast call $TOKEN "balanceOf(address)" $USER --rpc-url http://localhost:8545
+cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545
 ```
 
-### Step 4: Approve Bridge to Spend Tokens
+### Step 3: Approve Bridge to Spend Tokens
 
 ```bash
 USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -255,7 +266,7 @@ cast send $TOKEN "approve(address,uint256)" $BRIDGE $AMOUNT \
   --private-key $USER_KEY
 ```
 
-### Step 5: Deposit to Canton
+### Step 4: Deposit to Canton
 
 ```bash
 USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -263,9 +274,9 @@ BRIDGE="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 TOKEN="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 AMOUNT="100000000000000000000"  # 100 tokens
 
-# Canton recipient is the fingerprint as bytes32
-# Pad the fingerprint to 32 bytes
-CANTON_RECIPIENT="0x122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
+# Canton recipient fingerprint as bytes32 (32 bytes = 64 hex chars)
+# NOTE: The full fingerprint is 33 bytes (1220... prefix), so we use the 32-byte hash portion
+CANTON_RECIPIENT="0x47584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
 
 cast send $BRIDGE "depositToCanton(address,uint256,bytes32)" \
   $TOKEN $AMOUNT $CANTON_RECIPIENT \
@@ -273,30 +284,25 @@ cast send $BRIDGE "depositToCanton(address,uint256,bytes32)" \
   --private-key $USER_KEY
 ```
 
-### Step 6: Monitor Relayer
+### Step 5: Monitor Relayer
 
 Watch the relayer logs for:
 ```
-INFO    Deposit event received    {"token": "0xe7f1...", "amount": "100000000000000000000", "recipient": "1220..."}
-INFO    Creating pending deposit on Canton
-INFO    Processing deposit and minting tokens
-INFO    Deposit completed successfully
+INFO    Processing transfer    {"id": "0x...", "direction": "ethereum_to_canton", "amount": "100000000000000000000"}
+INFO    Creating pending deposit    {"fingerprint": "47584945...", "amount": "100", "evm_tx_hash": "0x..."}
 ```
 
-### Step 7: Verify on Canton
+> **Expected**: Without a FingerprintMapping registered, you'll see:
+> ```
+> ERROR   Failed to submit transfer    {"error": "no FingerprintMapping found for fingerprint: 47584945..."}
+> ```
+> This is correct behavior - the deposit was detected but needs user registration.
+
+### Step 6: Check Transfer Records
 
 ```bash
-# Check for CIP56Holding contracts created for the recipient
-# This would show the minted wrapped PROMPT tokens on Canton
-curl -s 'http://localhost:5013/v2/state/acs' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "filter": {
-      "filters_by_party": {
-        "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e": {}
-      }
-    }
-  }' | jq '.result.activeContracts'
+# Query relayer API for transfer history
+curl http://localhost:8080/api/v1/transfers | jq
 ```
 
 ---
@@ -304,6 +310,8 @@ curl -s 'http://localhost:5013/v2/state/acs' \
 ## Canton → EVM Flow (Withdrawal)
 
 **Flow: Burn wrapped PROMPT on Canton → Relayer detects → Unlock PROMPT on EVM**
+
+> **Note**: This flow requires completed deposits first (tokens minted on Canton).
 
 ### Step 1: Initiate Withdrawal on Canton
 
@@ -334,7 +342,7 @@ INFO    Completing withdrawal on Canton
 USER="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 TOKEN="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 
-cast call $TOKEN "balanceOf(address)" $USER --rpc-url http://localhost:8545
+cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545
 ```
 
 ### Step 4: Check Transfer Records
@@ -379,15 +387,29 @@ Ensure the correct package IDs are in `config.yaml`:
 curl -s http://localhost:5013/v2/packages | jq '.packageIds[]'
 ```
 
+### "No active WayfinderBridgeConfig found"
+
+This was a bug in the V2 API usage - fixed in the codebase. The `GetActiveContracts` request requires `ActiveAtOffset` to be set to the current ledger end (not 0).
+
+```bash
+# Re-run bootstrap to create the config
+go run scripts/bootstrap-bridge.go -config config.yaml \
+  -issuer "BridgeIssuer::..." -package "..."
+```
+
+### "Missing user-id" Error
+
+This was a bug - fixed by adding `UserId` field to all Canton command submissions.
+
 ### Deposit Not Processing
 
 1. Check relayer logs for errors
 2. Verify token mapping exists on bridge contract
-3. Verify user has FingerprintMapping on Canton
+3. Verify user has FingerprintMapping on Canton (required!)
 4. Check database for pending transfers:
 
 ```bash
-psql -h localhost -U postgres -d relayer -c "SELECT * FROM transfers WHERE status = 'pending';"
+docker exec postgres psql -U postgres -d relayer -c "SELECT id, status, error_message FROM transfers ORDER BY created_at DESC LIMIT 5;"
 ```
 
 ---
@@ -437,14 +459,16 @@ Index all bridge events for better querying:
 
 ### 5. Testing Checklist
 
-- [ ] Deposit small amount (e.g., 1 token)
-- [ ] Deposit large amount (test limits)
-- [ ] Withdraw to same address
-- [ ] Withdraw to different address
-- [ ] Test with multiple concurrent deposits
-- [ ] Test relayer restart (should resume from last offset)
-- [ ] Test Canton restart (should reconnect)
-- [ ] Test Ethereum node restart (should reconnect)
+- [x] Docker services start correctly
+- [x] Ethereum contracts verified
+- [x] Canton DARs uploaded
+- [x] Bootstrap creates WayfinderBridgeConfig
+- [x] Relayer starts and connects
+- [x] Deposit event detected on EVM
+- [x] Deposit creates PendingDeposit on Canton
+- [ ] FingerprintMapping lookup succeeds (needs user registration)
+- [ ] Full deposit flow completes
+- [ ] Withdrawal flow works
 
 ---
 
@@ -499,7 +523,6 @@ Index all bridge events for better querying:
 ## Support
 
 - Check logs: `docker logs canton` / relayer stdout
-- Database: `psql -h localhost -U postgres -d relayer`
+- Database: `docker exec postgres psql -U postgres -d relayer`
 - Metrics: http://localhost:9090/metrics
 - Canton Console: `docker exec -it canton /canton/bin/canton`
-

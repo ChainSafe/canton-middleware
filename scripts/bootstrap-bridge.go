@@ -216,7 +216,18 @@ func getDomainID(ctx context.Context, client lapiv2.StateServiceClient, party st
 }
 
 func findExistingBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string) (string, error) {
+	// V2 API requires ActiveAtOffset - get current ledger end
+	ledgerEndResp, err := client.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return "", fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				party: {
@@ -257,7 +268,7 @@ func findExistingBridgeConfig(ctx context.Context, client lapiv2.StateServiceCli
 
 func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, _ string) (string, error) {
 	cmdID := fmt.Sprintf("bootstrap-token-manager-%d", time.Now().UnixNano())
-	
+
 	fmt.Printf("    Debug: issuer=%s, packageID=%s, domainID=%s\n", issuer, packageID, domainID)
 
 	// PROMPT token metadata
@@ -283,7 +294,7 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 
 	// CIP56Manager is in cip56-token package, not bridge-wayfinder
 	cip56PackageID := "e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe"
-	
+
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Create{
 			Create: &lapiv2.CreateCommand{
@@ -304,8 +315,8 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		ActAs:          []string{issuer},
 		Commands:       []*lapiv2.Command{cmd},
 	}
-	
-	fmt.Printf("    Submitting: SynchronizerId=%s, CmdId=%s, UserId=%s, ActAs=%v\n", 
+
+	fmt.Printf("    Submitting: SynchronizerId=%s, CmdId=%s, UserId=%s, ActAs=%v\n",
 		commands.SynchronizerId, commands.CommandId, commands.UserId, commands.ActAs)
 
 	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{

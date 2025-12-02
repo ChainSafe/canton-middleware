@@ -191,6 +191,7 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -207,8 +208,19 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
+	// V2 API requires ActiveAtOffset - get current ledger end
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return "", fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
 	// V2 API: GetActiveContracts uses EventFormat with FiltersByParty and Cumulative filters
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
@@ -304,6 +316,7 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -330,8 +343,19 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) (*FingerprintMapping, error) {
 	authCtx := c.GetAuthContext(ctx)
 
+	// V2 API requires ActiveAtOffset - get current ledger end
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return nil, fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
 	// V2 API: GetActiveContracts uses EventFormat with FiltersByParty and Cumulative filters
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
@@ -414,6 +438,7 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -468,6 +493,7 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -524,6 +550,7 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -573,6 +600,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
+			UserId:         "bridge-relayer",
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
