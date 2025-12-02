@@ -6,17 +6,15 @@ import (
 	"testing"
 	"time"
 
-	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestClient_SubmitMintProposal(t *testing.T) {
 	mockCmdService := &MockCommandService{
-		SubmitAndWaitFunc: func(ctx context.Context, in *lapiv2.SubmitAndWaitRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+		SubmitAndWaitFunc: func(ctx context.Context, in *lapiv2.SubmitAndWaitRequest, opts ...grpc.CallOption) (*lapiv2.SubmitAndWaitResponse, error) {
 			if len(in.Commands.Commands) != 1 {
 				t.Errorf("Expected 1 command, got %d", len(in.Commands.Commands))
 			}
@@ -31,7 +29,7 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 			if cmd.Choice != "CreateMintProposal" {
 				t.Errorf("Expected Choice CreateMintProposal, got %s", cmd.Choice)
 			}
-			return &emptypb.Empty{}, nil
+			return &lapiv2.SubmitAndWaitResponse{}, nil
 		},
 	}
 
@@ -40,7 +38,7 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 			return &lapiv2.GetActiveContractsResponse{
 				ContractEntry: &lapiv2.GetActiveContractsResponse_ActiveContract{
 					ActiveContract: &lapiv2.ActiveContract{
-						CreatedEvent: &lapiv1.CreatedEvent{
+						CreatedEvent: &lapiv2.CreatedEvent{
 							ContractId: "config-cid",
 						},
 					},
@@ -132,8 +130,8 @@ func TestClient_StreamBurnEvents(t *testing.T) {
 
 func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 	// Create a fake burn event
-	burnRecord := &lapiv1.Record{
-		Fields: []*lapiv1.RecordField{
+	burnRecord := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
 			{Label: "operator", Value: PartyValue("Alice")},
 			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},
@@ -142,11 +140,10 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 		},
 	}
 
-	event := &lapiv1.Event{
-		Event: &lapiv1.Event_Created{
-			Created: &lapiv1.CreatedEvent{
-				EventId: "event-1",
-				TemplateId: &lapiv1.Identifier{
+	event := &lapiv2.Event{
+		Event: &lapiv2.Event_Created{
+			Created: &lapiv2.CreatedEvent{
+				TemplateId: &lapiv2.Identifier{
 					EntityName: "BurnEvent",
 				},
 				CreateArguments: burnRecord,
@@ -156,7 +153,7 @@ func TestClient_StreamBurnEvents_WithData(t *testing.T) {
 
 	tx := &lapiv2.Transaction{
 		UpdateId: "tx-1",
-		Events:   []*lapiv1.Event{event},
+		Events:   []*lapiv2.Event{event},
 	}
 
 	// Setup mock stream

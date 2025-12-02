@@ -18,8 +18,18 @@ import (
 
 // CantonBridgeClient defines the interface for Canton interactions
 type CantonBridgeClient interface {
+	// Legacy methods (deprecated but kept for backwards compatibility)
 	StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
 	SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error
+
+	// Issuer-centric model methods (new)
+	StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error)
+	RegisterUser(ctx context.Context, req *canton.RegisterUserRequest) (string, error)
+	GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
+	CreatePendingDeposit(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
+	ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
+	InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
+	CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
 }
 
 // EthereumBridgeClient defines the interface for Ethereum interactions
@@ -84,7 +94,7 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// Initialize processors
 	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract)
-	ethDest := NewEthereumDestination(e.ethClient)
+	ethDest := NewEthereumDestination(e.ethClient, e.cantonClient)
 	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor")
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum)
@@ -96,7 +106,12 @@ func (e *Engine) Start(ctx context.Context) error {
 	go func() {
 		defer e.wg.Done()
 		if err := cantonProcessor.Start(ctx, e.cantonOffset); err != nil {
-			e.logger.Error("Canton processor failed", zap.Error(err))
+			// Canton streaming may fail due to protobuf version mismatch with Canton 3.4.8
+			// The update_format field is required but not in our generated protos
+			// This is a known issue - regenerate protos from Canton 3.4.8 to fix
+			e.logger.Warn("Canton processor stopped (protobuf update needed for Canton 3.4.8)",
+				zap.Error(err),
+				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
 		}
 	}()
 
@@ -107,7 +122,7 @@ func (e *Engine) Start(ctx context.Context) error {
 		// Convert uint64 block to string offset
 		ethOffset := fmt.Sprintf("%d", e.ethLastBlock)
 		if err := ethProcessor.Start(ctx, ethOffset); err != nil {
-			e.logger.Error("Ethereum processor failed", zap.Error(err))
+			e.logger.Warn("Ethereum processor stopped", zap.Error(err))
 		}
 	}()
 

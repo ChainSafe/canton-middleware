@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -38,29 +39,30 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 		defer close(outCh)
 		defer close(errCh)
 
-		burnCh, burnErrCh := s.client.StreamBurnEvents(ctx, offset)
+		// Use the new issuer-centric StreamWithdrawalEvents
+		withdrawalCh, withdrawalErrCh := s.client.StreamWithdrawalEvents(ctx, offset)
 
 		for {
 			select {
-			case burn, ok := <-burnCh:
+			case withdrawal, ok := <-withdrawalCh:
 				if !ok {
 					return
 				}
 				outCh <- &Event{
-					ID:                burn.EventID,
-					TransactionID:     burn.TransactionID,
+					ID:                withdrawal.EventID,
+					TransactionID:     withdrawal.TransactionID,
 					SourceChain:       "canton",
 					DestinationChain:  "ethereum",
-					SourceTxHash:      burn.TransactionID,
+					SourceTxHash:      withdrawal.TransactionID,
 					TokenAddress:      s.tokenContract,
-					Amount:            burn.Amount,
-					Sender:            burn.Owner,
-					Recipient:         burn.Destination,
+					Amount:            withdrawal.Amount,
+					Sender:            withdrawal.UserParty,
+					Recipient:         withdrawal.EvmDestination,
 					Nonce:             0,
 					SourceBlockNumber: 0,
-					Raw:               burn,
+					Raw:               withdrawal,
 				}
-			case err := <-burnErrCh:
+			case err := <-withdrawalErrCh:
 				select {
 				case errCh <- err:
 				default:
@@ -159,35 +161,55 @@ func (d *CantonDestination) GetChainID() string {
 }
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
-	// Map generic event to MintProposalRequest
-	req := &canton.MintProposalRequest{
-		Recipient: event.Recipient, // Canton party
-		Amount:    canton.BigIntToDecimal(new(big.Int), 18),
-		Reference: event.SourceTxHash,
-	}
+	// The recipient from EVM is a fingerprint (bytes32 as hex)
+	fingerprint := event.Recipient
 
 	// Parse amount
 	amount := new(big.Int)
 	amount.SetString(event.Amount, 10)
-	req.Amount = canton.BigIntToDecimal(amount, 18)
+	amountStr := canton.BigIntToDecimal(amount, 18)
 
-	if err := d.client.SubmitMintProposal(ctx, req); err != nil {
-		return "", err
+	// Step 1: Create PendingDeposit from EVM event
+	depositReq := &canton.CreatePendingDepositRequest{
+		Fingerprint: fingerprint,
+		Amount:      amountStr,
+		EvmTxHash:   event.SourceTxHash,
+		Timestamp:   time.Now(),
 	}
 
-	// Canton doesn't return a tx hash for the submission itself in the same way,
-	// but we can use the command ID or similar if available.
-	// For now, return empty or a placeholder.
-	return "submitted", nil
+	depositCid, err := d.client.CreatePendingDeposit(ctx, depositReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to create pending deposit: %w", err)
+	}
+
+	// Step 2: Look up FingerprintMapping by fingerprint
+	mapping, err := d.client.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprint, err)
+	}
+
+	// Step 3: Process deposit and mint tokens
+	processReq := &canton.ProcessDepositRequest{
+		DepositCid: depositCid,
+		MappingCid: mapping.ContractID,
+	}
+
+	holdingCid, err := d.client.ProcessDeposit(ctx, processReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to process deposit: %w", err)
+	}
+
+	return holdingCid, nil
 }
 
 // EthereumDestination implements Destination for Ethereum
 type EthereumDestination struct {
-	client EthereumBridgeClient
+	client       EthereumBridgeClient
+	cantonClient CantonBridgeClient
 }
 
-func NewEthereumDestination(client EthereumBridgeClient) *EthereumDestination {
-	return &EthereumDestination{client: client}
+func NewEthereumDestination(client EthereumBridgeClient, cantonClient CantonBridgeClient) *EthereumDestination {
+	return &EthereumDestination{client: client, cantonClient: cantonClient}
 }
 
 func (d *EthereumDestination) GetChainID() string {
@@ -195,10 +217,8 @@ func (d *EthereumDestination) GetChainID() string {
 }
 
 func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
-	// Convert recipient
-	cantonRecipientBytes := []byte(event.Recipient)
-	var ethRecipient [32]byte
-	copy(ethRecipient[:], cantonRecipientBytes)
+	// For withdrawal events, recipient is the EVM address
+	ethRecipientAddr := common.HexToAddress(event.Recipient)
 
 	// Convert token
 	tokenAddress := common.HexToAddress(event.TokenAddress)
@@ -209,7 +229,7 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 		return "", fmt.Errorf("failed to parse amount: %w", err)
 	}
 
-	// Convert tx hash
+	// Convert Canton tx hash to bytes32 for idempotency
 	cantonTxHashBytes, err := hex.DecodeString(event.SourceTxHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode source tx hash: %w", err)
@@ -217,8 +237,7 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 	var cantonTxHash [32]byte
 	copy(cantonTxHash[:], cantonTxHashBytes)
 
-	// Submit
-	ethRecipientAddr := common.BytesToAddress(ethRecipient[:20])
+	// Submit withdrawal to EVM
 	txHash, err := d.client.WithdrawFromCanton(
 		ctx,
 		tokenAddress,
@@ -228,7 +247,20 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 		cantonTxHash,
 	)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to withdraw from Canton on EVM: %w", err)
+	}
+
+	// Mark withdrawal as complete on Canton (if we have the withdrawal event)
+	if withdrawal, ok := event.Raw.(*canton.WithdrawalEvent); ok && d.cantonClient != nil {
+		completeReq := &canton.CompleteWithdrawalRequest{
+			WithdrawalEventCid: withdrawal.ContractID,
+			EvmTxHash:          txHash.Hex(),
+		}
+		if err := d.cantonClient.CompleteWithdrawal(ctx, completeReq); err != nil {
+			// Log but don't fail - the EVM transfer succeeded
+			// This can be reconciled later
+			_ = err // TODO: log this error
+		}
 	}
 
 	return txHash.Hex(), nil

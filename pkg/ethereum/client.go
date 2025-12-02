@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
@@ -23,7 +24,7 @@ type Client struct {
 	privateKey *ecdsa.PrivateKey
 	address    common.Address
 	logger     *zap.Logger
-	
+
 	bridgeAddress common.Address
 	bridge        *contracts.CantonBridge
 }
@@ -39,36 +40,36 @@ func NewClient(cfg *config.EthereumConfig, logger *zap.Logger) (*Client, error) 
 	// Connect to WebSocket for event streaming (optional)
 	var wsClient *ethclient.Client
 	if cfg.WSUrl != "" {
-	wsClient, err = ethclient.Dial(cfg.WSUrl)
-	if err != nil {
-	logger.Warn("Failed to connect to Ethereum WebSocket, falling back to polling",
-	zap.Error(err))
-	}
+		wsClient, err = ethclient.Dial(cfg.WSUrl)
+		if err != nil {
+			logger.Warn("Failed to connect to Ethereum WebSocket, falling back to polling",
+				zap.Error(err))
+		}
 	}
 
 	// Load private key
 	privateKey, err := crypto.HexToECDSA(cfg.RelayerPrivateKey)
 	if err != nil {
-	return nil, fmt.Errorf("failed to load private key: %w", err)
+		return nil, fmt.Errorf("failed to load private key: %w", err)
 	}
 
 	address := crypto.PubkeyToAddress(privateKey.PublicKey)
 	bridgeAddress := common.HexToAddress(cfg.BridgeContract)
-	
+
 	// Load bridge contract
 	bridge, err := contracts.NewCantonBridge(bridgeAddress, client)
 	if err != nil {
-	return nil, fmt.Errorf("failed to load bridge contract: %w", err)
+		return nil, fmt.Errorf("failed to load bridge contract: %w", err)
 	}
 
 	logger.Info("Connected to Ethereum",
-	zap.Int64("chain_id", cfg.ChainID),
-	zap.String("rpc_url", cfg.RPCURL),
-	zap.String("bridge_contract", bridgeAddress.Hex()),
-	zap.String("relayer_address", address.Hex()))
+		zap.Int64("chain_id", cfg.ChainID),
+		zap.String("rpc_url", cfg.RPCURL),
+		zap.String("bridge_contract", bridgeAddress.Hex()),
+		zap.String("relayer_address", address.Hex()))
 
 	return &Client{
-	config:        cfg,
+		config:        cfg,
 		client:        client,
 		wsClient:      wsClient,
 		privateKey:    privateKey,
@@ -92,7 +93,7 @@ func (c *Client) Close() {
 // GetTransactor returns a transaction signer
 func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) {
 	chainID := big.NewInt(c.config.ChainID)
-	
+
 	auth, err := bind.NewKeyedTransactorWithChainID(c.privateKey, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transactor: %w", err)
@@ -111,7 +112,7 @@ func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) 
 	if c.config.MaxGasPrice != "" {
 		maxGasPrice := new(big.Int)
 		maxGasPrice.SetString(c.config.MaxGasPrice, 10)
-		
+
 		gasPrice, err := c.client.SuggestGasPrice(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to suggest gas price: %w", err)
@@ -139,50 +140,70 @@ func (c *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
 	return header.Number.Uint64(), nil
 }
 
-// Placeholder methods - will be implemented once contract bindings are generated
-
-// WatchDepositEvents watches for deposit events
+// WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility)
 func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*DepositEvent) error) error {
-	c.logger.Info("Starting deposit event watcher", zap.Uint64("from_block", fromBlock))
-	
-	opts := &bind.WatchOpts{
-		Start:   &fromBlock,
-		Context: ctx,
-	}
-	
-	sink := make(chan *contracts.CantonBridgeDepositToCanton)
-	sub, err := c.bridge.WatchDepositToCanton(opts, sink, nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to watch deposit events: %w", err)
-	}
-	defer sub.Unsubscribe()
-	
+	c.logger.Info("Starting deposit event poller", zap.Uint64("from_block", fromBlock))
+
+	currentBlock := fromBlock
+	ticker := time.NewTicker(c.config.PollingInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case event := <-sink:
-			depositEvent := &DepositEvent{
-				Token:           event.Token,
-				Sender:          event.Sender,
-				CantonRecipient: event.CantonRecipient,
-				Amount:          event.Amount,
-				Nonce:           event.Nonce,
-				IsWrapped:       event.IsWrapped,
-				BlockNumber:     event.Raw.BlockNumber,
-				TxHash:          event.Raw.TxHash,
-				LogIndex:        event.Raw.Index,
-			}
-			
-			if err := handler(depositEvent); err != nil {
-				c.logger.Error("Failed to handle deposit event",
-					zap.Error(err),
-					zap.String("tx_hash", event.Raw.TxHash.Hex()))
-			}
-			
-		case err := <-sub.Err():
-			return fmt.Errorf("subscription error: %w", err)
-			
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-ticker.C:
+			// Get latest block
+			latestBlock, err := c.GetLatestBlockNumber(ctx)
+			if err != nil {
+				c.logger.Warn("Failed to get latest block", zap.Error(err))
+				continue
+			}
+
+			if latestBlock <= currentBlock {
+				continue
+			}
+
+			// Query for events from currentBlock+1 to latestBlock
+			opts := &bind.FilterOpts{
+				Start:   currentBlock + 1,
+				End:     &latestBlock,
+				Context: ctx,
+			}
+
+			iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
+			if err != nil {
+				c.logger.Warn("Failed to filter deposit events", zap.Error(err))
+				continue
+			}
+
+			for iter.Next() {
+				event := iter.Event
+				depositEvent := &DepositEvent{
+					Token:           event.Token,
+					Sender:          event.Sender,
+					CantonRecipient: event.CantonRecipient,
+					Amount:          event.Amount,
+					Nonce:           event.Nonce,
+					IsWrapped:       event.IsWrapped,
+					BlockNumber:     event.Raw.BlockNumber,
+					TxHash:          event.Raw.TxHash,
+					LogIndex:        event.Raw.Index,
+				}
+
+				if err := handler(depositEvent); err != nil {
+					c.logger.Error("Failed to handle deposit event",
+						zap.Error(err),
+						zap.String("tx_hash", event.Raw.TxHash.Hex()))
+				}
+			}
+
+			if err := iter.Error(); err != nil {
+				c.logger.Warn("Iterator error", zap.Error(err))
+			}
+			iter.Close()
+
+			currentBlock = latestBlock
 		}
 	}
 }
@@ -201,21 +222,21 @@ func (c *Client) WithdrawFromCanton(
 		zap.String("recipient", recipient.Hex()),
 		zap.String("amount", amount.String()),
 		zap.Uint64("nonce", nonce.Uint64()))
-	
+
 	auth, err := c.GetTransactor(ctx)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to create transactor: %w", err)
 	}
-	
+
 	tx, err := c.bridge.WithdrawFromCanton(auth, token, recipient, amount, nonce, cantonTxHash)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to submit withdrawal transaction: %w", err)
 	}
-	
+
 	c.logger.Info("Withdrawal transaction submitted",
 		zap.String("tx_hash", tx.Hash().Hex()),
 		zap.Uint64("nonce", nonce.Uint64()))
-	
+
 	return tx.Hash(), nil
 }
 
@@ -230,16 +251,16 @@ func (c *Client) DepositToCanton(
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to create transactor: %w", err)
 	}
-	
+
 	tx, err := c.bridge.DepositToCanton(auth, token, amount, cantonRecipient)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to submit deposit transaction: %w", err)
 	}
-	
+
 	c.logger.Info("Deposit transaction submitted",
 		zap.String("tx_hash", tx.Hash().Hex()),
 		zap.String("token", token.Hex()),
 		zap.String("amount", amount.String()))
-	
+
 	return tx.Hash(), nil
 }

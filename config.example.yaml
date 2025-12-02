@@ -24,14 +24,18 @@ ethereum:
   start_block: 0
 
 canton:
-  rpc_url: "localhost:5001"
+  rpc_url: "localhost:5011"  # Participant1 Ledger API (not sequencer 5001)
   ledger_id: "canton-ledger-id"
+  domain_id: ""  # Set after bootstrap - will be something like "synchronizer::12201234..."
   application_id: "canton-middleware"
-  relayer_party: "" # Set via environment variable CANTON_RELAYER_PARTY or update here
-  bridge_package_id: "bridge-wayfinder-1.0.0" # Or the actual package ID hash if known
+  relayer_party: "" # Set via environment variable CANTON_RELAYER_PARTY or after allocating party
+  bridge_package_id: "" # Set after DAR upload - will be the package ID hash
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "WayfinderBridgeConfig"
-  tls_enabled: false
+  tls:
+    enabled: false
+  auth:
+    token_file: ""  # Optional - not needed with wildcard auth
   polling_interval: "1s"
   start_block: 0
 

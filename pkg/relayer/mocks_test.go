@@ -12,8 +12,18 @@ import (
 
 // MockCantonClient is a mock implementation of CantonBridgeClient
 type MockCantonClient struct {
+	// Legacy methods
 	StreamBurnEventsFunc   func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
 	SubmitMintProposalFunc func(ctx context.Context, req *canton.MintProposalRequest) error
+
+	// Issuer-centric model methods
+	StreamWithdrawalEventsFunc func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error)
+	RegisterUserFunc           func(ctx context.Context, req *canton.RegisterUserRequest) (string, error)
+	GetFingerprintMappingFunc  func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
+	CreatePendingDepositFunc   func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
+	ProcessDepositFunc         func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
+	InitiateWithdrawalFunc     func(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
+	CompleteWithdrawalFunc     func(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
 }
 
 func (m *MockCantonClient) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
@@ -26,6 +36,55 @@ func (m *MockCantonClient) StreamBurnEvents(ctx context.Context, startOffset str
 func (m *MockCantonClient) SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error {
 	if m.SubmitMintProposalFunc != nil {
 		return m.SubmitMintProposalFunc(ctx, req)
+	}
+	return nil
+}
+
+func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
+	if m.StreamWithdrawalEventsFunc != nil {
+		return m.StreamWithdrawalEventsFunc(ctx, offset)
+	}
+	return nil, nil
+}
+
+func (m *MockCantonClient) RegisterUser(ctx context.Context, req *canton.RegisterUserRequest) (string, error) {
+	if m.RegisterUserFunc != nil {
+		return m.RegisterUserFunc(ctx, req)
+	}
+	return "", nil
+}
+
+func (m *MockCantonClient) GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error) {
+	if m.GetFingerprintMappingFunc != nil {
+		return m.GetFingerprintMappingFunc(ctx, fingerprint)
+	}
+	return nil, nil
+}
+
+func (m *MockCantonClient) CreatePendingDeposit(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error) {
+	if m.CreatePendingDepositFunc != nil {
+		return m.CreatePendingDepositFunc(ctx, req)
+	}
+	return "", nil
+}
+
+func (m *MockCantonClient) ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error) {
+	if m.ProcessDepositFunc != nil {
+		return m.ProcessDepositFunc(ctx, req)
+	}
+	return "", nil
+}
+
+func (m *MockCantonClient) InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error) {
+	if m.InitiateWithdrawalFunc != nil {
+		return m.InitiateWithdrawalFunc(ctx, req)
+	}
+	return "", nil
+}
+
+func (m *MockCantonClient) CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error {
+	if m.CompleteWithdrawalFunc != nil {
+		return m.CompleteWithdrawalFunc(ctx, req)
 	}
 	return nil
 }
