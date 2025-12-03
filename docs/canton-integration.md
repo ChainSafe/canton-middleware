@@ -59,6 +59,7 @@ Canton Network uses Daml smart contracts (not EVM/Solidity) and provides the Dam
 2. Connect via gRPC with TLS
 3. Authenticate with JWT tokens
 4. Stream events and submit commands using `lapiv2` alias
+5. **Convention**: Always import as `lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"`
 
 ### 2. Authentication & Authorization
 
@@ -133,18 +134,20 @@ Canton Network uses Daml smart contracts (not EVM/Solidity) and provides the Dam
 Daml uses a specific value encoding in protobuf. We need helpers to convert:
 
 ```go
-// Go struct → Daml Value
+// Go struct → Daml Value (V2 API)
+import lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+
 type DepositRequest struct {
     Amount    string  // Numeric as string
     Recipient string  // Party ID
     Token     string  // Contract ID
 }
 
-func (d *DepositRequest) ToDamlValue() *lapiv1.Value {
-    return &lapiv1.Value{
-        Sum: &lapiv1.Value_Record{
-            Record: &lapiv1.Record{
-                Fields: []*lapiv1.RecordField{
+func (d *DepositRequest) ToDamlValue() *lapiv2.Value {
+    return &lapiv2.Value{
+        Sum: &lapiv2.Value_Record{
+            Record: &lapiv2.Record{
+                Fields: []*lapiv2.RecordField{
                     {Label: "amount", Value: numericValue(d.Amount)},
                     {Label: "recipient", Value: partyValue(d.Recipient)},
                     {Label: "token", Value: contractIdValue(d.Token)},
@@ -155,7 +158,39 @@ func (d *DepositRequest) ToDamlValue() *lapiv1.Value {
 }
 ```
 
-## Key Services from Ledger API
+### 7. Canton V2 API Requirements
+
+**Important changes from V1 to V2:**
+
+1. **ActiveAtOffset Required**: When calling `GetActiveContracts`, you must set `ActiveAtOffset` to the current ledger end (cannot use 0):
+   ```go
+   ledgerEnd, _ := stateClient.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
+   resp, _ := stateClient.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
+       ActiveAtOffset: ledgerEnd.Offset,  // Required!
+       EventFormat: &lapiv2.EventFormat{...},
+   })
+   ```
+
+2. **UserId Required**: All command submissions must include a `UserId` field:
+   ```go
+   cmdService.SubmitAndWait(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
+       Commands: &lapiv2.Commands{
+           UserId:         "bridge-operator",  // Required!
+           ActAs:          []string{relayerParty},
+           Commands:       []*lapiv2.Command{cmd},
+       },
+   })
+   ```
+
+3. **ModuleName + EntityName Filtering**: When filtering contracts, validate both `ModuleName` and `EntityName` to avoid false matches:
+   ```go
+   templateId := event.CreatedEvent.TemplateId
+   if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalEvent" {
+       // Process event
+   }
+   ```
+
+## Key Services from Ledger API (V2)
 
 ### TransactionService
 - **GetTransactions**: Stream transactions with filter and offset
@@ -194,73 +229,77 @@ func (d *DepositRequest) ToDamlValue() *lapiv1.Value {
 ## Implementation Checklist
 
 ### Phase 1: Setup
-- [x] Pull Daml Ledger API protobuf definitions
+- [x] Pull Daml Ledger API protobuf definitions (V2)
 - [x] Generate Go stubs with protoc
 - [x] Configure TLS certificates
-- [ ] Set up JWT authentication service
-- [ ] Create Canton party for relayer
+- [x] Create Canton party for relayer
+- [ ] Set up JWT authentication service (for production)
 
 ### Phase 2: Event Monitoring
 - [x] Implement GetTransactions streaming
 - [x] Parse Created/Exercised events
-- [x] Filter by bridge template identifiers
-- [ ] Persist offsets in database
-- [ ] Implement reconnect with resume from offset
+- [x] Filter by bridge template identifiers (ModuleName + EntityName)
+- [x] Persist offsets in database
+- [x] Implement reconnect with resume from offset
+- [x] Handle ActiveAtOffset requirement for GetActiveContracts
 - [ ] Add metrics for stream lag and events processed
 
 ### Phase 3: Command Submission
-- [ ] Implement Daml Value encoding helpers
-- [ ] Build ExerciseCommand for withdraw/release
-- [ ] Implement SubmitAndWait with error handling
-- [ ] Add deduplication tracking
-- [ ] Implement retry logic
+- [x] Implement Daml Value encoding helpers
+- [x] Build ExerciseCommand for withdraw/release
+- [x] Implement SubmitAndWait with error handling
+- [x] Include UserId in all command submissions
+- [x] Add deduplication tracking
+- [ ] Implement retry logic with exponential backoff
 - [ ] Add metrics for command success/failure
 
 ### Phase 4: Reliability
-- [ ] Idempotent event processing (event ID tracking)
+- [x] Idempotent event processing (event ID tracking)
 - [ ] Transaction retry with exponential backoff
 - [ ] Connection health monitoring
-- [ ] JWT token refresh mechanism
+- [ ] JWT token refresh mechanism (for production)
 - [ ] Handle Canton node reorgs/restart
-- [ ] Implement graceful shutdown
+- [x] Implement graceful shutdown
 
 ## Configuration
 
 ```yaml
 canton:
-  rpc_url: "canton-participant-node:4001"  # gRPC endpoint
-  ledger_id: "canton-network-mainnet"
-  application_id: "canton-eth-bridge"
+  rpc_url: "localhost:5011"  # gRPC endpoint (V2 API)
+  ledger_id: "canton-ledger-id"
+  domain_id: "local::1220..."  # Synchronizer ID (dynamically allocated)
+  application_id: "canton-middleware"
   tls:
-    enabled: true
+    enabled: false  # Enable for production
     cert_file: "/path/to/cert.pem"
     key_file: "/path/to/key.pem"
     ca_file: "/path/to/ca.pem"
   auth:
-    jwt_issuer: "https://auth.canton.network"
+    jwt_issuer: "https://auth.canton.network"  # For production
     jwt_secret: "..."  # or use JWKS
-  relayer_party: "BridgeOperatorParty::1234..."
-  bridge_package_id: "abc123..."  # Set per deployment
-  bridge_module: "BridgeModule"
-  bridge_templates:
-    deposit: "DepositRequest"
-    escrow: "BridgeEscrow"
+  relayer_party: "BridgeIssuer::1220..."  # Dynamically allocated
+  bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"  # bridge-wayfinder
+  core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"  # bridge-core
   dedup_duration: "30s"
   max_inbound_message_size: 104857600  # 100MB for large events
 ```
 
+> **Note**: In Canton V2, `domain_id` and `relayer_party` are dynamically allocated at runtime. For local testing, these are updated automatically by the test script.
+
 ## Error Handling
 
-### Common gRPC Errors
+### Common gRPC Errors (V2 API)
 
 | Error | Cause | Handling |
 |-------|-------|----------|
 | `ALREADY_EXISTS` | Command deduplication hit | Log and skip (already processed) |
-| `INVALID_ARGUMENT` | Malformed command | Log error, alert operator |
+| `INVALID_ARGUMENT` | Malformed command or missing UserId | Log error, check command structure |
 | `NOT_FOUND` | Contract ID doesn't exist | May be consumed, verify state |
 | `PERMISSION_DENIED` | JWT missing or invalid party | Refresh token, check party config |
 | `UNAVAILABLE` | Node down or network issue | Retry with backoff |
 | `DEADLINE_EXCEEDED` | Timeout | Retry, check node health |
+| `INVALID_TOKEN` | Missing or invalid UserId | Add UserId to Commands |
+| `PARTY_ALLOCATION_WITHOUT_CONNECTED_SYNCHRONIZER` | Canton not connected to domain | Wait for synchronizer connection |
 
 ## Security Best Practices
 
@@ -315,9 +354,15 @@ canton:
 
 ## Next Steps
 
-1. Obtain Canton Network testnet access
-2. Deploy Daml bridge contract to testnet
-3. Generate Go protobufs for Ledger API
-4. Implement Canton client with event streaming
-5. Test end-to-end flow on testnet
-6. Deploy to mainnet with monitoring
+1. ✅ ~~Obtain Canton Network testnet access~~ - **Local testing available via Docker**
+2. ✅ ~~Deploy Daml bridge contract to testnet~~ - **Bridge contracts deployed locally**
+3. ✅ ~~Generate Go protobufs for Ledger API~~ - **V2 API protobufs generated**
+4. ✅ ~~Implement Canton client with event streaming~~ - **Implemented in `pkg/canton`**
+5. ✅ ~~Test end-to-end flow on testnet~~ - **Full E2E tests via `./scripts/test-bridge.sh`**
+6. Deploy to live Canton Network (testnet/mainnet)
+7. Set up production JWT authentication
+8. Configure TLS certificates
+9. Implement monitoring and alerting
+10. Conduct security audit
+
+See [BRIDGE_TESTING_GUIDE.md](BRIDGE_TESTING_GUIDE.md) for running the complete local test suite.
