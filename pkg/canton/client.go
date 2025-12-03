@@ -353,7 +353,9 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	// V2 API: GetActiveContracts uses EventFormat with FiltersByParty and Cumulative filters
+	// Use wildcard filter to find FingerprintMapping contracts
+	// FingerprintMapping is in the 'common' package which has a different package ID
+	// than bridge-wayfinder, so we use a wildcard and filter by entity name
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
@@ -361,14 +363,8 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 				c.config.RelayerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{
 						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  c.config.BridgePackageID,
-										ModuleName: "Common.FingerprintAuth",
-										EntityName: "FingerprintMapping",
-									},
-								},
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
 							},
 						},
 					},
@@ -381,13 +377,17 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("failed to search for FingerprintMapping: %w", err)
 	}
 
-	// Read through the stream to find the matching mapping
+	// Read through the stream to find the matching FingerprintMapping
 	for {
 		msg, err := resp.Recv()
 		if err != nil {
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
+			// Filter by entity name since we're using wildcard
+			if contract.CreatedEvent.TemplateId.EntityName != "FingerprintMapping" {
+				continue
+			}
 			mapping, err := DecodeFingerprintMapping(
 				contract.CreatedEvent.ContractId,
 				contract.CreatedEvent.CreateArguments,
