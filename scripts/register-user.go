@@ -1,3 +1,5 @@
+//go:build ignore
+
 // register-user.go - Register a user's fingerprint mapping on Canton
 //
 // Usage:
@@ -227,7 +229,9 @@ func findFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClien
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			if contract.CreatedEvent.TemplateId.EntityName == "FingerprintMapping" {
+			// Filter by module and entity name to avoid matching contracts from other modules
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 				// Check if this mapping is for the target fingerprint
 				fields := contract.CreatedEvent.CreateArguments.Fields
 				for _, field := range fields {
@@ -317,7 +321,8 @@ func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issue
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "FingerprintMapping" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 					return created.ContractId, nil
 				}
 			}
@@ -326,4 +331,3 @@ func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issue
 
 	return "", fmt.Errorf("FingerprintMapping not found in response")
 }
-

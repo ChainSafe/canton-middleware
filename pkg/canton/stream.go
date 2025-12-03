@@ -88,8 +88,9 @@ func (c *Client) StreamBurnEvents(ctx context.Context, offset string) (<-chan *B
 			if tx := resp.GetTransaction(); tx != nil {
 				for _, event := range tx.Events {
 					if createdEvent := event.GetCreated(); createdEvent != nil {
-						// Check if it matches our template
-						if createdEvent.TemplateId.EntityName == "BurnEvent" {
+						// Check if it matches our template (module + entity name)
+						templateId := createdEvent.TemplateId
+						if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "BurnEvent" {
 							burnEvent, err := DecodeBurnEvent(
 								fmt.Sprintf("%d-%d", createdEvent.Offset, createdEvent.NodeId),
 								tx.UpdateId,
@@ -198,8 +199,9 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) (<-c
 			if tx := resp.GetTransaction(); tx != nil {
 				for _, event := range tx.Events {
 					if createdEvent := event.GetCreated(); createdEvent != nil {
-						// Check if it matches our template
-						if createdEvent.TemplateId.EntityName == "WithdrawalEvent" {
+						// Check if it matches our template (module + entity name)
+						templateId := createdEvent.TemplateId
+						if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalEvent" {
 							withdrawalEvent, err := DecodeWithdrawalEvent(
 								fmt.Sprintf("%d-%d", createdEvent.Offset, createdEvent.NodeId),
 								tx.UpdateId,

@@ -329,7 +329,8 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "FingerprintMapping" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 					return created.ContractId, nil
 				}
 			}
@@ -384,8 +385,9 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			// Filter by entity name since we're using wildcard
-			if contract.CreatedEvent.TemplateId.EntityName != "FingerprintMapping" {
+			// Filter by module and entity name since we're using wildcard
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "Common.FingerprintAuth" || templateId.EntityName != "FingerprintMapping" {
 				continue
 			}
 			mapping, err := DecodeFingerprintMapping(
@@ -451,7 +453,8 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "PendingDeposit" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "PendingDeposit" {
 					return created.ContractId, nil
 				}
 			}
@@ -506,7 +509,8 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "CIP56Holding" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Holding" {
 					return created.ContractId, nil
 				}
 			}
@@ -563,7 +567,8 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "WithdrawalRequest" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalRequest" {
 					return created.ContractId, nil
 				}
 			}

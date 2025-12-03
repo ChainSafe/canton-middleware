@@ -26,9 +26,9 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: "local::12209725856d00d8d5f5bee403e4ec9a0d3d0c02cb9e7a1eab0f37d18f4f103ad8c6"
+  domain_id: "local::122095d786e9a4da6b16685692591b0b71c52f34439952fd23ca23e7c0c993eb0795"
   application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
+  relayer_party: "BridgeIssuer::122003ad2b1cc3aed6cdb82b45fdf4282b5708808f49aa0226b81ca5913524437266"
   bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"  # bridge-wayfinder
   core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"    # bridge-core (WithdrawalEvent, MintCommand)
   # Related package IDs:
