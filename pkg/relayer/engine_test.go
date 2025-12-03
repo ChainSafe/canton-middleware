@@ -67,24 +67,26 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 }
 
 func TestCantonSource_StreamEvents(t *testing.T) {
-	// Setup mocks
-	burnCh := make(chan *canton.BurnEvent, 1)
+	// Setup mocks - using new issuer-centric WithdrawalEvent
+	withdrawalCh := make(chan *canton.WithdrawalEvent, 1)
 	errCh := make(chan error, 1)
 
-	burnCh <- &canton.BurnEvent{
-		EventID:       "event-1",
-		TransactionID: "tx-1",
-		Operator:      "Alice",
-		Owner:         "Bob",
-		Amount:        "10",
-		Destination:   "0xRecipient",
-		Reference:     "ref-123",
+	withdrawalCh <- &canton.WithdrawalEvent{
+		EventID:        "event-1",
+		TransactionID:  "tx-1",
+		ContractID:     "contract-1",
+		Issuer:         "Issuer",
+		UserParty:      "Bob",
+		EvmDestination: "0xRecipient",
+		Amount:         "10",
+		Fingerprint:    "fp-123",
+		Status:         canton.WithdrawalStatusPending,
 	}
-	close(burnCh)
+	close(withdrawalCh)
 
 	mockCantonClient := &MockCantonClient{
-		StreamBurnEventsFunc: func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
-			return burnCh, errCh
+		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
+			return withdrawalCh, errCh
 		},
 	}
 
@@ -121,7 +123,8 @@ func TestEthereumDestination_SubmitTransfer(t *testing.T) {
 		},
 	}
 
-	dest := NewEthereumDestination(mockEthClient)
+	// Pass nil for Canton client - it's used for marking withdrawals complete which is optional
+	dest := NewEthereumDestination(mockEthClient, nil)
 
 	event := &Event{
 		ID:           "event-1",

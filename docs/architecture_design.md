@@ -9,8 +9,8 @@ sequenceDiagram
     participant Main
     participant Engine
     participant Store as Database
-    participant C2E as TransferProcessor (Canton->Eth)
-    participant E2C as TransferProcessor (Eth->Canton)
+    participant C2E as Processor (Canton->Eth)
+    participant E2C as Processor (Eth->Canton)
     participant CS as CantonSource
     participant ED as EthereumDestination
     participant ES as EthereumSource
@@ -28,8 +28,8 @@ sequenceDiagram
 
     Note over Engine: Initialize Processors
 
-    Engine->>C2E: NewTransferProcessor(CantonSource, EthereumDestination)
-    Engine->>E2C: NewTransferProcessor(EthereumSource, CantonDestination)
+    Engine->>C2E: NewProcessor(CantonSource, EthereumDestination)
+    Engine->>E2C: NewProcessor(EthereumSource, CantonDestination)
 
     par Start Canton->Eth Processor
         Engine->>C2E: Start(offset)
@@ -80,7 +80,7 @@ sequenceDiagram
 
 *   **Main**: Entry point. Initializes configuration, database connection, clients, and the Engine. Starts the HTTP server for metrics/API.
 *   **Engine**: Orchestrator. Manages the lifecycle of the application. It initializes the bidirectional processors and the reconciliation loop. It handles graceful shutdown.
-*   **TransferProcessor**: The core worker. There are two instances: one for Canton->Ethereum and one for Ethereum->Canton. It uses a generic `Source` and `Destination` interface to abstract the logic of "Listen -> Persist -> Submit".
+*   **Processor**: The core worker. There are two instances: one for Canton->Ethereum and one for Ethereum->Canton. It uses a generic `Source` and `Destination` interface to abstract the logic of "Listen -> Persist -> Submit".
 *   **Source (Interface)**: Abstraction for fetching events (e.g., `CantonSource` streams from Canton Ledger API).
 *   **Destination (Interface)**: Abstraction for submitting transactions (e.g., `EthereumDestination` submits to a smart contract).
 *   **Store**: Persistence layer (PostgreSQL) for tracking transfer state and chain offsets.
