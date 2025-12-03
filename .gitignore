@@ -49,10 +49,20 @@ Thumbs.db
 dist/
 build/
 
-# Contract artifacts
+# Proto backups (generated files live in pkg/canton/lapi/)
+proto/daml.backup/
+
+# Contract artifacts - Ethereum/Foundry
 contracts/ethereum/artifacts/
 contracts/ethereum/cache/
+contracts/ethereum/out/
+contracts/ethereum/broadcast/
 contracts/ethereum/node_modules/
+
+# Contract artifacts - Canton/DAML
+contracts/canton-erc20/daml/log/
+contracts/canton-erc20/daml/*.log
+contracts/canton-erc20/daml/**/.daml/
 
 # Deployment configs with secrets
 deployments/production/*.secret.yaml
