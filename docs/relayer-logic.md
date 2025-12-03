@@ -13,7 +13,7 @@ The relayer is designed with the following principles:
 
 ## The Processor Pattern
 
-The heart of the relayer is the `TransferProcessor` struct (`pkg/relayer/processor.go`). The `Engine` initializes two instances of this processor, one for each direction, using generic `Source` and `Destination` interfaces.
+The heart of the relayer is the `Processor` struct (`pkg/relayer/processor.go`). The `Engine` initializes two instances of this processor, one for each direction, using generic `Source` and `Destination` interfaces.
 
 Each processor abstracts the flow into three stages:
 

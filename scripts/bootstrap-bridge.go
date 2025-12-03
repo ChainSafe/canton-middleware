@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Bootstrap script for initializing the Wayfinder Bridge on Canton
 //
 // PREREQUISITES:
@@ -330,7 +332,8 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "CIP56Manager" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Manager" {
 					return created.ContractId, nil
 				}
 			}
@@ -380,7 +383,8 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "WayfinderBridgeConfig" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Wayfinder.Bridge" && templateId.EntityName == "WayfinderBridgeConfig" {
 					return created.ContractId, nil
 				}
 			}

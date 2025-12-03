@@ -329,7 +329,8 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "FingerprintMapping" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 					return created.ContractId, nil
 				}
 			}
@@ -353,7 +354,9 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	// V2 API: GetActiveContracts uses EventFormat with FiltersByParty and Cumulative filters
+	// Use wildcard filter to find FingerprintMapping contracts
+	// FingerprintMapping is in the 'common' package which has a different package ID
+	// than bridge-wayfinder, so we use a wildcard and filter by entity name
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
@@ -361,14 +364,8 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 				c.config.RelayerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{
 						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  c.config.BridgePackageID,
-										ModuleName: "Common.FingerprintAuth",
-										EntityName: "FingerprintMapping",
-									},
-								},
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
 							},
 						},
 					},
@@ -381,13 +378,18 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("failed to search for FingerprintMapping: %w", err)
 	}
 
-	// Read through the stream to find the matching mapping
+	// Read through the stream to find the matching FingerprintMapping
 	for {
 		msg, err := resp.Recv()
 		if err != nil {
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
+			// Filter by module and entity name since we're using wildcard
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "Common.FingerprintAuth" || templateId.EntityName != "FingerprintMapping" {
+				continue
+			}
 			mapping, err := DecodeFingerprintMapping(
 				contract.CreatedEvent.ContractId,
 				contract.CreatedEvent.CreateArguments,
@@ -451,7 +453,8 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "PendingDeposit" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "PendingDeposit" {
 					return created.ContractId, nil
 				}
 			}
@@ -506,7 +509,8 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "CIP56Holding" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Holding" {
 					return created.ContractId, nil
 				}
 			}
@@ -563,7 +567,8 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "WithdrawalRequest" {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalRequest" {
 					return created.ContractId, nil
 				}
 			}
