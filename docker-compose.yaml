@@ -58,6 +58,7 @@ services:
       - "--bootstrap=/canton/deploy-dars.canton"
     volumes:
       - ./contracts/canton-erc20:/canton/contracts
+      - ./deployments/canton-config/simple-topology.conf:/canton/simple-topology.conf
       - ./deployments/canton-config/deploy-dars.canton:/canton/deploy-dars.canton
 
     # Healthcheck using the tools installed in the Dockerfile (grpcurl, jq)

@@ -10,11 +10,11 @@ Canton-Ethereum Bridge is a centralized relayer connecting Canton Network (CIP-5
 
 ### 1. Protobuf Imports
 - **V2 API**: ALWAYS import `github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2` with alias `lapiv2`.
-- **V1 API**: ALWAYS import `github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1` with alias `lapiv1`.
 - **Reason**: Avoids naming collisions and ensures clarity between API versions.
 
 ### 2. Relayer Architecture
-- **TransferProcessor**: The core pattern for bidirectional syncing. Do not create separate "CantonProcessor" or "EthereumProcessor" types; use the generic `TransferProcessor` with `Source` and `Destination` interfaces.
+- **Processor Pattern**: The core pattern for bidirectional syncing (`pkg/relayer/processor.go`). Do not create separate "CantonProcessor" or "EthereumProcessor" types; use the generic `Processor` struct with `Source` and `Destination` interfaces.
+- **Source/Destination Adapters**: Use `CantonSource`, `EthereumSource`, `CantonDestination`, `EthereumDestination` in `handlers.go` to adapt chain-specific logic to the generic interfaces.
 - **State Management**: All state changes must go through `BridgeStore` (`pkg/db`).
 
 ### 3. Testing

@@ -3,7 +3,7 @@ package canton
 import (
 	"testing"
 
-	lapiv1 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
 func TestEncodeMintProposalArgs(t *testing.T) {
@@ -19,7 +19,7 @@ func TestEncodeMintProposalArgs(t *testing.T) {
 		t.Errorf("Expected 3 fields, got %d", len(record.Fields))
 	}
 
-	fields := make(map[string]*lapiv1.Value)
+	fields := make(map[string]*lapiv2.Value)
 	for _, f := range record.Fields {
 		fields[f.Label] = f.Value
 	}
@@ -36,12 +36,23 @@ func TestEncodeMintProposalArgs(t *testing.T) {
 }
 
 func TestDecodeBurnEvent(t *testing.T) {
-	record := &lapiv1.Record{
-		Fields: []*lapiv1.RecordField{
+	// EvmAddress is encoded as a record with a "value" field
+	evmAddressRecord := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "value", Value: TextValue("0xRecipient")},
+				},
+			},
+		},
+	}
+
+	record := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
 			{Label: "operator", Value: PartyValue("Alice")},
 			{Label: "owner", Value: PartyValue("Bob")},
 			{Label: "amount", Value: NumericValue("50.00")},
-			{Label: "destination", Value: TextValue("0xRecipient")},
+			{Label: "destination", Value: evmAddressRecord},
 			{Label: "reference", Value: TextValue("ref-123")},
 		},
 	}

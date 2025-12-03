@@ -1,5 +1,6 @@
 #!/bin/bash
 # Script to generate Go protobuf stubs for Canton Ledger API
+# Updated for Canton 3.4.8 which uses v2 API only
 
 set -e
 
@@ -14,76 +15,56 @@ echo "Generating Canton Ledger API protobuf stubs..."
 mkdir -p "$PROTO_DIR"
 mkdir -p "$OUT_DIR"
 
-# Clone Daml repository to get proto files
-if [ ! -d "$PROTO_DIR/daml" ]; then
-    echo "Getting Daml proto definitions..."
-    # cd $PROTO_DIR
-    # curl -O https://github.com/digital-asset/daml/releases/download/v2.10.2/protobufs-2.10.2.zip
-    # unzip ./protobufs-2.10.2.zip
-    # rm ./protobufs-2.10.2.zip
-    # cd -
-
-
-    protoc \
-        --proto_path=proto/daml/com/daml/ledger/api/v1 \
-        --go_out=pkg/canton/lapi \
-        --go_opt=paths=source_relative \
-
+# Download Canton 3.4.8 protos if not present
+if [ ! -f "$PROTO_DIR/daml/com/daml/ledger/api/v2/update_service.proto" ]; then
+    echo "Downloading Canton 3.4.8 proto definitions..."
+    cd "$PROTO_DIR"
+    curl -sL "https://github.com/digital-asset/daml/releases/download/v3.4.8/protobufs-3.4.8.zip" -o protobufs.zip
+    rm -rf daml
+    unzip -q protobufs.zip
+    mv protos-3.4.8 daml
+    rm protobufs.zip
+    cd -
 fi
 
-# Find proto files
-DAML_PROTO_V1_DIR="$PROTO_DIR/daml/com/daml/ledger/api/v1"
+# Find proto files - Canton 3.4.8 uses v2 only
 DAML_PROTO_V2_DIR="$PROTO_DIR/daml/com/daml/ledger/api/v2"
-
-if [ ! -d "$DAML_PROTO_V1_DIR" ]; then
-    echo "Error: Daml proto V1 directory not found at $DAML_PROTO_V1_DIR"
-    exit 1
-fi
 
 if [ ! -d "$DAML_PROTO_V2_DIR" ]; then
     echo "Error: Daml proto V2 directory not found at $DAML_PROTO_V2_DIR"
     exit 1
 fi
 
-# Inject go_package option for V1
-echo "Injecting go_package option for V1..."
-for f in "$DAML_PROTO_V1_DIR"/*.proto; do
-    # Remove existing go_package option if present
-    sed -i '' '/option go_package/d' "$f"
-    
-    if grep -q "syntax =" "$f"; then
-        sed -i '' '/syntax =/a\
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1";
-' "$f"
-    else
-        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v1";' | cat - "$f" > temp && mv temp "$f"
-    fi
-done
-
 # Inject go_package option for V2
 echo "Injecting go_package option for V2..."
 for f in "$DAML_PROTO_V2_DIR"/*.proto; do
     # Remove existing go_package option if present
-    sed -i '' '/option go_package/d' "$f"
+    sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
 
     if grep -q "syntax =" "$f"; then
         sed -i '' '/syntax =/a\
 option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";
-' "$f"
-    else
-        echo 'option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";' | cat - "$f" > temp && mv temp "$f"
+' "$f" 2>/dev/null || sed -i '/syntax =/a option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";' "$f"
     fi
 done
 
-echo "Generating Go code for V1..."
-protoc \
-    --proto_path="$PROTO_DIR/daml" \
-    --proto_path="$PROTO_DIR" \
-    --go_out="$PROJECT_ROOT" \
-    --go_opt=module=github.com/chainsafe/canton-middleware \
-    --go-grpc_out="$PROJECT_ROOT" \
-    --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
-    "$DAML_PROTO_V1_DIR"/*.proto
+# Also handle admin protos if present
+ADMIN_DIR="$DAML_PROTO_V2_DIR/admin"
+if [ -d "$ADMIN_DIR" ]; then
+    echo "Injecting go_package option for admin..."
+    for f in "$ADMIN_DIR"/*.proto; do
+        sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
+        if grep -q "syntax =" "$f"; then
+            sed -i '' '/syntax =/a\
+option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin";
+' "$f" 2>/dev/null || true
+        fi
+    done
+fi
+
+# Clean old generated files
+rm -rf "$OUT_DIR/v1" "$OUT_DIR/v2"
+mkdir -p "$OUT_DIR/v2"
 
 echo "Generating Go code for V2..."
 protoc \
@@ -102,9 +83,11 @@ echo "Generated files in: $OUT_DIR"
 cat << EOF
 
 Next steps:
-1. Review generated files in pkg/canton/lapi/
-2. Update canton/client.go to use the generated types
-3. Implement event streaming and command submission
-4. Run: go mod tidy
+1. Review generated files in pkg/canton/lapi/v2/
+2. Update Go code: replace lapiv1 imports with lapiv2
+3. Run: go mod tidy
+
+NOTE: Canton 3.4.8 consolidated all types into v2 API.
+      Types like Command, Value, Record are now in v2.
 
 EOF

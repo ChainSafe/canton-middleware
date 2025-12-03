@@ -59,6 +59,7 @@ type CantonConfig struct {
 	BridgeContract     string        `mapstructure:"bridge_contract"`
 	RelayerParty       string        `mapstructure:"relayer_party"`
 	BridgePackageID    string        `mapstructure:"bridge_package_id"`
+	CorePackageID      string        `mapstructure:"core_package_id"`
 	BridgeModule       string        `mapstructure:"bridge_module"`
 	RelayerPrivateKey  string        `mapstructure:"relayer_private_key"`
 	ConfirmationBlocks int           `mapstructure:"confirmation_blocks"`

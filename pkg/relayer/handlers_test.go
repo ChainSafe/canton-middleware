@@ -9,19 +9,36 @@ import (
 )
 
 func TestCantonDestination_SubmitTransfer(t *testing.T) {
-	// Setup mock client
+	// Setup mock client with issuer-centric flow methods
 	mockClient := &MockCantonClient{
-		SubmitMintProposalFunc: func(ctx context.Context, req *canton.MintProposalRequest) error {
-			if req.Recipient != "Bob" {
-				t.Errorf("Expected Recipient Bob, got %s", req.Recipient)
+		CreatePendingDepositFunc: func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error) {
+			if req.Fingerprint != "BobFingerprint" {
+				t.Errorf("Expected Fingerprint BobFingerprint, got %s", req.Fingerprint)
 			}
-			if req.Amount != "100" {
-				t.Errorf("Expected Amount 100, got %s", req.Amount)
+			if req.EvmTxHash != "0xsrc-tx-hash" {
+				t.Errorf("Expected EvmTxHash 0xsrc-tx-hash, got %s", req.EvmTxHash)
 			}
-			if req.Reference != "0xsrc-tx-hash" {
-				t.Errorf("Expected Reference 0xsrc-tx-hash, got %s", req.Reference)
+			return "deposit-cid-123", nil
+		},
+		GetFingerprintMappingFunc: func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error) {
+			if fingerprint != "BobFingerprint" {
+				t.Errorf("Expected fingerprint BobFingerprint, got %s", fingerprint)
 			}
-			return nil
+			return &canton.FingerprintMapping{
+				ContractID:  "mapping-cid-123",
+				Issuer:      "Issuer",
+				UserParty:   "Bob",
+				Fingerprint: fingerprint,
+			}, nil
+		},
+		ProcessDepositFunc: func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error) {
+			if req.DepositCid != "deposit-cid-123" {
+				t.Errorf("Expected DepositCid deposit-cid-123, got %s", req.DepositCid)
+			}
+			if req.MappingCid != "mapping-cid-123" {
+				t.Errorf("Expected MappingCid mapping-cid-123, got %s", req.MappingCid)
+			}
+			return "holding-cid-123", nil
 		},
 	}
 
@@ -33,32 +50,35 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 		SourceChain:  "ethereum",
 		SourceTxHash: "0xsrc-tx-hash",
 		Sender:       "0xAlice",
-		Recipient:    "Bob",
+		Recipient:    "BobFingerprint", // This is now the fingerprint from EVM event
 		Amount:       "100000000000000000000", // 100 tokens
 		TokenAddress: "0xToken",
 	}
 
-	_, err := dest.SubmitTransfer(context.Background(), event)
+	holdingCid, err := dest.SubmitTransfer(context.Background(), event)
 	if err != nil {
 		t.Errorf("SubmitTransfer failed: %v", err)
+	}
+	if holdingCid != "holding-cid-123" {
+		t.Errorf("Expected holdingCid holding-cid-123, got %s", holdingCid)
 	}
 }
 
 func TestCantonSource_StreamEvents_Error(t *testing.T) {
 	// Setup mock that returns error
 	errCh := make(chan error, 1)
-	burnCh := make(chan *canton.BurnEvent)
+	withdrawalCh := make(chan *canton.WithdrawalEvent)
 
 	// Simulate error
 	go func() {
 		errCh <- context.DeadlineExceeded
 		close(errCh)
-		close(burnCh)
+		close(withdrawalCh)
 	}()
 
 	mockClient := &MockCantonClient{
-		StreamBurnEventsFunc: func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
-			return burnCh, errCh
+		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
+			return withdrawalCh, errCh
 		},
 	}
 

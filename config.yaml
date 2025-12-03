@@ -26,12 +26,19 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
+  domain_id: "local::12209725856d00d8d5f5bee403e4ec9a0d3d0c02cb9e7a1eab0f37d18f4f103ad8c6"
   application_id: "canton-middleware"
-  relayer_party: "Relayer::1220..." # Placeholder: Replace with actual Relayer party ID
-  bridge_package_id: "bridge-wayfinder-1.0.0" # Or the actual package ID hash if known
+  relayer_party: "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
+  bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"  # bridge-wayfinder
+  core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"    # bridge-core (WithdrawalEvent, MintCommand)
+  # Related package IDs:
+  # - cip56-token: e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe
   bridge_module: "Wayfinder.Bridge" 
-  bridge_contract: "WayfinderBridgeConfig" # This is used as EntityName in client.go lookup
-  tls_enabled: false
+  bridge_contract: "WayfinderBridgeConfig"
+  tls:
+    enabled: false
+  auth:
+    token_file: ""  # Not needed with wildcard auth
   polling_interval: "1s"
 
 bridge:
