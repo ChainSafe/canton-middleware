@@ -113,6 +113,7 @@ For detailed step-by-step instructions, see [Bridge Testing Guide](docs/BRIDGE_T
 
 See the [docs](docs/) directory for detailed documentation:
 - [Bridge Testing Guide](docs/BRIDGE_TESTING_GUIDE.md) - Local testing with Docker
+- [Testnet Migration Guide](docs/TESTNET_MIGRATION_GUIDE.md) - Moving to Canton Network testnet
 - [Architecture Design](docs/architecture_design.md)
 - [Relayer Logic](docs/relayer-logic.md)
 - [Canton Integration](docs/canton-integration.md)
