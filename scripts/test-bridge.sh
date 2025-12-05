@@ -24,8 +24,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 ETH_RPC_URL="${ETH_RPC_URL:-http://localhost:8545}"
-BRIDGE="0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
-TOKEN="0x5FbDB2315678afecb367f032d93F642f64180aa3"
+CHAIN_ID="${CHAIN_ID:-31337}"
+# BRIDGE and TOKEN addresses are read from broadcast file in Step 2
 RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 RELAYER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 # Owner is the deployer of PromptToken and CantonBridge (has admin rights)
@@ -201,6 +201,41 @@ fi
 # =============================================================================
 
 print_header "STEP 2: Verify Ethereum Contracts"
+
+# Read contract addresses from Foundry broadcast
+BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/${CHAIN_ID}/run-latest.json"
+
+if [ -f "$BROADCAST_FILE" ]; then
+    print_step "Reading contract addresses from broadcast file..."
+    
+    # Extract PromptToken address
+    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
+    if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+        print_error "Failed to extract PromptToken address from broadcast file"
+        exit 1
+    fi
+    
+    # Extract CantonBridge address
+    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
+    if [ -z "$BRIDGE" ] || [ "$BRIDGE" = "null" ]; then
+        print_error "Failed to extract CantonBridge address from broadcast file"
+        exit 1
+    fi
+    
+    print_info "PromptToken:  $TOKEN"
+    print_info "CantonBridge: $BRIDGE"
+    
+    # Update config.yaml with extracted addresses
+    print_step "Updating config.yaml with contract addresses..."
+    sed -i.bak "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
+    sed -i.bak "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
+    rm -f "${CONFIG_FILE}.bak"
+    print_success "Config updated with contract addresses"
+else
+    print_error "Broadcast file not found: $BROADCAST_FILE"
+    print_info "Make sure contracts are deployed first"
+    exit 1
+fi
 
 print_step "Checking bridge contract..."
 BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
