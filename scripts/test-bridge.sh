@@ -23,6 +23,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
+ETH_RPC_URL="${ETH_RPC_URL:-http://localhost:8545}"
 BRIDGE="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 TOKEN="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -200,11 +201,11 @@ fi
 print_header "STEP 2: Verify Ethereum Contracts"
 
 print_step "Checking bridge contract..."
-BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()" --rpc-url http://localhost:8545 2>/dev/null)
+BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Bridge relayer: $BRIDGE_RELAYER"
 
 print_step "Checking token contract..."
-TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url http://localhost:8545 2>/dev/null)
+TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Token name: $TOKEN_NAME"
 
 print_success "Ethereum contracts verified"
@@ -299,6 +300,7 @@ fi
 print_info "Domain ID: $DOMAIN_ID"
 
 # Extract fingerprint (without 1220 prefix)
+# shellcheck disable=SC2001
 FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
 if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
     FINGERPRINT="${FULL_FINGERPRINT:4}"
@@ -387,12 +389,12 @@ print_header "STEP 8: Setup Bridge Contracts (EVM)"
 
 # Grant MINTER_ROLE
 print_step "Granting MINTER_ROLE to relayer..."
-HAS_ROLE=$(cast call $TOKEN "hasRole(bytes32,address)(bool)" $MINTER_ROLE $RELAYER --rpc-url http://localhost:8545 2>/dev/null)
+HAS_ROLE=$(cast call $TOKEN "hasRole(bytes32,address)(bool)" $MINTER_ROLE $RELAYER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 if [ "$HAS_ROLE" = "true" ]; then
     print_warning "Relayer already has MINTER_ROLE"
 else
     cast send $TOKEN "grantRole(bytes32,address)" $MINTER_ROLE $RELAYER \
-        --rpc-url http://localhost:8545 \
+        --rpc-url "$ETH_RPC_URL" \
         --private-key $RELAYER_KEY > /dev/null 2>&1
     print_success "MINTER_ROLE granted"
 fi
@@ -401,7 +403,7 @@ fi
 print_step "Adding token mapping..."
 cast send $BRIDGE "addTokenMapping(address,bytes32,bool)" \
     $TOKEN $CANTON_TOKEN_ID true \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $RELAYER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
 
 print_success "Bridge setup complete"
@@ -415,14 +417,14 @@ print_header "STEP 9: EVM → Canton Deposit"
 # Mint tokens
 print_step "Minting 1000 tokens to user..."
 cast send $TOKEN "mint(address,uint256)" $USER "1000000000000000000000" \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $RELAYER_KEY > /dev/null 2>&1
 print_success "Tokens minted"
 
 # Approve
 print_step "Approving bridge to spend tokens..."
 cast send $TOKEN "approve(address,uint256)" $BRIDGE "1000000000000000000000" \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $USER_KEY > /dev/null 2>&1
 print_success "Tokens approved"
 
@@ -431,7 +433,7 @@ print_step "Depositing 100 tokens to Canton..."
 CANTON_RECIPIENT="0x$FINGERPRINT"
 DEPOSIT_TX=$(cast send $BRIDGE "depositToCanton(address,uint256,bytes32)" \
     $TOKEN "100000000000000000000" $CANTON_RECIPIENT \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $USER_KEY --json 2>/dev/null | jq -r '.transactionHash')
 print_info "Deposit TX: $DEPOSIT_TX"
 print_success "Deposit submitted"
@@ -466,7 +468,7 @@ print_success "Deposit verified on Canton"
 print_header "STEP 10: Canton → EVM Withdrawal"
 
 # Get user balance before
-BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545 2>/dev/null)
+BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "User balance before withdrawal: $BALANCE_BEFORE"
 
 # Initiate withdrawal
@@ -483,7 +485,7 @@ sleep 8
 
 # Verify on EVM
 print_step "Verifying balance on EVM..."
-BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545 2>/dev/null)
+BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "User balance after withdrawal: $BALANCE_AFTER"
 
 print_success "Withdrawal processed"
