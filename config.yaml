@@ -14,9 +14,9 @@ ethereum:
   rpc_url: "http://localhost:8545"
   ws_url: "ws://localhost:8545"
   chain_id: 31337
-  bridge_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3" # Deterministic address for Anvil Account 0, Nonce 0
-  token_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"  # Deterministic address for Anvil Account 0, Nonce 1
-  relayer_private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" # Anvil Account 0
+  bridge_contract: "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+  token_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  relayer_private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
   confirmation_blocks: 1
   gas_limit: 300000
   max_gas_price: "100000000000"
@@ -26,9 +26,9 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: "local::122012d3528178fd867f3887fde70c3cdccd001f69fe28c67c008ad278925c0844da"
+  domain_id: "local::122066cc56948b4fe163c79653acb19944a8b1e51785a0fba55a03f4b40e1e9412ff"
   application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::1220d32efa37bd596fad9308ca275ea8a46cd3d3cd26de638f36c20bb367b3e4f5e6"
+  relayer_party: "BridgeIssuer::12206d4ff2403ab0dd8ff939ad9beb291a270424fa08a9f0be036f2d1d60d3602aa1"
   bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"  # bridge-wayfinder
   core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"    # bridge-core (WithdrawalEvent, MintCommand)
   # Related package IDs:
