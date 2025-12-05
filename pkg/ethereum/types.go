@@ -16,7 +16,6 @@ type DepositEvent struct {
 	CantonRecipient [32]byte
 	Amount          *big.Int
 	Nonce           *big.Int
-	IsWrapped       bool
 	BlockNumber     uint64
 	TxHash          common.Hash
 	LogIndex        uint

@@ -28,9 +28,11 @@ BRIDGE="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 TOKEN="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 RELAYER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+# Owner is the deployer of PromptToken and CantonBridge (has admin rights)
+OWNER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+OWNER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 USER="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-MINTER_ROLE="0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6"
 CANTON_TOKEN_ID="0x0000000000000000000000000000000000000000000000000000000050524f4d"
 PACKAGE_ID="6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 
@@ -201,8 +203,11 @@ fi
 print_header "STEP 2: Verify Ethereum Contracts"
 
 print_step "Checking bridge contract..."
-BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Bridge relayer: $BRIDGE_RELAYER"
+
+BRIDGE_OWNER=$(cast call $BRIDGE "owner()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+print_info "Bridge owner:   $BRIDGE_OWNER"
 
 print_step "Checking token contract..."
 TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
@@ -387,24 +392,12 @@ fi
 
 print_header "STEP 8: Setup Bridge Contracts (EVM)"
 
-# Grant MINTER_ROLE
-print_step "Granting MINTER_ROLE to relayer..."
-HAS_ROLE=$(cast call $TOKEN "hasRole(bytes32,address)(bool)" $MINTER_ROLE $RELAYER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
-if [ "$HAS_ROLE" = "true" ]; then
-    print_warning "Relayer already has MINTER_ROLE"
-else
-    cast send $TOKEN "grantRole(bytes32,address)" $MINTER_ROLE $RELAYER \
-        --rpc-url "$ETH_RPC_URL" \
-        --private-key $RELAYER_KEY > /dev/null 2>&1
-    print_success "MINTER_ROLE granted"
-fi
-
-# Add token mapping
+# Add token mapping (owner-only in new lock/unlock model)
 print_step "Adding token mapping..."
-cast send $BRIDGE "addTokenMapping(address,bytes32,bool)" \
-    $TOKEN $CANTON_TOKEN_ID true \
+cast send $BRIDGE "addTokenMapping(address,bytes32)" \
+    $TOKEN $CANTON_TOKEN_ID \
     --rpc-url "$ETH_RPC_URL" \
-    --private-key $RELAYER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
+    --private-key $OWNER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
 
 print_success "Bridge setup complete"
 
@@ -414,12 +407,12 @@ print_success "Bridge setup complete"
 
 print_header "STEP 9: EVM → Canton Deposit"
 
-# Mint tokens
-print_step "Minting 1000 tokens to user..."
-cast send $TOKEN "mint(address,uint256)" $USER "1000000000000000000000" \
+# Fund user with tokens from owner (PromptToken has fixed pre-minted supply, no mint function)
+print_step "Transferring 1000 tokens from owner to user..."
+cast send $TOKEN "transfer(address,uint256)" $USER "1000000000000000000000" \
     --rpc-url "$ETH_RPC_URL" \
-    --private-key $RELAYER_KEY > /dev/null 2>&1
-print_success "Tokens minted"
+    --private-key $OWNER_KEY > /dev/null 2>&1
+print_success "User funded with tokens"
 
 # Approve
 print_step "Approving bridge to spend tokens..."
@@ -507,14 +500,14 @@ echo "Domain ID:       $DOMAIN_ID"
 echo "Fingerprint:     0x$FINGERPRINT"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "TRANSFER SUMMARY"
+echo "TRANSFER SUMMARY (lock/unlock model)"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "Deposit:         100 tokens (EVM → Canton)"
-echo "Withdrawal:      50 tokens (Canton → EVM)"
+echo "Deposit:         100 tokens (EVM → Canton, locked in bridge)"
+echo "Withdrawal:      50 tokens (Canton → EVM, unlocked from bridge)"
 echo ""
 echo "User EVM balance:"
-echo "  Before:        1000 tokens (minted)"
-echo "  After deposit: 900 tokens (1000 - 100)"
+echo "  Before:        1000 tokens (funded from owner)"
+echo "  After deposit: 900 tokens (1000 - 100 locked)"
 echo "  After withdraw:$BALANCE_AFTER wei"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
