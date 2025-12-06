@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts
 
 # Build the relayer binary
 build:
@@ -40,13 +40,34 @@ generate-protos:
 	./scripts/generate-protos.sh
 
 generate-eth-bindings:
-	cd contracts/ethereum && \
+	cd contracts/ethereum-wayfinder && \
 	forge build && \
 	mkdir -p ../../pkg/ethereum/contracts && \
-	abigen --abi out/CantonBridge.sol/CantonBridge.json --pkg contracts --type CantonBridge --out ../../pkg/ethereum/contracts/bridge.go && \
-	abigen --abi out/WrappedCantonToken.sol/WrappedCantonToken.json --pkg contracts --type WrappedToken --out ../../pkg/ethereum/contracts/wrapped_token.go
+	jq '.abi' out/CantonBridge.sol/CantonBridge.json > /tmp/CantonBridge.abi.json && \
+	abigen --abi /tmp/CantonBridge.abi.json --pkg contracts --type CantonBridge --out ../../pkg/ethereum/contracts/bridge.go && \
+	jq '.abi' out/PromptToken.sol/PromptToken.json > /tmp/PromptToken.abi.json && \
+	abigen --abi /tmp/PromptToken.abi.json --pkg contracts --type PromptToken --out ../../pkg/ethereum/contracts/prompt_token.go
 
 generate: generate-protos generate-eth-bindings
+
+# Ethereum contract operations
+ETH_RPC_URL ?= http://localhost:8545
+PRIVATE_KEY ?= 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+RELAYER_ADDRESS ?= 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+USER ?= 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+
+deploy-contracts:
+	cd contracts/ethereum-wayfinder && \
+	PRIVATE_KEY=$(PRIVATE_KEY) RELAYER_ADDRESS=$(RELAYER_ADDRESS) USER=$(USER) \
+	forge script script/Deploy.s.sol:DeployScript --rpc-url $(ETH_RPC_URL) --broadcast
+
+deploy-contracts-dry-run:
+	cd contracts/ethereum-wayfinder && \
+	PRIVATE_KEY=$(PRIVATE_KEY) RELAYER_ADDRESS=$(RELAYER_ADDRESS) USER=$(USER) \
+	forge script script/Deploy.s.sol:DeployScript --rpc-url $(ETH_RPC_URL)
+
+test-contracts:
+	cd contracts/ethereum-wayfinder && forge test -vvv
 
 # Database setup
 db-up:

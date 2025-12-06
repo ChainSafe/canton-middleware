@@ -188,7 +188,7 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprint, err)
 	}
 
-	// Step 3: Process deposit and mint tokens
+	// Step 3: Process deposit (unlock tokens on Canton side)
 	processReq := &canton.ProcessDepositRequest{
 		DepositCid: depositCid,
 		MappingCid: mapping.ContractID,

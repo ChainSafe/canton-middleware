@@ -23,13 +23,16 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
-BRIDGE="0x5FbDB2315678afecb367f032d93F642f64180aa3"
-TOKEN="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+ETH_RPC_URL="${ETH_RPC_URL:-http://localhost:8545}"
+CHAIN_ID="${CHAIN_ID:-31337}"
+# BRIDGE and TOKEN addresses are read from broadcast file in Step 2
 RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 RELAYER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+# Owner is the deployer of PromptToken and CantonBridge (has admin rights)
+OWNER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+OWNER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 USER="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-MINTER_ROLE="0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6"
 CANTON_TOKEN_ID="0x0000000000000000000000000000000000000000000000000000000050524f4d"
 PACKAGE_ID="6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 
@@ -199,12 +202,50 @@ fi
 
 print_header "STEP 2: Verify Ethereum Contracts"
 
+# Read contract addresses from Foundry broadcast
+BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/${CHAIN_ID}/run-latest.json"
+
+if [ -f "$BROADCAST_FILE" ]; then
+    print_step "Reading contract addresses from broadcast file..."
+    
+    # Extract PromptToken address
+    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
+    if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+        print_error "Failed to extract PromptToken address from broadcast file"
+        exit 1
+    fi
+    
+    # Extract CantonBridge address
+    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
+    if [ -z "$BRIDGE" ] || [ "$BRIDGE" = "null" ]; then
+        print_error "Failed to extract CantonBridge address from broadcast file"
+        exit 1
+    fi
+    
+    print_info "PromptToken:  $TOKEN"
+    print_info "CantonBridge: $BRIDGE"
+    
+    # Update config.yaml with extracted addresses
+    print_step "Updating config.yaml with contract addresses..."
+    sed -i.bak "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
+    sed -i.bak "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
+    rm -f "${CONFIG_FILE}.bak"
+    print_success "Config updated with contract addresses"
+else
+    print_error "Broadcast file not found: $BROADCAST_FILE"
+    print_info "Make sure contracts are deployed first"
+    exit 1
+fi
+
 print_step "Checking bridge contract..."
-BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()" --rpc-url http://localhost:8545 2>/dev/null)
+BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Bridge relayer: $BRIDGE_RELAYER"
 
+BRIDGE_OWNER=$(cast call $BRIDGE "owner()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+print_info "Bridge owner:   $BRIDGE_OWNER"
+
 print_step "Checking token contract..."
-TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url http://localhost:8545 2>/dev/null)
+TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Token name: $TOKEN_NAME"
 
 print_success "Ethereum contracts verified"
@@ -299,6 +340,7 @@ fi
 print_info "Domain ID: $DOMAIN_ID"
 
 # Extract fingerprint (without 1220 prefix)
+# shellcheck disable=SC2001
 FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
 if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
     FINGERPRINT="${FULL_FINGERPRINT:4}"
@@ -385,24 +427,12 @@ fi
 
 print_header "STEP 8: Setup Bridge Contracts (EVM)"
 
-# Grant MINTER_ROLE
-print_step "Granting MINTER_ROLE to relayer..."
-HAS_ROLE=$(cast call $TOKEN "hasRole(bytes32,address)(bool)" $MINTER_ROLE $RELAYER --rpc-url http://localhost:8545 2>/dev/null)
-if [ "$HAS_ROLE" = "true" ]; then
-    print_warning "Relayer already has MINTER_ROLE"
-else
-    cast send $TOKEN "grantRole(bytes32,address)" $MINTER_ROLE $RELAYER \
-        --rpc-url http://localhost:8545 \
-        --private-key $RELAYER_KEY > /dev/null 2>&1
-    print_success "MINTER_ROLE granted"
-fi
-
-# Add token mapping
+# Add token mapping (owner-only in new lock/unlock model)
 print_step "Adding token mapping..."
-cast send $BRIDGE "addTokenMapping(address,bytes32,bool)" \
-    $TOKEN $CANTON_TOKEN_ID true \
-    --rpc-url http://localhost:8545 \
-    --private-key $RELAYER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
+cast send $BRIDGE "addTokenMapping(address,bytes32)" \
+    $TOKEN $CANTON_TOKEN_ID \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key $OWNER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
 
 print_success "Bridge setup complete"
 
@@ -412,17 +442,17 @@ print_success "Bridge setup complete"
 
 print_header "STEP 9: EVM → Canton Deposit"
 
-# Mint tokens
-print_step "Minting 1000 tokens to user..."
-cast send $TOKEN "mint(address,uint256)" $USER "1000000000000000000000" \
-    --rpc-url http://localhost:8545 \
-    --private-key $RELAYER_KEY > /dev/null 2>&1
-print_success "Tokens minted"
+# Fund user with tokens from owner (PromptToken has fixed pre-minted supply, no mint function)
+print_step "Transferring 1000 tokens from owner to user..."
+cast send $TOKEN "transfer(address,uint256)" $USER "1000000000000000000000" \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key $OWNER_KEY > /dev/null 2>&1
+print_success "User funded with tokens"
 
 # Approve
 print_step "Approving bridge to spend tokens..."
 cast send $TOKEN "approve(address,uint256)" $BRIDGE "1000000000000000000000" \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $USER_KEY > /dev/null 2>&1
 print_success "Tokens approved"
 
@@ -431,7 +461,7 @@ print_step "Depositing 100 tokens to Canton..."
 CANTON_RECIPIENT="0x$FINGERPRINT"
 DEPOSIT_TX=$(cast send $BRIDGE "depositToCanton(address,uint256,bytes32)" \
     $TOKEN "100000000000000000000" $CANTON_RECIPIENT \
-    --rpc-url http://localhost:8545 \
+    --rpc-url "$ETH_RPC_URL" \
     --private-key $USER_KEY --json 2>/dev/null | jq -r '.transactionHash')
 print_info "Deposit TX: $DEPOSIT_TX"
 print_success "Deposit submitted"
@@ -466,7 +496,7 @@ print_success "Deposit verified on Canton"
 print_header "STEP 10: Canton → EVM Withdrawal"
 
 # Get user balance before
-BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545 2>/dev/null)
+BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "User balance before withdrawal: $BALANCE_BEFORE"
 
 # Initiate withdrawal
@@ -483,7 +513,7 @@ sleep 8
 
 # Verify on EVM
 print_step "Verifying balance on EVM..."
-BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url http://localhost:8545 2>/dev/null)
+BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "User balance after withdrawal: $BALANCE_AFTER"
 
 print_success "Withdrawal processed"
@@ -505,14 +535,14 @@ echo "Domain ID:       $DOMAIN_ID"
 echo "Fingerprint:     0x$FINGERPRINT"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "TRANSFER SUMMARY"
+echo "TRANSFER SUMMARY (lock/unlock model)"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "Deposit:         100 tokens (EVM → Canton)"
-echo "Withdrawal:      50 tokens (Canton → EVM)"
+echo "Deposit:         100 tokens (EVM → Canton, locked in bridge)"
+echo "Withdrawal:      50 tokens (Canton → EVM, unlocked from bridge)"
 echo ""
 echo "User EVM balance:"
-echo "  Before:        1000 tokens (minted)"
-echo "  After deposit: 900 tokens (1000 - 100)"
+echo "  Before:        1000 tokens (funded from owner)"
+echo "  After deposit: 900 tokens (1000 - 100 locked)"
 echo "  After withdraw:$BALANCE_AFTER wei"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"

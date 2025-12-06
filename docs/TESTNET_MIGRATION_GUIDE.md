@@ -202,7 +202,7 @@ export PRIVATE_KEY="your-deployer-private-key"
 export RPC_URL="https://sepolia.infura.io/v3/YOUR_API_KEY"
 
 # Deploy contracts
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast --verify
+forge script script/Deployer.s.sol --rpc-url $RPC_URL --broadcast --verify
 
 # Record deployed addresses:
 # - CantonBridge: 0x...

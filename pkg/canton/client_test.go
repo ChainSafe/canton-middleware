@@ -48,6 +48,9 @@ func TestClient_SubmitMintProposal(t *testing.T) {
 	}
 
 	mockStateService := &MockStateService{
+		GetLedgerEndFunc: func(ctx context.Context, in *lapiv2.GetLedgerEndRequest, opts ...grpc.CallOption) (*lapiv2.GetLedgerEndResponse, error) {
+			return &lapiv2.GetLedgerEndResponse{Offset: 100}, nil
+		},
 		GetActiveContractsFunc: func(ctx context.Context, in *lapiv2.GetActiveContractsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[lapiv2.GetActiveContractsResponse], error) {
 			return mockACSClient, nil
 		},

@@ -185,7 +185,6 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 					CantonRecipient: event.CantonRecipient,
 					Amount:          event.Amount,
 					Nonce:           event.Nonce,
-					IsWrapped:       event.IsWrapped,
 					BlockNumber:     event.Raw.BlockNumber,
 					TxHash:          event.Raw.TxHash,
 					LogIndex:        event.Raw.Index,
