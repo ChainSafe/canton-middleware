@@ -108,26 +108,36 @@ func (c *Client) loadToken() (string, error) {
 }
 
 // loadTLSConfig loads TLS configuration from files
+// If no cert files are provided, uses system CA pool (standard TLS)
+// If cert files are provided, uses mTLS (mutual TLS with client certs)
 func loadTLSConfig(tlsCfg *config.TLSConfig) (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load client cert/key: %w", err)
+	tlsConfig := &tls.Config{}
+
+	// If client cert/key provided, load them (mTLS)
+	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(tlsCfg.CertFile, tlsCfg.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client cert/key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	caCert, err := os.ReadFile(tlsCfg.CAFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CA cert: %w", err)
-	}
+	// If CA file provided, use it; otherwise use system CA pool
+	if tlsCfg.CAFile != "" {
+		caCert, err := os.ReadFile(tlsCfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert: %w", err)
+		}
 
-	caCertPool := x509.NewCertPool()
-	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append CA cert")
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to append CA cert")
+		}
+		tlsConfig.RootCAs = caCertPool
 	}
+	// If no CA file, tlsConfig.RootCAs = nil uses system CA pool
 
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caCertPool,
-	}, nil
+	return tlsConfig, nil
 }
 
 // StreamTransactions streams transactions from the Canton ledger

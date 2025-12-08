@@ -1,0 +1,22 @@
+# Docker Compose override for 5North DevNet
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
+#
+# This overlay:
+# - Disables the local Canton container (using 5North hosted participant)
+# - Keeps Anvil for local EVM testing
+# - Keeps Postgres for relayer state
+
+services:
+  # Disable Canton container - using 5North hosted participant
+  canton:
+    profiles: ["disabled"]
+
+  # Anvil stays enabled for local EVM testing
+  # anvil: (inherited from docker-compose.yaml)
+
+  # Deployer stays enabled for local contract deployment
+  # deployer: (inherited from docker-compose.yaml)
+
+  # Postgres stays enabled for relayer state
+  # postgres: (inherited from docker-compose.yaml)
+
