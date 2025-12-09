@@ -111,7 +111,10 @@ func (c *Client) loadToken() (string, error) {
 // If no cert files are provided, uses system CA pool (standard TLS)
 // If cert files are provided, uses mTLS (mutual TLS with client certs)
 func loadTLSConfig(tlsCfg *config.TLSConfig) (*tls.Config, error) {
-	tlsConfig := &tls.Config{}
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,           // Skip cert verification for dev - TODO: make configurable
+		NextProtos:         []string{"h2"}, // Force HTTP/2 ALPN for grpc-go 1.67+ compatibility
+	}
 
 	// If client cert/key provided, load them (mTLS)
 	if tlsCfg.CertFile != "" && tlsCfg.KeyFile != "" {
@@ -201,7 +204,7 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -326,7 +329,7 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -450,7 +453,7 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -506,7 +509,7 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -564,7 +567,7 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -615,7 +618,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "bridge-relayer",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
