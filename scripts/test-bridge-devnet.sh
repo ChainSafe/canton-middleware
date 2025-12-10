@@ -4,7 +4,7 @@
 # =============================================================================
 # Tests the bridge using:
 # - Canton: 5North DevNet (remote gRPC at canton-ledger-api-grpc-dev1.chainsafe.dev:80)
-# - Ethereum: Local Anvil
+# - Ethereum: Sepolia via Infura (pre-deployed contracts)
 #
 # PRE-CONFIGURED FOR CHAINSAFE DEVNET:
 # - JWT Token: secrets/devnet-token.txt (shared Auth0 credentials)
@@ -12,6 +12,7 @@
 # - DARs: Already uploaded to 5North
 # - User Rights: Already granted for JWT subject
 # - Domain: global-domain::1220be58c29e65de...
+# - Ethereum: Contracts pre-deployed to Sepolia (addresses in broadcast file)
 #
 # BEFORE RUNNING - Check JWT token is not expired:
 #   TOKEN=$(cat secrets/devnet-token.txt | cut -d'.' -f2)
@@ -23,7 +24,7 @@
 #   ./scripts/test-bridge-devnet.sh [--clean] [--skip-bootstrap]
 #
 # Options:
-#   --clean          Reset Docker environment (Anvil + Postgres only)
+#   --clean          Reset Docker environment (Postgres only)
 #   --skip-bootstrap Skip Canton bootstrap (use after first successful run)
 #
 # First run:  ./scripts/test-bridge-devnet.sh --clean
@@ -42,15 +43,16 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Configuration
-ETH_RPC_URL="${ETH_RPC_URL:-http://localhost:8545}"
-CHAIN_ID="${CHAIN_ID:-31337}"
-RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-RELAYER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-OWNER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-OWNER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-USER="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+# Configuration (Sepolia via Infura)
+ETH_RPC_URL="${ETH_RPC_URL:-https://sepolia.infura.io/v3/dd3f23220d4348e2a3b192100fc71ba1}"
+CHAIN_ID="${CHAIN_ID:-11155111}"
+RELAYER="0x914db8873AcFd84b834278e20BB9fCE9DD223043"
+RELAYER_KEY="0xf9aac8ca8ca8fa4ff170921eca83aed78a3eb156dd3cba80a9cda033ae637066"
+# Owner is the deployer of PromptToken and CantonBridge (has admin rights)
+OWNER="0x8A0A6FF59ad10e009b0fdB3B3CA7A0356eDcCCbf"
+OWNER_KEY="0x3ffae7a5be2fa63022325b175a04cab999af2b8ad956208d10861a75701eae9b"
+USER="0x4768CCb3cE015698468A65bf8208b3f6919c769e"
+USER_KEY="0xeacbff42147f4a4493e2212a70ace9e0ef4e40532e5aa3e049a0eb355e8fc5be"
 CANTON_TOKEN_ID="0x0000000000000000000000000000000000000000000000000000000050524f4d"
 
 # Script directory
@@ -122,7 +124,8 @@ cd "$PROJECT_DIR"
 
 print_header "CANTON-ETHEREUM BRIDGE DEVNET TEST"
 echo ""
-echo -e "${YELLOW}Mode: 5North DevNet (remote Canton) + Local Anvil${NC}"
+echo -e "${YELLOW}Mode: 5North DevNet (remote Canton) + Ethereum Sepolia (Infura)${NC}"
+echo -e "${YELLOW}ETH RPC URL: ${ETH_RPC_URL}${NC}"
 echo ""
 echo "Project directory: $PROJECT_DIR"
 echo "Config file: $CONFIG_FILE"
@@ -198,30 +201,21 @@ if [ "$CLEAN" = true ]; then
 fi
 
 # =============================================================================
-# Step 1: Start Local Services (Anvil + Postgres)
+# Step 1: Start Local Services (Postgres only)
 # =============================================================================
 
-print_header "STEP 1: Start Local Services (Anvil + Postgres)"
+print_header "STEP 1: Start Local Services (Postgres only)"
 
-print_step "Starting docker compose (DevNet mode - no local Canton)..."
+print_step "Starting docker compose (DevNet mode - Postgres only)..."
 $DOCKER_COMPOSE_CMD up -d
 
-# Wait for Anvil
-print_step "Waiting for Anvil..."
-sleep 3
-ANVIL_ATTEMPTS=0
-while [ $ANVIL_ATTEMPTS -lt 30 ]; do
-    if cast block-number --rpc-url "$ETH_RPC_URL" >/dev/null 2>&1; then
-        print_success "Anvil is ready!"
-        break
-    fi
-    echo -n "."
-    sleep 1
-    ANVIL_ATTEMPTS=$((ANVIL_ATTEMPTS + 1))
-done
-
-if [ $ANVIL_ATTEMPTS -ge 30 ]; then
-    print_error "Anvil failed to start"
+# Check Ethereum RPC (Infura / Sepolia)
+print_step "Checking Ethereum RPC endpoint..."
+if cast block-number --rpc-url "$ETH_RPC_URL" >/dev/null 2>&1; then
+    BLOCK_NUM=$(cast block-number --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+    print_success "Ethereum RPC is reachable (block: $BLOCK_NUM)"
+else
+    print_error "Failed to query block number from $ETH_RPC_URL"
     exit 1
 fi
 
@@ -238,29 +232,22 @@ echo ""
 $DOCKER_COMPOSE_CMD ps
 
 # =============================================================================
-# Step 2: Deploy/Verify Ethereum Contracts
+# Step 2: Verify Ethereum Contracts (Sepolia)
 # =============================================================================
 
-print_header "STEP 2: Verify Ethereum Contracts"
+print_header "STEP 2: Verify Ethereum Contracts (Sepolia)"
 
 BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/${CHAIN_ID}/run-latest.json"
 
 if [ -f "$BROADCAST_FILE" ]; then
     print_step "Reading contract addresses from broadcast file..."
     
-    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
-    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
+    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
+    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
     
     if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ] || [ -z "$BRIDGE" ] || [ "$BRIDGE" = "null" ]; then
-        print_warning "Contract addresses not found in broadcast file"
-        print_step "Deploying contracts..."
-        
-        # Wait for deployer to finish
-        sleep 5
-        
-        # Re-read
-        TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
-        BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
+        print_error "PromptToken or CantonBridge addresses not found in broadcast file: $BROADCAST_FILE"
+        exit 1
     fi
     
     print_info "PromptToken:  $TOKEN"
@@ -274,39 +261,13 @@ if [ -f "$BROADCAST_FILE" ]; then
     print_success "Config updated"
 else
     print_error "Broadcast file not found: $BROADCAST_FILE"
-    print_info "Waiting for deployer container to deploy contracts..."
-    
-    # Wait for deployer
-    DEPLOY_ATTEMPTS=0
-    while [ $DEPLOY_ATTEMPTS -lt 60 ]; do
-        if [ -f "$BROADCAST_FILE" ]; then
-            TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
-            BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
-            if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-                break
-            fi
-        fi
-        echo -n "."
-        sleep 2
-        DEPLOY_ATTEMPTS=$((DEPLOY_ATTEMPTS + 1))
-    done
-    echo ""
-    
-    if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-        print_error "Failed to get contract addresses after waiting"
-        exit 1
-    fi
-    
-    print_info "PromptToken:  $TOKEN"
-    print_info "CantonBridge: $BRIDGE"
-    
-    sed -i.bak "s|bridge_contract: \"[^\"]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
-    sed -i.bak "s|token_contract: \"[^\"]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
-    rm -f "${CONFIG_FILE}.bak"
+    print_info "Expected pre-deployed contracts on Sepolia and broadcast file from Foundry."
+    print_info "Deploy with: forge script Deployer.s.sol --broadcast --rpc-url \$ETH_RPC_URL --chain-id $CHAIN_ID"
+    exit 1
 fi
 
 # Verify contracts
-print_step "Verifying contracts on Anvil..."
+print_step "Verifying contracts on Sepolia..."
 BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Bridge relayer: $BRIDGE_RELAYER"
 
@@ -482,7 +443,7 @@ echo "════════════════════════�
 echo "CONFIGURATION (DevNet)"
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "Canton:          5North DevNet (canton-ledger-api-grpc-dev1.chainsafe.dev:80)"
-echo "Ethereum:        Local Anvil (localhost:8545)"
+echo "Ethereum:        Sepolia via Infura ($ETH_RPC_URL)"
 echo "Party ID:        $PARTY_ID"
 echo "Domain ID:       $DOMAIN_ID"
 echo "Fingerprint:     0x$FINGERPRINT"

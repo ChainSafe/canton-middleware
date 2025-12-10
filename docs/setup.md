@@ -34,7 +34,7 @@ psql -U postgres -d canton_bridge -f pkg/db/schema.sql
 ### 3. Configuration
 
 ```bash
-cp config.example.yaml config.yaml
+cp config.example.yaml config.local.yaml
 ```
 
 Edit `config.yaml` with your settings:
@@ -53,7 +53,7 @@ make run
 Or build and run:
 ```bash
 make build
-./bin/relayer -config config.yaml
+./bin/relayer -config config.local.yaml
 ```
 
 ## Docker Setup

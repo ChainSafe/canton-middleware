@@ -90,10 +90,10 @@ foundryup
 
 ```bash
 # Full test with clean environment (recommended for first run)
-./scripts/test-bridge.sh --clean
+./scripts/test-bridge-local.sh --clean
 
 # Skip Docker setup (if services are already running)
-./scripts/test-bridge.sh --skip-docker
+./scripts/test-bridge-local.sh --skip-docker
 ```
 
 The test script will:
