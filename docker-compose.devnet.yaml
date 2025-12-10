@@ -19,10 +19,3 @@ services:
 
   # Postgres stays enabled for relayer state
   # postgres: (inherited from docker-compose.yaml)
-
-#
-#    environment:
-#      FOUNDRY_PROFILE: default
-#      DEPLOYER_PRIVATE_KEY: "0x3ffae7a5be2fa63022325b175a04cab999af2b8ad956208d10861a75701eae9b"
-#      RELAYER_ADDRESS: "0x914db8873AcFd84b834278e20BB9fCE9DD223043"
-#      ETH_RPC_URL: "${ETH_RPC_URL:-https://sepolia.infura.io/v3/dd3f23220d4348e2a3b192100fc71ba1}"
