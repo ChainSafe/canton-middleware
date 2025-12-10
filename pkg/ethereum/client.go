@@ -239,6 +239,11 @@ func (c *Client) WithdrawFromCanton(
 	return tx.Hash(), nil
 }
 
+// IsWithdrawalProcessed checks if a Canton withdrawal has already been processed on EVM
+func (c *Client) IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error) {
+	return c.bridge.ProcessedCantonTxs(&bind.CallOpts{Context: ctx}, cantonTxHash)
+}
+
 // DepositToCanton submits a deposit transaction (for testing)
 func (c *Client) DepositToCanton(
 	ctx context.Context,
