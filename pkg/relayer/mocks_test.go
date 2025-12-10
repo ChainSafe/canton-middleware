@@ -24,6 +24,9 @@ type MockCantonClient struct {
 	ProcessDepositFunc         func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
 	InitiateWithdrawalFunc     func(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
 	CompleteWithdrawalFunc     func(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
+
+	// Ledger state
+	GetLedgerEndFunc func(ctx context.Context) (string, error)
 }
 
 func (m *MockCantonClient) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
@@ -89,11 +92,19 @@ func (m *MockCantonClient) CompleteWithdrawal(ctx context.Context, req *canton.C
 	return nil
 }
 
+func (m *MockCantonClient) GetLedgerEnd(ctx context.Context) (string, error) {
+	if m.GetLedgerEndFunc != nil {
+		return m.GetLedgerEndFunc(ctx)
+	}
+	return "BEGIN", nil
+}
+
 // MockEthereumClient is a mock implementation of EthereumBridgeClient
 type MockEthereumClient struct {
-	GetLatestBlockNumberFunc func(ctx context.Context) (uint64, error)
-	WithdrawFromCantonFunc   func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
-	WatchDepositEventsFunc   func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
+	GetLatestBlockNumberFunc    func(ctx context.Context) (uint64, error)
+	WithdrawFromCantonFunc      func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WatchDepositEventsFunc      func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
+	IsWithdrawalProcessedFunc   func(ctx context.Context, cantonTxHash [32]byte) (bool, error)
 }
 
 func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
@@ -115,6 +126,13 @@ func (m *MockEthereumClient) WatchDepositEvents(ctx context.Context, fromBlock u
 		return m.WatchDepositEventsFunc(ctx, fromBlock, handler)
 	}
 	return nil
+}
+
+func (m *MockEthereumClient) IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error) {
+	if m.IsWithdrawalProcessedFunc != nil {
+		return m.IsWithdrawalProcessedFunc(ctx, cantonTxHash)
+	}
+	return false, nil
 }
 
 // MockStore is a mock implementation of BridgeStore

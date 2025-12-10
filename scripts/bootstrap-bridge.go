@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -24,7 +25,9 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
@@ -67,12 +70,48 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Connect to Canton
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Connect to Canton with TLS if enabled
+	var opts []grpc.DialOption
+	if cfg.Canton.TLS.Enabled {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,           // Skip cert verification for dev
+			NextProtos:         []string{"h2"}, // Force HTTP/2 ALPN
+		}
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+		fmt.Println("TLS: enabled (skip verify, HTTP/2)")
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		fmt.Println("TLS: disabled")
+	}
+
+	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to Canton: %v", err)
 	}
 	defer conn.Close()
+
+	// Load JWT token if configured
+	var authToken string
+	if cfg.Canton.Auth.TokenFile != "" {
+		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
+		if err != nil {
+			log.Fatalf("Failed to read token file %s: %v", cfg.Canton.Auth.TokenFile, err)
+		}
+		authToken = strings.TrimSpace(string(tokenBytes))
+		fmt.Printf("Auth: JWT token loaded from %s\n", cfg.Canton.Auth.TokenFile)
+	}
+
+	// Create auth context helper
+	getAuthCtx := func(ctx context.Context) context.Context {
+		if authToken != "" {
+			md := metadata.Pairs("authorization", "Bearer "+authToken)
+			return metadata.NewOutgoingContext(ctx, md)
+		}
+		return ctx
+	}
+	// Use auth context for all calls
+	ctx = getAuthCtx(ctx)
 
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println("WAYFINDER BRIDGE BOOTSTRAP")
@@ -310,10 +349,12 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
+	// UserId must match the JWT subject for authorization
+	userID := "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients" // TODO: make configurable
 	commands := &lapiv2.Commands{
 		SynchronizerId: domainID,
 		CommandId:      cmdID,
-		UserId:         "bridge-operator",
+		UserId:         userID,
 		ActAs:          []string{issuer},
 		Commands:       []*lapiv2.Command{cmd},
 	}
@@ -366,11 +407,13 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
+	// UserId must match the JWT subject for authorization
+	userID := "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients" // TODO: make configurable
 	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "bridge-operator",
+			UserId:         userID,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},

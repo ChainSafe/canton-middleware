@@ -8,10 +8,10 @@ For quick testing, use the automated test script:
 
 ```bash
 # Full test with clean environment
-./scripts/test-bridge.sh --clean
+./scripts/test-bridge-local.sh --clean
 
 # Skip Docker setup (if services are already running)
-./scripts/test-bridge.sh --skip-docker
+./scripts/test-bridge-local.sh --skip-docker
 ```
 
 The script automates all steps below and prints results to the terminal.
@@ -84,7 +84,7 @@ The image includes:
 **Recommended: Use the automated test script** (handles all setup automatically):
 
 ```bash
-./scripts/test-bridge.sh --clean
+./scripts/test-bridge-local.sh --clean
 ```
 
 **Manual quick start** (requires updating `config.yaml` with dynamic party/domain IDs):
@@ -111,17 +111,17 @@ echo "  domain_id: $DOMAIN_ID"
 
 # 4. Bootstrap the bridge contracts on Canton
 go run scripts/bootstrap-bridge.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -issuer "$PARTY_ID" \
   -package "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 
 # 5. Register a test user (required for deposits)
 go run scripts/register-user.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -party "$PARTY_ID"
 
 # 6. Start the relayer
-go run cmd/relayer/main.go -config config.yaml
+go run cmd/relayer/main.go -config config.local.yaml
 
 # 7. Check health
 curl http://localhost:8080/health  # Should return "OK"
@@ -237,7 +237,7 @@ curl -X POST http://localhost:5013/v2/parties \
 ```bash
 # Run bootstrap script
 go run scripts/bootstrap-bridge.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -issuer "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e" \
   -package "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 ```
@@ -270,7 +270,7 @@ Bridge is already bootstrapped!
 ```bash
 # Register the BridgeIssuer as a user (for testing)
 go run scripts/register-user.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -party "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
 ```
 
@@ -302,10 +302,10 @@ The user can now receive deposits with this fingerprint as bytes32:
 
 ```bash
 # Run relayer (foreground)
-go run cmd/relayer/main.go -config config.yaml
+go run cmd/relayer/main.go -config config.local.yaml
 
 # Or run in background
-go run cmd/relayer/main.go -config config.yaml &
+go run cmd/relayer/main.go -config config.local.yaml &
 ```
 
 Expected logs:
@@ -465,7 +465,7 @@ INFO    Deposit processed successfully    {"holding_cid": "00..."}
 ```bash
 # Query holdings using the script
 go run scripts/query-holdings.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -party "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
 ```
 
@@ -505,7 +505,7 @@ First, find the user's CIP56Holding contract ID:
 ```bash
 # Query active CIP56Holding contracts
 go run scripts/query-holdings.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -party "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
 ```
 
@@ -528,7 +528,7 @@ Use the withdrawal script (it handles both `InitiateWithdrawal` and `ProcessWith
 
 ```bash
 go run scripts/initiate-withdrawal.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -holding-cid "00..." \
   -amount "50.0" \
   -evm-destination "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -641,7 +641,7 @@ This was a bug in the V2 API usage - fixed in the codebase. The `GetActiveContra
 
 ```bash
 # Re-run bootstrap to create the config
-go run scripts/bootstrap-bridge.go -config config.yaml \
+go run scripts/bootstrap-bridge.go -config config.local.yaml \
   -issuer "BridgeIssuer::..." -package "..."
 ```
 
@@ -656,7 +656,7 @@ The recipient fingerprint doesn't have a registered mapping on Canton:
 ```bash
 # Register the user
 go run scripts/register-user.go \
-  -config config.yaml \
+  -config config.local.yaml \
   -party "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
 ```
 

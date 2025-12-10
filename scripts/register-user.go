@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -26,7 +27,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 var (
@@ -81,13 +84,34 @@ func main() {
 
 	ctx := context.Background()
 
-	// Connect to Canton
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Connect to Canton with TLS if enabled
+	var opts []grpc.DialOption
+	if cfg.Canton.TLS.Enabled {
+		tlsConfig := &tls.Config{} // Uses system CA pool
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+
+	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
 	if err != nil {
 		fmt.Printf("Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
 	}
 	defer conn.Close()
+
+	// Load JWT token if configured
+	if cfg.Canton.Auth.TokenFile != "" {
+		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
+		if err != nil {
+			fmt.Printf("Failed to read token file: %v\n", err)
+			os.Exit(1)
+		}
+		authToken := strings.TrimSpace(string(tokenBytes))
+		md := metadata.Pairs("authorization", "Bearer "+authToken)
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
 
 	stateClient := lapiv2.NewStateServiceClient(conn)
 	cmdClient := lapiv2.NewCommandServiceClient(conn)
@@ -308,7 +332,7 @@ func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issue
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "bridge-operator",
+			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},

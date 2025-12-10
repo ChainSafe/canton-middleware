@@ -5,7 +5,7 @@
 # This script automates the entire BRIDGE_TESTING_GUIDE.md flow
 #
 # Usage:
-#   ./scripts/test-bridge.sh [--clean] [--skip-docker]
+#   ./scripts/test-bridge-local.sh [--clean] [--skip-docker]
 #
 # Options:
 #   --clean       Reset Docker environment before starting
@@ -39,7 +39,7 @@ PACKAGE_ID="6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="$PROJECT_DIR/config.yaml"
+CONFIG_FILE="$PROJECT_DIR/config.local.yaml"
 
 # Parse arguments
 CLEAN=false
@@ -56,6 +56,8 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+DOCKER_COMPOSE_CMD="docker compose"
 
 # =============================================================================
 # Helper Functions
@@ -171,7 +173,7 @@ if [ "$CLEAN" = true ]; then
     print_header "STEP 0: Cleaning Environment"
     kill_relayer
     print_step "Stopping Docker containers..."
-    docker compose down -v 2>/dev/null || true
+    $DOCKER_COMPOSE_CMD down -v 2>/dev/null || true
     print_success "Environment cleaned"
 fi
 
@@ -182,18 +184,18 @@ fi
 if [ "$SKIP_DOCKER" = false ]; then
     print_header "STEP 1: Start Docker Services"
     
-    # Check if services are already running
+    # Local mode: start everything including Canton
     if docker compose ps --format '{{.State}}' canton 2>/dev/null | grep -q "running"; then
         print_warning "Docker services already running"
     else
         print_step "Starting docker compose..."
-        docker compose up -d
+        $DOCKER_COMPOSE_CMD up -d
     fi
-    
+
     wait_for_canton
-    
+
     echo ""
-    docker compose ps
+    $DOCKER_COMPOSE_CMD ps
 fi
 
 # =============================================================================
@@ -226,7 +228,7 @@ if [ -f "$BROADCAST_FILE" ]; then
     print_info "CantonBridge: $BRIDGE"
     
     # Update config.yaml with extracted addresses
-    print_step "Updating config.yaml with contract addresses..."
+    print_step "Updating config.local.yaml with contract addresses..."
     sed -i.bak "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
     sed -i.bak "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
     rm -f "${CONFIG_FILE}.bak"
@@ -267,12 +269,12 @@ CIP56_FOUND=false
 while [ $DAR_ATTEMPT -lt $DAR_MAX_ATTEMPTS ]; do
     PACKAGES_JSON=$(curl -s http://localhost:5013/v2/packages 2>/dev/null || echo '{"packageIds":[]}')
     PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq '.packageIds | length' 2>/dev/null || echo "0")
-    
+
     # Check if cip56-token package is uploaded
     if echo "$PACKAGES_JSON" | jq -e ".packageIds | index(\"$CIP56_PACKAGE_ID\")" >/dev/null 2>&1; then
         CIP56_FOUND=true
     fi
-    
+
     # Need both: enough packages AND the cip56-token package
     if [ "$PACKAGE_COUNT" -ge 30 ] && [ "$CIP56_FOUND" = true ]; then
         break
@@ -318,7 +320,7 @@ else
         -H 'Content-Type: application/json' \
         -d '{"partyIdHint": "BridgeIssuer"}')
     PARTY_ID=$(echo "$PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
-    
+
     if [ -z "$PARTY_ID" ]; then
         print_error "Failed to allocate party. Response: $PARTY_RESPONSE"
         exit 1
@@ -377,7 +379,7 @@ print_header "STEP 5: Bootstrap Canton Bridge Contracts"
 
 print_step "Running bootstrap script..."
 go run scripts/bootstrap-bridge.go \
-    -config config.yaml \
+    -config config.local.yaml \
     -issuer "$PARTY_ID" \
     -package "$PACKAGE_ID"
 
@@ -391,7 +393,7 @@ print_header "STEP 6: Register Test User"
 
 print_step "Running register-user script..."
 go run scripts/register-user.go \
-    -config config.yaml \
+    -config config.local.yaml \
     -party "$PARTY_ID"
 
 print_success "User registered"
@@ -405,7 +407,7 @@ print_header "STEP 7: Start the Relayer"
 kill_relayer
 
 print_step "Starting relayer in background..."
-go run cmd/relayer/main.go -config config.yaml > /tmp/relayer.log 2>&1 &
+go run cmd/relayer/main.go -config "$CONFIG_FILE" > /tmp/relayer.log 2>&1 &
 RELAYER_PID=$!
 echo "Relayer PID: $RELAYER_PID"
 
@@ -472,7 +474,7 @@ sleep 8
 
 # Verify on Canton
 print_step "Verifying holdings on Canton..."
-HOLDINGS_OUTPUT=$(go run scripts/query-holdings.go -config config.yaml -party "$PARTY_ID" 2>/dev/null)
+HOLDINGS_OUTPUT=$(go run scripts/query-holdings.go -config "$CONFIG_FILE" -party "$PARTY_ID" 2>/dev/null)
 echo "$HOLDINGS_OUTPUT"
 
 # Extract holding CID for withdrawal
@@ -502,7 +504,7 @@ print_info "User balance before withdrawal: $BALANCE_BEFORE"
 # Initiate withdrawal
 print_step "Initiating withdrawal of 50 tokens..."
 go run scripts/initiate-withdrawal.go \
-    -config config.yaml \
+    -config "$CONFIG_FILE" \
     -holding-cid "$HOLDING_CID" \
     -amount "50.0" \
     -evm-destination "$USER"
@@ -554,8 +556,7 @@ echo "════════════════════════�
 echo "COMMANDS"
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "View relayer logs:     tail -f /tmp/relayer.log"
-echo "Query holdings:        go run scripts/query-holdings.go -config config.yaml -party \"$PARTY_ID\""
+echo "Query holdings:        go run scripts/query-holdings.go -config \"$CONFIG_FILE\" -party \"$PARTY_ID\""
 echo "Stop relayer:          pkill -f 'cmd/relayer'"
-echo "Stop all services:     docker compose down"
+echo "Stop all services:     $DOCKER_COMPOSE_CMD down"
 echo ""
-

@@ -1,0 +1,88 @@
+# =============================================================================
+# Canton-Ethereum Bridge - 5North DevNet Configuration (PRE-CONFIGURED)
+# =============================================================================
+# This config connects to ChainSafe's 5North DevNet for Canton and local Anvil for Ethereum.
+#
+# PRE-CONFIGURED VALUES (shared across team):
+# - Party: daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c
+# - Domain: global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a
+# - DARs: Already uploaded
+# - User Rights: Already granted
+#
+# ONLY UPDATE IF:
+# - JWT token expired → Get new token, save to secrets/devnet-token.txt
+# - Domain changed → Query via GetConnectedSynchronizers
+#
+# See docs/DEVNET_SETUP.md for full setup details (if reconfiguring from scratch)
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "relayer"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "https://sepolia.infura.io/v3/dd3f23220d4348e2a3b192100fc71ba1"
+  ws_url: "wss://sepolia.infura.io/v3/dd3f23220d4348e2a3b192100fc71ba1"
+  chain_id: 11155111
+  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
+  relayer_private_key: "***REMOVED***"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0
+
+canton:
+  # 5North DevNet Ledger API (gRPC plaintext - TLS has ALPN issues with grpc-go 1.67+)
+  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+  ledger_id: ""  # Query from endpoint or leave empty
+  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"  # From GetConnectedSynchronizers
+  application_id: "canton-middleware"
+  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"  # Allocate via 5N Dashboard
+  bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"  # After DAR upload
+  core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"
+  bridge_module: "Wayfinder.Bridge"
+  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  
+  # TLS disabled (using plaintext port 80 due to grpc-go ALPN issues)
+  tls:
+    enabled: false
+  
+  # JWT Authentication for devnet
+  auth:
+    token_file: "secrets/devnet-token.txt"
+    # Or use OAuth2 client credentials:
+    # auth0_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com"
+    # client_id: "${AUTH0_CLIENT_ID}"
+    # client_secret: "${AUTH0_CLIENT_SECRET}"
+    # audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+  
+  polling_interval: "1s"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+
