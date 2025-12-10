@@ -53,7 +53,7 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					TransactionID:     withdrawal.TransactionID,
 					SourceChain:       "canton",
 					DestinationChain:  "ethereum",
-					SourceTxHash:      withdrawal.TransactionID,
+					SourceTxHash:      withdrawal.ContractID,
 					TokenAddress:      s.tokenContract,
 					Amount:            withdrawal.Amount,
 					Sender:            withdrawal.UserParty,

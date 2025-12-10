@@ -237,33 +237,41 @@ $DOCKER_COMPOSE_CMD ps
 
 print_header "STEP 2: Verify Ethereum Contracts (Sepolia)"
 
-BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/${CHAIN_ID}/run-latest.json"
+print_step "Resolving Ethereum contract addresses..."
 
-if [ -f "$BROADCAST_FILE" ]; then
-    print_step "Reading contract addresses from broadcast file..."
-    
-    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
-    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null)
-    
-    if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ] || [ -z "$BRIDGE" ] || [ "$BRIDGE" = "null" ]; then
-        print_error "PromptToken or CantonBridge addresses not found in broadcast file: $BROADCAST_FILE"
-        exit 1
-    fi
-    
-    print_info "PromptToken:  $TOKEN"
-    print_info "CantonBridge: $BRIDGE"
-    
-    # Update config with contract addresses
-    print_step "Updating config with contract addresses..."
-    sed -i.bak "s|bridge_contract: \"[^\"]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
-    sed -i.bak "s|token_contract: \"[^\"]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
-    rm -f "${CONFIG_FILE}.bak"
-    print_success "Config updated"
-else
-    print_error "Broadcast file not found: $BROADCAST_FILE"
-    print_info "Expected pre-deployed contracts on Sepolia and broadcast file from Foundry."
-    print_info "Deploy with: forge script Deployer.s.sol --broadcast --rpc-url \$ETH_RPC_URL --chain-id $CHAIN_ID"
+# Extract from config.devnet.yaml (ethereum section only)
+ETH_BRIDGE_CONFIG=$(
+  awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
+    | grep 'bridge_contract:' \
+    | sed 's/.*bridge_contract: *"\([^"]*\)".*/\1/'
+)
+
+ETH_TOKEN_CONFIG=$(
+  awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
+    | grep 'token_contract:' \
+    | sed 's/.*token_contract: *"\([^"]*\)".*/\1/'
+)
+
+# Environment overrides (preferred), fallback to config
+BRIDGE="${ETH_BRIDGE_CONTRACT:-$ETH_BRIDGE_CONFIG}"
+TOKEN="${ETH_TOKEN_CONTRACT:-$ETH_TOKEN_CONFIG}"
+
+if [ -z "$BRIDGE" ] || [ -z "$TOKEN" ]; then
+    print_error "Bridge or token contract address not found."
+    print_info "Set ETH_BRIDGE_CONTRACT / ETH_TOKEN_CONTRACT or update ethereum.bridge_contract/token_contract in config.devnet.yaml."
     exit 1
+fi
+
+if [ -n "$ETH_BRIDGE_CONTRACT" ]; then
+    print_info "CantonBridge (from ETH_BRIDGE_CONTRACT): $BRIDGE"
+else
+    print_info "CantonBridge (from config.devnet.yaml):  $BRIDGE"
+fi
+
+if [ -n "$ETH_TOKEN_CONTRACT" ]; then
+    print_info "PromptToken (from ETH_TOKEN_CONTRACT):   $TOKEN"
+else
+    print_info "PromptToken (from config.devnet.yaml):   $TOKEN"
 fi
 
 # Verify contracts
