@@ -5,14 +5,11 @@
 # This script automates the entire BRIDGE_TESTING_GUIDE.md flow
 #
 # Usage:
-#   ./scripts/test-bridge.sh [--clean] [--skip-docker] [--devnet]
+#   ./scripts/test-bridge-local.sh [--clean] [--skip-docker]
 #
 # Options:
 #   --clean       Reset Docker environment before starting
 #   --skip-docker Skip Docker setup (assume services are already running)
-#   --devnet      Use 5North DevNet (remote Canton, local Anvil)
-#                 Requires: config.devnet.yaml configured with party/package IDs
-#                 Skips: Canton DAR upload, party allocation, bootstrap
 # =============================================================================
 
 set -e  # Exit on any error
@@ -42,12 +39,11 @@ PACKAGE_ID="6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="$PROJECT_DIR/config.yaml"
+CONFIG_FILE="$PROJECT_DIR/config.local.yaml"
 
 # Parse arguments
 CLEAN=false
 SKIP_DOCKER=false
-DEVNET=false
 for arg in "$@"; do
     case $arg in
         --clean)
@@ -58,33 +54,10 @@ for arg in "$@"; do
             SKIP_DOCKER=true
             shift
             ;;
-        --devnet)
-            DEVNET=true
-            shift
-            ;;
     esac
 done
 
-# DevNet mode: use different config and docker-compose
-if [ "$DEVNET" = true ]; then
-    CONFIG_FILE="$PROJECT_DIR/config.devnet.yaml"
-    DOCKER_COMPOSE_CMD="docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml"
-    
-    if [ ! -f "$CONFIG_FILE" ]; then
-        echo -e "${RED}ERROR: config.devnet.yaml not found${NC}"
-        echo "Create config.devnet.yaml with 5North DevNet settings first."
-        echo "See: docs/WAYFINDER_DEPLOYMENT_REQUIREMENTS.md"
-        exit 1
-    fi
-    
-    # Check for JWT token
-    if [ ! -f "$PROJECT_DIR/secrets/devnet-token.txt" ]; then
-        echo -e "${YELLOW}WARNING: secrets/devnet-token.txt not found${NC}"
-        echo "Get JWT token from 5N Dashboard and save to secrets/devnet-token.txt"
-    fi
-else
-    DOCKER_COMPOSE_CMD="docker compose"
-fi
+DOCKER_COMPOSE_CMD="docker compose"
 
 # =============================================================================
 # Helper Functions
@@ -190,9 +163,6 @@ print_header "CANTON-ETHEREUM BRIDGE TEST SCRIPT"
 echo ""
 echo "Project directory: $PROJECT_DIR"
 echo "Config file: $CONFIG_FILE"
-if [ "$DEVNET" = true ]; then
-    echo -e "${YELLOW}Mode: 5North DevNet (remote Canton, local Anvil)${NC}"
-fi
 echo ""
 
 # =============================================================================
@@ -214,32 +184,16 @@ fi
 if [ "$SKIP_DOCKER" = false ]; then
     print_header "STEP 1: Start Docker Services"
     
-    if [ "$DEVNET" = true ]; then
-        # DevNet mode: only start Anvil + Postgres (Canton is remote)
-        print_step "Starting docker compose (DevNet mode - no local Canton)..."
-        $DOCKER_COMPOSE_CMD up -d
-        
-        # Wait for Anvil to be ready
-        print_step "Waiting for Anvil..."
-        sleep 3
-        if cast block-number --rpc-url "$ETH_RPC_URL" >/dev/null 2>&1; then
-            print_success "Anvil is ready!"
-        else
-            print_error "Anvil failed to start"
-            exit 1
-        fi
+    # Local mode: start everything including Canton
+    if docker compose ps --format '{{.State}}' canton 2>/dev/null | grep -q "running"; then
+        print_warning "Docker services already running"
     else
-        # Local mode: start everything including Canton
-        if docker compose ps --format '{{.State}}' canton 2>/dev/null | grep -q "running"; then
-            print_warning "Docker services already running"
-        else
-            print_step "Starting docker compose..."
-            $DOCKER_COMPOSE_CMD up -d
-        fi
-        
-        wait_for_canton
+        print_step "Starting docker compose..."
+        $DOCKER_COMPOSE_CMD up -d
     fi
-    
+
+    wait_for_canton
+
     echo ""
     $DOCKER_COMPOSE_CMD ps
 fi
@@ -274,7 +228,7 @@ if [ -f "$BROADCAST_FILE" ]; then
     print_info "CantonBridge: $BRIDGE"
     
     # Update config.yaml with extracted addresses
-    print_step "Updating config.yaml with contract addresses..."
+    print_step "Updating config.local.yaml with contract addresses..."
     sed -i.bak "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
     sed -i.bak "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
     rm -f "${CONFIG_FILE}.bak"
@@ -302,204 +256,147 @@ print_success "Ethereum contracts verified"
 # Step 3: Verify Canton DARs
 # =============================================================================
 
-if [ "$DEVNET" = true ]; then
-    print_header "STEP 3: Canton DARs (DevNet - Skipped)"
-    print_warning "DevNet mode: DARs should be uploaded via 5N Dashboard"
-    print_info "Ensure DARs are uploaded before running this script"
-else
-    print_header "STEP 3: Verify Canton DARs"
+print_header "STEP 3: Verify Canton DARs"
 
-    # cip56-token package ID (required for CIP56Manager)
-    CIP56_PACKAGE_ID="e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe"
+# cip56-token package ID (required for CIP56Manager)
+CIP56_PACKAGE_ID="e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe"
 
-    print_step "Waiting for DAR packages to be uploaded..."
-    DAR_MAX_ATTEMPTS=60
-    DAR_ATTEMPT=0
-    PACKAGE_COUNT=0
-    CIP56_FOUND=false
-    while [ $DAR_ATTEMPT -lt $DAR_MAX_ATTEMPTS ]; do
-        PACKAGES_JSON=$(curl -s http://localhost:5013/v2/packages 2>/dev/null || echo '{"packageIds":[]}')
-        PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq '.packageIds | length' 2>/dev/null || echo "0")
-        
-        # Check if cip56-token package is uploaded
-        if echo "$PACKAGES_JSON" | jq -e ".packageIds | index(\"$CIP56_PACKAGE_ID\")" >/dev/null 2>&1; then
-            CIP56_FOUND=true
-        fi
-        
-        # Need both: enough packages AND the cip56-token package
-        if [ "$PACKAGE_COUNT" -ge 30 ] && [ "$CIP56_FOUND" = true ]; then
-            break
-        fi
-        echo -n "."
-        sleep 2
-        DAR_ATTEMPT=$((DAR_ATTEMPT + 1))
-    done
-    echo ""
+print_step "Waiting for DAR packages to be uploaded..."
+DAR_MAX_ATTEMPTS=60
+DAR_ATTEMPT=0
+PACKAGE_COUNT=0
+CIP56_FOUND=false
+while [ $DAR_ATTEMPT -lt $DAR_MAX_ATTEMPTS ]; do
+    PACKAGES_JSON=$(curl -s http://localhost:5013/v2/packages 2>/dev/null || echo '{"packageIds":[]}')
+    PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq '.packageIds | length' 2>/dev/null || echo "0")
 
-    print_info "Packages uploaded: $PACKAGE_COUNT"
-    print_info "cip56-token package: $CIP56_FOUND"
-
-    if [ "$PACKAGE_COUNT" -lt 30 ]; then
-        print_error "Expected at least 30 packages, got $PACKAGE_COUNT"
-        print_info "Check deployer logs: docker logs deployer"
-        exit 1
+    # Check if cip56-token package is uploaded
+    if echo "$PACKAGES_JSON" | jq -e ".packageIds | index(\"$CIP56_PACKAGE_ID\")" >/dev/null 2>&1; then
+        CIP56_FOUND=true
     fi
 
-    if [ "$CIP56_FOUND" != true ]; then
-        print_error "cip56-token package not found (required for CIP56Manager)"
-        print_info "Check deployer logs: docker logs deployer"
-        exit 1
+    # Need both: enough packages AND the cip56-token package
+    if [ "$PACKAGE_COUNT" -ge 30 ] && [ "$CIP56_FOUND" = true ]; then
+        break
     fi
+    echo -n "."
+    sleep 2
+    DAR_ATTEMPT=$((DAR_ATTEMPT + 1))
+done
+echo ""
 
-    print_success "Canton DARs verified"
+print_info "Packages uploaded: $PACKAGE_COUNT"
+print_info "cip56-token package: $CIP56_FOUND"
+
+if [ "$PACKAGE_COUNT" -lt 30 ]; then
+    print_error "Expected at least 30 packages, got $PACKAGE_COUNT"
+    print_info "Check deployer logs: docker logs deployer"
+    exit 1
 fi
+
+if [ "$CIP56_FOUND" != true ]; then
+    print_error "cip56-token package not found (required for CIP56Manager)"
+    print_info "Check deployer logs: docker logs deployer"
+    exit 1
+fi
+
+print_success "Canton DARs verified"
 
 # =============================================================================
 # Step 4: Allocate Bridge Issuer Party
 # =============================================================================
 
-if [ "$DEVNET" = true ]; then
-    print_header "STEP 4: Party Allocation (DevNet - Skipped)"
-    print_warning "DevNet mode: Party should be allocated via 5N Dashboard"
-    
-    # Read party ID from config file
-    PARTY_ID=$(grep 'relayer_party:' "$CONFIG_FILE" | sed 's/.*relayer_party: *"\([^"]*\)".*/\1/')
-    DOMAIN_ID=$(grep 'domain_id:' "$CONFIG_FILE" | sed 's/.*domain_id: *"\([^"]*\)".*/\1/')
-    
-    if [ -z "$PARTY_ID" ] || [ "$PARTY_ID" = "" ]; then
-        print_error "relayer_party not set in $CONFIG_FILE"
-        print_info "Set relayer_party in config.devnet.yaml (get from 5N Dashboard)"
-        exit 1
-    fi
-    
-    if [ -z "$DOMAIN_ID" ] || [ "$DOMAIN_ID" = "" ]; then
-        print_error "domain_id not set in $CONFIG_FILE"
-        print_info "Set domain_id in config.devnet.yaml (get from 5N Dashboard)"
-        exit 1
-    fi
-    
-    print_info "Party ID: $PARTY_ID"
-    print_info "Domain ID: $DOMAIN_ID"
-    
-    # Extract fingerprint
-    # shellcheck disable=SC2001
-    FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
-    if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
-        FINGERPRINT="${FULL_FINGERPRINT:4}"
-    else
-        FINGERPRINT="$FULL_FINGERPRINT"
-    fi
-    print_info "Fingerprint (bytes32): 0x$FINGERPRINT"
+print_header "STEP 4: Allocate Bridge Issuer Party"
+
+# Check if party exists
+EXISTING_PARTY=$(curl -s http://localhost:5013/v2/parties | jq -r '.partyDetails[].party' | grep "^BridgeIssuer::" | head -1 || true)
+
+if [ -n "$EXISTING_PARTY" ]; then
+    print_warning "BridgeIssuer already exists"
+    PARTY_ID="$EXISTING_PARTY"
 else
-    print_header "STEP 4: Allocate Bridge Issuer Party"
+    print_step "Creating BridgeIssuer party..."
+    PARTY_RESPONSE=$(curl -s -X POST http://localhost:5013/v2/parties \
+        -H 'Content-Type: application/json' \
+        -d '{"partyIdHint": "BridgeIssuer"}')
+    PARTY_ID=$(echo "$PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
 
-    # Check if party exists
-    EXISTING_PARTY=$(curl -s http://localhost:5013/v2/parties | jq -r '.partyDetails[].party' | grep "^BridgeIssuer::" | head -1 || true)
-
-    if [ -n "$EXISTING_PARTY" ]; then
-        print_warning "BridgeIssuer already exists"
-        PARTY_ID="$EXISTING_PARTY"
-    else
-        print_step "Creating BridgeIssuer party..."
-        PARTY_RESPONSE=$(curl -s -X POST http://localhost:5013/v2/parties \
-            -H 'Content-Type: application/json' \
-            -d '{"partyIdHint": "BridgeIssuer"}')
-        PARTY_ID=$(echo "$PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
-        
-        if [ -z "$PARTY_ID" ]; then
-            print_error "Failed to allocate party. Response: $PARTY_RESPONSE"
-            exit 1
-        fi
-    fi
-
-    print_info "Party ID: $PARTY_ID"
-
-    # Get domain ID
-    print_step "Getting domain ID..."
-    SYNC_RESPONSE=$(curl -s http://localhost:5013/v2/state/connected-synchronizers)
-    DOMAIN_ID=$(echo "$SYNC_RESPONSE" | jq -r '.connectedSynchronizers[0].synchronizerId // empty')
-
-    if [ -z "$DOMAIN_ID" ]; then
-        print_error "Failed to get domain ID. Response: $SYNC_RESPONSE"
+    if [ -z "$PARTY_ID" ]; then
+        print_error "Failed to allocate party. Response: $PARTY_RESPONSE"
         exit 1
     fi
-
-    print_info "Domain ID: $DOMAIN_ID"
-
-    # Extract fingerprint (without 1220 prefix)
-    # shellcheck disable=SC2001
-    FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
-    if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
-        FINGERPRINT="${FULL_FINGERPRINT:4}"
-    else
-        FINGERPRINT="$FULL_FINGERPRINT"
-    fi
-    print_info "Fingerprint (bytes32): 0x$FINGERPRINT"
-
-    print_success "Party allocated"
 fi
+
+print_info "Party ID: $PARTY_ID"
+
+# Get domain ID
+print_step "Getting domain ID..."
+SYNC_RESPONSE=$(curl -s http://localhost:5013/v2/state/connected-synchronizers)
+DOMAIN_ID=$(echo "$SYNC_RESPONSE" | jq -r '.connectedSynchronizers[0].synchronizerId // empty')
+
+if [ -z "$DOMAIN_ID" ]; then
+    print_error "Failed to get domain ID. Response: $SYNC_RESPONSE"
+    exit 1
+fi
+
+print_info "Domain ID: $DOMAIN_ID"
+
+# Extract fingerprint (without 1220 prefix)
+# shellcheck disable=SC2001
+FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
+if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
+    FINGERPRINT="${FULL_FINGERPRINT:4}"
+else
+    FINGERPRINT="$FULL_FINGERPRINT"
+fi
+print_info "Fingerprint (bytes32): 0x$FINGERPRINT"
+
+print_success "Party allocated"
 
 # =============================================================================
 # Step 4b: Update config.yaml
 # =============================================================================
 
-if [ "$DEVNET" = true ]; then
-    print_header "STEP 4b: Update Config (DevNet - Skipped)"
-    print_warning "DevNet mode: Config should already be set in config.devnet.yaml"
-else
-    print_header "STEP 4b: Update config.yaml"
+print_header "STEP 4b: Update config.yaml"
 
-    print_step "Updating domain_id and relayer_party..."
+print_step "Updating domain_id and relayer_party..."
 
-    # Use sed to update config.yaml
-    sed -i.bak "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$CONFIG_FILE"
-    sed -i.bak "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
-    rm -f "${CONFIG_FILE}.bak"
+# Use sed to update config.yaml
+sed -i.bak "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$CONFIG_FILE"
+sed -i.bak "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
+rm -f "${CONFIG_FILE}.bak"
 
-    print_info "domain_id: $DOMAIN_ID"
-    print_info "relayer_party: $PARTY_ID"
+print_info "domain_id: $DOMAIN_ID"
+print_info "relayer_party: $PARTY_ID"
 
-    print_success "Config updated"
-fi
+print_success "Config updated"
 
 # =============================================================================
 # Step 5: Bootstrap Canton Bridge Contracts
 # =============================================================================
 
-if [ "$DEVNET" = true ]; then
-    print_header "STEP 5: Bootstrap Canton Contracts (DevNet - Skipped)"
-    print_warning "DevNet mode: Run bootstrap manually if needed:"
-    print_info "go run scripts/bootstrap-bridge.go -config config.devnet.yaml -issuer \"$PARTY_ID\""
-else
-    print_header "STEP 5: Bootstrap Canton Bridge Contracts"
+print_header "STEP 5: Bootstrap Canton Bridge Contracts"
 
-    print_step "Running bootstrap script..."
-    go run scripts/bootstrap-bridge.go \
-        -config config.yaml \
-        -issuer "$PARTY_ID" \
-        -package "$PACKAGE_ID"
+print_step "Running bootstrap script..."
+go run scripts/bootstrap-bridge.go \
+    -config config.local.yaml \
+    -issuer "$PARTY_ID" \
+    -package "$PACKAGE_ID"
 
-    print_success "Bootstrap complete"
-fi
+print_success "Bootstrap complete"
 
 # =============================================================================
 # Step 6: Register Test User
 # =============================================================================
 
-if [ "$DEVNET" = true ]; then
-    print_header "STEP 6: Register Test User (DevNet - Skipped)"
-    print_warning "DevNet mode: Run register-user manually if needed:"
-    print_info "go run scripts/register-user.go -config config.devnet.yaml -party \"$PARTY_ID\""
-else
-    print_header "STEP 6: Register Test User"
+print_header "STEP 6: Register Test User"
 
-    print_step "Running register-user script..."
-    go run scripts/register-user.go \
-        -config config.yaml \
-        -party "$PARTY_ID"
+print_step "Running register-user script..."
+go run scripts/register-user.go \
+    -config config.local.yaml \
+    -party "$PARTY_ID"
 
-    print_success "User registered"
-fi
+print_success "User registered"
 
 # =============================================================================
 # Step 7: Start the Relayer
@@ -663,4 +560,3 @@ echo "Query holdings:        go run scripts/query-holdings.go -config \"$CONFIG_
 echo "Stop relayer:          pkill -f 'cmd/relayer'"
 echo "Stop all services:     $DOCKER_COMPOSE_CMD down"
 echo ""
-
