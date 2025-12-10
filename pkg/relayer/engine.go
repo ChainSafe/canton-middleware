@@ -30,6 +30,9 @@ type CantonBridgeClient interface {
 	ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
 	InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
 	CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
+
+	// Ledger state
+	GetLedgerEnd(ctx context.Context) (string, error)
 }
 
 // EthereumBridgeClient defines the interface for Ethereum interactions
@@ -37,6 +40,7 @@ type EthereumBridgeClient interface {
 	GetLatestBlockNumber(ctx context.Context) (uint64, error)
 	WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
 	WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
+	IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error)
 }
 
 // BridgeStore defines the interface for database operations
@@ -92,14 +96,16 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to load offsets: %w", err)
 	}
 
-	// Initialize processors
+	// Initialize processors with offset persistence callbacks
 	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract)
 	ethDest := NewEthereumDestination(e.ethClient, e.cantonClient)
-	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor")
+	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor").
+		WithOffsetUpdate(e.saveChainOffset)
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum)
 	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum, e.config.Canton.RelayerParty)
-	ethProcessor := NewProcessor(ethSource, cantonDest, e.store, e.logger, "ethereum_processor")
+	ethProcessor := NewProcessor(ethSource, cantonDest, e.store, e.logger, "ethereum_processor").
+		WithOffsetUpdate(e.saveChainOffset)
 
 	// Start Canton processor
 	e.wg.Add(1)
@@ -143,7 +149,7 @@ func (e *Engine) Stop() {
 }
 
 // loadOffsets loads last processed offsets from database
-func (e *Engine) loadOffsets(_ context.Context) error {
+func (e *Engine) loadOffsets(ctx context.Context) error {
 	// Load Canton offset
 	cantonState, err := e.store.GetChainState("canton")
 	if err != nil {
@@ -153,8 +159,18 @@ func (e *Engine) loadOffsets(_ context.Context) error {
 		e.cantonOffset = cantonState.LastBlockHash
 		e.logger.Info("Loaded Canton offset", zap.String("offset", e.cantonOffset))
 	} else {
-		e.cantonOffset = "BEGIN"
-		e.logger.Info("Starting Canton stream from beginning")
+		// No stored state - start from current ledger end to avoid replaying history
+		// This is safe because we only care about NEW events going forward
+		ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+		if err != nil {
+			e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
+				zap.Error(err))
+			e.cantonOffset = "BEGIN"
+		} else {
+			e.cantonOffset = ledgerEnd
+			e.logger.Info("Starting Canton stream from current ledger end (no history replay)",
+				zap.String("offset", e.cantonOffset))
+		}
 	}
 
 	// Load Ethereum last block
@@ -192,6 +208,28 @@ func (e *Engine) reconcile(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// saveChainOffset persists the last processed offset for a chain
+func (e *Engine) saveChainOffset(chainID string, offset string) error {
+	// For Canton, we store offset in LastBlockHash (it's a string offset like "12345")
+	// For Ethereum, we parse the block number
+	var blockNumber int64
+	if chainID == "ethereum" {
+		if n, err := fmt.Sscanf(offset, "%d", &blockNumber); err != nil || n != 1 {
+			return fmt.Errorf("invalid ethereum offset: %s", offset)
+		}
+	}
+	
+	if err := e.store.SetChainState(chainID, blockNumber, offset); err != nil {
+		return fmt.Errorf("failed to save chain state for %s: %w", chainID, err)
+	}
+	
+	e.logger.Debug("Saved chain offset",
+		zap.String("chain", chainID),
+		zap.String("offset", offset))
+	
+	return nil
 }
 
 // runReconciliation checks for stuck transfers and retries

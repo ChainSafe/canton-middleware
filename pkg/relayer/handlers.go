@@ -237,6 +237,19 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 	var cantonTxHash [32]byte
 	copy(cantonTxHash[:], cantonTxHashBytes)
 
+	// Defense in depth: Check if this withdrawal was already processed on EVM
+	// This prevents wasting gas on duplicate withdrawals that would revert anyway
+	alreadyProcessed, err := d.client.IsWithdrawalProcessed(ctx, cantonTxHash)
+	if err != nil {
+		// Log warning but continue - the contract will reject duplicates anyway
+		// This is just an optimization to avoid wasting gas
+		_ = err // TODO: log this warning
+	} else if alreadyProcessed {
+		// Return successfully - this withdrawal was already processed
+		// The contract ID serves as a pseudo tx hash since we don't have the original
+		return fmt.Sprintf("already-processed:%s", event.SourceTxHash), nil
+	}
+
 	// Submit withdrawal to EVM
 	txHash, err := d.client.WithdrawFromCanton(
 		ctx,
@@ -258,8 +271,8 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 		}
 		if err := d.cantonClient.CompleteWithdrawal(ctx, completeReq); err != nil {
 			// Log but don't fail - the EVM transfer succeeded
-			// This can be reconciled later
-			_ = err // TODO: log this error
+			// This can be reconciled later via cleanup script
+			fmt.Printf("WARN: Failed to mark withdrawal complete on Canton (EVM succeeded): %v\n", err)
 		}
 	}
 
