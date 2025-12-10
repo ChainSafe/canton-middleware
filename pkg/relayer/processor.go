@@ -3,11 +3,16 @@ package relayer
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"go.uber.org/zap"
 )
+
+// OffsetUpdateFunc is called after successfully processing an event to persist the offset
+type OffsetUpdateFunc func(chainID string, offset string) error
 
 // Event represents a generic bridge event
 type Event struct {
@@ -43,11 +48,12 @@ type Destination interface {
 
 // Processor orchestrates the transfer process from Source to Destination
 type Processor struct {
-	source      Source
-	destination Destination
-	store       BridgeStore
-	logger      *zap.Logger
-	metricsName string
+	source         Source
+	destination    Destination
+	store          BridgeStore
+	logger         *zap.Logger
+	metricsName    string
+	onOffsetUpdate OffsetUpdateFunc
 }
 
 // NewProcessor creates a new transfer processor
@@ -59,6 +65,12 @@ func NewProcessor(source Source, destination Destination, store BridgeStore, log
 		logger:      logger,
 		metricsName: metricsName,
 	}
+}
+
+// WithOffsetUpdate sets the callback for persisting offsets after event processing
+func (p *Processor) WithOffsetUpdate(fn OffsetUpdateFunc) *Processor {
+	p.onOffsetUpdate = fn
+	return p
 }
 
 // Start starts the processor
@@ -99,6 +111,8 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 	existing, _ := p.store.GetTransfer(event.ID)
 	if existing != nil {
 		p.logger.Debug("Event already processed", zap.String("event_id", event.ID))
+		// Still persist offset to avoid replaying on restart
+		p.persistOffset(event.ID)
 		return nil
 	}
 
@@ -142,6 +156,9 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 	// Update status to completed
 	p.store.UpdateTransferStatus(event.ID, db.TransferStatusCompleted, &destTxHash)
 
+	// Persist offset after successful processing
+	p.persistOffset(event.ID)
+
 	metrics.TransfersTotal.WithLabelValues(string(p.getDirection()), "completed").Inc()
 
 	p.logger.Info("Transfer completed",
@@ -156,4 +173,34 @@ func (p *Processor) getDirection() db.TransferDirection {
 		return db.DirectionCantonToEthereum
 	}
 	return db.DirectionEthereumToCanton
+}
+
+// persistOffset saves the current offset to avoid replaying events on restart
+func (p *Processor) persistOffset(eventID string) {
+	if p.onOffsetUpdate == nil {
+		return
+	}
+	offset := extractOffsetFromEventID(eventID)
+	if offset != "" {
+		if err := p.onOffsetUpdate(p.source.GetChainID(), offset); err != nil {
+			p.logger.Warn("Failed to persist offset",
+				zap.String("offset", offset),
+				zap.Error(err))
+		}
+	}
+}
+
+// extractOffsetFromEventID extracts the offset from a Canton event ID
+// Canton event IDs have format: "offset-nodeId" (e.g., "12345-0")
+// For Ethereum events, it returns the block number from the event ID format "txHash-logIndex"
+func extractOffsetFromEventID(eventID string) string {
+	parts := strings.Split(eventID, "-")
+	if len(parts) >= 1 {
+		// For Canton: first part is the offset
+		// For Ethereum: this would be the tx hash, but we handle that separately via block number
+		if _, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+			return parts[0]
+		}
+	}
+	return ""
 }

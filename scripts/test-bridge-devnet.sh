@@ -196,7 +196,9 @@ if [ "$CLEAN" = true ]; then
     print_header "STEP 0: Cleaning Environment"
     kill_relayer
     print_step "Stopping Docker containers..."
-    $DOCKER_COMPOSE_CMD down -v 2>/dev/null || true
+    # Note: Don't use -v flag to preserve Postgres data (offsets, transfer records)
+    # This prevents replaying historical events and wasting gas on duplicates
+    $DOCKER_COMPOSE_CMD down 2>/dev/null || true
     print_success "Environment cleaned"
 fi
 
