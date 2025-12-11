@@ -8,23 +8,28 @@
 //     -fingerprint "abc...def" \
 //     -evm-address "0x..."
 //
-// For testing with the BridgeIssuer:
-//   go run scripts/register-user.go -config config.yaml \
-//     -party "BridgeIssuer::122047584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e" \
-//     -fingerprint "47584945db4991c2954b1e8e673623a43ec80869abf0f8e7531a435ae797ac6e"
+// For testing with the BridgeIssuer (uses config relayer_party by default):
+//   go run scripts/register-user.go -config config.yaml
 
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -33,61 +38,72 @@ import (
 )
 
 var (
-	configPath  = flag.String("config", "config.yaml", "Path to config file")
-	partyID     = flag.String("party", "", "Full Canton Party ID (e.g., 'Alice::1220abc...')")
-	fingerprint = flag.String("fingerprint", "", "Fingerprint (32-byte hex, without 0x1220 prefix)")
-	evmAddress  = flag.String("evm-address", "", "Optional EVM address for withdrawals")
+	ruConfigPath  = flag.String("config", "config.yaml", "Path to config file")
+	ruPartyID     = flag.String("party", "", "Full Canton Party ID (uses config relayer_party if not specified)")
+	ruFingerprint = flag.String("fingerprint", "", "Fingerprint (32-byte hex, without 0x1220 prefix)")
+	ruEvmAddress  = flag.String("evm-address", "", "Optional EVM address for withdrawals")
+)
+
+var (
+	ruTokenMu     sync.Mutex
+	ruCachedToken string
+	ruTokenExpiry time.Time
+	ruJwtSubject  string
 )
 
 func main() {
 	flag.Parse()
 
-	if *partyID == "" {
-		fmt.Println("Error: -party is required")
+	cfg, err := config.Load(*ruConfigPath)
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	partyID := *ruPartyID
+	if partyID == "" {
+		partyID = cfg.Canton.RelayerParty
+	}
+
+	if partyID == "" {
+		fmt.Println("Error: -party is required (or set canton.relayer_party in config)")
 		fmt.Println("Usage: go run scripts/register-user.go -config config.yaml -party 'PartyID' -fingerprint 'hex'")
 		os.Exit(1)
 	}
 
-	// If fingerprint not provided, extract from party ID
-	if *fingerprint == "" {
-		// Extract fingerprint from party ID (format: "hint::fingerprint")
-		parts := strings.Split(*partyID, "::")
+	fingerprint := *ruFingerprint
+	if fingerprint == "" {
+		parts := strings.Split(partyID, "::")
 		if len(parts) == 2 {
 			fp := parts[1]
-			// Remove "1220" multihash prefix if present (for bytes32 compatibility)
 			if strings.HasPrefix(fp, "1220") && len(fp) == 68 {
-				*fingerprint = fp[4:]
+				fingerprint = fp[4:]
 			} else {
-				*fingerprint = fp
+				fingerprint = fp
 			}
-			fmt.Printf("Extracted fingerprint from party ID: %s\n", *fingerprint)
+			fmt.Printf("Extracted fingerprint from party ID: %s\n", fingerprint)
 		} else {
 			fmt.Println("Error: Could not extract fingerprint from party ID. Please provide -fingerprint")
 			os.Exit(1)
 		}
 	}
 
-	// Load config
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-
 	fmt.Println("======================================================================")
 	fmt.Println("REGISTER USER - Create FingerprintMapping on Canton")
 	fmt.Println("======================================================================")
-	fmt.Printf("Party:       %s\n", *partyID)
-	fmt.Printf("Fingerprint: %s\n", *fingerprint)
-	fmt.Printf("EVM Address: %s\n", *evmAddress)
+	fmt.Printf("Party:       %s\n", partyID)
+	fmt.Printf("Fingerprint: %s\n", fingerprint)
+	fmt.Printf("EVM Address: %s\n", *ruEvmAddress)
 	fmt.Println()
 
 	ctx := context.Background()
 
-	// Connect to Canton with TLS if enabled
 	var opts []grpc.DialOption
 	if cfg.Canton.TLS.Enabled {
-		tlsConfig := &tls.Config{} // Uses system CA pool
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2"},
+		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -101,22 +117,16 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Load JWT token if configured
-	if cfg.Canton.Auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
-		if err != nil {
-			fmt.Printf("Failed to read token file: %v\n", err)
-			os.Exit(1)
-		}
-		authToken := strings.TrimSpace(string(tokenBytes))
-		md := metadata.Pairs("authorization", "Bearer "+authToken)
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	ctx, err = ruGetAuthContext(ctx, &cfg.Canton.Auth)
+	if err != nil {
+		fmt.Printf("Failed to get auth context: %v\n", err)
+		os.Exit(1)
 	}
+	fmt.Printf("JWT Subject: %s\n\n", ruJwtSubject)
 
 	stateClient := lapiv2.NewStateServiceClient(conn)
 	cmdClient := lapiv2.NewCommandServiceClient(conn)
 
-	// Step 1: Get ledger end offset (required for V2 API)
 	ledgerEndResp, err := stateClient.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		fmt.Printf("Failed to get ledger end: %v\n", err)
@@ -127,9 +137,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Step 2: Find WayfinderBridgeConfig
 	fmt.Println(">>> Finding WayfinderBridgeConfig...")
-	configCid, err := findBridgeConfig(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset)
+	configCid, err := ruFindBridgeConfig(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset)
 	if err != nil {
 		fmt.Printf("Failed to find WayfinderBridgeConfig: %v\n", err)
 		fmt.Println("Run: go run scripts/bootstrap-bridge.go first")
@@ -137,34 +146,34 @@ func main() {
 	}
 	fmt.Printf("    Config CID: %s\n\n", configCid)
 
-	// Step 3: Check if FingerprintMapping already exists
 	fmt.Println(">>> Checking for existing FingerprintMapping...")
-	existingCid, err := findFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset, *fingerprint)
+	existingCid, err := ruFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset, fingerprint)
 	if err == nil && existingCid != "" {
 		fmt.Printf("    [EXISTS] FingerprintMapping already exists: %s\n", existingCid)
 		fmt.Println("\n✓ User is already registered!")
 		os.Exit(0)
 	}
 
-	// Step 4: Get domain ID
 	fmt.Println(">>> Getting domain ID...")
-	domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-		Party: cfg.Canton.RelayerParty,
-	})
-	if err != nil {
-		fmt.Printf("Failed to get domain ID: %v\n", err)
-		os.Exit(1)
+	domainID := cfg.Canton.DomainID
+	if domainID == "" {
+		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
+			Party: cfg.Canton.RelayerParty,
+		})
+		if err != nil {
+			fmt.Printf("Failed to get domain ID: %v\n", err)
+			os.Exit(1)
+		}
+		if len(domainResp.ConnectedSynchronizers) == 0 {
+			fmt.Println("Error: No connected synchronizers")
+			os.Exit(1)
+		}
+		domainID = domainResp.ConnectedSynchronizers[0].SynchronizerId
 	}
-	if len(domainResp.ConnectedSynchronizers) == 0 {
-		fmt.Println("Error: No connected synchronizers")
-		os.Exit(1)
-	}
-	domainID := domainResp.ConnectedSynchronizers[0].SynchronizerId
 	fmt.Printf("    Domain ID: %s\n\n", domainID)
 
-	// Step 5: Register user
 	fmt.Println(">>> Registering user...")
-	mappingCid, err := registerUser(ctx, cmdClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, domainID, configCid, *partyID, *fingerprint, *evmAddress)
+	mappingCid, err := ruRegisterUser(ctx, cmdClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, domainID, configCid, partyID, fingerprint, *ruEvmAddress)
 	if err != nil {
 		fmt.Printf("Failed to register user: %v\n", err)
 		os.Exit(1)
@@ -175,15 +184,116 @@ func main() {
 	fmt.Println("======================================================================")
 	fmt.Println("USER REGISTERED SUCCESSFULLY")
 	fmt.Println("======================================================================")
-	fmt.Printf("Party:            %s\n", *partyID)
-	fmt.Printf("Fingerprint:      %s\n", *fingerprint)
+	fmt.Printf("Party:            %s\n", partyID)
+	fmt.Printf("Fingerprint:      %s\n", fingerprint)
 	fmt.Printf("MappingCid:       %s\n", mappingCid)
 	fmt.Println()
 	fmt.Println("The user can now receive deposits with this fingerprint as bytes32:")
-	fmt.Printf("  CANTON_RECIPIENT=\"0x%s\"\n", *fingerprint)
+	fmt.Printf("  CANTON_RECIPIENT=\"0x%s\"\n", fingerprint)
 }
 
-func findBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64) (string, error) {
+func ruGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
+	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
+	}
+
+	token, err := ruGetOAuthToken(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	md := metadata.Pairs("authorization", "Bearer "+token)
+	return metadata.NewOutgoingContext(ctx, md), nil
+}
+
+func ruGetOAuthToken(auth *config.AuthConfig) (string, error) {
+	ruTokenMu.Lock()
+	defer ruTokenMu.Unlock()
+
+	now := time.Now()
+	if ruCachedToken != "" && now.Before(ruTokenExpiry) {
+		return ruCachedToken, nil
+	}
+
+	payload := map[string]string{
+		"client_id":     auth.ClientID,
+		"client_secret": auth.ClientSecret,
+		"audience":      auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	}
+
+	fmt.Printf("Fetching OAuth2 access token from %s...\n", auth.TokenURL)
+
+	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OAuth token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("OAuth token endpoint returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode OAuth token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("OAuth token response missing access_token")
+	}
+
+	expiry := now.Add(5 * time.Minute)
+	if tokenResp.ExpiresIn > 0 {
+		leeway := 60
+		if tokenResp.ExpiresIn <= leeway {
+			leeway = tokenResp.ExpiresIn / 2
+		}
+		expiry = now.Add(time.Duration(tokenResp.ExpiresIn-leeway) * time.Second)
+	}
+
+	ruCachedToken = tokenResp.AccessToken
+	ruTokenExpiry = expiry
+
+	if subject, err := ruExtractJWTSubject(tokenResp.AccessToken); err == nil {
+		ruJwtSubject = subject
+	}
+
+	fmt.Printf("OAuth2 token obtained (expires in %d seconds)\n", tokenResp.ExpiresIn)
+	return tokenResp.AccessToken, nil
+}
+
+func ruExtractJWTSubject(tokenString string) (string, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return "", fmt.Errorf("JWT missing 'sub' claim")
+	}
+	return sub, nil
+}
+
+func ruFindBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64) (string, error) {
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: offset,
 		EventFormat: &lapiv2.EventFormat{
@@ -223,9 +333,7 @@ func findBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, par
 	return "", fmt.Errorf("no WayfinderBridgeConfig found")
 }
 
-func findFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64, targetFingerprint string) (string, error) {
-	// Note: In the Common package, not bridge-wayfinder
-	// Try both package IDs since FingerprintMapping is in common package
+func ruFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64, targetFingerprint string) (string, error) {
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: offset,
 		EventFormat: &lapiv2.EventFormat{
@@ -253,10 +361,8 @@ func findFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClien
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			// Filter by module and entity name to avoid matching contracts from other modules
 			templateId := contract.CreatedEvent.TemplateId
 			if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
-				// Check if this mapping is for the target fingerprint
 				fields := contract.CreatedEvent.CreateArguments.Fields
 				for _, field := range fields {
 					if field.Label == "fingerprint" {
@@ -273,16 +379,14 @@ func findFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClien
 	return "", fmt.Errorf("no FingerprintMapping found for fingerprint: %s", targetFingerprint)
 }
 
-func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, configCid, userParty, fingerprint, evmAddress string) (string, error) {
+func ruRegisterUser(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, configCid, userParty, fingerprint, evmAddress string) (string, error) {
 	cmdID := fmt.Sprintf("register-user-%s", uuid.New().String())
 
-	// Build choice arguments
 	fields := []*lapiv2.RecordField{
 		{Label: "userParty", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: userParty}}},
 		{Label: "fingerprint", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: fingerprint}}},
 	}
 
-	// Add optional EVM address
 	if evmAddress != "" {
 		fields = append(fields, &lapiv2.RecordField{
 			Label: "evmAddress",
@@ -332,7 +436,7 @@ func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issue
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
+			UserId:         ruJwtSubject,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -341,7 +445,6 @@ func registerUser(ctx context.Context, client lapiv2.CommandServiceClient, issue
 		return "", err
 	}
 
-	// Extract FingerprintMapping contract ID
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {

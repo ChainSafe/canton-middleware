@@ -1,13 +1,18 @@
 package canton
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strconv"
-	"strings"
+	"sync"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -29,6 +34,11 @@ type Client struct {
 	stateService   lapiv2.StateServiceClient
 	commandService lapiv2.CommandServiceClient
 	updateService  lapiv2.UpdateServiceClient
+
+	// OAuth token cache
+	tokenMu     sync.Mutex
+	cachedToken string
+	tokenExpiry time.Time
 
 	jwtSubject string // Extracted from JWT token
 }
@@ -109,18 +119,79 @@ func (c *Client) GetAuthContext(ctx context.Context) context.Context {
 }
 
 func (c *Client) loadToken() (string, error) {
-	// If token file is provided, read from file
-	if c.config.Auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(c.config.Auth.TokenFile)
-		if err != nil {
-			return "", fmt.Errorf("failed to read token file: %w", err)
-		}
-		// Trim whitespace/newlines - critical for JWT tokens!
-		token := strings.TrimSpace(string(tokenBytes))
-		return token, nil
+	auth := c.config.Auth
+	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+		return "", fmt.Errorf("no auth configured: OAuth2 client credentials are required")
 	}
 
-	return "", fmt.Errorf("no token file or token provided")
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
+	now := time.Now()
+	if c.cachedToken != "" && now.Before(c.tokenExpiry) {
+		return c.cachedToken, nil
+	}
+
+	payload := map[string]string{
+		"client_id":     auth.ClientID,
+		"client_secret": auth.ClientSecret,
+		"audience":      auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	}
+
+	c.logger.Info("Fetching new OAuth2 access token", zap.String("token_url", auth.TokenURL))
+
+	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OAuth token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("OAuth token endpoint returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode OAuth token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("OAuth token response missing access_token")
+	}
+
+	expiry := now.Add(5 * time.Minute)
+	if tokenResp.ExpiresIn > 0 {
+		leeway := 60
+		if tokenResp.ExpiresIn <= leeway {
+			leeway = tokenResp.ExpiresIn / 2
+		}
+		expiry = now.Add(time.Duration(tokenResp.ExpiresIn-leeway) * time.Second)
+	}
+
+	c.cachedToken = tokenResp.AccessToken
+	c.tokenExpiry = expiry
+
+	c.logger.Info("Fetched new OAuth2 access token",
+		zap.String("token_url", auth.TokenURL),
+		zap.Int("expires_in", tokenResp.ExpiresIn),
+	)
+
+	return tokenResp.AccessToken, nil
 }
 
 // extractJWTSubject parses the JWT token and extracts the 'sub' claim

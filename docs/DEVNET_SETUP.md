@@ -208,7 +208,7 @@ canton:
 
 ```bash
 # 1. Start local services (Anvil + Postgres)
-docker compose -f docker-compose.yaml -f docker-compose.remote.yaml up -d
+docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
 
 # 2. Bootstrap Canton contracts (only once)
 go run scripts/bootstrap-bridge.go -config config.devnet.yaml -issuer "$PARTY_ID"

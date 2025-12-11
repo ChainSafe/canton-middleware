@@ -91,7 +91,7 @@ func TestCantonSource_StreamEvents(t *testing.T) {
 		},
 	}
 
-	source := NewCantonSource(mockCantonClient, "0xTokenAddress")
+	source := NewCantonSource(mockCantonClient, "0xTokenAddress", "canton")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -125,7 +125,7 @@ func TestEthereumDestination_SubmitTransfer(t *testing.T) {
 	}
 
 	// Pass nil for Canton client - it's used for marking withdrawals complete which is optional
-	dest := NewEthereumDestination(mockEthClient, nil)
+	dest := NewEthereumDestination(mockEthClient, nil, "ethereum")
 
 	event := &Event{
 		ID:           "event-1",
