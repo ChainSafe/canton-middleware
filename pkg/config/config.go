@@ -47,6 +47,7 @@ type EthereumConfig struct {
 	MaxGasPrice        string        `mapstructure:"max_gas_price"`
 	PollingInterval    time.Duration `mapstructure:"polling_interval"`
 	StartBlock         int64         `mapstructure:"start_block"`
+	LookbackBlocks     int64         `mapstructure:"lookback_blocks"`
 }
 
 // CantonConfig contains Canton Network client settings
@@ -65,6 +66,7 @@ type CantonConfig struct {
 	ConfirmationBlocks int           `mapstructure:"confirmation_blocks"`
 	PollingInterval    time.Duration `mapstructure:"polling_interval"`
 	StartBlock         int64         `mapstructure:"start_block"`
+	LookbackBlocks     int64         `mapstructure:"lookback_blocks"`
 	TLS                TLSConfig     `mapstructure:"tls"`
 	Auth               AuthConfig    `mapstructure:"auth"`
 	DedupDuration      time.Duration `mapstructure:"dedup_duration"`
@@ -149,11 +151,13 @@ func setDefaults() {
 	viper.SetDefault("ethereum.gas_limit", 300000)
 	viper.SetDefault("ethereum.polling_interval", "15s")
 	viper.SetDefault("ethereum.start_block", 0)
+	viper.SetDefault("ethereum.lookback_blocks", 1000)
 
 	// Canton defaults
 	viper.SetDefault("canton.confirmation_blocks", 1)
 	viper.SetDefault("canton.polling_interval", "10s")
 	viper.SetDefault("canton.start_block", 0)
+	viper.SetDefault("canton.lookback_blocks", 1000)
 
 	// Bridge defaults
 	viper.SetDefault("bridge.max_retries", 3)

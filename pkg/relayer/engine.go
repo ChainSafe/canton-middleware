@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"time"
 
@@ -67,6 +68,11 @@ type Engine struct {
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// Readiness tracking - protected by mu
+	mu             sync.RWMutex
+	cantonSynced   bool
+	ethereumSynced bool
 }
 
 // NewEngine creates a new relayer engine
@@ -136,8 +142,20 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	go e.reconcile(ctx)
 
+	// Start readiness checker
+	e.wg.Add(1)
+	go e.readinessLoop(ctx)
+
 	e.logger.Info("Relayer engine started")
 	return nil
+}
+
+// IsReady returns true once both Canton and Ethereum processors have
+// caught up to head at least once.
+func (e *Engine) IsReady() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cantonSynced && e.ethereumSynced
 }
 
 // Stop stops the relayer engine
@@ -159,17 +177,47 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 		e.cantonOffset = cantonState.LastBlockHash
 		e.logger.Info("Loaded Canton offset", zap.String("offset", e.cantonOffset))
 	} else {
-		// No stored state - start from current ledger end to avoid replaying history
-		// This is safe because we only care about NEW events going forward
-		ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
-		if err != nil {
-			e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
-				zap.Error(err))
-			e.cantonOffset = "BEGIN"
-		} else {
-			e.cantonOffset = ledgerEnd
-			e.logger.Info("Starting Canton stream from current ledger end (no history replay)",
+		// No stored state for Canton
+		// 1) Backwards-compatible override: explicit start_block wins
+		if e.config.Canton.StartBlock > 0 {
+			e.cantonOffset = strconv.FormatInt(e.config.Canton.StartBlock, 10)
+			e.logger.Info("Starting Canton stream from configured start_block",
 				zap.String("offset", e.cantonOffset))
+		} else {
+			// 2) Use ledger end minus lookback_blocks
+			ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+			if err != nil {
+				e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
+					zap.Error(err))
+				e.cantonOffset = "BEGIN"
+			} else {
+				lookback := e.config.Canton.LookbackBlocks
+				if lookback <= 0 {
+					// lookback <= 0: preserve old behavior (start at tip, no replay)
+					e.cantonOffset = ledgerEnd
+					e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
+						zap.String("ledger_end", ledgerEnd))
+				} else {
+					endOffset, err := strconv.ParseInt(ledgerEnd, 10, 64)
+					if err != nil {
+						e.logger.Warn("Invalid Canton ledger end value, falling back to BEGIN",
+							zap.String("ledger_end", ledgerEnd),
+							zap.Error(err))
+						e.cantonOffset = "BEGIN"
+					} else {
+						if endOffset <= lookback {
+							// Not enough history to look back fully; start from BEGIN
+							e.cantonOffset = "BEGIN"
+						} else {
+							e.cantonOffset = strconv.FormatInt(endOffset-lookback, 10)
+						}
+						e.logger.Info("Starting Canton stream from ledger end with lookback",
+							zap.String("ledger_end", ledgerEnd),
+							zap.Int64("lookback_blocks", lookback),
+							zap.String("start_offset", e.cantonOffset))
+					}
+				}
+			}
 		}
 	}
 
@@ -182,8 +230,41 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 		e.ethLastBlock = uint64(ethState.LastBlock)
 		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
 	} else {
-		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
-		e.logger.Info("Starting Ethereum from configured block", zap.Uint64("block", e.ethLastBlock))
+		// No stored state for Ethereum
+		// 1) Backwards-compatible override: explicit start_block wins
+		if e.config.Ethereum.StartBlock > 0 {
+			e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
+			e.logger.Info("Starting Ethereum from configured start_block",
+				zap.Uint64("block", e.ethLastBlock))
+		} else {
+			lookback := e.config.Ethereum.LookbackBlocks
+			if lookback <= 0 {
+				// lookback <= 0: preserve old behavior (start from genesis)
+				e.ethLastBlock = 0
+				e.logger.Info("Starting Ethereum from genesis (lookback disabled)",
+					zap.Uint64("block", e.ethLastBlock))
+			} else {
+				headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
+				if err != nil {
+					// Fallback to previous behavior if we can't query head
+					e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
+					e.logger.Warn("Failed to get Ethereum latest block, falling back to configured start_block",
+						zap.Error(err),
+						zap.Uint64("start_block", e.ethLastBlock))
+				} else {
+					if uint64(lookback) >= headBlock {
+						// Lookback larger than chain height; start from genesis
+						e.ethLastBlock = 0
+					} else {
+						e.ethLastBlock = headBlock - uint64(lookback)
+					}
+					e.logger.Info("Starting Ethereum from latest block with lookback",
+						zap.Uint64("head_block", headBlock),
+						zap.Int64("lookback_blocks", lookback),
+						zap.Uint64("start_block", e.ethLastBlock))
+				}
+			}
+		}
 	}
 
 	return nil
@@ -259,4 +340,88 @@ func (e *Engine) runReconciliation(_ context.Context) error {
 	metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
 
 	return nil
+}
+
+// readinessLoop periodically checks if the engine has caught up to head
+func (e *Engine) readinessLoop(ctx context.Context) {
+	defer e.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.stopCh:
+			return
+		case <-ticker.C:
+			e.checkReadiness(ctx)
+			// Stop checking once fully ready
+			if e.IsReady() {
+				e.logger.Info("Relayer is fully synced and ready")
+				return
+			}
+		}
+	}
+}
+
+// checkReadiness checks if both chains have caught up to their respective heads
+func (e *Engine) checkReadiness(ctx context.Context) {
+	// Check Ethereum readiness
+	headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
+	if err != nil {
+		e.logger.Warn("Failed to get Ethereum latest block for readiness check", zap.Error(err))
+	} else {
+		e.mu.Lock()
+		if !e.ethereumSynced {
+			// Allow 1 block lag tolerance
+			if e.ethLastBlock+1 >= headBlock {
+				e.ethereumSynced = true
+				e.logger.Info("Ethereum processor initial sync complete",
+					zap.Uint64("last_block", e.ethLastBlock),
+					zap.Uint64("head_block", headBlock))
+			} else {
+				e.logger.Debug("Ethereum processor catching up",
+					zap.Uint64("last_block", e.ethLastBlock),
+					zap.Uint64("head_block", headBlock),
+					zap.Uint64("blocks_behind", headBlock-e.ethLastBlock))
+			}
+		}
+		e.mu.Unlock()
+	}
+
+	// Check Canton readiness
+	ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+	if err != nil {
+		e.logger.Warn("Failed to get Canton ledger end for readiness check", zap.Error(err))
+	} else {
+		e.mu.Lock()
+		if !e.cantonSynced {
+			// If we started from ledger end or have no offset, consider synced
+			if e.cantonOffset == "" || e.cantonOffset == ledgerEnd {
+				e.cantonSynced = true
+				e.logger.Info("Canton processor initial sync complete (at ledger end)",
+					zap.String("offset", e.cantonOffset))
+			} else if e.cantonOffset != "BEGIN" {
+				// Try numeric comparison for Canton offsets
+				currentOffset, err1 := strconv.ParseInt(e.cantonOffset, 10, 64)
+				endOffset, err2 := strconv.ParseInt(ledgerEnd, 10, 64)
+				if err1 == nil && err2 == nil {
+					if currentOffset >= endOffset {
+						e.cantonSynced = true
+						e.logger.Info("Canton processor initial sync complete",
+							zap.String("offset", e.cantonOffset),
+							zap.String("ledger_end", ledgerEnd))
+					} else {
+						e.logger.Debug("Canton processor catching up",
+							zap.String("offset", e.cantonOffset),
+							zap.String("ledger_end", ledgerEnd),
+							zap.Int64("behind", endOffset-currentOffset))
+					}
+				}
+			}
+		}
+		e.mu.Unlock()
+	}
 }

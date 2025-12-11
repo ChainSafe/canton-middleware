@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
@@ -182,4 +183,379 @@ func (m *MockDestination) SubmitTransfer(ctx context.Context, event *Event) (str
 		return m.SubmitTransferFunc(ctx, event)
 	}
 	return "", nil
+}
+
+func TestEngine_LoadOffsets_WithStoredState(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ethereum.LookbackBlocks = 1000
+	cfg.Canton.LookbackBlocks = 1000
+
+	mockStore := &MockStore{
+		GetChainStateFunc: func(chainID string) (*db.ChainState, error) {
+			if chainID == "canton" {
+				return &db.ChainState{ChainID: "canton", LastBlockHash: "5000"}, nil
+			}
+			if chainID == "ethereum" {
+				return &db.ChainState{ChainID: "ethereum", LastBlock: 12345}, nil
+			}
+			return nil, nil
+		},
+	}
+
+	engine := NewEngine(cfg, &MockCantonClient{}, &MockEthereumClient{}, mockStore, zap.NewNop())
+	err := engine.loadOffsets(context.Background())
+
+	if err != nil {
+		t.Fatalf("loadOffsets failed: %v", err)
+	}
+	if engine.cantonOffset != "5000" {
+		t.Errorf("Expected canton offset 5000, got %s", engine.cantonOffset)
+	}
+	if engine.ethLastBlock != 12345 {
+		t.Errorf("Expected eth block 12345, got %d", engine.ethLastBlock)
+	}
+}
+
+func TestEngine_LoadOffsets_NoState_WithLookback(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ethereum.LookbackBlocks = 100
+	cfg.Canton.LookbackBlocks = 200
+
+	mockStore := &MockStore{
+		GetChainStateFunc: func(chainID string) (*db.ChainState, error) {
+			return nil, nil // No stored state
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "10000", nil
+		},
+	}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 5000, nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, mockStore, zap.NewNop())
+	err := engine.loadOffsets(context.Background())
+
+	if err != nil {
+		t.Fatalf("loadOffsets failed: %v", err)
+	}
+	if engine.cantonOffset != "9800" { // 10000 - 200
+		t.Errorf("Expected canton offset 9800, got %s", engine.cantonOffset)
+	}
+	if engine.ethLastBlock != 4900 { // 5000 - 100
+		t.Errorf("Expected eth block 4900, got %d", engine.ethLastBlock)
+	}
+}
+
+func TestEngine_LoadOffsets_NoState_StartBlockOverride(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ethereum.StartBlock = 1000
+	cfg.Ethereum.LookbackBlocks = 100
+	cfg.Canton.StartBlock = 2000
+	cfg.Canton.LookbackBlocks = 200
+
+	mockStore := &MockStore{
+		GetChainStateFunc: func(chainID string) (*db.ChainState, error) {
+			return nil, nil // No stored state
+		},
+	}
+
+	engine := NewEngine(cfg, &MockCantonClient{}, &MockEthereumClient{}, mockStore, zap.NewNop())
+	err := engine.loadOffsets(context.Background())
+
+	if err != nil {
+		t.Fatalf("loadOffsets failed: %v", err)
+	}
+	// start_block should take precedence over lookback
+	if engine.cantonOffset != "2000" {
+		t.Errorf("Expected canton offset 2000 (from start_block), got %s", engine.cantonOffset)
+	}
+	if engine.ethLastBlock != 1000 {
+		t.Errorf("Expected eth block 1000 (from start_block), got %d", engine.ethLastBlock)
+	}
+}
+
+func TestEngine_LoadOffsets_NoState_LookbackLargerThanChain(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ethereum.LookbackBlocks = 10000 // Larger than chain height
+	cfg.Canton.LookbackBlocks = 20000   // Larger than ledger end
+
+	mockStore := &MockStore{
+		GetChainStateFunc: func(chainID string) (*db.ChainState, error) {
+			return nil, nil // No stored state
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "5000", nil // Less than lookback
+		},
+	}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 1000, nil // Less than lookback
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, mockStore, zap.NewNop())
+	err := engine.loadOffsets(context.Background())
+
+	if err != nil {
+		t.Fatalf("loadOffsets failed: %v", err)
+	}
+	if engine.cantonOffset != "BEGIN" {
+		t.Errorf("Expected canton offset BEGIN when lookback > ledger end, got %s", engine.cantonOffset)
+	}
+	if engine.ethLastBlock != 0 {
+		t.Errorf("Expected eth block 0 when lookback > chain height, got %d", engine.ethLastBlock)
+	}
+}
+
+func TestEngine_LoadOffsets_NoState_LookbackDisabled(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ethereum.LookbackBlocks = 0 // Disabled
+	cfg.Canton.LookbackBlocks = 0   // Disabled
+
+	mockStore := &MockStore{
+		GetChainStateFunc: func(chainID string) (*db.ChainState, error) {
+			return nil, nil // No stored state
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "10000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, &MockEthereumClient{}, mockStore, zap.NewNop())
+	err := engine.loadOffsets(context.Background())
+
+	if err != nil {
+		t.Fatalf("loadOffsets failed: %v", err)
+	}
+	// When lookback is 0, Canton starts at ledger end (old behavior)
+	if engine.cantonOffset != "10000" {
+		t.Errorf("Expected canton offset 10000 (ledger end), got %s", engine.cantonOffset)
+	}
+	// When lookback is 0, Ethereum starts at genesis (old behavior)
+	if engine.ethLastBlock != 0 {
+		t.Errorf("Expected eth block 0 (genesis), got %d", engine.ethLastBlock)
+	}
+}
+
+func TestEngine_IsReady_InitiallyFalse(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready initially")
+	}
+}
+
+func TestEngine_IsReady_BothSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	// Manually set both synced flags
+	engine.mu.Lock()
+	engine.cantonSynced = true
+	engine.ethereumSynced = true
+	engine.mu.Unlock()
+
+	if !engine.IsReady() {
+		t.Error("Engine should be ready when both chains are synced")
+	}
+}
+
+func TestEngine_IsReady_OnlyEthereumSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	engine.mu.Lock()
+	engine.ethereumSynced = true
+	engine.mu.Unlock()
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready when only Ethereum is synced")
+	}
+}
+
+func TestEngine_IsReady_OnlyCantonSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	engine.mu.Lock()
+	engine.cantonSynced = true
+	engine.mu.Unlock()
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready when only Canton is synced")
+	}
+}
+
+func TestEngine_CheckReadiness_EthereumCaughtUp(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.ethLastBlock = 100 // At head
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	engine.mu.RUnlock()
+
+	if !ethSynced {
+		t.Error("Ethereum should be marked as synced when at head")
+	}
+}
+
+func TestEngine_CheckReadiness_EthereumBehind(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.ethLastBlock = 50 // Behind by 50 blocks
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	engine.mu.RUnlock()
+
+	if ethSynced {
+		t.Error("Ethereum should not be marked as synced when behind")
+	}
+}
+
+func TestEngine_CheckReadiness_CantonCaughtUp(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.cantonOffset = "1000" // At ledger end
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	if !cantonSynced {
+		t.Error("Canton should be marked as synced when at ledger end")
+	}
+}
+
+func TestEngine_CheckReadiness_CantonBehind(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.cantonOffset = "500" // Behind
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	if cantonSynced {
+		t.Error("Canton should not be marked as synced when behind")
+	}
+}
+
+func TestEngine_CheckReadiness_SyncedStaysTrue(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 200, nil // Head moved forward
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "2000", nil // Head moved forward
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+
+	// Mark as already synced
+	engine.mu.Lock()
+	engine.ethereumSynced = true
+	engine.cantonSynced = true
+	engine.mu.Unlock()
+
+	// Set offsets behind head
+	engine.ethLastBlock = 100
+	engine.cantonOffset = "1000"
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	// Once synced, it should stay synced (monotonic)
+	if !ethSynced {
+		t.Error("Ethereum should remain synced once marked")
+	}
+	if !cantonSynced {
+		t.Error("Canton should remain synced once marked")
+	}
 }
