@@ -40,6 +40,7 @@ ethereum:
   max_gas_price: "100000000000"
   polling_interval: "5s"
   start_block: 0
+  lookback_blocks: 200
 
 canton:
   # 5North DevNet Ledger API (gRPC plaintext - TLS has ALPN issues with grpc-go 1.67+)
@@ -52,6 +53,7 @@ canton:
   core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  lookback_blocks: 200
   
   # TLS disabled (using plaintext port 80 due to grpc-go ALPN issues)
   tls:
