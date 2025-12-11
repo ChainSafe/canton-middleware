@@ -24,7 +24,7 @@ echo "Expires: $(date -r $EXP)"   # macOS
 
 **Pre-configured values:**
 - Party: `daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c`
-- JWT Subject: `nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients`
+- JWT Subject: `RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients`
 - Endpoint: `canton-ledger-api-grpc-dev1.chainsafe.dev:80` (plaintext gRPC)
 
 If you need to set up from scratch, continue reading below.
@@ -115,7 +115,7 @@ The JWT's `sub` claim must be mapped to a Canton user with `canActAs` and `canRe
 ```bash
 # Set variables
 TOKEN=$(cat secrets/devnet-token.txt)
-JWT_SUB="nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients"  # From JWT 'sub' claim
+JWT_SUB="RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients"  # From JWT 'sub' claim
 PARTY_ID="daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
 
 # Grant rights
@@ -208,7 +208,7 @@ canton:
 
 ```bash
 # 1. Start local services (Anvil + Postgres)
-docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
+docker compose -f docker-compose.yaml -f docker-compose.remote.yaml up -d
 
 # 2. Bootstrap Canton contracts (only once)
 go run scripts/bootstrap-bridge.go -config config.devnet.yaml -issuer "$PARTY_ID"
@@ -282,25 +282,25 @@ The following files have hardcoded user IDs that must match the JWT `sub` claim:
 ### scripts/bootstrap-bridge.go
 ```go
 // Line ~355, ~415
-UserId: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject
+UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
 ```
 
 ### scripts/register-user.go
 ```go
 // Line ~335
-UserId: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients",
+UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
 ```
 
 ### scripts/initiate-withdrawal.go
 ```go
 // Line ~399, ~449
-UserId: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients",
+UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
 ```
 
 ### pkg/canton/client.go
 ```go
 // Multiple locations
-UserId: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients",
+UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
 ```
 
 **TODO:** Make `UserId` configurable via `config.yaml` instead of hardcoded.

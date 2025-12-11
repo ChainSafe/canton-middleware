@@ -69,6 +69,14 @@ func main() {
 	}
 	defer ethClient.Close()
 
+	// Start relayer engine first so we can reference it in HTTP handlers
+	ctx := context.Background()
+	engine := relayer.NewEngine(cfg, cantonClient, ethClient, store, logger)
+	if err := engine.Start(ctx); err != nil {
+		logger.Fatal("Failed to start relayer engine", zap.Error(err))
+	}
+	defer engine.Stop()
+
 	// Setup HTTP server for API and metrics
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -77,10 +85,21 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	// Health check endpoint
+	// Health check endpoint (liveness)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
+	})
+
+	// Readiness endpoint - returns 503 until initial sync is complete
+	r.Get("/ready", func(w http.ResponseWriter, r *http.Request) {
+		if !engine.IsReady() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("NOT_READY"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("READY"))
 	})
 
 	// Metrics endpoint
@@ -112,14 +131,6 @@ func main() {
 			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
-
-	// Start relayer engine
-	ctx := context.Background()
-	engine := relayer.NewEngine(cfg, cantonClient, ethClient, store, logger)
-	if err := engine.Start(ctx); err != nil {
-		logger.Fatal("Failed to start relayer engine", zap.Error(err))
-	}
-	defer engine.Stop()
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)

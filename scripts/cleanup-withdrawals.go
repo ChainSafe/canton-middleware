@@ -327,7 +327,7 @@ func cwCompleteWithdrawal(
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -335,4 +335,3 @@ func cwCompleteWithdrawal(
 
 	return err
 }
-

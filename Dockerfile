@@ -27,9 +27,6 @@ RUN apk add --no-cache ca-certificates
 # Copy binary from builder
 COPY --from=builder /app/bin/relayer /app/relayer
 
-# Copy config example
-COPY config.yaml /app/config.yaml
-
 EXPOSE 8080 9090
 
 ENTRYPOINT ["/app/relayer"]
