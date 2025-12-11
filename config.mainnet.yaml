@@ -30,7 +30,7 @@ ethereum:
   chain_id: 1
   bridge_contract: "0x68BA926BC0f2dd37586c22828d55C6ac534780e8"  # Mainnet CantonBridge address
   token_contract: "0x28d38dF637dB75533bD3F71426F3410a82041544"   # Mainnet PromptToken address
-  relayer_private_key: "327890ad1b5d0d27fba9420d243516faaab4ba3471f0f8ac58d7b7e8c95fbc69"  # Set via RELAYER_PRIVATE_KEY env var or secrets/mainnet-relayer-key.txt
+  relayer_private_key: ""  # Set via RELAYER_PRIVATE_KEY env var or secrets/mainnet-relayer-key.txt
   confirmation_blocks: 12  # Higher for mainnet security
   gas_limit: 300000
   max_gas_price: "50000000000"  # 50 gwei - adjust based on network conditions
