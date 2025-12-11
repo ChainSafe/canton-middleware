@@ -18,17 +18,19 @@ import (
 type CantonSource struct {
 	client        CantonBridgeClient
 	tokenContract string
+	chainID       string
 }
 
-func NewCantonSource(client CantonBridgeClient, tokenContract string) *CantonSource {
+func NewCantonSource(client CantonBridgeClient, tokenContract string, chainID string) *CantonSource {
 	return &CantonSource{
 		client:        client,
 		tokenContract: tokenContract,
+		chainID:       chainID,
 	}
 }
 
 func (s *CantonSource) GetChainID() string {
-	return "canton"
+	return s.chainID
 }
 
 func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
@@ -78,16 +80,17 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 
 // EthereumSource implements Source for Ethereum
 type EthereumSource struct {
-	client EthereumBridgeClient
-	config *config.EthereumConfig
+	client  EthereumBridgeClient
+	config  *config.EthereumConfig
+	chainID string
 }
 
-func NewEthereumSource(client EthereumBridgeClient, cfg *config.EthereumConfig) *EthereumSource {
-	return &EthereumSource{client: client, config: cfg}
+func NewEthereumSource(client EthereumBridgeClient, cfg *config.EthereumConfig, chainID string) *EthereumSource {
+	return &EthereumSource{client: client, config: cfg, chainID: chainID}
 }
 
 func (s *EthereumSource) GetChainID() string {
-	return "ethereum"
+	return s.chainID
 }
 
 func (s *EthereumSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
@@ -150,14 +153,15 @@ type CantonDestination struct {
 	client       CantonBridgeClient
 	config       *config.EthereumConfig
 	relayerParty string
+	chainID      string
 }
 
-func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig, relayerParty string) *CantonDestination {
-	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty}
+func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig, relayerParty string, chainID string) *CantonDestination {
+	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty, chainID: chainID}
 }
 
 func (d *CantonDestination) GetChainID() string {
-	return "canton"
+	return d.chainID
 }
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
@@ -206,14 +210,15 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 type EthereumDestination struct {
 	client       EthereumBridgeClient
 	cantonClient CantonBridgeClient
+	chainID      string
 }
 
-func NewEthereumDestination(client EthereumBridgeClient, cantonClient CantonBridgeClient) *EthereumDestination {
-	return &EthereumDestination{client: client, cantonClient: cantonClient}
+func NewEthereumDestination(client EthereumBridgeClient, cantonClient CantonBridgeClient, chainID string) *EthereumDestination {
+	return &EthereumDestination{client: client, cantonClient: cantonClient, chainID: chainID}
 }
 
 func (d *EthereumDestination) GetChainID() string {
-	return "ethereum"
+	return d.chainID
 }
 
 func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {

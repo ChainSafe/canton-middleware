@@ -14,16 +14,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -32,15 +38,39 @@ import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
+var (
+	tokenMu     sync.Mutex
+	cachedToken string
+	tokenExpiry time.Time
+	jwtSubject  string
+)
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
-	issuerParty := flag.String("issuer", "", "Full issuer party ID (e.g., BridgeIssuer::1220abc...)")
-	packageID := flag.String("package", "", "Optional: bridge-wayfinder package ID (auto-detected if not specified)")
-	domainIDFlag := flag.String("domain", "", "Optional: Domain/synchronizer ID (e.g., local::1220...)")
+	issuerParty := flag.String("issuer", "", "Full issuer party ID (uses config relayer_party if not specified)")
+	packageID := flag.String("package", "", "Optional: bridge-wayfinder package ID (uses config if not specified)")
+	domainIDFlag := flag.String("domain", "", "Optional: Domain/synchronizer ID (uses config if not specified)")
 	flag.Parse()
 
+	// Load config
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Use config values as defaults
 	if *issuerParty == "" {
-		fmt.Println("ERROR: -issuer flag is required")
+		*issuerParty = cfg.Canton.RelayerParty
+	}
+	if *packageID == "" {
+		*packageID = cfg.Canton.BridgePackageID
+	}
+	if *domainIDFlag == "" {
+		*domainIDFlag = cfg.Canton.DomainID
+	}
+
+	if *issuerParty == "" {
+		fmt.Println("ERROR: -issuer flag is required (or set canton.relayer_party in config)")
 		fmt.Println()
 		fmt.Println("First allocate a party via HTTP API:")
 		fmt.Println("  curl -X POST http://localhost:5013/v2/parties \\")
@@ -61,12 +91,6 @@ func main() {
 		log.Fatalf("Invalid issuer party format. Expected 'Hint::Fingerprint', got: %s", *issuerParty)
 	}
 
-	// Load config
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -74,8 +98,8 @@ func main() {
 	var opts []grpc.DialOption
 	if cfg.Canton.TLS.Enabled {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,           // Skip cert verification for dev
-			NextProtos:         []string{"h2"}, // Force HTTP/2 ALPN
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2"},
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
@@ -91,39 +115,11 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Load JWT token if configured
-	var authToken string
-	if cfg.Canton.Auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
-		if err != nil {
-			log.Fatalf("Failed to read token file %s: %v", cfg.Canton.Auth.TokenFile, err)
-		}
-		authToken = strings.TrimSpace(string(tokenBytes))
-		fmt.Printf("Auth: JWT token loaded from %s\n", cfg.Canton.Auth.TokenFile)
+	// Get OAuth2 token and auth context
+	ctx, err = getAuthContext(ctx, &cfg.Canton.Auth)
+	if err != nil {
+		log.Fatalf("Failed to get auth context: %v", err)
 	}
-
-	// Create auth context helper
-	getAuthCtx := func(ctx context.Context) context.Context {
-		if authToken != "" {
-			md := metadata.Pairs("authorization", "Bearer "+authToken)
-			return metadata.NewOutgoingContext(ctx, md)
-		}
-		return ctx
-	}
-	// Use auth context for all calls
-	ctx = getAuthCtx(ctx)
-
-	fmt.Println("=" + strings.Repeat("=", 69))
-	fmt.Println("WAYFINDER BRIDGE BOOTSTRAP")
-	fmt.Println("=" + strings.Repeat("=", 69))
-	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
-	fmt.Printf("Issuer:     %s\n", *issuerParty)
-	fmt.Println()
-
-	// Initialize service clients
-	packageService := lapiv2.NewPackageServiceClient(conn)
-	commandService := lapiv2.NewCommandServiceClient(conn)
-	stateService := lapiv2.NewStateServiceClient(conn)
 
 	// Extract fingerprint from party ID
 	parts := strings.Split(*issuerParty, "::")
@@ -131,6 +127,19 @@ func main() {
 	if len(parts) > 1 {
 		fingerprint = parts[1]
 	}
+
+	fmt.Println("=" + strings.Repeat("=", 69))
+	fmt.Println("WAYFINDER BRIDGE BOOTSTRAP")
+	fmt.Println("=" + strings.Repeat("=", 69))
+	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("Issuer:     %s\n", *issuerParty)
+	fmt.Printf("JWT Subject: %s\n", jwtSubject)
+	fmt.Println()
+
+	// Initialize service clients
+	packageService := lapiv2.NewPackageServiceClient(conn)
+	commandService := lapiv2.NewCommandServiceClient(conn)
+	stateService := lapiv2.NewStateServiceClient(conn)
 
 	// Step 1: Find bridge package ID
 	fmt.Println(">>> Step 1: Finding bridge-wayfinder package...")
@@ -149,11 +158,6 @@ func main() {
 	fmt.Println(">>> Step 2: Getting domain ID...")
 	domainID := *domainIDFlag
 	if domainID == "" {
-		// Try to get from config
-		domainID = cfg.Canton.DomainID
-	}
-	if domainID == "" {
-		// Try to auto-detect (may not work with all Canton versions)
 		var err error
 		domainID, err = getDomainID(ctx, stateService, *issuerParty)
 		if err != nil {
@@ -205,6 +209,108 @@ func main() {
 	printConfig(*issuerParty, pkgID, domainID, fingerprint, tokenManagerCid, configCid)
 }
 
+func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
+	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
+	}
+
+	token, err := getOAuthToken(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	md := metadata.Pairs("authorization", "Bearer "+token)
+	return metadata.NewOutgoingContext(ctx, md), nil
+}
+
+func getOAuthToken(auth *config.AuthConfig) (string, error) {
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+
+	now := time.Now()
+	if cachedToken != "" && now.Before(tokenExpiry) {
+		return cachedToken, nil
+	}
+
+	payload := map[string]string{
+		"client_id":     auth.ClientID,
+		"client_secret": auth.ClientSecret,
+		"audience":      auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	}
+
+	fmt.Printf("Fetching OAuth2 access token from %s...\n", auth.TokenURL)
+
+	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OAuth token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("OAuth token endpoint returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode OAuth token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("OAuth token response missing access_token")
+	}
+
+	expiry := now.Add(5 * time.Minute)
+	if tokenResp.ExpiresIn > 0 {
+		leeway := 60
+		if tokenResp.ExpiresIn <= leeway {
+			leeway = tokenResp.ExpiresIn / 2
+		}
+		expiry = now.Add(time.Duration(tokenResp.ExpiresIn-leeway) * time.Second)
+	}
+
+	cachedToken = tokenResp.AccessToken
+	tokenExpiry = expiry
+
+	if subject, err := extractJWTSubject(tokenResp.AccessToken); err == nil {
+		jwtSubject = subject
+		fmt.Printf("JWT subject: %s\n", subject)
+	}
+
+	fmt.Printf("OAuth2 token obtained (expires in %d seconds)\n", tokenResp.ExpiresIn)
+	return tokenResp.AccessToken, nil
+}
+
+func extractJWTSubject(tokenString string) (string, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return "", fmt.Errorf("JWT missing 'sub' claim")
+	}
+	return sub, nil
+}
+
 func printConfig(issuerParty, pkgID, domainID, fingerprint, tokenManagerCid, configCid string) {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println("BOOTSTRAP COMPLETE - Update your config.yaml with these values:")
@@ -234,14 +340,10 @@ func findBridgePackage(ctx context.Context, client lapiv2.PackageServiceClient) 
 		return "", fmt.Errorf("no packages found - ensure DARs are uploaded via deploy-dars.canton")
 	}
 
-	// For now, return the last package (most recently uploaded)
-	// In a more sophisticated implementation, we'd parse the DAR metadata
-	// to find the bridge-wayfinder package specifically
 	return resp.PackageIds[len(resp.PackageIds)-1], nil
 }
 
 func getDomainID(ctx context.Context, client lapiv2.StateServiceClient, party string) (string, error) {
-	// In Canton v2 API, domains are called "synchronizers"
 	resp, err := client.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
 		Party: party,
 	})
@@ -257,7 +359,6 @@ func getDomainID(ctx context.Context, client lapiv2.StateServiceClient, party st
 }
 
 func findExistingBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string) (string, error) {
-	// V2 API requires ActiveAtOffset - get current ledger end
 	ledgerEndResp, err := client.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get ledger end: %w", err)
@@ -312,7 +413,6 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 
 	fmt.Printf("    Debug: issuer=%s, packageID=%s, domainID=%s\n", issuer, packageID, domainID)
 
-	// PROMPT token metadata
 	metaRecord := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Wayfinder PROMPT"}}},
@@ -333,7 +433,6 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
-	// CIP56Manager is in cip56-token package, not bridge-wayfinder
 	cip56PackageID := "e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe"
 
 	cmd := &lapiv2.Command{
@@ -349,12 +448,10 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
-	// UserId must match the JWT subject for authorization
-	userID := "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients" // TODO: make configurable
 	commands := &lapiv2.Commands{
 		SynchronizerId: domainID,
 		CommandId:      cmdID,
-		UserId:         userID,
+		UserId:         jwtSubject,
 		ActAs:          []string{issuer},
 		Commands:       []*lapiv2.Command{cmd},
 	}
@@ -369,7 +466,6 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		return "", fmt.Errorf("submit create CIP56Manager failed: %w", err)
 	}
 
-	// Extract contract ID from response
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
@@ -407,13 +503,11 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
-	// UserId must match the JWT subject for authorization
-	userID := "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients" // TODO: make configurable
 	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         userID,
+			UserId:         jwtSubject,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -422,7 +516,6 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 		return "", fmt.Errorf("submit create WayfinderBridgeConfig failed: %w", err)
 	}
 
-	// Extract contract ID from response
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
