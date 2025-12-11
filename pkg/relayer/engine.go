@@ -177,17 +177,47 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 		e.cantonOffset = cantonState.LastBlockHash
 		e.logger.Info("Loaded Canton offset", zap.String("offset", e.cantonOffset))
 	} else {
-		// No stored state - start from current ledger end to avoid replaying history
-		// This is safe because we only care about NEW events going forward
-		ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
-		if err != nil {
-			e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
-				zap.Error(err))
-			e.cantonOffset = "BEGIN"
-		} else {
-			e.cantonOffset = ledgerEnd
-			e.logger.Info("Starting Canton stream from current ledger end (no history replay)",
+		// No stored state for Canton
+		// 1) Backwards-compatible override: explicit start_block wins
+		if e.config.Canton.StartBlock > 0 {
+			e.cantonOffset = strconv.FormatInt(e.config.Canton.StartBlock, 10)
+			e.logger.Info("Starting Canton stream from configured start_block",
 				zap.String("offset", e.cantonOffset))
+		} else {
+			// 2) Use ledger end minus lookback_blocks
+			ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+			if err != nil {
+				e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
+					zap.Error(err))
+				e.cantonOffset = "BEGIN"
+			} else {
+				lookback := e.config.Canton.LookbackBlocks
+				if lookback <= 0 {
+					// lookback <= 0: preserve old behavior (start at tip, no replay)
+					e.cantonOffset = ledgerEnd
+					e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
+						zap.String("ledger_end", ledgerEnd))
+				} else {
+					endOffset, err := strconv.ParseInt(ledgerEnd, 10, 64)
+					if err != nil {
+						e.logger.Warn("Invalid Canton ledger end value, falling back to BEGIN",
+							zap.String("ledger_end", ledgerEnd),
+							zap.Error(err))
+						e.cantonOffset = "BEGIN"
+					} else {
+						if endOffset <= lookback {
+							// Not enough history to look back fully; start from BEGIN
+							e.cantonOffset = "BEGIN"
+						} else {
+							e.cantonOffset = strconv.FormatInt(endOffset-lookback, 10)
+						}
+						e.logger.Info("Starting Canton stream from ledger end with lookback",
+							zap.String("ledger_end", ledgerEnd),
+							zap.Int64("lookback_blocks", lookback),
+							zap.String("start_offset", e.cantonOffset))
+					}
+				}
+			}
 		}
 	}
 
@@ -200,8 +230,41 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 		e.ethLastBlock = uint64(ethState.LastBlock)
 		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
 	} else {
-		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
-		e.logger.Info("Starting Ethereum from configured block", zap.Uint64("block", e.ethLastBlock))
+		// No stored state for Ethereum
+		// 1) Backwards-compatible override: explicit start_block wins
+		if e.config.Ethereum.StartBlock > 0 {
+			e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
+			e.logger.Info("Starting Ethereum from configured start_block",
+				zap.Uint64("block", e.ethLastBlock))
+		} else {
+			lookback := e.config.Ethereum.LookbackBlocks
+			if lookback <= 0 {
+				// lookback <= 0: preserve old behavior (start from genesis)
+				e.ethLastBlock = 0
+				e.logger.Info("Starting Ethereum from genesis (lookback disabled)",
+					zap.Uint64("block", e.ethLastBlock))
+			} else {
+				headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
+				if err != nil {
+					// Fallback to previous behavior if we can't query head
+					e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
+					e.logger.Warn("Failed to get Ethereum latest block, falling back to configured start_block",
+						zap.Error(err),
+						zap.Uint64("start_block", e.ethLastBlock))
+				} else {
+					if uint64(lookback) >= headBlock {
+						// Lookback larger than chain height; start from genesis
+						e.ethLastBlock = 0
+					} else {
+						e.ethLastBlock = headBlock - uint64(lookback)
+					}
+					e.logger.Info("Starting Ethereum from latest block with lookback",
+						zap.Uint64("head_block", headBlock),
+						zap.Int64("lookback_blocks", lookback),
+						zap.Uint64("start_block", e.ethLastBlock))
+				}
+			}
+		}
 	}
 
 	return nil
