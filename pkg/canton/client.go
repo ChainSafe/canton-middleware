@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
@@ -27,6 +29,8 @@ type Client struct {
 	stateService   lapiv2.StateServiceClient
 	commandService lapiv2.CommandServiceClient
 	updateService  lapiv2.UpdateServiceClient
+
+	jwtSubject string // Extracted from JWT token
 }
 
 // NewClient creates a new Canton gRPC client
@@ -60,14 +64,26 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		zap.String("rpc_url", config.RPCURL),
 		zap.String("ledger_id", config.LedgerID))
 
-	return &Client{
+	c := &Client{
 		config:         config,
 		conn:           conn,
 		logger:         logger,
 		stateService:   lapiv2.NewStateServiceClient(conn),
 		commandService: lapiv2.NewCommandServiceClient(conn),
 		updateService:  lapiv2.NewUpdateServiceClient(conn),
-	}, nil
+	}
+
+	// Extract JWT subject if token is configured
+	if token, err := c.loadToken(); err == nil && token != "" {
+		if subject, err := extractJWTSubject(token); err == nil {
+			c.jwtSubject = subject
+			logger.Info("Extracted JWT subject", zap.String("subject", subject))
+		} else {
+			logger.Warn("Failed to extract JWT subject", zap.Error(err))
+		}
+	}
+
+	return c, nil
 }
 
 // Close closes the connection to the Canton node
@@ -105,6 +121,24 @@ func (c *Client) loadToken() (string, error) {
 	}
 
 	return "", fmt.Errorf("no token file or token provided")
+}
+
+// extractJWTSubject parses the JWT token and extracts the 'sub' claim
+func extractJWTSubject(tokenString string) (string, error) {
+	// Parse without validating signature (Canton handles verification)
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return "", fmt.Errorf("JWT missing 'sub' claim")
+	}
+	return sub, nil
 }
 
 // loadTLSConfig loads TLS configuration from files
@@ -204,7 +238,7 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -329,7 +363,7 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -453,7 +487,7 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -509,7 +543,7 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -567,7 +601,7 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -624,7 +658,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
+			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
