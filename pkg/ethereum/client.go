@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -27,6 +28,10 @@ type Client struct {
 
 	bridgeAddress common.Address
 	bridge        *contracts.CantonBridge
+
+	// Track how far the poller has scanned (for readiness checks)
+	mu               sync.RWMutex
+	lastScannedBlock uint64
 }
 
 // NewClient creates a new Ethereum client
@@ -90,6 +95,21 @@ func (c *Client) Close() {
 	}
 }
 
+// GetLastScannedBlock returns the highest block number the poller has scanned.
+func (c *Client) GetLastScannedBlock() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastScannedBlock
+}
+
+func (c *Client) setLastScannedBlock(b uint64) {
+	c.mu.Lock()
+	if b > c.lastScannedBlock {
+		c.lastScannedBlock = b
+	}
+	c.mu.Unlock()
+}
+
 // GetTransactor returns a transaction signer
 func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) {
 	chainID := big.NewInt(c.config.ChainID)
@@ -145,6 +165,8 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 	c.logger.Info("Starting deposit event poller", zap.Uint64("from_block", fromBlock))
 
 	currentBlock := fromBlock
+	c.setLastScannedBlock(currentBlock)
+
 	ticker := time.NewTicker(c.config.PollingInterval)
 	defer ticker.Stop()
 
@@ -161,6 +183,8 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 			}
 
 			if latestBlock <= currentBlock {
+				// Still record that we've checked up to this point
+				c.setLastScannedBlock(latestBlock)
 				continue
 			}
 
@@ -202,7 +226,9 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 			}
 			iter.Close()
 
+			// Update scan progress even if there were no events
 			currentBlock = latestBlock
+			c.setLastScannedBlock(currentBlock)
 		}
 	}
 }

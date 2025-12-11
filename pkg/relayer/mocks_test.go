@@ -105,6 +105,7 @@ type MockEthereumClient struct {
 	WithdrawFromCantonFunc      func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
 	WatchDepositEventsFunc      func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
 	IsWithdrawalProcessedFunc   func(ctx context.Context, cantonTxHash [32]byte) (bool, error)
+	LastScannedBlock            uint64
 }
 
 func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
@@ -133,6 +134,10 @@ func (m *MockEthereumClient) IsWithdrawalProcessed(ctx context.Context, cantonTx
 		return m.IsWithdrawalProcessedFunc(ctx, cantonTxHash)
 	}
 	return false, nil
+}
+
+func (m *MockEthereumClient) GetLastScannedBlock() uint64 {
+	return m.LastScannedBlock
 }
 
 // MockStore is a mock implementation of BridgeStore

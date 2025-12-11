@@ -24,7 +24,6 @@ import (
 
 var (
 	configPath = flag.String("config", "config.yaml", "Path to configuration file")
-	version    = "dev"
 )
 
 func main() {
@@ -45,7 +44,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	logger.Info("Starting Canton-Ethereum Bridge Relayer", zap.String("version", version))
+	logger.Info("Starting Canton-Ethereum Bridge Relayer")
 
 	// Initialize database
 	store, err := db.NewStore(cfg.Database.GetConnectionString())
@@ -185,7 +184,7 @@ func handleGetTransfer(store *db.Store, logger *zap.Logger) http.HandlerFunc {
 func handleGetStatus(logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{"status": "running", "version": version}); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"status": "running"}); err != nil {
 			logger.Error("Failed to encode response", zap.Error(err))
 		}
 	}

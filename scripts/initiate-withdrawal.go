@@ -11,15 +11,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -34,6 +41,13 @@ var (
 	iwEvmDestination = flag.String("evm-destination", "", "EVM address to receive the tokens")
 )
 
+var (
+	iwTokenMu     sync.Mutex
+	iwCachedToken string
+	iwTokenExpiry time.Time
+	iwJwtSubject  string
+)
+
 func main() {
 	flag.Parse()
 
@@ -44,13 +58,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Validate EVM address
 	if !strings.HasPrefix(*iwEvmDestination, "0x") || len(*iwEvmDestination) != 42 {
 		fmt.Println("Error: Invalid EVM destination address. Must be 0x followed by 40 hex chars.")
 		os.Exit(1)
 	}
 
-	// Load config
 	cfg, err := config.Load(*iwConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
@@ -63,14 +75,17 @@ func main() {
 	fmt.Printf("Holding CID:     %s\n", *iwHoldingCid)
 	fmt.Printf("Amount:          %s\n", *iwAmount)
 	fmt.Printf("EVM Destination: %s\n", *iwEvmDestination)
+	fmt.Printf("Relayer Party:   %s\n", cfg.Canton.RelayerParty)
 	fmt.Println()
 
 	ctx := context.Background()
 
-	// Connect to Canton with TLS if enabled
 	var opts []grpc.DialOption
 	if cfg.Canton.TLS.Enabled {
-		tlsConfig := &tls.Config{}
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2"},
+		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -84,22 +99,16 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Load JWT token if configured
-	if cfg.Canton.Auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
-		if err != nil {
-			fmt.Printf("Failed to read token file: %v\n", err)
-			os.Exit(1)
-		}
-		authToken := strings.TrimSpace(string(tokenBytes))
-		md := metadata.Pairs("authorization", "Bearer "+authToken)
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	ctx, err = iwGetAuthContext(ctx, &cfg.Canton.Auth)
+	if err != nil {
+		fmt.Printf("Failed to get auth context: %v\n", err)
+		os.Exit(1)
 	}
+	fmt.Printf("JWT Subject: %s\n\n", iwJwtSubject)
 
 	stateClient := lapiv2.NewStateServiceClient(conn)
 	cmdClient := lapiv2.NewCommandServiceClient(conn)
 
-	// Get ledger end offset
 	ledgerEndResp, err := stateClient.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		fmt.Printf("Failed to get ledger end: %v\n", err)
@@ -110,7 +119,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Step 1: Find WayfinderBridgeConfig
 	fmt.Println(">>> Finding WayfinderBridgeConfig...")
 	configCid, err := iwFindBridgeConfig(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset)
 	if err != nil {
@@ -119,7 +127,6 @@ func main() {
 	}
 	fmt.Printf("    Config CID: %s\n\n", configCid)
 
-	// Step 2: Find FingerprintMapping for the holding owner
 	fmt.Println(">>> Finding holding owner and FingerprintMapping...")
 	owner, err := iwGetHoldingOwner(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset, *iwHoldingCid)
 	if err != nil {
@@ -128,7 +135,6 @@ func main() {
 	}
 	fmt.Printf("    Holding Owner: %s\n", owner)
 
-	// Extract fingerprint from owner party ID
 	fingerprint := iwExtractFingerprint(owner)
 	fmt.Printf("    Fingerprint: %s\n", fingerprint)
 
@@ -141,23 +147,24 @@ func main() {
 	}
 	fmt.Printf("    Mapping CID: %s\n\n", mappingCid)
 
-	// Step 3: Get domain ID
 	fmt.Println(">>> Getting domain ID...")
-	domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-		Party: cfg.Canton.RelayerParty,
-	})
-	if err != nil {
-		fmt.Printf("Failed to get domain ID: %v\n", err)
-		os.Exit(1)
+	domainID := cfg.Canton.DomainID
+	if domainID == "" {
+		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
+			Party: cfg.Canton.RelayerParty,
+		})
+		if err != nil {
+			fmt.Printf("Failed to get domain ID: %v\n", err)
+			os.Exit(1)
+		}
+		if len(domainResp.ConnectedSynchronizers) == 0 {
+			fmt.Println("Error: No connected synchronizers")
+			os.Exit(1)
+		}
+		domainID = domainResp.ConnectedSynchronizers[0].SynchronizerId
 	}
-	if len(domainResp.ConnectedSynchronizers) == 0 {
-		fmt.Println("Error: No connected synchronizers")
-		os.Exit(1)
-	}
-	domainID := domainResp.ConnectedSynchronizers[0].SynchronizerId
 	fmt.Printf("    Domain ID: %s\n\n", domainID)
 
-	// Step 4: Initiate withdrawal (creates WithdrawalRequest)
 	fmt.Println(">>> Initiating withdrawal...")
 	withdrawalRequestCid, err := iwInitiateWithdrawal(
 		ctx,
@@ -177,14 +184,12 @@ func main() {
 	}
 	fmt.Printf("    WithdrawalRequest CID: %s\n\n", withdrawalRequestCid)
 
-	// Step 5: Process withdrawal (burns tokens and creates WithdrawalEvent)
-	// Note: WithdrawalRequest is in bridge-core package, not bridge-wayfinder
 	fmt.Println(">>> Processing withdrawal (burning tokens)...")
 	withdrawalEventCid, err := iwProcessWithdrawal(
 		ctx,
 		cmdClient,
 		cfg.Canton.RelayerParty,
-		cfg.Canton.CorePackageID, // Use core package for WithdrawalRequest
+		cfg.Canton.CorePackageID,
 		domainID,
 		withdrawalRequestCid,
 	)
@@ -206,6 +211,107 @@ func main() {
 	fmt.Println("  3. Mark the withdrawal as complete on Canton")
 	fmt.Println()
 	fmt.Println("Monitor the relayer logs to see progress.")
+}
+
+func iwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
+	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
+	}
+
+	token, err := iwGetOAuthToken(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	md := metadata.Pairs("authorization", "Bearer "+token)
+	return metadata.NewOutgoingContext(ctx, md), nil
+}
+
+func iwGetOAuthToken(auth *config.AuthConfig) (string, error) {
+	iwTokenMu.Lock()
+	defer iwTokenMu.Unlock()
+
+	now := time.Now()
+	if iwCachedToken != "" && now.Before(iwTokenExpiry) {
+		return iwCachedToken, nil
+	}
+
+	payload := map[string]string{
+		"client_id":     auth.ClientID,
+		"client_secret": auth.ClientSecret,
+		"audience":      auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	}
+
+	fmt.Printf("Fetching OAuth2 access token from %s...\n", auth.TokenURL)
+
+	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OAuth token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("OAuth token endpoint returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode OAuth token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("OAuth token response missing access_token")
+	}
+
+	expiry := now.Add(5 * time.Minute)
+	if tokenResp.ExpiresIn > 0 {
+		leeway := 60
+		if tokenResp.ExpiresIn <= leeway {
+			leeway = tokenResp.ExpiresIn / 2
+		}
+		expiry = now.Add(time.Duration(tokenResp.ExpiresIn-leeway) * time.Second)
+	}
+
+	iwCachedToken = tokenResp.AccessToken
+	iwTokenExpiry = expiry
+
+	if subject, err := iwExtractJWTSubject(tokenResp.AccessToken); err == nil {
+		iwJwtSubject = subject
+	}
+
+	fmt.Printf("OAuth2 token obtained (expires in %d seconds)\n", tokenResp.ExpiresIn)
+	return tokenResp.AccessToken, nil
+}
+
+func iwExtractJWTSubject(tokenString string) (string, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return "", fmt.Errorf("JWT missing 'sub' claim")
+	}
+	return sub, nil
 }
 
 func iwFindBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64) (string, error) {
@@ -319,7 +425,6 @@ func iwFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceCli
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			// Filter by module and entity name to avoid matching contracts from other modules
 			templateId := contract.CreatedEvent.TemplateId
 			if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 				fields := contract.CreatedEvent.CreateArguments.Fields
@@ -342,7 +447,6 @@ func iwExtractFingerprint(partyID string) string {
 	parts := strings.Split(partyID, "::")
 	if len(parts) == 2 {
 		fp := parts[1]
-		// Remove "1220" multihash prefix if present
 		if strings.HasPrefix(fp, "1220") && len(fp) == 68 {
 			return fp[4:]
 		}
@@ -396,7 +500,7 @@ func iwInitiateWithdrawal(
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
+			UserId:         iwJwtSubject,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -405,7 +509,6 @@ func iwInitiateWithdrawal(
 		return "", err
 	}
 
-	// Extract WithdrawalRequest contract ID
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
@@ -446,7 +549,7 @@ func iwProcessWithdrawal(
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
+			UserId:         iwJwtSubject,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -455,7 +558,6 @@ func iwProcessWithdrawal(
 		return "", err
 	}
 
-	// Extract WithdrawalEvent contract ID
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {

@@ -16,15 +16,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -36,6 +43,13 @@ var (
 	cwConfigPath = flag.String("config", "config.devnet.yaml", "Path to config file")
 	cwDryRun     = flag.Bool("dry-run", true, "List pending withdrawals without completing them")
 	cwForce      = flag.Bool("force", false, "Actually complete the withdrawals")
+)
+
+var (
+	cwTokenMu     sync.Mutex
+	cwCachedToken string
+	cwTokenExpiry time.Time
+	cwJwtSubject  string
 )
 
 type PendingWithdrawal struct {
@@ -50,13 +64,11 @@ type PendingWithdrawal struct {
 func main() {
 	flag.Parse()
 
-	// Safety check: require explicit -force to actually complete withdrawals
 	if !*cwDryRun && !*cwForce {
 		fmt.Println("Error: Use -force to actually complete withdrawals, or use -dry-run=true to list them")
 		os.Exit(1)
 	}
 
-	// Load config
 	cfg, err := config.Load(*cwConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
@@ -72,14 +84,16 @@ func main() {
 		fmt.Println("MODE: EXECUTING - Will mark withdrawals as complete!")
 	}
 	fmt.Printf("Config: %s\n", *cwConfigPath)
-	fmt.Printf("Party: %s\n\n", cfg.Canton.RelayerParty)
+	fmt.Printf("Party: %s\n", cfg.Canton.RelayerParty)
 
 	ctx := context.Background()
 
-	// Connect to Canton with TLS if enabled
 	var opts []grpc.DialOption
 	if cfg.Canton.TLS.Enabled {
-		tlsConfig := &tls.Config{}
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"h2"},
+		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
@@ -93,22 +107,16 @@ func main() {
 	}
 	defer conn.Close()
 
-	// Load JWT token if configured
-	if cfg.Canton.Auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(cfg.Canton.Auth.TokenFile)
-		if err != nil {
-			fmt.Printf("Failed to read token file: %v\n", err)
-			os.Exit(1)
-		}
-		authToken := strings.TrimSpace(string(tokenBytes))
-		md := metadata.Pairs("authorization", "Bearer "+authToken)
-		ctx = metadata.NewOutgoingContext(ctx, md)
+	ctx, err = cwGetAuthContext(ctx, &cfg.Canton.Auth)
+	if err != nil {
+		fmt.Printf("Failed to get auth context: %v\n", err)
+		os.Exit(1)
 	}
+	fmt.Printf("JWT Subject: %s\n\n", cwJwtSubject)
 
 	stateClient := lapiv2.NewStateServiceClient(conn)
 	cmdClient := lapiv2.NewCommandServiceClient(conn)
 
-	// Get ledger end offset (required for V2 API)
 	ledgerEndResp, err := stateClient.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		fmt.Printf("Failed to get ledger end: %v\n", err)
@@ -120,7 +128,6 @@ func main() {
 	}
 	fmt.Printf("Ledger offset: %d\n\n", ledgerEndResp.Offset)
 
-	// Query pending withdrawals
 	fmt.Println(">>> Querying pending WithdrawalEvent contracts...")
 	withdrawals, err := cwQueryPendingWithdrawals(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset)
 	if err != nil {
@@ -156,23 +163,24 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Get domain ID
 	fmt.Println(">>> Getting domain ID...")
-	domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-		Party: cfg.Canton.RelayerParty,
-	})
-	if err != nil {
-		fmt.Printf("Failed to get domain ID: %v\n", err)
-		os.Exit(1)
+	domainID := cfg.Canton.DomainID
+	if domainID == "" {
+		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
+			Party: cfg.Canton.RelayerParty,
+		})
+		if err != nil {
+			fmt.Printf("Failed to get domain ID: %v\n", err)
+			os.Exit(1)
+		}
+		if len(domainResp.ConnectedSynchronizers) == 0 {
+			fmt.Println("Error: No connected synchronizers")
+			os.Exit(1)
+		}
+		domainID = domainResp.ConnectedSynchronizers[0].SynchronizerId
 	}
-	if len(domainResp.ConnectedSynchronizers) == 0 {
-		fmt.Println("Error: No connected synchronizers")
-		os.Exit(1)
-	}
-	domainID := domainResp.ConnectedSynchronizers[0].SynchronizerId
 	fmt.Printf("    Domain ID: %s\n\n", domainID)
 
-	// Complete each pending withdrawal
 	fmt.Println(">>> Completing stale withdrawals...")
 	completed := 0
 	failed := 0
@@ -211,6 +219,107 @@ func main() {
 	}
 }
 
+func cwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
+	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
+	}
+
+	token, err := cwGetOAuthToken(auth)
+	if err != nil {
+		return nil, err
+	}
+
+	md := metadata.Pairs("authorization", "Bearer "+token)
+	return metadata.NewOutgoingContext(ctx, md), nil
+}
+
+func cwGetOAuthToken(auth *config.AuthConfig) (string, error) {
+	cwTokenMu.Lock()
+	defer cwTokenMu.Unlock()
+
+	now := time.Now()
+	if cwCachedToken != "" && now.Before(cwTokenExpiry) {
+		return cwCachedToken, nil
+	}
+
+	payload := map[string]string{
+		"client_id":     auth.ClientID,
+		"client_secret": auth.ClientSecret,
+		"audience":      auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	}
+
+	fmt.Printf("Fetching OAuth2 access token from %s...\n", auth.TokenURL)
+
+	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call OAuth token endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("OAuth token endpoint returned %d: %s", resp.StatusCode, string(b))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", fmt.Errorf("failed to decode OAuth token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("OAuth token response missing access_token")
+	}
+
+	expiry := now.Add(5 * time.Minute)
+	if tokenResp.ExpiresIn > 0 {
+		leeway := 60
+		if tokenResp.ExpiresIn <= leeway {
+			leeway = tokenResp.ExpiresIn / 2
+		}
+		expiry = now.Add(time.Duration(tokenResp.ExpiresIn-leeway) * time.Second)
+	}
+
+	cwCachedToken = tokenResp.AccessToken
+	cwTokenExpiry = expiry
+
+	if subject, err := cwExtractJWTSubject(tokenResp.AccessToken); err == nil {
+		cwJwtSubject = subject
+	}
+
+	fmt.Printf("OAuth2 token obtained (expires in %d seconds)\n", tokenResp.ExpiresIn)
+	return tokenResp.AccessToken, nil
+}
+
+func cwExtractJWTSubject(tokenString string) (string, error) {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+	sub, ok := claims["sub"].(string)
+	if !ok {
+		return "", fmt.Errorf("JWT missing 'sub' claim")
+	}
+	return sub, nil
+}
+
 func cwQueryPendingWithdrawals(ctx context.Context, client lapiv2.StateServiceClient, party string, offset int64) ([]PendingWithdrawal, error) {
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: offset,
@@ -240,14 +349,12 @@ func cwQueryPendingWithdrawals(ctx context.Context, client lapiv2.StateServiceCl
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			// Filter for WithdrawalEvent contracts
 			templateId := contract.CreatedEvent.TemplateId
 			if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalEvent" {
 				w := PendingWithdrawal{
 					ContractID: contract.CreatedEvent.ContractId,
 				}
 
-				// Extract fields from the contract
 				fields := contract.CreatedEvent.CreateArguments.Fields
 				for _, field := range fields {
 					switch field.Label {
@@ -256,7 +363,6 @@ func cwQueryPendingWithdrawals(ctx context.Context, client lapiv2.StateServiceCl
 							w.UserParty = p.Party
 						}
 					case "evmDestination":
-						// EvmAddress is a record with a "value" field
 						if r, ok := field.Value.Sum.(*lapiv2.Value_Record); ok {
 							for _, f := range r.Record.Fields {
 								if f.Label == "value" {
@@ -275,14 +381,12 @@ func cwQueryPendingWithdrawals(ctx context.Context, client lapiv2.StateServiceCl
 							w.Fingerprint = t.Text
 						}
 					case "status":
-						// Status is a variant
 						if v, ok := field.Value.Sum.(*lapiv2.Value_Variant); ok {
 							w.Status = v.Variant.Constructor
 						}
 					}
 				}
 
-				// Only include pending withdrawals
 				if w.Status == "Pending" {
 					withdrawals = append(withdrawals, w)
 				}
@@ -327,7 +431,7 @@ func cwCompleteWithdrawal(
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,
 			CommandId:      cmdID,
-			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
+			UserId:         cwJwtSubject,
 			ActAs:          []string{issuer},
 			Commands:       []*lapiv2.Command{cmd},
 		},
