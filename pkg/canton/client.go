@@ -121,7 +121,7 @@ func (c *Client) GetAuthContext(ctx context.Context) context.Context {
 func (c *Client) loadToken() (string, error) {
 	auth := c.config.Auth
 	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
-		return "", fmt.Errorf("no auth configured: token_file or OAuth2 client credentials are required")
+		return "", fmt.Errorf("no auth configured: OAuth2 client credentials are required")
 	}
 
 	c.tokenMu.Lock()

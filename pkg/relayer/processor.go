@@ -112,7 +112,7 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 	if existing != nil {
 		p.logger.Debug("Event already processed", zap.String("event_id", event.ID))
 		// Still persist offset to avoid replaying on restart
-		p.persistOffset(event.ID)
+		p.persistOffset(event)
 		return nil
 	}
 
@@ -157,7 +157,7 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 	p.store.UpdateTransferStatus(event.ID, db.TransferStatusCompleted, &destTxHash)
 
 	// Persist offset after successful processing
-	p.persistOffset(event.ID)
+	p.persistOffset(event)
 
 	metrics.TransfersTotal.WithLabelValues(string(p.getDirection()), "completed").Inc()
 
@@ -176,11 +176,20 @@ func (p *Processor) getDirection() db.TransferDirection {
 }
 
 // persistOffset saves the current offset to avoid replaying events on restart
-func (p *Processor) persistOffset(eventID string) {
+func (p *Processor) persistOffset(event *Event) {
 	if p.onOffsetUpdate == nil {
 		return
 	}
-	offset := extractOffsetFromEventID(eventID)
+
+	var offset string
+	// For Ethereum events, use the block number as the offset
+	if event.SourceChain == "ethereum" && event.SourceBlockNumber > 0 {
+		offset = strconv.FormatInt(event.SourceBlockNumber, 10)
+	} else {
+		// For Canton events, extract from event ID (format: "offset-nodeId")
+		offset = extractOffsetFromEventID(event.ID)
+	}
+
 	if offset != "" {
 		if err := p.onOffsetUpdate(p.source.GetChainID(), offset); err != nil {
 			p.logger.Warn("Failed to persist offset",

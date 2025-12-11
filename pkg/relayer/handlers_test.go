@@ -43,7 +43,7 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 	}
 
 	cfg := &config.EthereumConfig{}
-	dest := NewCantonDestination(mockClient, cfg, "RelayerParty")
+	dest := NewCantonDestination(mockClient, cfg, "RelayerParty", "canton")
 
 	event := &Event{
 		ID:           "event-1",
@@ -82,7 +82,7 @@ func TestCantonSource_StreamEvents_Error(t *testing.T) {
 		},
 	}
 
-	source := NewCantonSource(mockClient, "0xTokenAddress")
+	source := NewCantonSource(mockClient, "0xTokenAddress", "canton")
 	_, outErrCh := source.StreamEvents(context.Background(), "BEGIN")
 
 	err := <-outErrCh
