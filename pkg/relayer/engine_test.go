@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
@@ -182,4 +183,213 @@ func (m *MockDestination) SubmitTransfer(ctx context.Context, event *Event) (str
 		return m.SubmitTransferFunc(ctx, event)
 	}
 	return "", nil
+}
+
+func TestEngine_IsReady_InitiallyFalse(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready initially")
+	}
+}
+
+func TestEngine_IsReady_BothSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	// Manually set both synced flags
+	engine.mu.Lock()
+	engine.cantonSynced = true
+	engine.ethereumSynced = true
+	engine.mu.Unlock()
+
+	if !engine.IsReady() {
+		t.Error("Engine should be ready when both chains are synced")
+	}
+}
+
+func TestEngine_IsReady_OnlyEthereumSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	engine.mu.Lock()
+	engine.ethereumSynced = true
+	engine.mu.Unlock()
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready when only Ethereum is synced")
+	}
+}
+
+func TestEngine_IsReady_OnlyCantonSynced(t *testing.T) {
+	cfg := &config.Config{}
+	engine := NewEngine(cfg, nil, nil, nil, zap.NewNop())
+
+	engine.mu.Lock()
+	engine.cantonSynced = true
+	engine.mu.Unlock()
+
+	if engine.IsReady() {
+		t.Error("Engine should not be ready when only Canton is synced")
+	}
+}
+
+func TestEngine_CheckReadiness_EthereumCaughtUp(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.ethLastBlock = 100 // At head
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	engine.mu.RUnlock()
+
+	if !ethSynced {
+		t.Error("Ethereum should be marked as synced when at head")
+	}
+}
+
+func TestEngine_CheckReadiness_EthereumBehind(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.ethLastBlock = 50 // Behind by 50 blocks
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	engine.mu.RUnlock()
+
+	if ethSynced {
+		t.Error("Ethereum should not be marked as synced when behind")
+	}
+}
+
+func TestEngine_CheckReadiness_CantonCaughtUp(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.cantonOffset = "1000" // At ledger end
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	if !cantonSynced {
+		t.Error("Canton should be marked as synced when at ledger end")
+	}
+}
+
+func TestEngine_CheckReadiness_CantonBehind(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 100, nil
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "1000", nil
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+	engine.cantonOffset = "500" // Behind
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	if cantonSynced {
+		t.Error("Canton should not be marked as synced when behind")
+	}
+}
+
+func TestEngine_CheckReadiness_SyncedStaysTrue(t *testing.T) {
+	cfg := &config.Config{}
+
+	mockEthClient := &MockEthereumClient{
+		GetLatestBlockNumberFunc: func(ctx context.Context) (uint64, error) {
+			return 200, nil // Head moved forward
+		},
+	}
+
+	mockCantonClient := &MockCantonClient{
+		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
+			return "2000", nil // Head moved forward
+		},
+	}
+
+	engine := NewEngine(cfg, mockCantonClient, mockEthClient, nil, zap.NewNop())
+
+	// Mark as already synced
+	engine.mu.Lock()
+	engine.ethereumSynced = true
+	engine.cantonSynced = true
+	engine.mu.Unlock()
+
+	// Set offsets behind head
+	engine.ethLastBlock = 100
+	engine.cantonOffset = "1000"
+
+	engine.checkReadiness(context.Background())
+
+	engine.mu.RLock()
+	ethSynced := engine.ethereumSynced
+	cantonSynced := engine.cantonSynced
+	engine.mu.RUnlock()
+
+	// Once synced, it should stay synced (monotonic)
+	if !ethSynced {
+		t.Error("Ethereum should remain synced once marked")
+	}
+	if !cantonSynced {
+		t.Error("Canton should remain synced once marked")
+	}
 }

@@ -91,21 +91,27 @@ services:
       timeout: 5s
       retries: 5
 
-#  relayer:
-#    build: .
-#    container_name: canton-bridge-relayer
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#    ports:
-#      - "8080:8080"
-#      - "9090:9090"
-#    volumes:
-#      - ./config.yaml:/app/config.yaml
-#    environment:
-#      - ETHEREUM_RELAYER_PRIVATE_KEY=${ETHEREUM_RELAYER_PRIVATE_KEY}
-#      - CANTON_RELAYER_PRIVATE_KEY=${CANTON_RELAYER_PRIVATE_KEY}
-#    restart: unless-stopped
+  relayer:
+    build: .
+    container_name: canton-bridge-relayer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./config.mainnet.yaml:/app/config.yaml
+    environment:
+      - ETHEREUM_RELAYER_PRIVATE_KEY=${ETHEREUM_RELAYER_PRIVATE_KEY}
+      - CANTON_RELAYER_PRIVATE_KEY=${CANTON_RELAYER_PRIVATE_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
 
 #   prometheus:
 #     image: prom/prometheus:latest

@@ -129,7 +129,7 @@ func main() {
 	fmt.Println("  go run scripts/initiate-withdrawal.go -config config.yaml \\")
 	fmt.Printf("    -holding-cid \"%s\" \\\n", holdings[0].ContractID)
 	fmt.Println("    -amount \"50.0\" \\")
-	fmt.Println("    -evm-destination \"0x70997970C51812dc3A010C7d01b50e0d17dc79C8\"")
+	fmt.Println("    -evm-destination \"0x...\"")
 }
 
 func qhQueryHoldings(ctx context.Context, client lapiv2.StateServiceClient, party string, offset int64) ([]Holding, error) {

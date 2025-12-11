@@ -1,5 +1,5 @@
 # Docker Compose override for 5North DevNet
-# Usage: docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.remote.yaml up -d
 #
 # This overlay:
 # - Disables the local Canton container (using 5North hosted participant)
