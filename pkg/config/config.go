@@ -83,8 +83,12 @@ type TLSConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTIssuer string `mapstructure:"jwt_issuer"`
-	TokenFile string `mapstructure:"token_file"`
+	JWTIssuer    string `mapstructure:"jwt_issuer"`
+	TokenFile    string `mapstructure:"token_file"`
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+	Audience     string `mapstructure:"audience"`
+	TokenURL     string `mapstructure:"token_url"`
 }
 
 // BridgeConfig contains bridge operation settings
