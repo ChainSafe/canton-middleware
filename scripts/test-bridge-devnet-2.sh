@@ -1,31 +1,33 @@
 #!/bin/bash
 # =============================================================================
-# Canton-Ethereum Bridge Mainnet Test Script
+# Canton-Ethereum Bridge DevNet Test Script
 # =============================================================================
 # Tests the bridge using:
-# - Canton: Mainnet (production gRPC endpoint)
-# - Ethereum: Mainnet (via Infura/Alchemy)
+# - Canton: 5North DevNet (hosted Ledger API)
+# - Ethereum: Sepolia testnet (via Infura/Alchemy)
 #
-# ⚠️  WARNING: THIS SCRIPT USES REAL FUNDS ON MAINNET ⚠️
-# - Transactions cost real ETH for gas
-# - Tokens have real value
-# - Double-check all addresses before running
+# NOTE: This script uses Sepolia testnet ETH and tokens.
+# - Transactions consume testnet ETH for gas
+# - Tokens are test assets, but contracts are shared across the team
 #
 # CONFIGURATION:
-#   All values are read from config.mainnet.yaml
+#   All values are read from config.devnet.yaml
 #   Environment variables can override config values:
 #     ETH_RPC_URL, ETH_BRIDGE_CONTRACT, ETH_TOKEN_CONTRACT
 #     RELAYER_PRIVATE_KEY, OWNER_PRIVATE_KEY, USER_PRIVATE_KEY
 #
 # BEFORE RUNNING:
-#   1. Fill in config.mainnet.yaml with mainnet values
-#   2. Verify JWT token is valid: cat secrets/mainnet-token.txt
-#   3. Check wallet balances for gas
+#   1. Fill in config.devnet.yaml if you need overrides (defaults are pre-configured)
+#   2. Verify JWT token is valid: cat secrets/devnet-token.txt
+#   3. Check wallet balances for Sepolia testnet gas
 #   4. Review contract addresses carefully
+#
+# On devnet, the relayer waits for ethereum.confirmation_blocks (currently 1)
+# before processing events. This script only waits long enough for that to happen.
 #
 # =============================================================================
 # Usage:
-#   ./scripts/test-bridge-mainnet.sh [--clean] [--skip-bootstrap] [--dry-run]
+#   ./scripts/test-bridge-devnet-2.sh [--clean] [--skip-bootstrap] [--dry-run]
 #
 # Options:
 #   --clean          Reset Docker environment (Postgres only)
@@ -47,18 +49,24 @@ NC='\033[0m' # No Color
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="$PROJECT_DIR/config.mainnet.yaml"
+CONFIG_FILE="$PROJECT_DIR/config.devnet.yaml"
 DOCKER_COMPOSE_CMD="docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml"
 
 # =============================================================================
 # Test Amounts (assuming 18-decimal ERC-20)
 # =============================================================================
+# DevNet bridge limits (from config.devnet.yaml):
+# - max_transfer_amount: 1000 tokens
+# - min_transfer_amount: 0.001 tokens
+# The test amounts below are safely within those bounds.
 
 # Human-readable token amounts
+TEST_FUND_USER_TOKENS=20       # total tokens to fund test user
 TEST_DEPOSIT_TOKENS=20          # portion deposited to Canton
 TEST_WITHDRAW_TOKENS=10          # portion withdrawn back to EVM
 
 # On-chain integer amounts (wei-style, 18 decimals)
+TEST_FUND_USER_AMOUNT_WEI="${TEST_FUND_USER_TOKENS}000000000000000000"
 TEST_DEPOSIT_AMOUNT_WEI="${TEST_DEPOSIT_TOKENS}000000000000000000"
 
 # Decimal string used by Canton withdrawal script
@@ -124,26 +132,20 @@ kill_relayer() {
     sleep 2
 }
 
-confirm_mainnet() {
+confirm_devnet() {
     echo ""
-    echo -e "${RED}╔══════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║                    ⚠️  MAINNET WARNING ⚠️                            ║${NC}"
-    echo -e "${RED}║                                                                      ║${NC}"
-    echo -e "${RED}║  You are about to execute transactions on ETHEREUM MAINNET.          ║${NC}"
-    echo -e "${RED}║  This will use REAL ETH for gas and transfer REAL tokens.            ║${NC}"
-    echo -e "${RED}║                                                                      ║${NC}"
-    echo -e "${RED}╚══════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║                      DevNet / Sepolia Testnet                        ║${NC}"
+    echo -e "${YELLOW}║                                                                      ║${NC}"
+    echo -e "${YELLOW}║  You are about to execute transactions on Sepolia testnet.           ║${NC}"
+    echo -e "${YELLOW}║  These use testnet ETH but interact with shared devnet contracts.    ║${NC}"
+    echo -e "${YELLOW}║                                                                      ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
     if [ "$DRY_RUN" = true ]; then
         print_warning "DRY RUN MODE - No transactions will be executed"
         return 0
-    fi
-    
-    read -p "Type 'MAINNET' to confirm: " CONFIRM
-    if [ "$CONFIRM" != "MAINNET" ]; then
-        print_error "Aborted by user"
-        exit 1
     fi
 }
 
@@ -153,20 +155,20 @@ confirm_mainnet() {
 
 cd "$PROJECT_DIR"
 
-print_header "CANTON-ETHEREUM BRIDGE MAINNET TEST"
+print_header "CANTON-ETHEREUM BRIDGE DEVNET TEST"
 
 # Check config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
-    print_error "config.mainnet.yaml not found!"
-    echo "Create config.mainnet.yaml first with mainnet configuration."
+    print_error "config.devnet.yaml not found!"
+    echo "Create config.devnet.yaml first with devnet configuration."
     exit 1
 fi
 
 # =============================================================================
-# Parse Configuration from config.mainnet.yaml
+# Parse Configuration from config.devnet.yaml
 # =============================================================================
 
-print_step "Parsing configuration from config.mainnet.yaml..."
+print_step "Parsing configuration from config.devnet.yaml..."
 
 # Parse Ethereum section
 ETH_RPC_CONFIG=$(
@@ -195,9 +197,9 @@ RELAYER_KEY_CONFIG=$(
 
 # Owner and User keys added manually
 
-OWNER_KEY=""
+OWNER_KEY="0x3ffae7a5be2fa63022325b175a04cab999af2b8ad956208d10861a75701eae9b"
 OWNER=$(cast wallet address --private-key "0x$OWNER_KEY" 2>/dev/null || cast wallet address --private-key "$OWNER_KEY" 2>/dev/null)
-USER_KEY=""
+USER_KEY="0xeacbff42147f4a4493e2212a70ace9e0ef4e40532e5aa3e049a0eb355e8fc5be"
 USER=$(cast wallet address --private-key "0x$USER_KEY" 2>/dev/null || cast wallet address --private-key "$USER_KEY" 2>/dev/null)
 
 # Parse Canton section
@@ -253,13 +255,13 @@ if [ -z "$PACKAGE_ID" ]; then
     exit 1
 fi
 
-# Verify chain ID is mainnet
+# Verify chain ID is Sepolia (11155111)
 CHAIN_ID=$(cast chain-id --rpc-url "$ETH_RPC_URL" 2>/dev/null)
-if [ "$CHAIN_ID" != "1" ]; then
-    print_error "Expected Ethereum Mainnet (chain ID 1), got chain ID $CHAIN_ID"
+if [ "$CHAIN_ID" != "11155111" ]; then
+    print_error "Expected Sepolia testnet (chain ID 11155111), got chain ID $CHAIN_ID"
     exit 1
 fi
-print_success "Confirmed Ethereum Mainnet (chain ID: 1)"
+print_success "Confirmed Sepolia testnet (chain ID: 11155111)"
 
 
 # Derive relayer address from private key
@@ -272,7 +274,7 @@ fi
 CANTON_TOKEN_ID="0x0000000000000000000000000000000000000000000000000000000050524f4d"
 
 echo ""
-echo -e "${RED}Mode: MAINNET (Canton Production) + Ethereum Mainnet${NC}"
+echo -e "${YELLOW}Mode: DEVNET (Canton 5North) + Sepolia Testnet${NC}"
 echo -e "${YELLOW}ETH RPC URL: ${ETH_RPC_URL}${NC}"
 echo ""
 echo "Project directory: $PROJECT_DIR"
@@ -301,18 +303,18 @@ print_info "Party ID:                      $PARTY_ID"
 print_info "Domain ID:                     $DOMAIN_ID"
 print_info "Package ID:                    $PACKAGE_ID"
 
-# Confirm mainnet execution
-confirm_mainnet
+# Confirm devnet execution
+confirm_devnet
 
 # Check JWT token exists
-if [ ! -f "$PROJECT_DIR/secrets/mainnet-token.txt" ]; then
-    print_error "secrets/mainnet-token.txt not found!"
-    echo "Get JWT token for mainnet and save to secrets/mainnet-token.txt"
+if [ ! -f "$PROJECT_DIR/secrets/devnet-token.txt" ]; then
+    print_error "secrets/devnet-token.txt not found!"
+    echo "Get JWT token for devnet and save to secrets/devnet-token.txt"
     exit 1
 fi
 
 # Check JWT token not expired
-TOKEN_PAYLOAD=$(cat "$PROJECT_DIR/secrets/mainnet-token.txt" | cut -d'.' -f2)
+TOKEN_PAYLOAD=$(cat "$PROJECT_DIR/secrets/devnet-token.txt" | cut -d'.' -f2)
 TOKEN_EXP=$(echo "${TOKEN_PAYLOAD}==" | base64 -d 2>/dev/null | jq -r '.exp' 2>/dev/null || echo "")
 CURRENT_TIME=$(date +%s)
 if [ -n "$TOKEN_EXP" ] && [ "$TOKEN_EXP" != "null" ]; then
@@ -393,16 +395,16 @@ echo ""
 $DOCKER_COMPOSE_CMD ps
 
 # =============================================================================
-# Step 2: Verify Ethereum Contracts (Mainnet)
+# Step 2: Verify Ethereum Contracts (DevNet / Sepolia)
 # =============================================================================
 
-print_header "STEP 2: Verify Ethereum Contracts (Mainnet)"
+print_header "STEP 2: Verify Ethereum Contracts (Sepolia)"
 
 print_info "CantonBridge: $BRIDGE"
 print_info "PromptToken:  $TOKEN"
 
 # Verify contracts
-print_step "Verifying contracts on Mainnet..."
+print_step "Verifying contracts on Sepolia..."
 BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
 print_info "Bridge relayer: $BRIDGE_RELAYER"
 
@@ -428,7 +430,7 @@ else
     if [ "$DRY_RUN" = true ]; then
         print_warning "DRY RUN - Would run bootstrap script"
     else
-        print_step "Running bootstrap script against Mainnet..."
+        print_step "Running bootstrap script against DevNet..."
         go run scripts/bootstrap-bridge.go \
             -config "$CONFIG_FILE" \
             -issuer "$PARTY_ID" \
@@ -469,7 +471,7 @@ print_header "STEP 5: Start the Relayer"
 kill_relayer
 
 print_step "Starting relayer in background..."
-go run cmd/relayer/main.go -config "$CONFIG_FILE" > /tmp/relayer-mainnet.log 2>&1 &
+go run cmd/relayer/main.go -config "$CONFIG_FILE" > /tmp/relayer-devnet.log 2>&1 &
 RELAYER_PID=$!
 echo "Relayer PID: $RELAYER_PID"
 
@@ -483,7 +485,7 @@ else
     print_error "Relayer health check failed"
     echo ""
     echo "Relayer logs:"
-    tail -30 /tmp/relayer-mainnet.log
+    tail -30 /tmp/relayer-devnet.log
     exit 1
 fi
 
@@ -525,14 +527,22 @@ print_header "STEP 7: EVM → Canton Deposit"
 
 if [ "$DRY_RUN" = true ]; then
     print_warning "DRY RUN - Would execute deposit"
-    print_info "Would approve bridge for ${TEST_DEPOSIT_TOKENS} tokens"
+    print_info "Would transfer ${TEST_FUND_USER_TOKENS} tokens from owner to user"
+    print_info "Would approve bridge for ${TEST_FUND_USER_TOKENS} tokens"
     print_info "Would deposit ${TEST_DEPOSIT_TOKENS} tokens to Canton"
 else
+    # Fund user
+    print_step "Transferring ${TEST_FUND_USER_TOKENS} tokens from owner to user..."
+    cast erc20 transfer $TOKEN $USER "$TEST_FUND_USER_AMOUNT_WEI" \
+        --rpc-url "$ETH_RPC_URL" \
+        --private-key $OWNER_KEY 2>/dev/null >&1
+    print_success "User funded"
+
     # Approve
     print_step "Approving bridge..."
-    cast erc20 approve $TOKEN $BRIDGE "$TEST_TEST_DEPOSIT_AMOUNT_WEI" \
+    cast erc20 approve $TOKEN $BRIDGE "$TEST_FUND_USER_AMOUNT_WEI" \
         --rpc-url "$ETH_RPC_URL" \
-        --private-key $USER_KEY > /dev/null 2>&1
+        --private-key $USER_KEY 2>/dev/null >&1
     print_success "Approved"
 
     # Deposit
@@ -545,9 +555,9 @@ else
     print_info "Deposit TX: $DEPOSIT_TX"
     print_success "Deposit submitted"
 
-    # Wait for relayer (longer for mainnet due to confirmation blocks)
-    print_step "Waiting for relayer to process deposit (12 confirmations)..."
-    sleep 180  # 12 blocks * ~15 seconds
+    # Wait for relayer (shorter for devnet, 1 confirmation)
+    print_step "Waiting for relayer to process deposit (devnet, 1 confirmation)..."
+    sleep 30  # 1 block + relayer processing margin on Sepolia
 
     # Verify on Canton
     print_step "Verifying holdings on Canton..."
@@ -561,7 +571,7 @@ else
         print_error "No holdings found - deposit may have failed"
         echo ""
         echo "Relayer logs:"
-        tail -50 /tmp/relayer-mainnet.log
+        tail -50 /tmp/relayer-devnet.log
         exit 1
     fi
 
@@ -588,8 +598,8 @@ else
         -amount "$TEST_WITHDRAW_AMOUNT_DECIMAL" \
         -evm-destination "$USER"
 
-    print_step "Waiting for relayer to process withdrawal..."
-    sleep 60
+    print_step "Waiting for relayer to process withdrawal (devnet)..."
+    sleep 20
 
     BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
     print_info "User balance after: $BALANCE_AFTER"
@@ -611,10 +621,10 @@ else
 fi
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "CONFIGURATION (Mainnet)"
+echo "CONFIGURATION (DevNet)"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "Canton:          Mainnet (${CANTON_RPC_URL})"
-echo "Ethereum:        Mainnet ($ETH_RPC_URL)"
+echo "Canton:          5North DevNet (${CANTON_RPC_URL})"
+echo "Ethereum:        Sepolia testnet ($ETH_RPC_URL)"
 echo "Bridge:          $BRIDGE"
 echo "Token:           $TOKEN"
 echo "Party ID:        $PARTY_ID"
@@ -638,8 +648,8 @@ echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "COMMANDS"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "View relayer logs:     tail -f /tmp/relayer-mainnet.log"
-echo "Query holdings:        go run scripts/query-holdings.go -config config.mainnet.yaml -party \"$PARTY_ID\""
+echo "View relayer logs:     tail -f /tmp/relayer-devnet.log"
+echo "Query holdings:        go run scripts/query-holdings.go -config config.devnet.yaml -party \"$PARTY_ID\""
 echo "Stop relayer:          pkill -f 'cmd/relayer'"
 echo "Stop local services:   $DOCKER_COMPOSE_CMD down"
 echo ""
