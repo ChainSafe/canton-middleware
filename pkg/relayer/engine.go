@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"time"
 
@@ -67,6 +68,11 @@ type Engine struct {
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// Readiness tracking - protected by mu
+	mu             sync.RWMutex
+	cantonSynced   bool
+	ethereumSynced bool
 }
 
 // NewEngine creates a new relayer engine
@@ -136,8 +142,20 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.wg.Add(1)
 	go e.reconcile(ctx)
 
+	// Start readiness checker
+	e.wg.Add(1)
+	go e.readinessLoop(ctx)
+
 	e.logger.Info("Relayer engine started")
 	return nil
+}
+
+// IsReady returns true once both Canton and Ethereum processors have
+// caught up to head at least once.
+func (e *Engine) IsReady() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.cantonSynced && e.ethereumSynced
 }
 
 // Stop stops the relayer engine
@@ -259,4 +277,88 @@ func (e *Engine) runReconciliation(_ context.Context) error {
 	metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
 
 	return nil
+}
+
+// readinessLoop periodically checks if the engine has caught up to head
+func (e *Engine) readinessLoop(ctx context.Context) {
+	defer e.wg.Done()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-e.stopCh:
+			return
+		case <-ticker.C:
+			e.checkReadiness(ctx)
+			// Stop checking once fully ready
+			if e.IsReady() {
+				e.logger.Info("Relayer is fully synced and ready")
+				return
+			}
+		}
+	}
+}
+
+// checkReadiness checks if both chains have caught up to their respective heads
+func (e *Engine) checkReadiness(ctx context.Context) {
+	// Check Ethereum readiness
+	headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
+	if err != nil {
+		e.logger.Warn("Failed to get Ethereum latest block for readiness check", zap.Error(err))
+	} else {
+		e.mu.Lock()
+		if !e.ethereumSynced {
+			// Allow 1 block lag tolerance
+			if e.ethLastBlock+1 >= headBlock {
+				e.ethereumSynced = true
+				e.logger.Info("Ethereum processor initial sync complete",
+					zap.Uint64("last_block", e.ethLastBlock),
+					zap.Uint64("head_block", headBlock))
+			} else {
+				e.logger.Debug("Ethereum processor catching up",
+					zap.Uint64("last_block", e.ethLastBlock),
+					zap.Uint64("head_block", headBlock),
+					zap.Uint64("blocks_behind", headBlock-e.ethLastBlock))
+			}
+		}
+		e.mu.Unlock()
+	}
+
+	// Check Canton readiness
+	ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+	if err != nil {
+		e.logger.Warn("Failed to get Canton ledger end for readiness check", zap.Error(err))
+	} else {
+		e.mu.Lock()
+		if !e.cantonSynced {
+			// If we started from ledger end or have no offset, consider synced
+			if e.cantonOffset == "" || e.cantonOffset == ledgerEnd {
+				e.cantonSynced = true
+				e.logger.Info("Canton processor initial sync complete (at ledger end)",
+					zap.String("offset", e.cantonOffset))
+			} else if e.cantonOffset != "BEGIN" {
+				// Try numeric comparison for Canton offsets
+				currentOffset, err1 := strconv.ParseInt(e.cantonOffset, 10, 64)
+				endOffset, err2 := strconv.ParseInt(ledgerEnd, 10, 64)
+				if err1 == nil && err2 == nil {
+					if currentOffset >= endOffset {
+						e.cantonSynced = true
+						e.logger.Info("Canton processor initial sync complete",
+							zap.String("offset", e.cantonOffset),
+							zap.String("ledger_end", ledgerEnd))
+					} else {
+						e.logger.Debug("Canton processor catching up",
+							zap.String("offset", e.cantonOffset),
+							zap.String("ledger_end", ledgerEnd),
+							zap.Int64("behind", endOffset-currentOffset))
+					}
+				}
+			}
+		}
+		e.mu.Unlock()
+	}
 }
