@@ -350,7 +350,7 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 	}
 
 	// UserId must match the JWT subject for authorization
-	userID := "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients" // TODO: make configurable
+	userID := "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients" // TODO: make configurable
 	commands := &lapiv2.Commands{
 		SynchronizerId: domainID,
 		CommandId:      cmdID,
@@ -408,7 +408,7 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 	}
 
 	// UserId must match the JWT subject for authorization
-	userID := "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients" // TODO: make configurable
+	userID := "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients" // TODO: make configurable
 	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: domainID,

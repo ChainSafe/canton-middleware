@@ -204,7 +204,7 @@ func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalReques
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -329,7 +329,7 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -453,7 +453,7 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDep
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -509,7 +509,7 @@ func (c *Client) ProcessDeposit(ctx context.Context, req *ProcessDepositRequest)
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -567,7 +567,7 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -599,11 +599,17 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 
 	authCtx := c.GetAuthContext(ctx)
 
+	// WithdrawalEvent is in bridge-core package (CorePackageID), not bridge-wayfinder
+	corePackageID := c.config.CorePackageID
+	if corePackageID == "" {
+		corePackageID = c.config.BridgePackageID // fallback for backwards compatibility
+	}
+
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.BridgePackageID,
+					PackageId:  corePackageID,
 					ModuleName: "Bridge.Contracts",
 					EntityName: "WithdrawalEvent",
 				},
@@ -618,7 +624,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
-			UserId:         "nKMdSdj49c2BoPDynr6kf3pkLsTghePa@clients", // JWT subject - TODO: make configurable
+			UserId:         "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject - TODO: make configurable
 			ActAs:          []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},

@@ -55,8 +55,8 @@ DOCKER_COMPOSE_CMD="docker compose -f docker-compose.yaml -f docker-compose.devn
 # =============================================================================
 
 # Human-readable token amounts
-TEST_DEPOSIT_TOKENS=20          # portion deposited to Canton
-TEST_WITHDRAW_TOKENS=10          # portion withdrawn back to EVM
+TEST_DEPOSIT_TOKENS=10          # portion deposited to Canton
+TEST_WITHDRAW_TOKENS=30          # portion withdrawn back to EVM
 
 # On-chain integer amounts (wei-style, 18 decimals)
 TEST_DEPOSIT_AMOUNT_WEI="${TEST_DEPOSIT_TOKENS}000000000000000000"
@@ -193,12 +193,22 @@ RELAYER_KEY_CONFIG=$(
     | sed 's/.*relayer_private_key: *"\([^"]*\)".*/\1/'
 )
 
-# Owner and User keys added manually
+# Owner and User keys loaded from secrets folder
+if [ -f "$PROJECT_DIR/secrets/mainnet-owner-key.txt" ]; then
+    OWNER_KEY="0x$(cat "$PROJECT_DIR/secrets/mainnet-owner-key.txt" | tr -d '\n')"
+else
+    print_error "secrets/mainnet-owner-key.txt not found!"
+    exit 1
+fi
+OWNER=$(cast wallet address --private-key "$OWNER_KEY" 2>/dev/null)
 
-OWNER_KEY=""
-OWNER=$(cast wallet address --private-key "0x$OWNER_KEY" 2>/dev/null || cast wallet address --private-key "$OWNER_KEY" 2>/dev/null)
-USER_KEY=""
-USER=$(cast wallet address --private-key "0x$USER_KEY" 2>/dev/null || cast wallet address --private-key "$USER_KEY" 2>/dev/null)
+if [ -f "$PROJECT_DIR/secrets/mainnet-user-key.txt" ]; then
+    USER_KEY="0x$(cat "$PROJECT_DIR/secrets/mainnet-user-key.txt" | tr -d '\n')"
+else
+    print_error "secrets/mainnet-user-key.txt not found!"
+    exit 1
+fi
+USER=$(cast wallet address --private-key "$USER_KEY" 2>/dev/null)
 
 # Parse Canton section
 CANTON_RPC_CONFIG=$(grep 'rpc_url:' "$CONFIG_FILE" | grep -v '#' | head -2 | tail -1 | sed 's/.*rpc_url: *"\([^"]*\)".*/\1/')
@@ -234,8 +244,13 @@ if [ -z "$TOKEN" ]; then
 fi
 
 if [ -z "$RELAYER_KEY" ]; then
-    print_error "Relayer private key not set in config or RELAYER_PRIVATE_KEY env var"
-    exit 1
+    # Try to load from secrets file
+    if [ -f "$PROJECT_DIR/secrets/mainnet-relayer-key.txt" ]; then
+        RELAYER_KEY=$(cat "$PROJECT_DIR/secrets/mainnet-relayer-key.txt" | tr -d '\n')
+    else
+        print_error "Relayer private key not set in config, RELAYER_PRIVATE_KEY env var, or secrets/mainnet-relayer-key.txt"
+        exit 1
+    fi
 fi
 
 if [ -z "$PARTY_ID" ]; then
@@ -530,7 +545,7 @@ if [ "$DRY_RUN" = true ]; then
 else
     # Approve
     print_step "Approving bridge..."
-    cast erc20 approve $TOKEN $BRIDGE "$TEST_TEST_DEPOSIT_AMOUNT_WEI" \
+    cast erc20 approve $TOKEN $BRIDGE "$TEST_DEPOSIT_AMOUNT_WEI" \
         --rpc-url "$ETH_RPC_URL" \
         --private-key $USER_KEY > /dev/null 2>&1
     print_success "Approved"
