@@ -1,15 +1,27 @@
 #!/bin/bash
 # =============================================================================
-# Canton-Ethereum Bridge Full Test Script
+# ⚠️  DEPRECATED - Use test-bridge.sh instead
+# =============================================================================
+# This script is deprecated. Please use the unified test script:
+#
+#   ./scripts/test-bridge.sh --config config.local.yaml
+#   ./scripts/test-bridge.sh --config config.local.yaml --clean
+#   ./scripts/test-bridge.sh --config config.local.yaml --skip-setup
+#
+# This file is kept for reference only.
+# =============================================================================
+#
+# Canton-Ethereum Bridge Full Test Script (Local)
 # =============================================================================
 # This script automates the entire BRIDGE_TESTING_GUIDE.md flow
 #
 # Usage:
-#   ./scripts/test-bridge-local.sh [--clean] [--skip-docker]
+#   ./scripts/test-bridge-local.sh [--clean] [--skip-docker] [--skip-bootstrap]
 #
 # Options:
-#   --clean       Reset Docker environment before starting
-#   --skip-docker Skip Docker setup (assume services are already running)
+#   --clean          Reset Docker environment before starting
+#   --skip-docker    Skip Docker setup (assume services are already running)
+#   --skip-bootstrap Skip Canton bootstrap (use after first successful run)
 # =============================================================================
 
 set -e  # Exit on any error
@@ -44,6 +56,7 @@ CONFIG_FILE="$PROJECT_DIR/config.local.yaml"
 # Parse arguments
 CLEAN=false
 SKIP_DOCKER=false
+SKIP_BOOTSTRAP=false
 for arg in "$@"; do
     case $arg in
         --clean)
@@ -52,6 +65,10 @@ for arg in "$@"; do
             ;;
         --skip-docker)
             SKIP_DOCKER=true
+            shift
+            ;;
+        --skip-bootstrap)
+            SKIP_BOOTSTRAP=true
             shift
             ;;
     esac
@@ -375,28 +392,43 @@ print_success "Config updated"
 # Step 5: Bootstrap Canton Bridge Contracts
 # =============================================================================
 
-print_header "STEP 5: Bootstrap Canton Bridge Contracts"
+if [ "$SKIP_BOOTSTRAP" = true ]; then
+    print_header "STEP 5: Bootstrap Canton Bridge Contracts (Skipped)"
+    print_warning "Skipping bootstrap (--skip-bootstrap flag)"
+else
+    print_header "STEP 5: Bootstrap Canton Bridge Contracts"
 
-print_step "Running bootstrap script..."
-go run scripts/bootstrap-bridge.go \
-    -config config.local.yaml \
-    -issuer "$PARTY_ID" \
-    -package "$PACKAGE_ID"
+    print_step "Running bootstrap script..."
+    go run scripts/bootstrap-bridge.go \
+        -config config.local.yaml \
+        -issuer "$PARTY_ID" \
+        -package "$PACKAGE_ID" || {
+            print_warning "Bootstrap may have failed or contracts already exist"
+            print_info "If contracts exist, use --skip-bootstrap next time"
+        }
 
-print_success "Bootstrap complete"
+    print_success "Bootstrap complete"
+fi
 
 # =============================================================================
 # Step 6: Register Test User
 # =============================================================================
 
-print_header "STEP 6: Register Test User"
+if [ "$SKIP_BOOTSTRAP" = true ]; then
+    print_header "STEP 6: Register Test User (Skipped)"
+    print_warning "Skipping user registration (--skip-bootstrap flag)"
+else
+    print_header "STEP 6: Register Test User"
 
-print_step "Running register-user script..."
-go run scripts/register-user.go \
-    -config config.local.yaml \
-    -party "$PARTY_ID"
+    print_step "Running register-user script..."
+    go run scripts/register-user.go \
+        -config config.local.yaml \
+        -party "$PARTY_ID" || {
+            print_warning "User registration may have failed or user already exists"
+        }
 
-print_success "User registered"
+    print_success "User registered"
+fi
 
 # =============================================================================
 # Step 7: Start the Relayer

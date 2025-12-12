@@ -38,7 +38,11 @@ canton:
   tls:
     enabled: false
   auth:
-    token_file: ""  # Not needed with wildcard auth
+    # Mock OAuth2 for local testing (run: go run scripts/mock-oauth2-server.go)
+    client_id: "local-test-client"
+    client_secret: "local-test-secret"
+    audience: "http://localhost:5011"
+    token_url: "http://localhost:8088/oauth/token"
   polling_interval: "1s"
 
 bridge:

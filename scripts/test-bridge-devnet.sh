@@ -1,5 +1,16 @@
 #!/bin/bash
 # =============================================================================
+# ⚠️  DEPRECATED - Use test-bridge.sh instead
+# =============================================================================
+# This script is deprecated. Please use the unified test script:
+#
+#   ./scripts/test-bridge.sh --config config.devnet.yaml
+#   ./scripts/test-bridge.sh --config config.devnet.yaml --clean
+#   ./scripts/test-bridge.sh --config config.devnet.yaml --skip-setup
+#
+# This file is kept for reference only.
+# =============================================================================
+#
 # Canton-Ethereum Bridge DevNet Test Script
 # =============================================================================
 # Tests the bridge using:
