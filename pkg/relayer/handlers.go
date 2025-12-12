@@ -173,6 +173,18 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	amount.SetString(event.Amount, 10)
 	amountStr := canton.BigIntToDecimal(amount, 18)
 
+	// Defense in depth: Check if this deposit was already processed on Canton
+	// This prevents duplicate deposits if multiple relayer instances are running
+	alreadyProcessed, err := d.client.IsDepositProcessed(ctx, event.SourceTxHash)
+	if err != nil {
+		// Log warning but continue - we'll create the deposit anyway
+		// If it's a duplicate, Canton will handle it or we'll get an error
+		_ = err // TODO: log this warning
+	} else if alreadyProcessed {
+		// Return successfully - this deposit was already processed
+		return fmt.Sprintf("already-processed:%s", event.SourceTxHash), nil
+	}
+
 	// Step 1: Create PendingDeposit from EVM event
 	depositReq := &canton.CreatePendingDepositRequest{
 		Fingerprint: fingerprint,
