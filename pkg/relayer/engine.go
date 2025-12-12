@@ -45,6 +45,7 @@ type CantonBridgeClient interface {
 	GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
 	CreatePendingDeposit(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
 	ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
+	IsDepositProcessed(ctx context.Context, evmTxHash string) (bool, error)
 	InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
 	CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
 
