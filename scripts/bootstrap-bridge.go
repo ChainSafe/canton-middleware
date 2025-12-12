@@ -433,7 +433,7 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 		},
 	}
 
-	cip56PackageID := "e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe"
+	cip56PackageID := "6813c511ac7e470a6e6b27072146fd948b0b932f6d32d0cc27be8adb84bdf23f"
 
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Create{
