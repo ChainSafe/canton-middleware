@@ -71,3 +71,5 @@ deployments/staging/*.secret.yaml
 # Config files for non-local setup that now going to have secrets in them
 config.devnet.yaml
 config.mainnet.yaml
+# Auto-generated test config
+.test-config.yaml

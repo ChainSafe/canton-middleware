@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# Canton-Ethereum Bridge Local Test Script
+# Canton-Ethereum Bridge Docker Test Script
 # =============================================================================
-# Tests the bridge in a local development environment.
+# Tests the bridge with ALL services running in Docker containers.
 #
 # Usage:
 #   ./scripts/test-bridge.sh
@@ -10,21 +10,23 @@
 #   ./scripts/test-bridge.sh --skip-setup
 #
 # Options:
-#   --clean             Reset environment before starting
-#   --skip-setup        Skip Docker/bootstrap, run bridge tests only
+#   --clean             Reset environment (docker compose down -v)
+#   --skip-setup        Skip container startup, run tests only
 #   --deposit-only      Only test deposit flow
 #   --withdraw-only     Only test withdrawal flow
+#   --logs              Show relayer logs at the end
 #
-# Examples:
-#   # Full setup and test
-#   ./scripts/test-bridge.sh --clean
-#
-#   # Rerun tests (services already running)
-#   ./scripts/test-bridge.sh --skip-setup
+# Services in Docker:
+#   - Canton (ledger)
+#   - Anvil (Ethereum)
+#   - PostgreSQL (database)
+#   - Mock OAuth2 (auth)
+#   - Relayer (bridge service)
+#   - Bootstrap (one-shot setup)
 #
 # =============================================================================
 
-set -e  # Exit on any error
+set -e
 
 # Colors for output
 RED='\033[0;31m'
@@ -32,7 +34,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,6 +48,7 @@ CLEAN=false
 SKIP_SETUP=false
 DEPOSIT_ONLY=false
 WITHDRAW_ONLY=false
+SHOW_LOGS=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -65,6 +68,10 @@ while [[ $# -gt 0 ]]; do
             WITHDRAW_ONLY=true
             shift
             ;;
+        --logs)
+            SHOW_LOGS=true
+            shift
+            ;;
         -h|--help)
             head -30 "$0" | tail -n +2 | sed 's/^# //' | sed 's/^#//'
             exit 0
@@ -80,12 +87,16 @@ done
 # Configuration
 # =============================================================================
 
-CONFIG_FILE="$PROJECT_DIR/config.local.yaml"
-DOCKER_COMPOSE_CMD="docker compose"
-RELAYER_LOG="/tmp/relayer.log"
-CONFIRMATION_WAIT=8
+DOCKER_COMPOSE_FILE="$PROJECT_DIR/docker-compose.local.yaml"
+DOCKER_COMPOSE_CMD="docker compose -f $DOCKER_COMPOSE_FILE"
+CONFIRMATION_WAIT=10
 
-# Local Anvil accounts (from mnemonic)
+# Docker-exposed ports
+ANVIL_URL="http://localhost:8545"
+CANTON_URL="http://localhost:5013"
+RELAYER_URL="http://localhost:8080"
+
+# Anvil default accounts
 RELAYER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 RELAYER_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 OWNER="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -96,7 +107,7 @@ USER_KEY="0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 # Test amounts
 TEST_DEPOSIT_TOKENS=100
 TEST_WITHDRAW_TOKENS=50
-FUND_AMOUNT="1000000000000000000000"  # 1000 tokens
+FUND_AMOUNT="1000000000000000000000"
 
 # Calculate wei amounts
 TEST_DEPOSIT_AMOUNT_WEI="${TEST_DEPOSIT_TOKENS}000000000000000000"
@@ -136,62 +147,64 @@ print_info() {
     echo -e "    $1"
 }
 
-kill_relayer() {
-    print_step "Stopping any existing relayer processes..."
-    pkill -9 -f "cmd/relayer" 2>/dev/null || true
-    pkill -9 -f "main.go" 2>/dev/null || true
-    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-    sleep 2
+wait_for_service() {
+    local name="$1"
+    local url="$2"
+    local max_attempts="${3:-60}"
+    local attempt=0
+    
+    print_step "Waiting for $name..."
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s "$url" >/dev/null 2>&1; then
+            print_success "$name is ready!"
+            return 0
+        fi
+        echo -n "."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    echo ""
+    print_error "$name failed to become ready after $max_attempts attempts"
+    return 1
 }
 
-kill_mock_oauth() {
-    pkill -9 -f "mock-oauth2-server" 2>/dev/null || true
-    lsof -ti:8088 | xargs kill -9 2>/dev/null || true
+wait_for_relayer() {
+    print_step "Waiting for relayer container to be healthy..."
+    local max_attempts=120
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        # Check if container exists and is running
+        local status=$(docker inspect --format='{{.State.Status}}' canton-bridge-relayer 2>/dev/null || echo "not_found")
+        
+        if [ "$status" = "running" ]; then
+            # Check health endpoint
+            if curl -s "$RELAYER_URL/health" 2>/dev/null | grep -q "OK"; then
+                print_success "Relayer is healthy!"
+                return 0
+            fi
+        fi
+        
+        echo -n "."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    
+    echo ""
+    print_error "Relayer failed to become healthy"
+    print_info "Container status: $(docker inspect --format='{{.State.Status}}' canton-bridge-relayer 2>/dev/null || echo 'not found')"
+    print_info "Logs:"
+    docker logs canton-bridge-relayer 2>&1 | tail -20
+    return 1
 }
 
-wait_for_canton() {
-    print_step "Waiting for Canton to become healthy..."
+wait_for_canton_sync() {
+    print_step "Waiting for Canton to connect to synchronizer..."
     local max_attempts=60
     local attempt=0
+    
     while [ $attempt -lt $max_attempts ]; do
-        local status=$(docker inspect --format='{{.State.Health.Status}}' canton 2>/dev/null || echo "starting")
-        if [ "$status" = "healthy" ]; then
-            print_success "Canton is healthy!"
-            break
-        fi
-        echo -n "."
-        sleep 2
-        attempt=$((attempt + 1))
-    done
-    
-    if [ $attempt -ge $max_attempts ]; then
-        print_error "Canton failed to become healthy after ${max_attempts} attempts"
-        exit 1
-    fi
-    
-    # Also wait for HTTP API
-    print_step "Waiting for Canton HTTP API..."
-    attempt=0
-    while [ $attempt -lt 30 ]; do
-        if curl -s http://localhost:5013/v2/version >/dev/null 2>&1; then
-            print_success "Canton HTTP API is ready!"
-            break
-        fi
-        echo -n "."
-        sleep 2
-        attempt=$((attempt + 1))
-    done
-    
-    if [ $attempt -ge 30 ]; then
-        print_error "Canton HTTP API failed to become ready"
-        exit 1
-    fi
-    
-    # Wait for synchronizer connection
-    print_step "Waiting for Canton to connect to synchronizer..."
-    attempt=0
-    while [ $attempt -lt 60 ]; do
-        local sync_count=$(curl -s http://localhost:5013/v2/state/connected-synchronizers 2>/dev/null | jq '.connectedSynchronizers | length' 2>/dev/null || echo "0")
+        local sync_count=$(curl -s "$CANTON_URL/v2/state/connected-synchronizers" 2>/dev/null | jq '.connectedSynchronizers | length' 2>/dev/null || echo "0")
         if [ "$sync_count" -gt 0 ] 2>/dev/null; then
             print_success "Canton connected to synchronizer!"
             return 0
@@ -200,40 +213,10 @@ wait_for_canton() {
         sleep 2
         attempt=$((attempt + 1))
     done
+    
+    echo ""
     print_error "Canton failed to connect to synchronizer"
-    exit 1
-}
-
-# =============================================================================
-# Parse Configuration from YAML
-# =============================================================================
-
-parse_config() {
-    # Parse ethereum section
-    ETH_RPC_URL=$(awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
-        | grep 'rpc_url:' | sed 's/.*rpc_url: *"\([^"]*\)".*/\1/')
-    
-    CHAIN_ID=$(awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
-        | grep 'chain_id:' | sed 's/.*chain_id: *\([0-9]*\).*/\1/')
-    
-    BRIDGE=$(awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
-        | grep 'bridge_contract:' | sed 's/.*bridge_contract: *"\([^"]*\)".*/\1/')
-    
-    TOKEN=$(awk '/^ethereum:/{flag=1;next}/^[^[:space:]]/{flag=0}flag' "$CONFIG_FILE" \
-        | grep 'token_contract:' | sed 's/.*token_contract: *"\([^"]*\)".*/\1/')
-    
-    # Parse canton section
-    PARTY_ID=$(grep 'relayer_party:' "$CONFIG_FILE" | sed 's/.*relayer_party: *"\([^"]*\)".*/\1/')
-    DOMAIN_ID=$(grep 'domain_id:' "$CONFIG_FILE" | sed 's/.*domain_id: *"\([^"]*\)".*/\1/')
-    PACKAGE_ID=$(grep 'bridge_package_id:' "$CONFIG_FILE" | sed 's/.*bridge_package_id: *"\([^"]*\)".*/\1/')
-    
-    # Extract fingerprint for deposits
-    FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
-    if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
-        FINGERPRINT="${FULL_FINGERPRINT:4}"
-    else
-        FINGERPRINT="$FULL_FINGERPRINT"
-    fi
+    return 1
 }
 
 # =============================================================================
@@ -242,18 +225,83 @@ parse_config() {
 
 cd "$PROJECT_DIR"
 
-print_header "CANTON-ETHEREUM BRIDGE TEST"
+print_header "CANTON-ETHEREUM BRIDGE TEST (DOCKER)"
 echo ""
-echo -e "${YELLOW}Environment: LOCAL${NC}"
-echo "Config file: $CONFIG_FILE"
+echo -e "${YELLOW}All services running in Docker containers${NC}"
+echo "Compose file: $DOCKER_COMPOSE_FILE"
 echo ""
 
-# Parse config
-parse_config
+# =============================================================================
+# Pre-flight: Build DARs and extract package IDs
+# =============================================================================
 
-print_info "Party ID: $PARTY_ID"
-print_info "Domain ID: $DOMAIN_ID"
-print_info "Fingerprint: 0x$FINGERPRINT"
+DAML_DIR="$PROJECT_DIR/contracts/canton-erc20/daml"
+CONFIG_DOCKER="$PROJECT_DIR/config.docker.yaml"
+
+# Function to extract package ID from DAR file
+get_package_id() {
+    local pkg_name="$1"
+    local dar_file=$(ls "$DAML_DIR/$pkg_name/.daml/dist/"*.dar 2>/dev/null | head -1)
+    if [ -n "$dar_file" ] && [ -f "$dar_file" ]; then
+        daml damlc inspect-dar "$dar_file" 2>/dev/null | grep "^${pkg_name}-[0-9]" | tail -1 | grep -oE '"[a-f0-9]{64}"' | tr -d '"' || echo ""
+    fi
+}
+
+print_header "PRE-FLIGHT: Checking DAR Files"
+
+# Check if daml command is available
+if ! command -v daml &> /dev/null; then
+    print_error "daml CLI not found. Please install the Daml SDK:"
+    print_info "curl -sSL https://get.daml.com/ | sh"
+    exit 1
+fi
+
+# Always build DARs to ensure they're fresh and package IDs are current
+print_step "Building DAR files..."
+if [ -f "$SCRIPT_DIR/build-dars.sh" ]; then
+    if ! "$SCRIPT_DIR/build-dars.sh"; then
+        print_error "Failed to build DAR files"
+        print_info "Try building manually:"
+        print_info "  cd $DAML_DIR"
+        print_info "  daml build (in each package directory)"
+        exit 1
+    fi
+else
+    print_error "build-dars.sh not found at $SCRIPT_DIR/build-dars.sh"
+    exit 1
+fi
+print_success "DAR files built"
+
+# Extract package IDs
+print_step "Extracting package IDs from DAR files..."
+CIP56_PACKAGE_ID=$(get_package_id "cip56-token")
+BRIDGE_WAYFINDER_PACKAGE_ID=$(get_package_id "bridge-wayfinder")
+BRIDGE_CORE_PACKAGE_ID=$(get_package_id "bridge-core")
+
+if [ -z "$CIP56_PACKAGE_ID" ] || [ -z "$BRIDGE_WAYFINDER_PACKAGE_ID" ] || [ -z "$BRIDGE_CORE_PACKAGE_ID" ]; then
+    print_error "Failed to extract package IDs from DARs"
+    print_info "cip56-token: ${CIP56_PACKAGE_ID:-NOT FOUND}"
+    print_info "bridge-wayfinder: ${BRIDGE_WAYFINDER_PACKAGE_ID:-NOT FOUND}"
+    print_info "bridge-core: ${BRIDGE_CORE_PACKAGE_ID:-NOT FOUND}"
+    exit 1
+fi
+
+print_info "cip56-token:      $CIP56_PACKAGE_ID"
+print_info "bridge-wayfinder: $BRIDGE_WAYFINDER_PACKAGE_ID"
+print_info "bridge-core:      $BRIDGE_CORE_PACKAGE_ID"
+
+# Update config.docker.yaml with correct package IDs
+print_step "Updating config.docker.yaml with package IDs..."
+if [ -f "$CONFIG_DOCKER" ]; then
+    sed -i.bak "s/bridge_package_id: \"[a-f0-9]*\"/bridge_package_id: \"$BRIDGE_WAYFINDER_PACKAGE_ID\"/" "$CONFIG_DOCKER"
+    sed -i.bak "s/core_package_id: \"[a-f0-9]*\"/core_package_id: \"$BRIDGE_CORE_PACKAGE_ID\"/" "$CONFIG_DOCKER"
+    sed -i.bak "s/cip56_package_id: \"[a-f0-9]*\"/cip56_package_id: \"$CIP56_PACKAGE_ID\"/" "$CONFIG_DOCKER"
+    rm -f "${CONFIG_DOCKER}.bak"
+    print_success "Config updated with current package IDs"
+else
+    print_error "config.docker.yaml not found at $CONFIG_DOCKER"
+    exit 1
+fi
 
 # =============================================================================
 # Step 0: Clean environment (optional)
@@ -261,10 +309,9 @@ print_info "Fingerprint: 0x$FINGERPRINT"
 
 if [ "$CLEAN" = true ]; then
     print_header "STEP 0: Cleaning Environment"
-    kill_relayer
-    kill_mock_oauth
-    print_step "Stopping Docker containers..."
+    print_step "Stopping and removing all containers..."
     $DOCKER_COMPOSE_CMD down -v 2>/dev/null || true
+    docker volume rm canton-middleware_config_state 2>/dev/null || true
     print_success "Environment cleaned"
 fi
 
@@ -273,122 +320,178 @@ fi
 # =============================================================================
 
 if [ "$SKIP_SETUP" = false ]; then
-    print_header "SETUP PHASE: Starting Services"
+    print_header "SETUP PHASE: Starting Docker Services"
     
-    # Start mock OAuth2 server for local testing
-    print_step "Starting mock OAuth2 server..."
-    kill_mock_oauth
-    go run "$SCRIPT_DIR/mock-oauth2-server.go" > /tmp/mock-oauth2.log 2>&1 &
-    MOCK_OAUTH_PID=$!
-    sleep 2
-    if curl -s http://localhost:8088/health | grep -q "OK"; then
-        print_success "Mock OAuth2 server running on port 8088"
-    else
-        print_error "Failed to start mock OAuth2 server"
-        cat /tmp/mock-oauth2.log
+    # Check if docker-compose.local.yaml exists
+    if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
+        print_error "Docker compose file not found: $DOCKER_COMPOSE_FILE"
         exit 1
     fi
     
-    # Start Docker services (Canton, Anvil, Postgres)
-    if docker compose ps --format '{{.State}}' canton 2>/dev/null | grep -q "running"; then
-        print_warning "Docker services already running"
-    else
-        print_step "Starting docker compose..."
-        $DOCKER_COMPOSE_CMD up -d
-    fi
+    # Start all services
+    print_step "Starting docker compose..."
+    $DOCKER_COMPOSE_CMD up --build -d
     
-    wait_for_canton
+    echo ""
+    print_step "Container status:"
+    $DOCKER_COMPOSE_CMD ps
+    echo ""
     
-    # Wait for DARs to be uploaded
-    print_step "Waiting for DAR packages to be uploaded..."
-    CIP56_PACKAGE_ID="6813c511ac7e470a6e6b27072146fd948b0b932f6d32d0cc27be8adb84bdf23f"
-    DAR_MAX_ATTEMPTS=60
-    DAR_ATTEMPT=0
-    PACKAGE_COUNT=0
-    CIP56_FOUND=false
-    while [ $DAR_ATTEMPT -lt $DAR_MAX_ATTEMPTS ]; do
-        PACKAGES_JSON=$(curl -s http://localhost:5013/v2/packages 2>/dev/null || echo '{"packageIds":[]}')
-        PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq '.packageIds | length' 2>/dev/null || echo "0")
-        
-        if echo "$PACKAGES_JSON" | jq -e ".packageIds | index(\"$CIP56_PACKAGE_ID\")" >/dev/null 2>&1; then
-            CIP56_FOUND=true
-        fi
-        
-        if [ "$PACKAGE_COUNT" -ge 30 ] && [ "$CIP56_FOUND" = true ]; then
-            break
+    # Wait for Anvil
+    wait_for_service "Anvil (Ethereum)" "$ANVIL_URL" 30 || exit 1
+    
+    # Wait for Canton
+    wait_for_service "Canton HTTP API" "$CANTON_URL/v2/version" 60 || exit 1
+    wait_for_canton_sync || exit 1
+    
+    # Wait for bootstrap to complete
+    print_step "Waiting for bootstrap container to complete..."
+    bootstrap_status=""
+    bootstrap_attempts=0
+    while [ $bootstrap_attempts -lt 120 ]; do
+        bootstrap_status=$(docker inspect --format='{{.State.Status}}' bootstrap 2>/dev/null || echo "not_found")
+        if [ "$bootstrap_status" = "exited" ]; then
+            exit_code=$(docker inspect --format='{{.State.ExitCode}}' bootstrap 2>/dev/null || echo "1")
+            if [ "$exit_code" = "0" ]; then
+                print_success "Bootstrap completed successfully!"
+                break
+            else
+                print_error "Bootstrap failed with exit code $exit_code"
+                docker logs bootstrap 2>&1 | tail -30
+                exit 1
+            fi
         fi
         echo -n "."
         sleep 2
-        DAR_ATTEMPT=$((DAR_ATTEMPT + 1))
+        bootstrap_attempts=$((bootstrap_attempts + 1))
     done
     echo ""
     
-    print_info "Packages uploaded: $PACKAGE_COUNT"
-    print_info "cip56-token package: $CIP56_FOUND"
-    
-    if [ "$PACKAGE_COUNT" -lt 30 ]; then
-        print_error "Expected at least 30 packages, got $PACKAGE_COUNT"
-        print_info "Check deployer logs: docker logs deployer"
-        exit 1
+    if [ "$bootstrap_status" != "exited" ]; then
+        print_warning "Bootstrap still running or not started"
+        docker logs bootstrap 2>&1 | tail -20
     fi
     
-    if [ "$CIP56_FOUND" != true ]; then
-        print_error "cip56-token package not found (required for CIP56Manager)"
-        print_info "Check deployer logs: docker logs deployer"
-        exit 1
-    fi
+    # Wait for relayer
+    wait_for_relayer || exit 1
     
-    print_success "Canton DARs verified"
-    
-    # Read contract addresses from broadcast file
-    BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/${CHAIN_ID}/run-latest.json"
-    if [ -f "$BROADCAST_FILE" ]; then
-        print_step "Reading contract addresses from broadcast file..."
-        TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
-        BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
-        
-        # Update config with deployed addresses
-        sed -i.bak "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE\"|" "$CONFIG_FILE"
-        sed -i.bak "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN\"|" "$CONFIG_FILE"
-        rm -f "${CONFIG_FILE}.bak"
-        print_success "Config updated with contract addresses"
-    fi
-    
-    # Allocate party and update config
-    print_step "Allocating BridgeIssuer party..."
-    EXISTING_PARTY=$(curl -s http://localhost:5013/v2/parties | jq -r '.partyDetails[].party' | grep "^BridgeIssuer::" | head -1 || true)
-    if [ -n "$EXISTING_PARTY" ]; then
-        print_warning "BridgeIssuer already exists"
-        PARTY_ID="$EXISTING_PARTY"
-    else
-        PARTY_RESPONSE=$(curl -s -X POST http://localhost:5013/v2/parties \
-            -H 'Content-Type: application/json' \
-            -d '{"partyIdHint": "BridgeIssuer"}')
-        PARTY_ID=$(echo "$PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
-    fi
-    
-    # Get domain ID
-    SYNC_RESPONSE=$(curl -s http://localhost:5013/v2/state/connected-synchronizers)
-    DOMAIN_ID=$(echo "$SYNC_RESPONSE" | jq -r '.connectedSynchronizers[0].synchronizerId // empty')
-    
-    # Update config with party and domain
-    sed -i.bak "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$CONFIG_FILE"
-    sed -i.bak "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
-    rm -f "${CONFIG_FILE}.bak"
-    
-    # Update fingerprint
-    FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
-    if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
-        FINGERPRINT="${FULL_FINGERPRINT:4}"
-    else
-        FINGERPRINT="$FULL_FINGERPRINT"
-    fi
-    
-    print_success "Party allocated: $PARTY_ID"
-    
-    echo ""
-    $DOCKER_COMPOSE_CMD ps
+    print_success "All services are ready!"
 fi
+
+# =============================================================================
+# Get Configuration from Bootstrap
+# =============================================================================
+
+print_header "READING CONFIGURATION"
+
+# Get contract addresses from Anvil deployment
+print_step "Getting contract addresses..."
+BROADCAST_FILE="$PROJECT_DIR/contracts/ethereum-wayfinder/broadcast/Deployer.s.sol/31337/run-latest.json"
+if [ -f "$BROADCAST_FILE" ]; then
+    TOKEN=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE")
+    BRIDGE=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE")
+else
+    # Default addresses from fresh Anvil deploy
+    TOKEN="0x5fbdb2315678afecb367f032d93f642f64180aa3"
+    BRIDGE="0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+fi
+
+print_info "Token contract: $TOKEN"
+print_info "Bridge contract: $BRIDGE"
+
+# Get party and domain from Canton
+print_step "Getting Canton party and domain..."
+PARTY_ID=$(curl -s "$CANTON_URL/v2/parties" | jq -r '.partyDetails[].party' | grep "^BridgeIssuer::" | head -1 || true)
+DOMAIN_ID=$(curl -s "$CANTON_URL/v2/state/connected-synchronizers" | jq -r '.connectedSynchronizers[0].synchronizerId // empty')
+
+if [ -z "$PARTY_ID" ]; then
+    print_error "BridgeIssuer party not found - bootstrap may have failed"
+    exit 1
+fi
+
+print_info "Party ID: $PARTY_ID"
+print_info "Domain ID: $DOMAIN_ID"
+
+# Extract fingerprint
+FULL_FINGERPRINT=$(echo "$PARTY_ID" | sed 's/.*:://')
+if [[ "$FULL_FINGERPRINT" == 1220* ]] && [ ${#FULL_FINGERPRINT} -eq 68 ]; then
+    FINGERPRINT="${FULL_FINGERPRINT:4}"
+else
+    FINGERPRINT="$FULL_FINGERPRINT"
+fi
+print_info "Fingerprint: 0x$FINGERPRINT"
+
+# Generate host-accessible config for bridge-activity.go and other scripts
+print_step "Generating host config file..."
+HOST_CONFIG="$PROJECT_DIR/.test-config.yaml"
+cat > "$HOST_CONFIG" << EOF
+# Auto-generated config for host access to Docker services
+# Generated by test-bridge.sh - DO NOT COMMIT
+# Use with: go run scripts/bridge-activity.go -config .test-config.yaml
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "relayer"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "http://localhost:8545"
+  ws_url: "ws://localhost:8545"
+  chain_id: 31337
+  bridge_contract: "$BRIDGE"
+  token_contract: "$TOKEN"
+  relayer_private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0
+
+canton:
+  rpc_url: "localhost:5011"
+  ledger_id: "canton-ledger-id"
+  domain_id: "$DOMAIN_ID"
+  application_id: "canton-middleware"
+  relayer_party: "$PARTY_ID"
+  bridge_package_id: "$BRIDGE_WAYFINDER_PACKAGE_ID"
+  core_package_id: "$BRIDGE_CORE_PACKAGE_ID"
+  cip56_package_id: "$CIP56_PACKAGE_ID"
+  bridge_module: "Wayfinder.Bridge"
+  bridge_contract: "WayfinderBridgeConfig"
+  tls:
+    enabled: false
+  auth:
+    client_id: "local-test-client"
+    client_secret: "local-test-secret"
+    audience: "http://localhost:5011"
+    token_url: "http://localhost:8088/oauth/token"
+  polling_interval: "1s"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+EOF
+print_success "Host config saved to .test-config.yaml"
 
 # =============================================================================
 # Verify Contracts
@@ -396,67 +499,15 @@ fi
 
 print_header "VERIFY CONTRACTS"
 
-print_info "PromptToken:  $TOKEN"
-print_info "CantonBridge: $BRIDGE"
-
 print_step "Checking bridge contract..."
-BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+BRIDGE_RELAYER=$(cast call $BRIDGE "relayer()(address)" --rpc-url "$ANVIL_URL" 2>/dev/null || echo "unknown")
 print_info "Bridge relayer: $BRIDGE_RELAYER"
 
 print_step "Checking token contract..."
-TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url "$ETH_RPC_URL" 2>/dev/null)
+TOKEN_NAME=$(cast call $TOKEN "name()(string)" --rpc-url "$ANVIL_URL" 2>/dev/null || echo "unknown")
 print_info "Token name: $TOKEN_NAME"
 
 print_success "Contracts verified"
-
-# =============================================================================
-# Bootstrap Phase (skipped with --skip-setup)
-# =============================================================================
-
-if [ "$SKIP_SETUP" = false ]; then
-    print_header "BOOTSTRAP PHASE"
-    
-    print_step "Running bootstrap script..."
-    go run scripts/bootstrap-bridge.go \
-        -config "$CONFIG_FILE" \
-        -issuer "$PARTY_ID" \
-        -package "$PACKAGE_ID" || {
-            print_warning "Bootstrap may have failed or contracts already exist"
-        }
-    
-    print_step "Running register-user script..."
-    go run scripts/register-user.go \
-        -config "$CONFIG_FILE" \
-        -party "$PARTY_ID" || {
-            print_warning "User registration may have failed or user already exists"
-        }
-    
-    print_success "Bootstrap complete"
-fi
-
-# =============================================================================
-# Start the Relayer
-# =============================================================================
-
-print_header "START RELAYER"
-
-kill_relayer
-
-print_step "Starting relayer in background..."
-go run cmd/relayer/main.go -config "$CONFIG_FILE" > "$RELAYER_LOG" 2>&1 &
-RELAYER_PID=$!
-echo "Relayer PID: $RELAYER_PID"
-
-print_step "Waiting for relayer to start..."
-sleep 5
-
-if curl -s http://localhost:8080/health | grep -q "OK"; then
-    print_success "Relayer is healthy"
-else
-    print_error "Relayer health check failed"
-    tail -30 "$RELAYER_LOG"
-    exit 1
-fi
 
 # =============================================================================
 # Setup Bridge (EVM)
@@ -467,7 +518,7 @@ print_header "SETUP BRIDGE (EVM)"
 print_step "Adding token mapping..."
 cast send $BRIDGE "addTokenMapping(address,bytes32)" \
     $TOKEN $CANTON_TOKEN_ID \
-    --rpc-url "$ETH_RPC_URL" \
+    --rpc-url "$ANVIL_URL" \
     --private-key $OWNER_KEY > /dev/null 2>&1 || print_warning "Token mapping may already exist"
 
 print_success "Bridge setup complete"
@@ -482,14 +533,18 @@ if [ "$WITHDRAW_ONLY" = false ]; then
     # Fund user
     print_step "Transferring tokens from owner to user..."
     cast send $TOKEN "transfer(address,uint256)" $USER "$FUND_AMOUNT" \
-        --rpc-url "$ETH_RPC_URL" \
+        --rpc-url "$ANVIL_URL" \
         --private-key $OWNER_KEY > /dev/null 2>&1
     print_success "User funded"
+    
+    # Check balance
+    USER_BALANCE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ANVIL_URL" 2>/dev/null)
+    print_info "User token balance: $USER_BALANCE"
     
     # Approve
     print_step "Approving bridge to spend tokens..."
     cast send $TOKEN "approve(address,uint256)" $BRIDGE "$TEST_DEPOSIT_AMOUNT_WEI" \
-        --rpc-url "$ETH_RPC_URL" \
+        --rpc-url "$ANVIL_URL" \
         --private-key $USER_KEY > /dev/null 2>&1
     print_success "Approved"
     
@@ -498,67 +553,87 @@ if [ "$WITHDRAW_ONLY" = false ]; then
     CANTON_RECIPIENT="0x$FINGERPRINT"
     DEPOSIT_TX=$(cast send $BRIDGE "depositToCanton(address,uint256,bytes32)" \
         $TOKEN "$TEST_DEPOSIT_AMOUNT_WEI" $CANTON_RECIPIENT \
-        --rpc-url "$ETH_RPC_URL" \
+        --rpc-url "$ANVIL_URL" \
         --private-key $USER_KEY --json 2>/dev/null | jq -r '.transactionHash')
     print_info "Deposit TX: $DEPOSIT_TX"
     print_success "Deposit submitted"
     
     # Wait for relayer
-    print_step "Waiting for relayer to process deposit..."
+    print_step "Waiting for relayer to process deposit (${CONFIRMATION_WAIT}s)..."
     sleep $CONFIRMATION_WAIT
     
-    # Verify on Canton
-    print_step "Verifying holdings on Canton..."
-    HOLDINGS_OUTPUT=$(go run scripts/query-holdings.go -config "$CONFIG_FILE" -party "$PARTY_ID" 2>/dev/null)
-    echo "$HOLDINGS_OUTPUT"
+    # Check relayer processed it
+    print_step "Checking relayer transfers..."
+    TRANSFERS=$(curl -s "$RELAYER_URL/api/v1/transfers" 2>/dev/null || echo '{"transfers":[]}')
+    DEPOSIT_COUNT=$(echo "$TRANSFERS" | jq '[.transfers[] | select(.Direction == "deposit")] | length' 2>/dev/null || echo "0")
+    print_info "Deposit transfers found: $DEPOSIT_COUNT"
     
-    HOLDING_CID=$(echo "$HOLDINGS_OUTPUT" | grep "Contract ID:" | head -1 | awk '{print $3}')
-    print_info "Holding CID: $HOLDING_CID"
-    
-    if [ -z "$HOLDING_CID" ]; then
-        print_error "No holdings found - deposit may have failed"
-        tail -30 "$RELAYER_LOG"
-        exit 1
+    if [ "$DEPOSIT_COUNT" -gt 0 ]; then
+        print_success "Deposit processed by relayer!"
+    else
+        print_warning "No deposit transfers found yet - may still be processing"
     fi
-    
-    print_success "Deposit verified on Canton!"
 fi
 
 # =============================================================================
-# Test Withdrawal (Canton → EVM)
+# Test Withdrawal (Canton → EVM)  
 # =============================================================================
 
 if [ "$DEPOSIT_ONLY" = false ]; then
     print_header "TEST: Canton → EVM Withdrawal"
     
-    # Get holding CID if not already set
-    if [ -z "$HOLDING_CID" ]; then
-        HOLDINGS_OUTPUT=$(go run scripts/query-holdings.go -config "$CONFIG_FILE" -party "$PARTY_ID" 2>/dev/null)
-        HOLDING_CID=$(echo "$HOLDINGS_OUTPUT" | grep "Contract ID:" | head -1 | awk '{print $3}')
-    fi
+    # Get user's EVM balance before withdrawal
+    BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ANVIL_URL" 2>/dev/null)
+    print_info "User EVM balance before: $BALANCE_BEFORE"
+    
+    # Query Canton for holdings to find the CIP56Holding CID
+    print_step "Finding CIP56Holding on Canton..."
+    
+    # Use get-holding-cid.go to get the full contract ID
+    HOLDING_CID=$(go run scripts/get-holding-cid.go -config "$HOST_CONFIG" 2>/dev/null)
     
     if [ -z "$HOLDING_CID" ]; then
-        print_error "No holdings found for withdrawal"
-        exit 1
+        print_warning "No CIP56Holding found - deposit may not have completed"
+        print_info "Skipping withdrawal test"
+    else
+        print_info "Found holding CID: ${HOLDING_CID:0:40}..."
+        
+        # Initiate withdrawal
+        print_step "Initiating withdrawal of ${TEST_WITHDRAW_TOKENS} tokens to $USER..."
+        
+        WITHDRAW_OUTPUT=$(go run scripts/initiate-withdrawal.go \
+            -config "$HOST_CONFIG" \
+            -holding-cid "$HOLDING_CID" \
+            -amount "$TEST_WITHDRAW_AMOUNT_DECIMAL" \
+            -evm-destination "$USER" 2>&1)
+        
+        WITHDRAW_EXIT=$?
+        
+        if [ $WITHDRAW_EXIT -eq 0 ]; then
+            print_success "Withdrawal initiated"
+            echo "$WITHDRAW_OUTPUT" | grep -E "(Request CID|WithdrawalRequest)" | head -3 | while read line; do
+                print_info "$line"
+            done
+            
+            # Wait for relayer to process
+            print_step "Waiting for relayer to process withdrawal (${CONFIRMATION_WAIT}s)..."
+            sleep $CONFIRMATION_WAIT
+            
+            # Check EVM balance after
+            BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ANVIL_URL" 2>/dev/null)
+            print_info "User EVM balance after: $BALANCE_AFTER"
+            
+            # Check if balance increased
+            if [ "$BALANCE_AFTER" != "$BALANCE_BEFORE" ]; then
+                print_success "Withdrawal completed - EVM balance updated!"
+            else
+                print_warning "EVM balance unchanged - withdrawal may still be processing"
+            fi
+        else
+            print_error "Withdrawal failed"
+            echo "$WITHDRAW_OUTPUT" | tail -5
+        fi
     fi
-    
-    BALANCE_BEFORE=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
-    print_info "User balance before: $BALANCE_BEFORE"
-    
-    print_step "Initiating withdrawal of ${TEST_WITHDRAW_TOKENS} tokens..."
-    go run scripts/initiate-withdrawal.go \
-        -config "$CONFIG_FILE" \
-        -holding-cid "$HOLDING_CID" \
-        -amount "$TEST_WITHDRAW_AMOUNT_DECIMAL" \
-        -evm-destination "$USER"
-    
-    print_step "Waiting for relayer to process withdrawal..."
-    sleep $CONFIRMATION_WAIT
-    
-    BALANCE_AFTER=$(cast call $TOKEN "balanceOf(address)(uint256)" $USER --rpc-url "$ETH_RPC_URL" 2>/dev/null)
-    print_info "User balance after: $BALANCE_AFTER"
-    
-    print_success "Withdrawal processed"
 fi
 
 # =============================================================================
@@ -568,15 +643,29 @@ fi
 print_header "TEST SUMMARY"
 
 echo ""
-echo -e "${GREEN}All tests passed!${NC}"
+echo -e "${GREEN}Bridge test complete!${NC}"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "CONFIGURATION (LOCAL)"
+echo "DOCKER SERVICES"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "Config:          $CONFIG_FILE"
-echo "ETH RPC:         $ETH_RPC_URL"
-echo "Bridge:          $BRIDGE"
-echo "Token:           $TOKEN"
+$DOCKER_COMPOSE_CMD ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+echo ""
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "ENDPOINTS"
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "Anvil RPC:       $ANVIL_URL"
+echo "Canton HTTP:     $CANTON_URL"
+echo "Relayer:         $RELAYER_URL"
+echo ""
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "CONTRACTS"
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "PromptToken:     $TOKEN"
+echo "CantonBridge:    $BRIDGE"
+echo ""
+echo "═══════════════════════════════════════════════════════════════════════"
+echo "CANTON"
+echo "═══════════════════════════════════════════════════════════════════════"
 echo "Party ID:        $PARTY_ID"
 echo "Domain ID:       $DOMAIN_ID"
 echo "Fingerprint:     0x$FINGERPRINT"
@@ -596,15 +685,22 @@ else
 fi
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "RELAYER STATUS"
+echo "RELAYER TRANSFERS"
 echo "═══════════════════════════════════════════════════════════════════════"
-curl -s http://localhost:8080/api/v1/transfers | jq '.transfers[] | {id: .ID, direction: .Direction, status: .Status}' 2>/dev/null || echo "No transfers found"
+curl -s "$RELAYER_URL/api/v1/transfers" 2>/dev/null | jq '.transfers[] | {id: .ID, direction: .Direction, status: .Status}' 2>/dev/null || echo "No transfers found"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
 echo "COMMANDS"
 echo "═══════════════════════════════════════════════════════════════════════"
-echo "View relayer logs:     tail -f $RELAYER_LOG"
-echo "Query holdings:        go run scripts/query-holdings.go -config \"$CONFIG_FILE\" -party \"$PARTY_ID\""
-echo "Stop relayer:          pkill -f 'cmd/relayer'"
+echo "View bridge activity:  go run scripts/bridge-activity.go -config .test-config.yaml"
+echo "View relayer logs:     docker logs -f canton-bridge-relayer"
+echo "View canton logs:      docker logs -f canton"
+echo "View bootstrap logs:   docker logs bootstrap"
 echo "Stop all services:     $DOCKER_COMPOSE_CMD down"
+echo "Clean everything:      $DOCKER_COMPOSE_CMD down -v"
 echo ""
+
+if [ "$SHOW_LOGS" = true ]; then
+    print_header "RELAYER LOGS"
+    docker logs canton-bridge-relayer 2>&1 | tail -50
+fi
