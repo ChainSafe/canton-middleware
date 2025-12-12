@@ -189,7 +189,12 @@ func main() {
 
 	// Step 4: Create CIP56Manager
 	fmt.Println(">>> Step 4: Creating CIP56Manager for PROMPT token...")
-	tokenManagerCid, err := createTokenManager(ctx, commandService, *issuerParty, pkgID, domainID, cfg.Canton.ApplicationID)
+	cip56PackageID := cfg.Canton.CIP56PackageID
+	if cip56PackageID == "" {
+		log.Fatalf("cip56_package_id not set in config - run test-bridge.sh or set it manually")
+	}
+	fmt.Printf("    Using cip56-token package: %s\n", cip56PackageID)
+	tokenManagerCid, err := createTokenManager(ctx, commandService, *issuerParty, cip56PackageID, domainID, cfg.Canton.ApplicationID)
 	if err != nil {
 		log.Fatalf("Failed to create CIP56Manager: %v", err)
 	}
@@ -340,6 +345,10 @@ func findBridgePackage(ctx context.Context, client lapiv2.PackageServiceClient) 
 		return "", fmt.Errorf("no packages found - ensure DARs are uploaded via deploy-dars.canton")
 	}
 
+	fmt.Printf("    Found %d packages on ledger\n", len(resp.PackageIds))
+
+	// Package ID should be specified in config (auto-detected by test-bridge.sh)
+	// Return the last one as a fallback heuristic
 	return resp.PackageIds[len(resp.PackageIds)-1], nil
 }
 
@@ -408,10 +417,10 @@ func findExistingBridgeConfig(ctx context.Context, client lapiv2.StateServiceCli
 	return "", fmt.Errorf("no active WayfinderBridgeConfig found")
 }
 
-func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, _ string) (string, error) {
+func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID, _ string) (string, error) {
 	cmdID := fmt.Sprintf("bootstrap-token-manager-%d", time.Now().UnixNano())
 
-	fmt.Printf("    Debug: issuer=%s, packageID=%s, domainID=%s\n", issuer, packageID, domainID)
+	fmt.Printf("    Debug: issuer=%s, cip56PackageID=%s, domainID=%s\n", issuer, cip56PackageID, domainID)
 
 	metaRecord := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
@@ -432,8 +441,6 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
 		},
 	}
-
-	cip56PackageID := "6813c511ac7e470a6e6b27072146fd948b0b932f6d32d0cc27be8adb84bdf23f"
 
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Create{
