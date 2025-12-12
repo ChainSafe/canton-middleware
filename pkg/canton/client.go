@@ -525,6 +525,81 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 	return nil, fmt.Errorf("no FingerprintMapping found for fingerprint: %s", fingerprint)
 }
 
+// IsDepositProcessed checks if a deposit with the given EVM tx hash has already been processed
+// It looks for existing PendingDeposit or DepositReceipt contracts with matching evmTxHash
+func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	// Get current ledger end for active contracts query
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return false, nil // Empty ledger, no deposits exist
+	}
+
+	// Query for active contracts
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to query active contracts: %w", err)
+	}
+
+	// Search for PendingDeposit or DepositReceipt with matching evmTxHash
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break // EOF or error
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			// Check for PendingDeposit or DepositReceipt contracts
+			if templateId.ModuleName != "Common.FingerprintAuth" {
+				continue
+			}
+			if templateId.EntityName != "PendingDeposit" && templateId.EntityName != "DepositReceipt" {
+				continue
+			}
+
+			// Extract evmTxHash from contract arguments
+			if contract.CreatedEvent.CreateArguments != nil {
+				for _, field := range contract.CreatedEvent.CreateArguments.Fields {
+					if field.Label == "evmTxHash" {
+						if textVal, ok := field.Value.Sum.(*lapiv2.Value_Text); ok {
+							if textVal.Text == evmTxHash {
+								c.logger.Debug("Found existing deposit contract",
+									zap.String("evm_tx_hash", evmTxHash),
+									zap.String("contract_type", templateId.EntityName),
+									zap.String("contract_id", contract.CreatedEvent.ContractId))
+								return true, nil
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return false, nil
+}
+
 // CreatePendingDeposit creates a PendingDeposit from an EVM deposit event
 func (c *Client) CreatePendingDeposit(ctx context.Context, req *CreatePendingDepositRequest) (string, error) {
 	c.logger.Info("Creating pending deposit",

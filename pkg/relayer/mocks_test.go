@@ -22,6 +22,7 @@ type MockCantonClient struct {
 	GetFingerprintMappingFunc  func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
 	CreatePendingDepositFunc   func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
 	ProcessDepositFunc         func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
+	IsDepositProcessedFunc     func(ctx context.Context, evmTxHash string) (bool, error)
 	InitiateWithdrawalFunc     func(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
 	CompleteWithdrawalFunc     func(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
 
@@ -78,6 +79,13 @@ func (m *MockCantonClient) ProcessDeposit(ctx context.Context, req *canton.Proce
 	return "", nil
 }
 
+func (m *MockCantonClient) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool, error) {
+	if m.IsDepositProcessedFunc != nil {
+		return m.IsDepositProcessedFunc(ctx, evmTxHash)
+	}
+	return false, nil
+}
+
 func (m *MockCantonClient) InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error) {
 	if m.InitiateWithdrawalFunc != nil {
 		return m.InitiateWithdrawalFunc(ctx, req)
@@ -101,11 +109,11 @@ func (m *MockCantonClient) GetLedgerEnd(ctx context.Context) (string, error) {
 
 // MockEthereumClient is a mock implementation of EthereumBridgeClient
 type MockEthereumClient struct {
-	GetLatestBlockNumberFunc    func(ctx context.Context) (uint64, error)
-	WithdrawFromCantonFunc      func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
-	WatchDepositEventsFunc      func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
-	IsWithdrawalProcessedFunc   func(ctx context.Context, cantonTxHash [32]byte) (bool, error)
-	LastScannedBlock            uint64
+	GetLatestBlockNumberFunc  func(ctx context.Context) (uint64, error)
+	WithdrawFromCantonFunc    func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WatchDepositEventsFunc    func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
+	IsWithdrawalProcessedFunc func(ctx context.Context, cantonTxHash [32]byte) (bool, error)
+	LastScannedBlock          uint64
 }
 
 func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
