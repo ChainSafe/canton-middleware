@@ -16,6 +16,7 @@ set -e
 
 CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
 CANTON_HTTP="${CANTON_HTTP:-http://canton:5013}"
+BROADCAST_DIR="${BROADCAST_DIR:-/app/broadcast}"
 MAX_RETRIES=60
 
 echo "========================================================================"
@@ -23,6 +24,31 @@ echo "DOCKER BOOTSTRAP"
 echo "========================================================================"
 echo "Canton HTTP API: $CANTON_HTTP"
 echo "Config file: $CONFIG_FILE"
+echo "Broadcast dir: $BROADCAST_DIR"
+echo ""
+
+# =============================================================================
+# Update Ethereum contract addresses from broadcast
+# =============================================================================
+echo ">>> Updating Ethereum contract addresses from deployment..."
+BROADCAST_FILE="${BROADCAST_DIR}/Deployer.s.sol/31337/run-latest.json"
+if [ -f "$BROADCAST_FILE" ]; then
+    TOKEN_ADDR=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
+    BRIDGE_ADDR=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
+    
+    if [ -n "$TOKEN_ADDR" ] && [ -n "$BRIDGE_ADDR" ]; then
+        echo "    Token contract: $TOKEN_ADDR"
+        echo "    Bridge contract: $BRIDGE_ADDR"
+        sed -i "s|token_contract: \"0x[a-fA-F0-9]*\"|token_contract: \"$TOKEN_ADDR\"|" "$CONFIG_FILE"
+        sed -i "s|bridge_contract: \"0x[a-fA-F0-9]*\"|bridge_contract: \"$BRIDGE_ADDR\"|" "$CONFIG_FILE"
+        echo "    Config updated with deployed contract addresses"
+    else
+        echo "    [WARN] Could not extract contract addresses from broadcast"
+    fi
+else
+    echo "    [WARN] Broadcast file not found: $BROADCAST_FILE"
+    echo "    Using default contract addresses from config template"
+fi
 echo ""
 
 # =============================================================================

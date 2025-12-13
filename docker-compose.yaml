@@ -11,11 +11,11 @@
 # - Bridge Relayer
 #
 # Usage:
-#   docker compose -f docker-compose.local.yaml up --build
+#   docker compose up --build
 #
 # To clean and restart:
-#   docker compose -f docker-compose.local.yaml down -v
-#   docker compose -f docker-compose.local.yaml up --build
+#   docker compose down -v
+#   docker compose up --build
 # =============================================================================
 
 services:
@@ -153,8 +153,10 @@ services:
     environment:
       CONFIG_FILE: /app/state/config.yaml
       CANTON_HTTP: http://canton:5013
+      BROADCAST_DIR: /app/broadcast
     volumes:
       - ./config.docker.yaml:/app/config-template.yaml:ro
+      - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
       - config_state:/app/state
     entrypoint: /bin/sh -c "cp /app/config-template.yaml /app/state/config.yaml && /app/docker-bootstrap.sh"
     depends_on:

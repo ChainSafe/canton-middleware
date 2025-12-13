@@ -3,8 +3,15 @@
 // bridge-activity.go - Display recent Canton bridge activity in a demo-friendly format
 //
 // Usage:
-//   go run scripts/bridge-activity.go -config config.devnet.yaml
-//   go run scripts/bridge-activity.go -config config.mainnet.yaml -limit 10 -lookback 500
+//   go run scripts/bridge-activity.go -config .test-config.yaml              # Local Docker (after test-bridge.sh)
+//   go run scripts/bridge-activity.go -config config.devnet.yaml             # 5North DevNet
+//   go run scripts/bridge-activity.go -config config.mainnet.yaml            # Mainnet
+//   go run scripts/bridge-activity.go -config .test-config.yaml -limit 10    # Limit results
+//   go run scripts/bridge-activity.go -config .test-config.yaml -lookback 500 # Custom lookback
+//
+// For local testing:
+//   1. Run: ./scripts/test-bridge.sh (starts services and creates .test-config.yaml)
+//   2. Run: go run scripts/bridge-activity.go -config .test-config.yaml
 //
 // This script shows a formatted report of:
 //   - Recent deposits (EVM → Canton)
