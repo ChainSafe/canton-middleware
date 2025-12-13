@@ -1,5 +1,5 @@
 # Docker Compose override for Mainnet
-# Usage: docker compose -f docker-compose.local.yaml -f docker-compose.mainnet.yaml up -d
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.mainnet.yaml up -d
 #
 # This overlay:
 # - Disables local Canton, Anvil, deployer (using mainnet services)

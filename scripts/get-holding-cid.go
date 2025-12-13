@@ -1,7 +1,12 @@
 //go:build ignore
 
-// get-holding-cid.go - Get the first CIP56Holding contract ID for withdrawals
-// Usage: go run scripts/get-holding-cid.go -config .test-config.yaml
+// get-holding-cid.go - Get the CIP56Holding with the largest balance for withdrawals
+// Usage:
+//   go run scripts/get-holding-cid.go -config .test-config.yaml              # Output: contract_id
+//   go run scripts/get-holding-cid.go -config .test-config.yaml -with-balance # Output: contract_id balance
+//
+// Note: When multiple holdings exist (from multiple deposits), this returns the one
+// with the LARGEST balance, which is most useful for withdrawals.
 
 package main
 
@@ -16,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
@@ -23,7 +30,16 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-var configPath = flag.String("config", "config.yaml", "Path to config file")
+var (
+	configPath  = flag.String("config", "config.yaml", "Path to config file")
+	withBalance = flag.Bool("with-balance", false, "Also output the holding balance")
+)
+
+type holding struct {
+	contractID string
+	balance    decimal.Decimal
+	balanceStr string
+}
 
 func main() {
 	flag.Parse()
@@ -86,12 +102,16 @@ func main() {
 					},
 				},
 			},
+			Verbose: true,
 		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get contracts: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Collect ALL holdings to find the one with largest balance
+	var holdings []holding
 
 	for {
 		msg, err := resp.Recv()
@@ -106,15 +126,53 @@ func main() {
 		if contract := msg.GetActiveContract(); contract != nil {
 			templateID := contract.CreatedEvent.TemplateId
 			if templateID.ModuleName == "CIP56.Token" && templateID.EntityName == "CIP56Holding" {
-				// Print just the contract ID
-				fmt.Println(contract.CreatedEvent.ContractId)
-				os.Exit(0)
+				contractID := contract.CreatedEvent.ContractId
+				balanceStr := "0"
+				
+				// Extract balance from contract arguments
+				if contract.CreatedEvent.CreateArguments != nil {
+					for _, field := range contract.CreatedEvent.CreateArguments.Fields {
+						if field.Label == "amount" && field.Value != nil {
+							if n, ok := field.Value.Sum.(*lapiv2.Value_Numeric); ok {
+								balanceStr = n.Numeric
+							}
+						}
+					}
+				}
+				
+				bal, err := decimal.NewFromString(balanceStr)
+				if err != nil {
+					bal = decimal.Zero
+				}
+				
+				holdings = append(holdings, holding{
+					contractID: contractID,
+					balance:    bal,
+					balanceStr: balanceStr,
+				})
 			}
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "No CIP56Holding found\n")
-	os.Exit(1)
+	if len(holdings) == 0 {
+		fmt.Fprintf(os.Stderr, "No CIP56Holding found\n")
+		os.Exit(1)
+	}
+
+	// Find the holding with the largest balance
+	best := holdings[0]
+	for _, h := range holdings[1:] {
+		if h.balance.GreaterThan(best.balance) {
+			best = h
+		}
+	}
+
+	if *withBalance {
+		fmt.Printf("%s %s\n", best.contractID, best.balanceStr)
+	} else {
+		fmt.Println(best.contractID)
+	}
+	os.Exit(0)
 }
 
 func getOAuthToken(cfg *config.Config) (string, error) {

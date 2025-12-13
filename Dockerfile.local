@@ -7,17 +7,16 @@ WORKDIR /app
 # Allow Go toolchain to auto-upgrade for dependencies requiring newer versions
 ENV GOTOOLCHAIN=auto
 
-# Copy go mod files first for better caching
+# Copy go mod files first and download deps - this layer is cached unless go.mod/go.sum change
 COPY go.mod go.sum ./
+RUN GOTOOLCHAIN=auto go mod download
 
-# Copy all source
+# Copy source code (this layer changes frequently but deps are already cached)
 COPY . .
 
-# Download deps and build all binaries in one layer to preserve toolchain
-# GOTOOLCHAIN=auto downloads newer Go version if required by deps
+# Build all binaries
 # CGO_ENABLED=0 creates static binaries compatible with alpine
-RUN GOTOOLCHAIN=auto go mod download && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
+RUN GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go

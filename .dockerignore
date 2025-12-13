@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+.cursor
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Daml build artifacts
+contracts/canton-erc20/daml/*/.daml/
+contracts/canton-erc20/daml/*/daml.lock
+
+# Ethereum build artifacts
+contracts/ethereum*/out/
+contracts/ethereum*/cache/
+contracts/ethereum*/broadcast/
+contracts/ethereum*/lib/
+
+# Logs
+*.log
+logs/
+
+# Generated configs
+.test-config.yaml
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# CI/CD
+.github/
+
+# Misc
+.DS_Store
+*.bak
+tmp/
+
