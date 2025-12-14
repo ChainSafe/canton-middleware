@@ -416,11 +416,12 @@ load_configuration() {
     
     # Extract package IDs if not already set (needed when script restarts with services running)
     if [ -z "$BRIDGE_WAYFINDER_PACKAGE_ID" ]; then
-        local WAYFINDER_DAR="$PROJECT_DIR/contracts/canton-erc20/daml/bridge-wayfinder/.daml/dist/bridge-wayfinder-1.0.1.dar"
-        local CORE_DAR="$PROJECT_DIR/contracts/canton-erc20/daml/bridge-core/.daml/dist/bridge-core-1.0.1.dar"
-        local CIP56_DAR="$PROJECT_DIR/contracts/canton-erc20/daml/cip56-token/.daml/dist/cip56-token-1.0.1.dar"
+        # Find DAR files dynamically (version-agnostic)
+        local WAYFINDER_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/bridge-wayfinder/.daml/dist/"*.dar 2>/dev/null | head -1)
+        local CORE_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/bridge-core/.daml/dist/"*.dar 2>/dev/null | head -1)
+        local CIP56_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/cip56-token/.daml/dist/"*.dar 2>/dev/null | head -1)
         
-        if [ -f "$WAYFINDER_DAR" ] && [ -f "$CORE_DAR" ] && [ -f "$CIP56_DAR" ]; then
+        if [ -n "$WAYFINDER_DAR" ] && [ -n "$CORE_DAR" ] && [ -n "$CIP56_DAR" ]; then
             BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)
             BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)
             CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)

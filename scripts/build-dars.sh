@@ -36,6 +36,14 @@ PACKAGES=(
     "bridge-wayfinder"
 )
 
+# Clean old DAR files to avoid version conflicts
+echo ">>> Cleaning old DAR files..."
+for pkg in "${PACKAGES[@]}"; do
+    rm -f "$DAML_DIR/$pkg/.daml/dist/"*.dar 2>/dev/null || true
+done
+echo "    Done!"
+echo ""
+
 for pkg in "${PACKAGES[@]}"; do
     echo ">>> Building $pkg..."
     (cd "$DAML_DIR/$pkg" && daml build $DAML_BUILD_FLAGS)
