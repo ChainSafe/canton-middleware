@@ -10,6 +10,10 @@
 # Requirements:
 #   - Daml SDK installed (https://get.daml.com/)
 #
+# Note: The --no-legacy-assistant-warning flag suppresses the "Daml Assistant
+# has been deprecated" warning. Daml Assistant will be replaced by DPM (Digital
+# Asset Package Manager) in SDK 3.5. See: https://docs.digitalasset.com/build/3.4/dpm/dpm.html
+#
 # =============================================================================
 
 set -e
@@ -17,6 +21,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DAML_DIR="$PROJECT_DIR/contracts/canton-erc20/daml"
+
+# Suppress Daml Assistant deprecation warning (DPM migration planned for SDK 3.5)
+DAML_BUILD_FLAGS="--no-legacy-assistant-warning"
 
 echo "Building Canton Bridge DAR packages..."
 echo ""
@@ -31,7 +38,7 @@ PACKAGES=(
 
 for pkg in "${PACKAGES[@]}"; do
     echo ">>> Building $pkg..."
-    (cd "$DAML_DIR/$pkg" && daml build)
+    (cd "$DAML_DIR/$pkg" && daml build $DAML_BUILD_FLAGS)
     echo "    Done!"
 done
 
