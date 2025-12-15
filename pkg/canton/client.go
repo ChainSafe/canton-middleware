@@ -273,55 +273,6 @@ func (c *Client) StreamTransactions(ctx context.Context, offset string, updateFo
 	return c.updateService.GetUpdates(authCtx, req)
 }
 
-// SubmitMintProposal submits a mint proposal via WayfinderBridgeConfig
-func (c *Client) SubmitMintProposal(ctx context.Context, req *MintProposalRequest) error {
-	c.logger.Info("Submitting mint proposal",
-		zap.String("reference", req.Reference),
-		zap.String("recipient", req.Recipient),
-		zap.String("amount", req.Amount))
-
-	// Get WayfinderBridgeConfig contract ID
-	configCid, err := c.GetWayfinderBridgeConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get WayfinderBridgeConfig: %w", err)
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	// Create the exercise command
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.BridgePackageID, // Assuming same package for now, or needs config update
-					ModuleName: "Wayfinder.Bridge",
-					EntityName: "WayfinderBridgeConfig",
-				},
-				ContractId:     configCid,
-				Choice:         "CreateMintProposal",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: EncodeMintProposalArgs(req)}},
-			},
-		},
-	}
-
-	// Submit command
-	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to submit mint proposal: %w", err)
-	}
-
-	return nil
-}
-
 // GetWayfinderBridgeConfig finds the active WayfinderBridgeConfig contract
 func (c *Client) GetWayfinderBridgeConfig(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
