@@ -30,6 +30,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -344,6 +345,11 @@ func queryRawEvents(ctx context.Context, client lapiv2.UpdateServiceClient, part
 			break
 		}
 	}
+
+	// Sort by offset descending (newest first)
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Offset > events[j].Offset
+	})
 
 	// Print debug info
 	if debug && len(contractTypes) > 0 {
