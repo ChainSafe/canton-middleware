@@ -23,15 +23,8 @@ dist/
 coverage.txt
 coverage.html
 
-# Daml build artifacts
-contracts/canton-erc20/daml/*/.daml/
-contracts/canton-erc20/daml/*/daml.lock
-
-# Ethereum build artifacts
-contracts/ethereum*/out/
-contracts/ethereum*/cache/
-contracts/ethereum*/broadcast/
-contracts/ethereum*/lib/
+# Contracts (not needed in relayer image - deployed separately)
+contracts/
 
 # Logs
 *.log
@@ -48,8 +41,13 @@ LICENSE
 # CI/CD
 .github/
 
+# Scripts (not needed in relayer image)
+scripts/
+
+# Deployments (mounted at runtime)
+deployments/
+
 # Misc
 .DS_Store
 *.bak
 tmp/
-
