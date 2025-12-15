@@ -35,11 +35,7 @@ func (e *Engine) ethereumChainKey() string {
 
 // CantonBridgeClient defines the interface for Canton interactions
 type CantonBridgeClient interface {
-	// Legacy methods (deprecated but kept for backwards compatibility)
-	StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
-	SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error
-
-	// Issuer-centric model methods (new)
+	// Issuer-centric model methods
 	StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error)
 	RegisterUser(ctx context.Context, req *canton.RegisterUserRequest) (string, error)
 	GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
