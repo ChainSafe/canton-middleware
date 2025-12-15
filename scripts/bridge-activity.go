@@ -46,7 +46,7 @@ import (
 var (
 	baConfigPath = flag.String("config", "config.yaml", "Path to config file")
 	baLimit      = flag.Int("limit", 20, "Number of recent transactions to display")
-	baLookback   = flag.Int64("lookback", 1000, "Offset lookback from ledger end")
+	baLookback   = flag.Int64("lookback", 100000, "Offset lookback from ledger end")
 	baDebug      = flag.Bool("debug", false, "Show debug info about all contracts found")
 )
 
@@ -67,6 +67,7 @@ type DepositInfo struct {
 	EVMTx       string
 	Fingerprint string
 	Status      string
+	UpdateId    string
 }
 
 type WithdrawalInfo struct {
@@ -80,6 +81,8 @@ type WithdrawalInfo struct {
 	Fingerprint string
 	HoldingCid  string
 	RawStatus   string // Pending, Completed, or empty for Request
+	UpdateId    string
+	Owner       string
 }
 
 type HoldingInfo struct {
@@ -214,13 +217,16 @@ func printDeposits(deposits []DepositInfo) {
 				fmt.Printf("    Recipient:   %s\n", truncateParty(d.Recipient))
 			}
 			if d.EVMTx != "" {
-				fmt.Printf("    EVM Tx:      %s\n", truncateHash(d.EVMTx))
+				fmt.Printf("    EVM Tx:      %s\n", d.EVMTx)
 			}
 			if d.Fingerprint != "" {
-				fmt.Printf("    Fingerprint: %s\n", truncateHash(d.Fingerprint))
+				fmt.Printf("    Fingerprint: %s\n", d.Fingerprint)
 			}
 			fmt.Printf("    Status:      %s\n", d.Status)
 			fmt.Printf("    Offset:      %d\n", d.Offset)
+			if d.UpdateId != "" {
+				fmt.Printf("    Tx ID:       %s\n", d.UpdateId)
+			}
 			fmt.Println()
 		}
 	}
@@ -237,17 +243,23 @@ func printWithdrawals(withdrawals []WithdrawalInfo) {
 			if w.Amount != "" {
 				fmt.Printf("    Amount:   %s PROMPT\n", w.Amount)
 			}
+			if w.Owner != "" {
+				fmt.Printf("    Owner:    %s\n", w.Owner)
+			}
 			if w.EVMDest != "" {
 				fmt.Printf("    EVM Dest: %s\n", w.EVMDest)
 			}
 			fmt.Printf("    Status:   %s\n", w.Status)
 			if w.EVMTx != "" {
-				fmt.Printf("    EVM Tx:   %s\n", truncateHash(w.EVMTx))
+				fmt.Printf("    EVM Tx:   %s\n", w.EVMTx)
 			}
 			if w.RequestCID != "" {
-				fmt.Printf("    CID:      %s\n", truncateHash(w.RequestCID))
+				fmt.Printf("    CID:      %s\n", w.RequestCID)
 			}
 			fmt.Printf("    Offset:   %d\n", w.Offset)
+			if w.UpdateId != "" {
+				fmt.Printf("    Tx ID:    %s\n", w.UpdateId)
+			}
 			fmt.Println()
 		}
 	}
@@ -260,10 +272,10 @@ func printHoldings(holdings []HoldingInfo) {
 		fmt.Println("No CIP56Holding contracts found.")
 	} else {
 		for i, h := range holdings {
-			fmt.Printf("[%d] Owner: %s\n", i+1, truncateParty(h.Owner))
+			fmt.Printf("[%d] Owner: %s\n", i+1, h.Owner)
 			fmt.Printf("    Balance:  %s PROMPT\n", h.Amount)
 			fmt.Printf("    Token ID: %s\n", h.TokenID)
-			fmt.Printf("    CID:      %s\n", truncateHash(h.ContractID))
+			fmt.Printf("    CID:      %s\n", h.ContractID)
 			fmt.Println()
 		}
 	}
@@ -374,7 +386,7 @@ func queryBridgeActivity(ctx context.Context, client lapiv2.UpdateServiceClient,
 
 					// Check for deposit-related contracts
 					if isDepositContract(templateID) {
-						deposit := parseDepositEvent(created, tx.Offset, effectiveAt)
+						deposit := parseDepositEvent(created, tx.Offset, effectiveAt, tx.UpdateId)
 
 						// Debug: show raw deposit before deduping
 						if *baDebug {
@@ -400,7 +412,7 @@ func queryBridgeActivity(ctx context.Context, client lapiv2.UpdateServiceClient,
 
 					// Check for withdrawal-related contracts
 					if isWithdrawalContract(templateID) {
-						withdrawal := parseWithdrawalEvent(created, tx.Offset, effectiveAt)
+						withdrawal := parseWithdrawalEvent(created, tx.Offset, effectiveAt, tx.UpdateId)
 
 						// For deduplication:
 						// - WithdrawalRequest: use holdingCid (unique per withdrawal)
@@ -508,11 +520,12 @@ func isWithdrawalContract(templateID *lapiv2.Identifier) bool {
 	return module == "Bridge.Contracts" && (entity == "WithdrawalRequest" || entity == "WithdrawalEvent")
 }
 
-func parseDepositEvent(created *lapiv2.CreatedEvent, offset int64, effectiveAt time.Time) DepositInfo {
+func parseDepositEvent(created *lapiv2.CreatedEvent, offset int64, effectiveAt time.Time, updateId string) DepositInfo {
 	deposit := DepositInfo{
-		Offset: offset,
-		Time:   effectiveAt,
-		Status: created.TemplateId.EntityName,
+		Offset:   offset,
+		Time:     effectiveAt,
+		Status:   created.TemplateId.EntityName,
+		UpdateId: updateId,
 	}
 
 	if created.TemplateId.EntityName == "PendingDeposit" {
@@ -539,11 +552,12 @@ func parseDepositEvent(created *lapiv2.CreatedEvent, offset int64, effectiveAt t
 	return deposit
 }
 
-func parseWithdrawalEvent(created *lapiv2.CreatedEvent, offset int64, effectiveAt time.Time) WithdrawalInfo {
+func parseWithdrawalEvent(created *lapiv2.CreatedEvent, offset int64, effectiveAt time.Time, updateId string) WithdrawalInfo {
 	withdrawal := WithdrawalInfo{
 		Offset:     offset,
 		Time:       effectiveAt,
 		RequestCID: created.ContractId,
+		UpdateId:   updateId,
 	}
 
 	entityName := created.TemplateId.EntityName
@@ -566,6 +580,8 @@ func parseWithdrawalEvent(created *lapiv2.CreatedEvent, offset int64, effectiveA
 				withdrawal.EVMTx = extractText(field.Value)
 			case "fingerprint":
 				withdrawal.Fingerprint = extractText(field.Value)
+			case "owner", "requester":
+				withdrawal.Owner = extractParty(field.Value)
 			case "status":
 				// Check if status is Completed
 				if v, ok := field.Value.Sum.(*lapiv2.Value_Variant); ok {
