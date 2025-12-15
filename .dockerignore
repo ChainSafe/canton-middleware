@@ -41,9 +41,6 @@ LICENSE
 # CI/CD
 .github/
 
-# Scripts (not needed in relayer image)
-scripts/
-
 # Deployments (mounted at runtime)
 deployments/
 
