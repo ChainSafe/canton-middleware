@@ -12,10 +12,6 @@ import (
 
 // MockCantonClient is a mock implementation of CantonBridgeClient
 type MockCantonClient struct {
-	// Legacy methods
-	StreamBurnEventsFunc   func(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error)
-	SubmitMintProposalFunc func(ctx context.Context, req *canton.MintProposalRequest) error
-
 	// Issuer-centric model methods
 	StreamWithdrawalEventsFunc func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error)
 	RegisterUserFunc           func(ctx context.Context, req *canton.RegisterUserRequest) (string, error)
@@ -28,20 +24,6 @@ type MockCantonClient struct {
 
 	// Ledger state
 	GetLedgerEndFunc func(ctx context.Context) (string, error)
-}
-
-func (m *MockCantonClient) StreamBurnEvents(ctx context.Context, startOffset string) (<-chan *canton.BurnEvent, <-chan error) {
-	if m.StreamBurnEventsFunc != nil {
-		return m.StreamBurnEventsFunc(ctx, startOffset)
-	}
-	return nil, nil
-}
-
-func (m *MockCantonClient) SubmitMintProposal(ctx context.Context, req *canton.MintProposalRequest) error {
-	if m.SubmitMintProposalFunc != nil {
-		return m.SubmitMintProposalFunc(ctx, req)
-	}
-	return nil
 }
 
 func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {

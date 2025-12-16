@@ -9,21 +9,39 @@ bootstrap.synchronizer_local()
 // The macro is convenient for local testing, but obviously doesn't work in a distributed setup.
 participant1.synchronizers.connect_local(sequencer1, alias = "da")
 
-// Upload DARs to participant1 (SDK 3.4.8 produces DAML-LF 2.x compatible with Canton 3.4.8)
-val dars = Seq(
-  "/canton/contracts/daml/common/.daml/dist/common-1.0.0.dar",
-  "/canton/contracts/daml/cip56-token/.daml/dist/cip56-token-1.0.0.dar",
-  "/canton/contracts/daml/bridge-core/.daml/dist/bridge-core-1.0.0.dar",
-  "/canton/contracts/daml/bridge-wayfinder/.daml/dist/bridge-wayfinder-1.0.0.dar"
+// Upload DARs to participant1 - automatically find DAR files in dist directories
+// This avoids hardcoding version numbers
+import java.io.File
+
+val darDirs = Seq(
+  "/canton/contracts/daml/common/.daml/dist",
+  "/canton/contracts/daml/cip56-token/.daml/dist",
+  "/canton/contracts/daml/bridge-core/.daml/dist",
+  "/canton/contracts/daml/bridge-wayfinder/.daml/dist"
 )
 
-dars.foreach { darPath =>
-  println(s"Uploading $darPath to participant1...")
-  try {
-    participant1.dars.upload(darPath)
-    println(s"Successfully uploaded $darPath")
-  } catch {
-    case e: Exception => println(s"Failed to upload $darPath: ${e.getMessage}")
+val dars = darDirs.flatMap { dir =>
+  val distDir = new File(dir)
+  if (distDir.exists && distDir.isDirectory) {
+    distDir.listFiles.filter(_.getName.endsWith(".dar")).map(_.getAbsolutePath).toSeq
+  } else {
+    println(s"Warning: Directory not found: $dir")
+    Seq.empty
+  }
+}
+
+if (dars.isEmpty) {
+  println("ERROR: No DAR files found! Run 'daml build' in contracts/canton-erc20/daml first.")
+} else {
+  println(s"Found ${dars.size} DAR files to upload")
+  dars.foreach { darPath =>
+    println(s"Uploading $darPath to participant1...")
+    try {
+      participant1.dars.upload(darPath)
+      println(s"Successfully uploaded $darPath")
+    } catch {
+      case e: Exception => println(s"Failed to upload $darPath: ${e.getMessage}")
+    }
   }
 }
 

@@ -106,30 +106,6 @@ type CompleteWithdrawalRequest struct {
 }
 
 // =============================================================================
-// LEGACY TYPES (for backwards compatibility)
-// =============================================================================
-
-// MintProposalRequest represents a legacy mint proposal request
-// DEPRECATED: Use CreatePendingDepositRequest + ProcessDepositRequest
-type MintProposalRequest struct {
-	Recipient string
-	Amount    string
-	Reference string // EVM Tx Hash
-}
-
-// BurnEvent represents a legacy burn event on Canton
-// DEPRECATED: Use WithdrawalEvent
-type BurnEvent struct {
-	EventID       string
-	TransactionID string
-	Operator      string
-	Owner         string
-	Amount        string
-	Destination   string // EVM Address
-	Reference     string
-}
-
-// =============================================================================
 // OTHER TYPES
 // =============================================================================
 
