@@ -367,16 +367,17 @@ func queryRawEvents(ctx context.Context, client lapiv2.UpdateServiceClient, part
 func isBridgeContract(templateID *lapiv2.Identifier) bool {
 	module := templateID.ModuleName
 	entity := templateID.EntityName
-	// Deposit-related
-	if module == "Common.FingerprintAuth" && entity == "PendingDeposit" {
-		return true
+	// Deposit-related (Common.FingerprintAuth module)
+	if module == "Common.FingerprintAuth" {
+		if entity == "PendingDeposit" || entity == "DepositReceipt" {
+			return true
+		}
 	}
-	if entity == "DepositEvent" {
-		return true
-	}
-	// Withdrawal-related
-	if module == "Bridge.Contracts" && (entity == "WithdrawalRequest" || entity == "WithdrawalEvent") {
-		return true
+	// Withdrawal-related (Bridge.Contracts module)
+	if module == "Bridge.Contracts" {
+		if entity == "WithdrawalRequest" || entity == "WithdrawalEvent" {
+			return true
+		}
 	}
 	return false
 }
