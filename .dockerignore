@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+.cursor
+*.swp
+*.swo
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Contracts (not needed in relayer image - deployed separately)
+contracts/
+
+# Logs
+*.log
+logs/
+
+# Generated configs
+.test-config.yaml
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# CI/CD
+.github/
+
+# Deployments (mounted at runtime)
+deployments/
+
+# Misc
+.DS_Store
+*.bak
+tmp/

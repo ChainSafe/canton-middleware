@@ -6,36 +6,7 @@ import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
-func TestEncodeMintProposalArgs(t *testing.T) {
-	req := &MintProposalRequest{
-		Recipient: "Bob",
-		Amount:    "100.0",
-		Reference: "tx-hash",
-	}
-
-	record := EncodeMintProposalArgs(req)
-
-	if len(record.Fields) != 3 {
-		t.Errorf("Expected 3 fields, got %d", len(record.Fields))
-	}
-
-	fields := make(map[string]*lapiv2.Value)
-	for _, f := range record.Fields {
-		fields[f.Label] = f.Value
-	}
-
-	if fields["recipient"].GetParty() != req.Recipient {
-		t.Errorf("Expected recipient %s, got %s", req.Recipient, fields["recipient"].GetParty())
-	}
-	if fields["amount"].GetNumeric() != req.Amount {
-		t.Errorf("Expected amount %s, got %s", req.Amount, fields["amount"].GetNumeric())
-	}
-	if fields["txHash"].GetText() != req.Reference {
-		t.Errorf("Expected txHash %s, got %s", req.Reference, fields["txHash"].GetText())
-	}
-}
-
-func TestDecodeBurnEvent(t *testing.T) {
+func TestDecodeWithdrawalEvent(t *testing.T) {
 	// EvmAddress is encoded as a record with a "value" field
 	evmAddressRecord := &lapiv2.Value{
 		Sum: &lapiv2.Value_Record{
@@ -47,41 +18,57 @@ func TestDecodeBurnEvent(t *testing.T) {
 		},
 	}
 
-	record := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "operator", Value: PartyValue("Alice")},
-			{Label: "owner", Value: PartyValue("Bob")},
-			{Label: "amount", Value: NumericValue("50.00")},
-			{Label: "destination", Value: evmAddressRecord},
-			{Label: "reference", Value: TextValue("ref-123")},
+	// Status is encoded as a variant
+	statusVariant := &lapiv2.Value{
+		Sum: &lapiv2.Value_Variant{
+			Variant: &lapiv2.Variant{
+				Constructor: "Pending",
+			},
 		},
 	}
 
-	burn, err := DecodeBurnEvent("event-1", "tx-1", record)
-	if err != nil {
-		t.Fatalf("DecodeBurnEvent failed: %v", err)
+	record := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "issuer", Value: PartyValue("Issuer")},
+			{Label: "userParty", Value: PartyValue("Alice")},
+			{Label: "evmDestination", Value: evmAddressRecord},
+			{Label: "amount", Value: NumericValue("100.00")},
+			{Label: "fingerprint", Value: TextValue("fp-123")},
+			{Label: "status", Value: statusVariant},
+		},
 	}
 
-	if burn.EventID != "event-1" {
-		t.Errorf("Expected EventID event-1, got %s", burn.EventID)
+	withdrawal, err := DecodeWithdrawalEvent("event-1", "tx-1", "cid-1", record)
+	if err != nil {
+		t.Fatalf("DecodeWithdrawalEvent failed: %v", err)
 	}
-	if burn.TransactionID != "tx-1" {
-		t.Errorf("Expected TransactionID tx-1, got %s", burn.TransactionID)
+
+	if withdrawal.EventID != "event-1" {
+		t.Errorf("Expected EventID event-1, got %s", withdrawal.EventID)
 	}
-	if burn.Operator != "Alice" {
-		t.Errorf("Expected Operator Alice, got %s", burn.Operator)
+	if withdrawal.TransactionID != "tx-1" {
+		t.Errorf("Expected TransactionID tx-1, got %s", withdrawal.TransactionID)
 	}
-	if burn.Owner != "Bob" {
-		t.Errorf("Expected Owner Bob, got %s", burn.Owner)
+	if withdrawal.ContractID != "cid-1" {
+		t.Errorf("Expected ContractID cid-1, got %s", withdrawal.ContractID)
 	}
-	if burn.Amount != "50.00" {
-		t.Errorf("Expected Amount 50.00, got %s", burn.Amount)
+	if withdrawal.Issuer != "Issuer" {
+		t.Errorf("Expected Issuer Issuer, got %s", withdrawal.Issuer)
 	}
-	if burn.Destination != "0xRecipient" {
-		t.Errorf("Expected Destination 0xRecipient, got %s", burn.Destination)
+	if withdrawal.UserParty != "Alice" {
+		t.Errorf("Expected UserParty Alice, got %s", withdrawal.UserParty)
 	}
-	if burn.Reference != "ref-123" {
-		t.Errorf("Expected Reference ref-123, got %s", burn.Reference)
+	if withdrawal.Amount != "100.00" {
+		t.Errorf("Expected Amount 100.00, got %s", withdrawal.Amount)
+	}
+	if withdrawal.EvmDestination != "0xRecipient" {
+		t.Errorf("Expected EvmDestination 0xRecipient, got %s", withdrawal.EvmDestination)
+	}
+	if withdrawal.Fingerprint != "fp-123" {
+		t.Errorf("Expected Fingerprint fp-123, got %s", withdrawal.Fingerprint)
+	}
+	if withdrawal.Status != "Pending" {
+		t.Errorf("Expected Status Pending, got %s", withdrawal.Status)
 	}
 }
 

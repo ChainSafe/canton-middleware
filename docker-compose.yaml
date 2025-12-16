@@ -1,4 +1,27 @@
+# =============================================================================
+# Full Local Docker Setup
+# =============================================================================
+# This docker-compose file runs EVERYTHING locally in Docker:
+# - Anvil (local Ethereum)
+# - Ethereum contract deployer
+# - Canton Network (sequencer, mediator, participants)
+# - PostgreSQL
+# - Mock OAuth2 server
+# - Bootstrap (party allocation, contract creation)
+# - Bridge Relayer
+#
+# Usage:
+#   docker compose up --build
+#
+# To clean and restart:
+#   docker compose down -v
+#   docker compose up --build
+# =============================================================================
+
 services:
+  # ===========================================================================
+  # Ethereum
+  # ===========================================================================
   anvil:
     image: ghcr.io/foundry-rs/foundry
     container_name: anvil
@@ -8,12 +31,21 @@ services:
     ports:
       - "8545:8545"
     command: anvil --mnemonic "test test test test test test test test test test test junk" --host 0.0.0.0
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - bridge-network
 
   deployer:
     image: ghcr.io/foundry-rs/foundry
     container_name: deployer
     depends_on:
-      - anvil
+      anvil:
+        condition: service_healthy
     volumes:
       - ./contracts/ethereum-wayfinder:/app
     working_dir: /app
@@ -21,58 +53,55 @@ services:
       FOUNDRY_PROFILE: default
       DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
       RELAYER_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-      ETH_RPC_URL: "${ETH_RPC_URL:-http://anvil:8545}"
-    entrypoint: /bin/sh -c "forge clean; while ! cast block-number --rpc-url $${ETH_RPC_URL} > /dev/null 2>&1; do sleep 1; done; forge script script/Deployer.s.sol --rpc-url $${ETH_RPC_URL} --broadcast"
+      ETH_RPC_URL: "http://anvil:8545"
+    entrypoint: /bin/sh -c "forge clean; while ! cast block-number --rpc-url http://anvil:8545 > /dev/null 2>&1; do sleep 1; done; forge script script/Deployer.s.sol --rpc-url http://anvil:8545 --broadcast"
+    networks:
+      - bridge-network
 
+  # ===========================================================================
+  # Canton Network
+  # ===========================================================================
   canton:
     image: chainsafe/canton:3.4.8
     container_name: canton
     ports:
-      # Sequencer
-      - "5001:5001" # Public API
-      - "5002:5002" # Admin API
-
-      # Mediator
-      - "5202:5202" # Admin API
-
-      # Participant 1
-      - "5011:5011" # Ledger API
-      - "5012:5012" # Admin API
-      - "5013:5013" # HTTP Ledger API
-
-      # Participant 2
-      - "5021:5021" # Ledger API
-      - "5022:5022" # Admin API
-      - "5023:5023" # HTTP Ledger API
-
+      - "5001:5001"   # Sequencer Public API
+      - "5002:5002"   # Sequencer Admin API
+      - "5011:5011"   # Participant 1 Ledger API
+      - "5012:5012"   # Participant 1 Admin API
+      - "5013:5013"   # Participant 1 HTTP Ledger API
+      - "5021:5021"   # Participant 2 Ledger API
+      - "5022:5022"   # Participant 2 Admin API
+      - "5023:5023"   # Participant 2 HTTP Ledger API
+      - "5202:5202"   # Mediator Admin API
     environment:
       JDK_JAVA_OPTIONS: "-XX:+ExitOnOutOfMemoryError -Xmx8G"
-      OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION: exponential_bucket_histogram
     command:
       - "daemon"
-      - "--log-level-root=${LOG_LEVEL:-INFO}"
-      - "--log-level-canton=${LOG_LEVEL:-DEBUG}"
-      - "--log-level-stdout=${LOG_LEVEL:-DEBUG}"
-      # - "--log-encoder=json"
-      - "--log-file-name=/var/log/promtail/canton.log"
+      - "--log-level-root=INFO"
+      - "--log-level-canton=DEBUG"
+      - "--log-level-stdout=DEBUG"
       - "--config=/canton/simple-topology.conf"
       - "--bootstrap=/canton/deploy-dars.canton"
     volumes:
       - ./contracts/canton-erc20:/canton/contracts
       - ./deployments/canton-config/simple-topology.conf:/canton/simple-topology.conf
       - ./deployments/canton-config/deploy-dars.canton:/canton/deploy-dars.canton
-
-    # Healthcheck using the tools installed in the Dockerfile (grpcurl, jq)
     healthcheck:
       test: "grpcurl --plaintext localhost:5011 com.digitalasset.canton.health.admin.v0.StatusService.Status | jq -e '.success | select(.active)'"
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - bridge-network
 
+  # ===========================================================================
+  # Database
+  # ===========================================================================
   postgres:
     image: postgres:15-alpine
     container_name: postgres
@@ -86,41 +115,103 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bridge-network
 
-  relayer:
-    build: .
-    container_name: canton-bridge-relayer
+  # ===========================================================================
+  # Mock OAuth2 Server
+  # ===========================================================================
+  mock-oauth2:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: mock-oauth2
+    container_name: mock-oauth2
+    ports:
+      - "8088:8088"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8088/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - bridge-network
+
+  # ===========================================================================
+  # Bootstrap (runs once to set up Canton contracts)
+  # ===========================================================================
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: bootstrap
+    container_name: bootstrap
+    environment:
+      CONFIG_FILE: /app/state/config.yaml
+      CANTON_HTTP: http://canton:5013
+      BROADCAST_DIR: /app/broadcast
+    volumes:
+      - ./config.docker.yaml:/app/config-template.yaml:ro
+      - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
+      - config_state:/app/state
+    entrypoint: /bin/sh -c "cp /app/config-template.yaml /app/state/config.yaml && /app/docker-bootstrap.sh"
     depends_on:
-      postgres:
+      canton:
         condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
+      deployer:
+        condition: service_completed_successfully
+    networks:
+      - bridge-network
+
+  # ===========================================================================
+  # Bridge Relayer
+  # ===========================================================================
+  relayer:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: relayer
+    container_name: canton-bridge-relayer
     ports:
       - "8080:8080"
       - "9090:9090"
+    volumes:
+      - config_state:/app/state:ro
+    command: ["-config", "/app/state/config.yaml"]
+    environment:
+      LOG_LEVEL: debug
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      canton:
+        condition: service_healthy
+      anvil:
+        condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/ready"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 120s
+      start_period: 30s
+    networks:
+      - bridge-network
 
-#   prometheus:
-#     image: prom/prometheus:latest
-#     container_name: canton-bridge-prometheus
-#     ports:
-#       - "9091:9090"
-#     volumes:
-#       - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-#       - prometheus_data:/prometheus
-#     command:
-#       - '--config.file=/etc/prometheus/prometheus.yml'
-#       - '--storage.tsdb.path=/prometheus'
-#     restart: unless-stopped
+networks:
+  bridge-network:
+    driver: bridge
 
 volumes:
   postgres_data:
-  prometheus_data:
+  config_state:
+

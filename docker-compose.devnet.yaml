@@ -2,12 +2,13 @@
 # Usage: docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
 #
 # This overlay:
-# - Disables the local Canton container (using 5North hosted participant)
-# - Disables anvil and deployer (Using Infura endpoint for Sepolia) and pre-deployered contracts
+# - Disables local Canton, Anvil, deployer (using 5North hosted participant + Sepolia)
+# - Disables mock-oauth2 and bootstrap (not needed for devnet)
 # - Keeps Postgres for relayer state
+# - Uses config.devnet.yaml
 
 services:
-  # Disable Canton container - using 5North hosted participant
+  # Disable local services - using 5North hosted participant
   canton:
     profiles: ["disabled"]
 
@@ -17,9 +18,20 @@ services:
   deployer:
     profiles: ["disabled"]
 
+  mock-oauth2:
+    profiles: ["disabled"]
+
+  bootstrap:
+    profiles: ["disabled"]
+
   relayer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
-      - ./config.devnet.yaml:/app/config.yaml
+      - ./config.devnet.yaml:/app/config.yaml:ro
 
   # Postgres stays enabled for relayer state
-  # postgres: (inherited from docker-compose.yaml)

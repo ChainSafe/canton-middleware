@@ -1,0 +1,56 @@
+# Multi-stage build for relayer + bootstrap tools
+# Using full golang image (not alpine) for toolchain auto-download support
+FROM golang:1.23 AS builder
+
+WORKDIR /app
+
+# Allow Go toolchain to auto-upgrade for dependencies requiring newer versions
+ENV GOTOOLCHAIN=auto
+
+# Copy go mod files first and download deps - this layer is cached unless go.mod/go.sum change
+COPY go.mod go.sum ./
+RUN GOTOOLCHAIN=auto go mod download
+
+# Copy source code (this layer changes frequently but deps are already cached)
+COPY . .
+
+# Build all binaries
+# CGO_ENABLED=0 creates static binaries compatible with alpine
+RUN GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
+    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
+    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
+    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go
+
+# Runtime stage for relayer
+FROM alpine:latest AS relayer
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/bin/relayer /app/relayer
+EXPOSE 8080 9090
+ENTRYPOINT ["/app/relayer"]
+CMD ["-config", "/app/config.yaml"]
+
+# Runtime stage for mock-oauth2
+FROM alpine:latest AS mock-oauth2
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/bin/mock-oauth2-server /app/mock-oauth2-server
+EXPOSE 8088
+ENTRYPOINT ["/app/mock-oauth2-server"]
+
+# Runtime stage for bootstrap tools
+FROM alpine:latest AS bootstrap
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates curl jq bash
+COPY --from=builder /app/bin/bootstrap-bridge /app/bootstrap-bridge
+COPY --from=builder /app/bin/register-user /app/register-user
+
+# Copy the bootstrap script
+COPY scripts/docker-bootstrap.sh /app/docker-bootstrap.sh
+RUN chmod +x /app/docker-bootstrap.sh
+
+ENTRYPOINT ["/app/docker-bootstrap.sh"]
+

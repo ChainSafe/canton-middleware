@@ -1,20 +1,22 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+# Using full golang image (not alpine) for toolchain auto-download support
+FROM golang:1.23 AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git make
+# Allow Go toolchain to auto-upgrade for dependencies requiring newer versions
+ENV GOTOOLCHAIN=auto
 
-# Copy go mod files
+# Copy go mod files first
 COPY go.mod go.sum ./
-RUN go mod download
 
-# Copy source code
+# Copy all source
 COPY . .
 
-# Build the application
-RUN go build -o /app/bin/relayer ./cmd/relayer
+# Download deps and build in one layer to preserve toolchain
+# GOTOOLCHAIN=auto downloads newer Go version if required by deps
+RUN GOTOOLCHAIN=auto go mod download && \
+    GOTOOLCHAIN=auto go build -o /app/bin/relayer ./cmd/relayer
 
 # Runtime stage
 FROM alpine:latest

@@ -3,7 +3,7 @@ server:
   port: 8080
 
 database:
-  host: "localhost"
+  host: "postgres"
   port: 5432
   user: "postgres"
   password: "p@ssw0rd"
@@ -11,8 +11,8 @@ database:
   ssl_mode: "disable"
 
 ethereum:
-  rpc_url: "http://localhost:8545"
-  ws_url: "ws://localhost:8545"
+  rpc_url: "http://anvil:8545"
+  ws_url: "ws://anvil:8545"
   chain_id: 31337
   bridge_contract: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
   token_contract: "0x5fbdb2315678afecb367f032d93f642f64180aa3"
@@ -24,25 +24,23 @@ ethereum:
   start_block: 0
 
 canton:
-  rpc_url: "localhost:5011"
+  rpc_url: "canton:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: "local::12208d082c047286408240bee337ae5536e0b8602b06a3f2c4320a251ccf48933371"
+  domain_id: ""  # Auto-detected by bootstrap
   application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::12203e9527c8eb560eefb145377025fc8aaa5f7c339c0bff51fd51c411e1cb797ff3"
-  bridge_package_id: "7acb1f2cba4b2d2ecb50b8014601f0cb2ef445c64b646334cb371be1b7465336"  # bridge-wayfinder
-  core_package_id: "54118e1597c2b0af5ebbb8c06d30216c34b71616878bbabe495bc15aadbec54e"    # bridge-core (WithdrawalEvent, MintCommand)
-  # Related package IDs:
-  # - cip56-token: 6813c511ac7e470a6e6b27072146fd948b0b932f6d32d0cc27be8adb84bdf23f
+  relayer_party: ""  # Auto-detected by bootstrap
+  bridge_package_id: "55f8afb9ed3647df98dd6943b13a7d79cfe3a3db472a48b4a8ff0bb4e9914041"
+  core_package_id: "a4875212c122d39975921c23750b3fdd1b1f1a7a11ae33f14c71e28354a77cbd"
+  cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
   bridge_module: "Wayfinder.Bridge" 
   bridge_contract: "WayfinderBridgeConfig"
   tls:
     enabled: false
   auth:
-    # Mock OAuth2 for local testing (run: go run scripts/mock-oauth2-server.go)
     client_id: "local-test-client"
     client_secret: "local-test-secret"
-    audience: "http://localhost:5011"
-    token_url: "http://localhost:8088/oauth/token"
+    audience: "http://canton:5011"
+    token_url: "http://mock-oauth2:8088/oauth/token"
   polling_interval: "1s"
 
 bridge:
@@ -62,3 +60,4 @@ logging:
   level: "debug"
   format: "console"
   output_path: "stdout"
+
