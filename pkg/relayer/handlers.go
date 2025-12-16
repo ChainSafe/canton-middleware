@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton"
@@ -166,7 +167,11 @@ func (d *CantonDestination) GetChainID() string {
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
 	// The recipient from EVM is a fingerprint (bytes32 as hex)
+	// Normalize to have 0x prefix to match FingerprintMapping storage format
 	fingerprint := event.Recipient
+	if !strings.HasPrefix(fingerprint, "0x") {
+		fingerprint = "0x" + fingerprint
+	}
 
 	// Parse amount
 	amount := new(big.Int)

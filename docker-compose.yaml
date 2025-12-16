@@ -113,7 +113,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/01-relayer-schema.sql
+      - ./deployments/api-server/init.sql:/docker-entrypoint-initdb.d/02-api-server-init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -152,13 +153,15 @@ services:
     container_name: bootstrap
     environment:
       CONFIG_FILE: /app/state/config.yaml
+      API_SERVER_CONFIG_FILE: /app/state/api-server-config.yaml
       CANTON_HTTP: http://canton:5013
       BROADCAST_DIR: /app/broadcast
     volumes:
       - ./config.docker.yaml:/app/config-template.yaml:ro
+      - ./config.api-server.docker.yaml:/app/api-server-config-template.yaml:ro
       - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
       - config_state:/app/state
-    entrypoint: /bin/sh -c "cp /app/config-template.yaml /app/state/config.yaml && /app/docker-bootstrap.sh"
+    entrypoint: /bin/sh -c "cp /app/config-template.yaml /app/state/config.yaml && cp /app/api-server-config-template.yaml /app/state/api-server-config.yaml && /app/docker-bootstrap.sh"
     depends_on:
       canton:
         condition: service_healthy
@@ -207,6 +210,41 @@ services:
     networks:
       - bridge-network
 
+  # ===========================================================================
+  # ERC-20 API Server
+  # ===========================================================================
+  api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: api-server
+    container_name: erc20-api-server
+    ports:
+      - "8081:8081"
+    volumes:
+      - config_state:/app/state:ro
+    command: ["-config", "/app/state/api-server-config.yaml"]
+    environment:
+      LOG_LEVEL: debug
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      canton:
+        condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - bridge-network
+
 networks:
   bridge-network:
     driver: bridge
@@ -214,4 +252,5 @@ networks:
 volumes:
   postgres_data:
   config_state:
+
 

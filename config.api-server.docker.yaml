@@ -1,0 +1,52 @@
+# =============================================================================
+# ERC-20 API Server Configuration (Docker)
+# =============================================================================
+# This config is used by the api-server container. Values are populated by
+# the bootstrap script at runtime.
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "erc20_api"
+  ssl_mode: "disable"
+
+canton:
+  rpc_url: "canton:5011"
+  domain_id: ""
+  application_id: "erc20-api"
+  relayer_party: ""
+  bridge_package_id: "55f8afb9ed3647df98dd6943b13a7d79cfe3a3db472a48b4a8ff0bb4e9914041"
+  core_package_id: "a4875212c122d39975921c23750b3fdd1b1f1a7a11ae33f14c71e28354a77cbd"
+  cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
+  bridge_module: "Wayfinder.Bridge"
+  tls:
+    enabled: false
+  auth:
+    client_id: "local-test-client"
+    client_secret: "local-test-secret"
+    audience: "http://canton:5011"
+    token_url: "http://mock-oauth2:8088/oauth/token"
+  max_inbound_message_size: 52428800
+
+# Token metadata
+token:
+  name: "PROMPT"
+  symbol: "PROMPT"
+  decimals: 18
+
+# JWKS endpoint for JWT validation (optional - if not using EVM signatures)
+jwks:
+  url: ""
+  issuer: ""
+
+logging:
+  level: "info"
+  format: "json"
+

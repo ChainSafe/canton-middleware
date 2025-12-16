@@ -116,6 +116,90 @@ type LoggingConfig struct {
 	OutputPath string `mapstructure:"output_path"`
 }
 
+// =============================================================================
+// API SERVER CONFIG
+// =============================================================================
+
+// APIServerConfig represents the ERC-20 API server configuration
+type APIServerConfig struct {
+	Server   ServerConfig   `mapstructure:"server"`
+	Database DatabaseConfig `mapstructure:"database"`
+	Canton   CantonConfig   `mapstructure:"canton"`
+	Token    TokenConfig    `mapstructure:"token"`
+	JWKS     JWKSConfig     `mapstructure:"jwks"`
+	Logging  LoggingConfig  `mapstructure:"logging"`
+}
+
+// TokenConfig contains ERC-20 token metadata
+type TokenConfig struct {
+	Name     string `mapstructure:"name"`
+	Symbol   string `mapstructure:"symbol"`
+	Decimals int    `mapstructure:"decimals"`
+}
+
+// JWKSConfig contains JWKS configuration for JWT validation
+type JWKSConfig struct {
+	URL    string `mapstructure:"url"`
+	Issuer string `mapstructure:"issuer"`
+}
+
+// LoadAPIServer loads API server configuration from file
+func LoadAPIServer(configPath string) (*APIServerConfig, error) {
+	viper.SetConfigFile(configPath)
+	viper.SetConfigType("yaml")
+	viper.AutomaticEnv()
+
+	// Set API server defaults
+	setAPIServerDefaults()
+
+	if err := viper.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config APIServerConfig
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if err := validateAPIServer(&config); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	return &config, nil
+}
+
+func setAPIServerDefaults() {
+	// Server defaults
+	viper.SetDefault("server.host", "0.0.0.0")
+	viper.SetDefault("server.port", 8081)
+
+	// Database defaults
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 5432)
+	viper.SetDefault("database.ssl_mode", "disable")
+	viper.SetDefault("database.database", "erc20_api")
+
+	// Token defaults
+	viper.SetDefault("token.name", "PROMPT")
+	viper.SetDefault("token.symbol", "PROMPT")
+	viper.SetDefault("token.decimals", 18)
+
+	// Logging defaults
+	viper.SetDefault("logging.level", "info")
+	viper.SetDefault("logging.format", "json")
+	viper.SetDefault("logging.output_path", "stdout")
+}
+
+func validateAPIServer(config *APIServerConfig) error {
+	if config.Database.Host == "" {
+		return fmt.Errorf("database.host is required")
+	}
+	if config.Canton.RPCURL == "" {
+		return fmt.Errorf("canton.rpc_url is required")
+	}
+	return nil
+}
+
 // Load loads configuration from file and environment variables
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
