@@ -13,7 +13,7 @@ import (
 // MockCantonClient is a mock implementation of CantonBridgeClient
 type MockCantonClient struct {
 	// Issuer-centric model methods
-	StreamWithdrawalEventsFunc func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error)
+	StreamWithdrawalEventsFunc func(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent
 	RegisterUserFunc           func(ctx context.Context, req *canton.RegisterUserRequest) (string, error)
 	GetFingerprintMappingFunc  func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
 	CreatePendingDepositFunc   func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
@@ -26,11 +26,11 @@ type MockCantonClient struct {
 	GetLedgerEndFunc func(ctx context.Context) (string, error)
 }
 
-func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
+func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent {
 	if m.StreamWithdrawalEventsFunc != nil {
 		return m.StreamWithdrawalEventsFunc(ctx, offset)
 	}
-	return nil, nil
+	return nil
 }
 
 func (m *MockCantonClient) RegisterUser(ctx context.Context, req *canton.RegisterUserRequest) (string, error) {
