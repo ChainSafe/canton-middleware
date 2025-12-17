@@ -814,6 +814,44 @@ run_full_test() {
 # Interactive Menu
 # =============================================================================
 
+view_users() {
+    print_header "Registered Users"
+    
+    # Query the database for all users
+    local users=$(docker exec postgres psql -U postgres -d erc20_api -t -A -F '|' -c \
+        "SELECT id, evm_address, canton_party, fingerprint, mapping_cid, created_at FROM users ORDER BY id;" 2>/dev/null)
+    
+    if [ -z "$users" ]; then
+        print_warning "No users registered yet"
+        return
+    fi
+    
+    echo ""
+    echo -e "${CYAN}┌────┬────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│ ID │ EVM Address                                │ Canton Party                                                          │${NC}"
+    echo -e "${CYAN}├────┼────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────┤${NC}"
+    
+    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid created_at; do
+        printf "${CYAN}│${NC} %-2s ${CYAN}│${NC} %-42s ${CYAN}│${NC} %-69s ${CYAN}│${NC}\n" "$id" "$evm_addr" "${party:0:69}"
+    done
+    
+    echo -e "${CYAN}└────┴────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────┘${NC}"
+    
+    echo ""
+    print_info "Detailed User Information:"
+    echo ""
+    
+    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid created_at; do
+        echo -e "${GREEN}User $id:${NC}"
+        echo "  EVM Address:   $evm_addr"
+        echo "  Canton Party:  $party"
+        echo "  Fingerprint:   $fingerprint"
+        echo "  Mapping CID:   ${mapping_cid:-N/A}"
+        echo "  Registered:    $created_at"
+        echo ""
+    done
+}
+
 show_menu() {
     echo ""
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
@@ -828,6 +866,7 @@ show_menu() {
     echo "  6) Start services"
     echo "  7) Stop services"
     echo "  8) Clean & restart"
+    echo "  9) View registered users"
     echo "  0) Exit"
     echo ""
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
@@ -885,6 +924,9 @@ interactive_menu() {
             8)
                 clean_environment
                 start_services || true
+                ;;
+            9)
+                view_users
                 ;;
             0|q|Q)
                 echo ""
