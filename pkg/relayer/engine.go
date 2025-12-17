@@ -128,6 +128,10 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Initialize processors with offset persistence callbacks
 	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonChainKey())
 	ethDest := NewEthereumDestination(e.ethClient, e.cantonClient, e.ethereumChainKey())
+	// Set API DB for balance cache updates on withdrawals if configured
+	if e.apiDB != nil {
+		ethDest.SetAPIDB(e.apiDB)
+	}
 	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor").
 		WithOffsetUpdate(e.saveChainOffset)
 

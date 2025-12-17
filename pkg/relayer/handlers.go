@@ -249,10 +249,16 @@ type EthereumDestination struct {
 	client       EthereumBridgeClient
 	cantonClient CantonBridgeClient
 	chainID      string
+	apiDB        *apidb.Store // Optional: for updating balance cache
 }
 
 func NewEthereumDestination(client EthereumBridgeClient, cantonClient CantonBridgeClient, chainID string) *EthereumDestination {
 	return &EthereumDestination{client: client, cantonClient: cantonClient, chainID: chainID}
+}
+
+// SetAPIDB sets the API database store for balance cache updates
+func (d *EthereumDestination) SetAPIDB(apiDB *apidb.Store) {
+	d.apiDB = apiDB
 }
 
 func (d *EthereumDestination) GetChainID() string {
@@ -316,6 +322,19 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 			// Log but don't fail - the EVM transfer succeeded
 			// This can be reconciled later via cleanup script
 			fmt.Printf("WARN: Failed to mark withdrawal complete on Canton (EVM succeeded): %v\n", err)
+		}
+
+		// Update balance cache if API DB is configured
+		if d.apiDB != nil {
+			// Decrement user balance using fingerprint from withdrawal event
+			if err := d.apiDB.DecrementBalanceByFingerprint(withdrawal.Fingerprint, event.Amount); err != nil {
+				// Log but don't fail - the withdrawal succeeded
+				fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", withdrawal.Fingerprint, err)
+			}
+			// Decrement total supply (tokens leaving Canton system)
+			if err := d.apiDB.DecrementTotalSupply(event.Amount); err != nil {
+				fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
+			}
 		}
 	}
 
