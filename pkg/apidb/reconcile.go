@@ -79,7 +79,12 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 			cantonBalance = bal
 		}
 
-		dbBalance, _ := decimal.NewFromString(user.Balance)
+		dbBalance, err := decimal.NewFromString(user.Balance)
+		if err != nil {
+			r.logger.Warn("Failed to parse user balance", zap.String("evm_address", user.EVMAddress), zap.Error(err))
+			continue
+		}
+		
 		if !dbBalance.Equal(cantonBalance) {
 			mismatches++
 			r.logger.Info("Balance mismatch detected",
