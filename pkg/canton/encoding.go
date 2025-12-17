@@ -516,3 +516,13 @@ func extractWithdrawalStatusV2(v *lapiv2.Value) WithdrawalStatus {
 	}
 	return WithdrawalStatusPending
 }
+
+func extractContractIdV2(v *lapiv2.Value) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	if c, ok := v.Sum.(*lapiv2.Value_ContractId); ok {
+		return c.ContractId, true
+	}
+	return "", false
+}

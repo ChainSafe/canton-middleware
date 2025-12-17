@@ -937,7 +937,10 @@ type TransferRequest struct {
 	Amount          string
 }
 
-// Transfer performs a token transfer using Burn + Mint
+// Transfer performs a token transfer using Burn + Mint via CIP56Manager
+// Since CIP56Holding.Transfer requires the owner to be the controller,
+// and in our issuer-centric model users don't have Canton keys,
+// we use the issuer's CIP56Manager to burn from sender and mint to recipient.
 func (c *Client) Transfer(ctx context.Context, req *TransferRequest) error {
 	c.logger.Info("Executing transfer",
 		zap.String("from_fingerprint", req.FromFingerprint),
@@ -962,28 +965,27 @@ func (c *Client) Transfer(ctx context.Context, req *TransferRequest) error {
 		return fmt.Errorf("insufficient balance: %w", err)
 	}
 
-	// Execute transfer via WayfinderBridgeConfig.Transfer choice
-	configCid, err := c.GetWayfinderBridgeConfig(ctx)
+	// Get the CIP56Manager from WayfinderBridgeConfig
+	tokenManagerCid, err := c.getTokenManagerCid(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get bridge config: %w", err)
+		return fmt.Errorf("failed to get token manager: %w", err)
 	}
 
 	authCtx := c.GetAuthContext(ctx)
 
-	cmd := &lapiv2.Command{
+	// Step 1: Burn tokens from sender's holding
+	burnCmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.BridgePackageID,
-					ModuleName: "Wayfinder.Bridge",
-					EntityName: "WayfinderBridgeConfig",
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Manager",
 				},
-				ContractId: configCid,
-				Choice:     "Transfer",
+				ContractId: tokenManagerCid,
+				Choice:     "Burn",
 				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
 					Fields: []*lapiv2.RecordField{
-						{Label: "fromMappingCid", Value: ContractIdValue(fromMapping.ContractID)},
-						{Label: "toMappingCid", Value: ContractIdValue(toMapping.ContractID)},
 						{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
 						{Label: "amount", Value: NumericValue(req.Amount)},
 					},
@@ -992,20 +994,96 @@ func (c *Client) Transfer(ctx context.Context, req *TransferRequest) error {
 		},
 	}
 
+	// Step 2: Mint tokens to recipient
+	mintCmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Manager",
+				},
+				ContractId: tokenManagerCid,
+				Choice:     "Mint",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
+					Fields: []*lapiv2.RecordField{
+						{Label: "to", Value: PartyValue(toMapping.UserParty)},
+						{Label: "amount", Value: NumericValue(req.Amount)},
+					},
+				}}},
+			},
+		},
+	}
+
+	// Submit both commands atomically
 	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
 			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
+			Commands:       []*lapiv2.Command{burnCmd, mintCmd},
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to execute transfer: %w", err)
 	}
 
+	c.logger.Info("Transfer completed",
+		zap.String("from", fromMapping.UserParty),
+		zap.String("to", toMapping.UserParty),
+		zap.String("amount", req.Amount))
+
 	return nil
+}
+
+// getTokenManagerCid retrieves the CIP56Manager contract ID from WayfinderBridgeConfig
+func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: ledgerEndResp.Offset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to query contracts: %w", err)
+	}
+
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName == "Wayfinder.Bridge" && templateId.EntityName == "WayfinderBridgeConfig" {
+				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+				if tokenManagerCid, ok := extractContractIdV2(fields["tokenManagerCid"]); ok {
+					return tokenManagerCid, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no WayfinderBridgeConfig found")
 }
 
 // findHoldingForTransfer finds a CIP56Holding contract with sufficient balance
