@@ -370,3 +370,61 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 	}
 	return users, nil
 }
+
+// TransferBalanceByFingerprint atomically transfers balance from one user to another.
+// Both the decrement and increment are performed in a single database transaction
+// to ensure consistency of the balance cache.
+// Handles fingerprints with or without 0x prefix.
+func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amount string) error {
+	fromWithPrefix, fromWithoutPrefix := normalizeFingerprint(fromFingerprint)
+	toWithPrefix, toWithoutPrefix := normalizeFingerprint(toFingerprint)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Decrement sender's balance
+	decrementQuery := `
+		UPDATE users
+		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
+		WHERE fingerprint = $2 OR fingerprint = $3
+	`
+	result, err := tx.Exec(decrementQuery, amount, fromWithPrefix, fromWithoutPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to decrement sender balance: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for sender: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("sender not found for fingerprint: %s", fromFingerprint)
+	}
+
+	// Increment recipient's balance
+	incrementQuery := `
+		UPDATE users
+		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
+		WHERE fingerprint = $2 OR fingerprint = $3
+	`
+	result, err = tx.Exec(incrementQuery, amount, toWithPrefix, toWithoutPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to increment recipient balance: %w", err)
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected for recipient: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("recipient not found for fingerprint: %s", toFingerprint)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transfer transaction: %w", err)
+	}
+
+	return nil
+}
