@@ -15,6 +15,7 @@
 set -e
 
 CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
+API_SERVER_CONFIG_FILE="${API_SERVER_CONFIG_FILE:-/app/api-server-config.yaml}"
 CANTON_HTTP="${CANTON_HTTP:-http://canton:5013}"
 BROADCAST_DIR="${BROADCAST_DIR:-/app/broadcast}"
 MAX_RETRIES=60
@@ -24,6 +25,7 @@ echo "DOCKER BOOTSTRAP"
 echo "========================================================================"
 echo "Canton HTTP API: $CANTON_HTTP"
 echo "Config file: $CONFIG_FILE"
+echo "API Server config: $API_SERVER_CONFIG_FILE"
 echo "Broadcast dir: $BROADCAST_DIR"
 echo ""
 
@@ -171,6 +173,17 @@ sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
 echo "    Config updated with party and domain"
 
 # =============================================================================
+# Update API server config file
+# =============================================================================
+if [ -f "$API_SERVER_CONFIG_FILE" ]; then
+    echo ""
+    echo ">>> Updating API server config file..."
+    sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
+    sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
+    echo "    API server config updated with party and domain"
+fi
+
+# =============================================================================
 # Run bootstrap-bridge
 # =============================================================================
 echo ""
@@ -206,4 +219,5 @@ if [ "${WAIT_FOREVER:-false}" = "true" ]; then
     echo "WAIT_FOREVER is set, keeping container alive..."
     tail -f /dev/null
 fi
+
 

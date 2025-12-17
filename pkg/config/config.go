@@ -116,6 +116,110 @@ type LoggingConfig struct {
 	OutputPath string `mapstructure:"output_path"`
 }
 
+// =============================================================================
+// API SERVER CONFIG
+// =============================================================================
+
+// APIServerConfig represents the ERC-20 API server configuration
+type APIServerConfig struct {
+	Server         ServerConfig         `mapstructure:"server"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	Canton         CantonConfig         `mapstructure:"canton"`
+	Token          TokenConfig          `mapstructure:"token"`
+	JWKS           JWKSConfig           `mapstructure:"jwks"`
+	Logging        LoggingConfig        `mapstructure:"logging"`
+	Reconciliation ReconciliationConfig `mapstructure:"reconciliation"`
+	Shutdown       ShutdownConfig       `mapstructure:"shutdown"`
+}
+
+// TokenConfig contains ERC-20 token metadata
+type TokenConfig struct {
+	Name     string `mapstructure:"name"`
+	Symbol   string `mapstructure:"symbol"`
+	Decimals int    `mapstructure:"decimals"`
+}
+
+// JWKSConfig contains JWKS configuration for JWT validation
+type JWKSConfig struct {
+	URL    string `mapstructure:"url"`
+	Issuer string `mapstructure:"issuer"`
+}
+
+// ReconciliationConfig contains settings for balance reconciliation
+type ReconciliationConfig struct {
+	InitialTimeout time.Duration `mapstructure:"initial_timeout"`
+	Interval       time.Duration `mapstructure:"interval"`
+}
+
+// ShutdownConfig contains graceful shutdown settings
+type ShutdownConfig struct {
+	Timeout time.Duration `mapstructure:"timeout"`
+}
+
+// LoadAPIServer loads API server configuration from file
+func LoadAPIServer(configPath string) (*APIServerConfig, error) {
+	viper.SetConfigFile(configPath)
+	viper.SetConfigType("yaml")
+	viper.AutomaticEnv()
+
+	// Set API server defaults
+	setAPIServerDefaults()
+
+	if err := viper.ReadInConfig(); err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	var config APIServerConfig
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if err := validateAPIServer(&config); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	return &config, nil
+}
+
+func setAPIServerDefaults() {
+	// Server defaults
+	viper.SetDefault("server.host", "0.0.0.0")
+	viper.SetDefault("server.port", 8081)
+
+	// Database defaults
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 5432)
+	viper.SetDefault("database.ssl_mode", "disable")
+	viper.SetDefault("database.database", "erc20_api")
+
+	// Token defaults
+	viper.SetDefault("token.name", "PROMPT")
+	viper.SetDefault("token.symbol", "PROMPT")
+	viper.SetDefault("token.decimals", 18)
+
+	// Logging defaults
+	viper.SetDefault("logging.level", "info")
+	viper.SetDefault("logging.format", "json")
+	viper.SetDefault("logging.output_path", "stdout")
+
+	// Reconciliation defaults
+	viper.SetDefault("reconciliation.initial_timeout", "2m")
+	viper.SetDefault("reconciliation.interval", "5m")
+
+	// Shutdown defaults
+	viper.SetDefault("shutdown.timeout", "30s")
+}
+
+func validateAPIServer(config *APIServerConfig) error {
+	if config.Database.Host == "" {
+		return fmt.Errorf("database.host is required")
+	}
+	if config.Canton.RPCURL == "" {
+		return fmt.Errorf("canton.rpc_url is required")
+	}
+	return nil
+}
+
 // Load loads configuration from file and environment variables
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
@@ -204,5 +308,17 @@ func (c *DatabaseConfig) GetConnectionString() string {
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		c.Host, c.Port, c.User, c.Password, c.Database, c.SSLMode,
+	)
+}
+
+// GetAPIConnectionString returns a PostgreSQL connection string for the API database (erc20_api)
+// This is used by the relayer to update the balance cache
+func (c *DatabaseConfig) GetAPIConnectionString() string {
+	if c.Host == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Password, "erc20_api", c.SSLMode,
 	)
 }

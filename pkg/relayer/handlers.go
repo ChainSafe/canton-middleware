@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
@@ -151,10 +152,16 @@ type CantonDestination struct {
 	config       *config.EthereumConfig
 	relayerParty string
 	chainID      string
+	apiDB        *apidb.Store // Optional: for updating balance cache
 }
 
 func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig, relayerParty string, chainID string) *CantonDestination {
 	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty, chainID: chainID}
+}
+
+// SetAPIDB sets the API database store for balance cache updates
+func (d *CantonDestination) SetAPIDB(apiDB *apidb.Store) {
+	d.apiDB = apiDB
 }
 
 func (d *CantonDestination) GetChainID() string {
@@ -163,7 +170,7 @@ func (d *CantonDestination) GetChainID() string {
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
 	// The recipient from EVM is a fingerprint (bytes32 as hex)
-	fingerprint := event.Recipient
+	fingerprintFromEvent := event.Recipient
 
 	// Parse amount
 	amount := new(big.Int)
@@ -182,7 +189,19 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 		return fmt.Sprintf("already-processed:%s", event.SourceTxHash), nil
 	}
 
-	// Step 1: Create PendingDeposit from EVM event
+	// Step 1: Look up FingerprintMapping FIRST to get the exact stored fingerprint format
+	// GetFingerprintMapping normalizes the input for comparison, but we need the exact
+	// stored format to use in PendingDeposit so it matches during ProcessDeposit
+	mapping, err := d.client.GetFingerprintMapping(ctx, fingerprintFromEvent)
+	if err != nil {
+		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprintFromEvent, err)
+	}
+
+	// Use the EXACT fingerprint from the mapping - this ensures PendingDeposit.fingerprint
+	// will match FingerprintMapping.fingerprint exactly, regardless of whether it has 0x prefix
+	fingerprint := mapping.Fingerprint
+
+	// Step 2: Create PendingDeposit from EVM event using exact fingerprint from mapping
 	depositReq := &canton.CreatePendingDepositRequest{
 		Fingerprint: fingerprint,
 		Amount:      amountStr,
@@ -193,12 +212,6 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	depositCid, err := d.client.CreatePendingDeposit(ctx, depositReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to create pending deposit: %w", err)
-	}
-
-	// Step 2: Look up FingerprintMapping by fingerprint
-	mapping, err := d.client.GetFingerprintMapping(ctx, fingerprint)
-	if err != nil {
-		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprint, err)
 	}
 
 	// Step 3: Process deposit (unlock tokens on Canton side)
@@ -212,6 +225,19 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 		return "", fmt.Errorf("failed to process deposit: %w", err)
 	}
 
+	// Step 4: Update balance cache if API DB is configured
+	if d.apiDB != nil {
+		// Increment user balance
+		if err := d.apiDB.IncrementBalanceByFingerprint(fingerprint, amountStr); err != nil {
+			// Log but don't fail - the deposit succeeded on Canton
+			fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", fingerprint, err)
+		}
+		// Increment total supply
+		if err := d.apiDB.IncrementTotalSupply(amountStr); err != nil {
+			fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
+		}
+	}
+
 	return holdingCid, nil
 }
 
@@ -220,10 +246,16 @@ type EthereumDestination struct {
 	client       EthereumBridgeClient
 	cantonClient CantonBridgeClient
 	chainID      string
+	apiDB        *apidb.Store // Optional: for updating balance cache
 }
 
 func NewEthereumDestination(client EthereumBridgeClient, cantonClient CantonBridgeClient, chainID string) *EthereumDestination {
 	return &EthereumDestination{client: client, cantonClient: cantonClient, chainID: chainID}
+}
+
+// SetAPIDB sets the API database store for balance cache updates
+func (d *EthereumDestination) SetAPIDB(apiDB *apidb.Store) {
+	d.apiDB = apiDB
 }
 
 func (d *EthereumDestination) GetChainID() string {
@@ -287,6 +319,19 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 			// Log but don't fail - the EVM transfer succeeded
 			// This can be reconciled later via cleanup script
 			fmt.Printf("WARN: Failed to mark withdrawal complete on Canton (EVM succeeded): %v\n", err)
+		}
+
+		// Update balance cache if API DB is configured
+		if d.apiDB != nil {
+			// Decrement user balance using fingerprint from withdrawal event
+			if err := d.apiDB.DecrementBalanceByFingerprint(withdrawal.Fingerprint, event.Amount); err != nil {
+				// Log but don't fail - the withdrawal succeeded
+				fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", withdrawal.Fingerprint, err)
+			}
+			// Decrement total supply (tokens leaving Canton system)
+			if err := d.apiDB.DecrementTotalSupply(event.Amount); err != nil {
+				fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
+			}
 		}
 	}
 

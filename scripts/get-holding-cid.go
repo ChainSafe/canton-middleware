@@ -4,6 +4,7 @@
 // Usage:
 //   go run scripts/get-holding-cid.go -config .test-config.yaml              # Output: contract_id
 //   go run scripts/get-holding-cid.go -config .test-config.yaml -with-balance # Output: contract_id balance
+//   go run scripts/get-holding-cid.go -config .test-config.yaml -party "User::12345" -with-balance # Filter by owner
 //
 // Note: When multiple holdings exist (from multiple deposits), this returns the one
 // with the LARGEST balance, which is most useful for withdrawals.
@@ -33,10 +34,12 @@ import (
 var (
 	configPath  = flag.String("config", "config.yaml", "Path to config file")
 	withBalance = flag.Bool("with-balance", false, "Also output the holding balance")
+	ownerParty  = flag.String("party", "", "Filter by owner party (optional)")
 )
 
 type holding struct {
 	contractID string
+	owner      string
 	balance    decimal.Decimal
 	balanceStr string
 }
@@ -79,7 +82,7 @@ func main() {
 
 	// Get ledger end offset first
 	stateClient := lapiv2.NewStateServiceClient(conn)
-	
+
 	ledgerEnd, err := stateClient.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get ledger end: %v\n", err)
@@ -128,8 +131,9 @@ func main() {
 			if templateID.ModuleName == "CIP56.Token" && templateID.EntityName == "CIP56Holding" {
 				contractID := contract.CreatedEvent.ContractId
 				balanceStr := "0"
-				
-				// Extract balance from contract arguments
+				owner := ""
+
+				// Extract balance and owner from contract arguments
 				if contract.CreatedEvent.CreateArguments != nil {
 					for _, field := range contract.CreatedEvent.CreateArguments.Fields {
 						if field.Label == "amount" && field.Value != nil {
@@ -137,16 +141,27 @@ func main() {
 								balanceStr = n.Numeric
 							}
 						}
+						if field.Label == "owner" && field.Value != nil {
+							if p, ok := field.Value.Sum.(*lapiv2.Value_Party); ok {
+								owner = p.Party
+							}
+						}
 					}
 				}
-				
+
+				// Filter by owner party if specified
+				if *ownerParty != "" && owner != *ownerParty {
+					continue
+				}
+
 				bal, err := decimal.NewFromString(balanceStr)
 				if err != nil {
 					bal = decimal.Zero
 				}
-				
+
 				holdings = append(holdings, holding{
 					contractID: contractID,
+					owner:      owner,
 					balance:    bal,
 					balanceStr: balanceStr,
 				})

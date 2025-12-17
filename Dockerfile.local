@@ -17,6 +17,7 @@ COPY . .
 # Build all binaries
 # CGO_ENABLED=0 creates static binaries compatible with alpine
 RUN GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
+    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
     GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go
@@ -53,4 +54,14 @@ COPY scripts/docker-bootstrap.sh /app/docker-bootstrap.sh
 RUN chmod +x /app/docker-bootstrap.sh
 
 ENTRYPOINT ["/app/docker-bootstrap.sh"]
+
+# Runtime stage for api-server
+FROM alpine:latest AS api-server
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/bin/api-server /app/api-server
+EXPOSE 8081
+ENTRYPOINT ["/app/api-server"]
+CMD ["-config", "/app/config.yaml"]
 
