@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+// normalizeFingerprint returns both 0x-prefixed and non-prefixed versions of a fingerprint.
+// This allows queries to match fingerprints stored in either format.
+func normalizeFingerprint(fingerprint string) (withPrefix, withoutPrefix string) {
+	if strings.HasPrefix(fingerprint, "0x") {
+		return fingerprint, fingerprint[2:]
+	}
+	return "0x" + fingerprint, fingerprint
+}
+
 // User represents a registered EVM user mapped to a Canton party
 type User struct {
 	ID               int64      `json:"id"`
@@ -79,14 +88,7 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	var balance sql.NullString
 	var balanceUpdatedAt sql.NullTime
 
-	// Normalize fingerprint - try both with and without 0x prefix
-	withPrefix := fingerprint
-	withoutPrefix := fingerprint
-	if strings.HasPrefix(fingerprint, "0x") {
-		withoutPrefix = fingerprint[2:]
-	} else {
-		withPrefix = "0x" + fingerprint
-	}
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	query := `
 		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
@@ -173,14 +175,7 @@ func (s *Store) GetUserBalance(evmAddress string) (string, error) {
 // GetUserBalanceByFingerprint returns the cached balance for a user by fingerprint
 // Handles fingerprint with or without 0x prefix
 func (s *Store) GetUserBalanceByFingerprint(fingerprint string) (string, error) {
-	// Normalize fingerprint - try both with and without 0x prefix
-	withPrefix := fingerprint
-	withoutPrefix := fingerprint
-	if strings.HasPrefix(fingerprint, "0x") {
-		withoutPrefix = fingerprint[2:]
-	} else {
-		withPrefix = "0x" + fingerprint
-	}
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	var balance sql.NullString
 	query := `SELECT balance FROM users WHERE fingerprint = $1 OR fingerprint = $2`
@@ -221,14 +216,7 @@ func (s *Store) UpdateUserBalance(evmAddress, newBalance string) error {
 // UpdateUserBalanceByFingerprint sets the balance for a user by fingerprint
 // Handles fingerprint with or without 0x prefix
 func (s *Store) UpdateUserBalanceByFingerprint(fingerprint, newBalance string) error {
-	// Normalize fingerprint - try both with and without 0x prefix
-	withPrefix := fingerprint
-	withoutPrefix := fingerprint
-	if strings.HasPrefix(fingerprint, "0x") {
-		withoutPrefix = fingerprint[2:]
-	} else {
-		withPrefix = "0x" + fingerprint
-	}
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	query := `
 		UPDATE users
@@ -273,21 +261,13 @@ func (s *Store) IncrementBalance(evmAddress, amount string) error {
 // IncrementBalanceByFingerprint adds amount to user's balance atomically by fingerprint
 // Handles fingerprint with or without 0x prefix
 func (s *Store) IncrementBalanceByFingerprint(fingerprint, amount string) error {
-	// Normalize fingerprint - try both with and without 0x prefix
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
 	query := `
 		UPDATE users
 		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
 	`
-	// Create both variants
-	withPrefix := fingerprint
-	withoutPrefix := fingerprint
-	if strings.HasPrefix(fingerprint, "0x") {
-		withoutPrefix = fingerprint[2:]
-	} else {
-		withPrefix = "0x" + fingerprint
-	}
-
 	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to increment balance: %w", err)
@@ -326,21 +306,13 @@ func (s *Store) DecrementBalance(evmAddress, amount string) error {
 // DecrementBalanceByFingerprint subtracts amount from user's balance atomically by fingerprint
 // Handles fingerprint with or without 0x prefix
 func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string) error {
-	// Normalize fingerprint - try both with and without 0x prefix
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
 	query := `
 		UPDATE users
 		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
 	`
-	// Create both variants
-	withPrefix := fingerprint
-	withoutPrefix := fingerprint
-	if strings.HasPrefix(fingerprint, "0x") {
-		withoutPrefix = fingerprint[2:]
-	} else {
-		withPrefix = "0x" + fingerprint
-	}
-
 	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to decrement balance: %w", err)
