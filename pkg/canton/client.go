@@ -118,6 +118,14 @@ func (c *Client) GetAuthContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// invalidateToken clears the cached token to force a refresh on next GetAuthContext call
+func (c *Client) invalidateToken() {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	c.cachedToken = ""
+	c.tokenExpiry = time.Time{}
+}
+
 func (c *Client) loadToken() (string, error) {
 	auth := c.config.Auth
 	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
