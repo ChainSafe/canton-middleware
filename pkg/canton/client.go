@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+)
+
+// Sentinel errors for balance-related operations
+var (
+	// ErrInsufficientBalance indicates the user's total balance is less than the required amount
+	ErrInsufficientBalance = errors.New("insufficient balance")
+	// ErrBalanceFragmented indicates the user has sufficient total balance but it's spread across
+	// multiple holdings, none of which individually has enough for the transfer
+	ErrBalanceFragmented = errors.New("balance fragmented across multiple holdings: consolidation required")
 )
 
 // Client is a wrapper around the Canton gRPC client
@@ -1097,7 +1107,9 @@ func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("no WayfinderBridgeConfig found")
 }
 
-// findHoldingForTransfer finds a CIP56Holding contract with sufficient balance
+// findHoldingForTransfer finds a CIP56Holding contract with sufficient balance.
+// Returns structured errors to distinguish between insufficient total balance
+// and fragmented balance across multiple holdings.
 func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount string) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
@@ -1107,7 +1119,7 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 	}
 	activeAtOffset := ledgerEndResp.Offset
 	if activeAtOffset == 0 {
-		return "", fmt.Errorf("no holdings exist")
+		return "", fmt.Errorf("%w: no holdings exist", ErrInsufficientBalance)
 	}
 
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
@@ -1131,6 +1143,10 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 		return "", fmt.Errorf("failed to query holdings: %w", err)
 	}
 
+	// Track total balance and individual holdings to provide better error messages
+	var totalBalance string = "0"
+	var holdingCount int
+
 	// Find a holding with sufficient balance
 	for {
 		msg, err := resp.Recv()
@@ -1150,13 +1166,31 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 			}
 
 			amount, _ := extractNumericV2(fields["amount"])
+			holdingCount++
+			totalBalance, _ = addDecimalStrings(totalBalance, amount)
+
+			// Check if this single holding has enough
 			if compareDecimalStrings(amount, requiredAmount) >= 0 {
 				return contract.CreatedEvent.ContractId, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("no holding with sufficient balance")
+	// No single holding was sufficient - determine why
+	if holdingCount == 0 {
+		return "", fmt.Errorf("%w: no holdings found for owner", ErrInsufficientBalance)
+	}
+
+	// Check if total balance across all holdings is sufficient
+	if compareDecimalStrings(totalBalance, requiredAmount) >= 0 {
+		// User has enough total balance but it's fragmented
+		return "", fmt.Errorf("%w: total balance %s across %d holdings, need %s in single holding",
+			ErrBalanceFragmented, totalBalance, holdingCount, requiredAmount)
+	}
+
+	// Total balance is genuinely insufficient
+	return "", fmt.Errorf("%w: total balance %s, need %s",
+		ErrInsufficientBalance, totalBalance, requiredAmount)
 }
 
 // GetAllCIP56Holdings retrieves all CIP56Holding contracts from Canton

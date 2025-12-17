@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -174,17 +175,12 @@ func (h *MethodHandler) handleTransfer(ctx context.Context, params json.RawMessa
 		return nil, NewError(InternalError, err.Error())
 	}
 
-	// Update balance cache for both sender and recipient
-	// Decrement sender's balance
-	if err := h.server.db.DecrementBalanceByFingerprint(authInfo.Fingerprint, p.Amount); err != nil {
-		h.server.logger.Warn("Failed to update sender balance cache",
-			zap.String("fingerprint", authInfo.Fingerprint),
-			zap.Error(err))
-	}
-	// Increment recipient's balance
-	if err := h.server.db.IncrementBalanceByFingerprint(recipient.Fingerprint, p.Amount); err != nil {
-		h.server.logger.Warn("Failed to update recipient balance cache",
-			zap.String("fingerprint", recipient.Fingerprint),
+	// Update balance cache atomically for both sender and recipient
+	if err := h.server.db.TransferBalanceByFingerprint(authInfo.Fingerprint, recipient.Fingerprint, p.Amount); err != nil {
+		h.server.logger.Warn("Failed to update balance cache",
+			zap.String("from_fingerprint", authInfo.Fingerprint),
+			zap.String("to_fingerprint", recipient.Fingerprint),
+			zap.String("amount", p.Amount),
 			zap.Error(err))
 	}
 
@@ -353,26 +349,15 @@ func convertToHTTPURL(grpcURL string) string {
 	return fmt.Sprintf("http://%s", host)
 }
 
-// isInsufficientFunds checks if an error indicates insufficient funds
+// isInsufficientFunds checks if an error indicates insufficient funds using structured error types.
+// Uses errors.Is() to check for sentinel errors from the canton package.
 func isInsufficientFunds(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return containsAny(msg, []string{
-		"insufficient",
-		"balance",
-		"no holding",
-	})
-}
-
-// containsAny checks if s contains any of the substrings (case-insensitive)
-func containsAny(s string, substrs []string) bool {
-	sLower := strings.ToLower(s)
-	for _, sub := range substrs {
-		if strings.Contains(sLower, strings.ToLower(sub)) {
-			return true
-		}
+	// Check for structured sentinel errors first
+	if errors.Is(err, canton.ErrInsufficientBalance) || errors.Is(err, canton.ErrBalanceFragmented) {
+		return true
 	}
 	return false
 }
