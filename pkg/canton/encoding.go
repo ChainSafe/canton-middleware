@@ -415,6 +415,33 @@ func DecimalToBigInt(s string, decimals int) (*big.Int, error) {
 	return d.BigInt(), nil
 }
 
+// addDecimalStrings adds two decimal strings and returns the result
+func addDecimalStrings(a, b string) (string, error) {
+	da, err := decimal.NewFromString(a)
+	if err != nil {
+		da = decimal.Zero
+	}
+	db, err := decimal.NewFromString(b)
+	if err != nil {
+		db = decimal.Zero
+	}
+	return da.Add(db).String(), nil
+}
+
+// compareDecimalStrings compares two decimal strings
+// Returns: -1 if a < b, 0 if a == b, 1 if a > b
+func compareDecimalStrings(a, b string) int {
+	da, err := decimal.NewFromString(a)
+	if err != nil {
+		da = decimal.Zero
+	}
+	db, err := decimal.NewFromString(b)
+	if err != nil {
+		db = decimal.Zero
+	}
+	return da.Cmp(db)
+}
+
 // =============================================================================
 // V2 API HELPER EXTRACTION FUNCTIONS
 // =============================================================================
@@ -488,4 +515,14 @@ func extractWithdrawalStatusV2(v *lapiv2.Value) WithdrawalStatus {
 		}
 	}
 	return WithdrawalStatusPending
+}
+
+func extractContractIdV2(v *lapiv2.Value) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	if c, ok := v.Sum.(*lapiv2.Value_ContractId); ok {
+		return c.ContractId, true
+	}
+	return "", false
 }

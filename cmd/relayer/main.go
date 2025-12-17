@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
@@ -68,9 +69,26 @@ func main() {
 	}
 	defer ethClient.Close()
 
+	// Try to connect to API database for balance cache updates (optional)
+	var apiStore *apidb.Store
+	apiDBConnStr := cfg.Database.GetAPIConnectionString()
+	if apiDBConnStr != "" {
+		var err error
+		apiStore, err = apidb.NewStore(apiDBConnStr)
+		if err != nil {
+			logger.Warn("Failed to connect to API database (balance cache disabled)", zap.Error(err))
+		} else {
+			defer apiStore.Close()
+			logger.Info("API database connection established (balance cache enabled)")
+		}
+	}
+
 	// Start relayer engine first so we can reference it in HTTP handlers
 	ctx := context.Background()
 	engine := relayer.NewEngine(cfg, cantonClient, ethClient, store, logger)
+	if apiStore != nil {
+		engine.SetAPIDB(apiStore)
+	}
 	if err := engine.Start(ctx); err != nil {
 		logger.Fatal("Failed to start relayer engine", zap.Error(err))
 	}
