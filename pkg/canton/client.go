@@ -787,6 +787,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 // CIP56Holding represents a token holding contract
 type CIP56Holding struct {
 	ContractID string
+	Issuer     string
 	Owner      string
 	Amount     string
 	TokenID    string
@@ -1146,4 +1147,67 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 	}
 
 	return "", fmt.Errorf("no holding with sufficient balance")
+}
+
+// GetAllCIP56Holdings retrieves all CIP56Holding contracts from Canton
+func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return []*CIP56Holding{}, nil
+	}
+
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query holdings: %w", err)
+	}
+
+	var holdings []*CIP56Holding
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break // EOF or error
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
+				continue
+			}
+
+			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+			issuer, _ := extractPartyV2(fields["issuer"])
+			owner, _ := extractPartyV2(fields["owner"])
+			amount, _ := extractNumericV2(fields["amount"])
+
+			holdings = append(holdings, &CIP56Holding{
+				ContractID: contract.CreatedEvent.ContractId,
+				Issuer:     issuer,
+				Owner:      owner,
+				Amount:     amount,
+			})
+		}
+	}
+
+	return holdings, nil
 }

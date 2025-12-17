@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
+	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
@@ -76,6 +77,7 @@ type Engine struct {
 	cantonClient CantonBridgeClient
 	ethClient    EthereumBridgeClient
 	store        BridgeStore
+	apiDB        *apidb.Store // Optional: API server database for balance cache
 	logger       *zap.Logger
 
 	cantonOffset string
@@ -109,6 +111,11 @@ func NewEngine(
 	}
 }
 
+// SetAPIDB sets the API database store for balance cache updates
+func (e *Engine) SetAPIDB(apiDB *apidb.Store) {
+	e.apiDB = apiDB
+}
+
 // Start starts the relayer engine
 func (e *Engine) Start(ctx context.Context) error {
 	e.logger.Info("Starting relayer engine")
@@ -126,6 +133,10 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumChainKey())
 	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum, e.config.Canton.RelayerParty, e.cantonChainKey())
+	// Set API DB for balance cache updates if configured
+	if e.apiDB != nil {
+		cantonDest.SetAPIDB(e.apiDB)
+	}
 	ethProcessor := NewProcessor(ethSource, cantonDest, e.store, e.logger, "ethereum_processor").
 		WithOffsetUpdate(e.saveChainOffset)
 

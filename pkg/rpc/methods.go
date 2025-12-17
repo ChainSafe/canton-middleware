@@ -79,11 +79,12 @@ func (h *MethodHandler) handleDecimals(ctx context.Context) (interface{}, *Error
 	return h.server.config.Token.Decimals, nil
 }
 
-// handleTotalSupply returns the total token supply
+// handleTotalSupply returns the total token supply from cache
 func (h *MethodHandler) handleTotalSupply(ctx context.Context) (interface{}, *Error) {
-	supply, err := h.server.cantonClient.GetTotalSupply(ctx)
+	// Read from DB cache
+	supply, err := h.server.db.GetTotalSupply()
 	if err != nil {
-		h.server.logger.Error("Failed to get total supply", zap.Error(err))
+		h.server.logger.Error("Failed to get total supply from cache", zap.Error(err))
 		return nil, NewError(InternalError, err.Error())
 	}
 	return &SupplyResult{TotalSupply: supply}, nil
@@ -93,7 +94,7 @@ func (h *MethodHandler) handleTotalSupply(ctx context.Context) (interface{}, *Er
 // Authenticated Methods
 // =============================================================================
 
-// handleBalanceOf returns the balance for the authenticated user
+// handleBalanceOf returns the balance for the authenticated user from cache
 func (h *MethodHandler) handleBalanceOf(ctx context.Context, params json.RawMessage) (interface{}, *Error) {
 	// Get authenticated user info
 	authInfo := auth.AuthInfoFromContext(ctx)
@@ -101,10 +102,10 @@ func (h *MethodHandler) handleBalanceOf(ctx context.Context, params json.RawMess
 		return nil, NewError(Unauthorized, "user not registered")
 	}
 
-	// Get balance from Canton
-	balance, err := h.server.cantonClient.GetUserBalance(ctx, authInfo.Fingerprint)
+	// Get balance from DB cache
+	balance, err := h.server.db.GetUserBalanceByFingerprint(authInfo.Fingerprint)
 	if err != nil {
-		h.server.logger.Error("Failed to get balance",
+		h.server.logger.Error("Failed to get balance from cache",
 			zap.String("fingerprint", authInfo.Fingerprint),
 			zap.Error(err))
 		return nil, NewError(InternalError, err.Error())
@@ -153,7 +154,7 @@ func (h *MethodHandler) handleTransfer(ctx context.Context, params json.RawMessa
 		return nil, NewError(NotFound, "recipient not registered")
 	}
 
-	// Execute transfer
+	// Execute transfer on Canton
 	err = h.server.cantonClient.Transfer(ctx, &canton.TransferRequest{
 		FromFingerprint: authInfo.Fingerprint,
 		ToFingerprint:   recipient.Fingerprint,
@@ -171,6 +172,20 @@ func (h *MethodHandler) handleTransfer(ctx context.Context, params json.RawMessa
 			return nil, NewError(InsufficientFunds, err.Error())
 		}
 		return nil, NewError(InternalError, err.Error())
+	}
+
+	// Update balance cache for both sender and recipient
+	// Decrement sender's balance
+	if err := h.server.db.DecrementBalanceByFingerprint(authInfo.Fingerprint, p.Amount); err != nil {
+		h.server.logger.Warn("Failed to update sender balance cache",
+			zap.String("fingerprint", authInfo.Fingerprint),
+			zap.Error(err))
+	}
+	// Increment recipient's balance
+	if err := h.server.db.IncrementBalanceByFingerprint(recipient.Fingerprint, p.Amount); err != nil {
+		h.server.logger.Warn("Failed to update recipient balance cache",
+			zap.String("fingerprint", recipient.Fingerprint),
+			zap.Error(err))
 	}
 
 	h.server.logger.Info("Transfer completed",
@@ -321,11 +336,11 @@ func convertToHTTPURL(grpcURL string) string {
 	// Canton gRPC is typically on port 5011, HTTP on 5013
 	// Replace port if it looks like the standard gRPC port
 	host := grpcURL
-	
+
 	// Remove any protocol prefix
 	host = strings.TrimPrefix(host, "http://")
 	host = strings.TrimPrefix(host, "https://")
-	
+
 	// Check for common gRPC ports and convert to HTTP ports
 	// Participant 1: gRPC 5011 -> HTTP 5013
 	// Participant 2: gRPC 5021 -> HTTP 5023
@@ -334,7 +349,7 @@ func convertToHTTPURL(grpcURL string) string {
 	} else if strings.HasSuffix(host, ":5021") {
 		host = strings.TrimSuffix(host, ":5021") + ":5023"
 	}
-	
+
 	return fmt.Sprintf("http://%s", host)
 }
 
@@ -388,4 +403,3 @@ func toLower(s string) string {
 	}
 	return string(b)
 }
-

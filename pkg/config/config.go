@@ -290,3 +290,15 @@ func (c *DatabaseConfig) GetConnectionString() string {
 		c.Host, c.Port, c.User, c.Password, c.Database, c.SSLMode,
 	)
 }
+
+// GetAPIConnectionString returns a PostgreSQL connection string for the API database (erc20_api)
+// This is used by the relayer to update the balance cache
+func (c *DatabaseConfig) GetAPIConnectionString() string {
+	if c.Host == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Password, "erc20_api", c.SSLMode,
+	)
+}
