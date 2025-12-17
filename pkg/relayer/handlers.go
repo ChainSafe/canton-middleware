@@ -41,7 +41,9 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 		defer close(outCh)
 		defer close(errCh)
 
-		// Use the new issuer-centric StreamWithdrawalEvents
+		// StreamWithdrawalEvents handles reconnection and token refresh internally,
+		// so errors are not propagated to errCh. The channel will simply close when
+		// the context is cancelled or the stream terminates gracefully.
 		withdrawalCh := s.client.StreamWithdrawalEvents(ctx, offset)
 
 		for {
