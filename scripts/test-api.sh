@@ -817,37 +817,45 @@ run_full_test() {
 view_users() {
     print_header "Registered Users"
     
-    # Query the database for all users
+    # Query the database for all users including cached balance
     local users=$(docker exec postgres psql -U postgres -d erc20_api -t -A -F '|' -c \
-        "SELECT id, evm_address, canton_party, fingerprint, mapping_cid, created_at FROM users ORDER BY id;" 2>/dev/null)
+        "SELECT id, evm_address, canton_party, fingerprint, mapping_cid, COALESCE(balance::text, '0') as balance, balance_updated_at, created_at FROM users ORDER BY id;" 2>/dev/null)
     
     if [ -z "$users" ]; then
         print_warning "No users registered yet"
         return
     fi
     
-    echo ""
-    echo -e "${CYAN}┌────┬────────────────────────────────────────────┬───────────────────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${CYAN}│ ID │ EVM Address                                │ Canton Party                                                          │${NC}"
-    echo -e "${CYAN}├────┼────────────────────────────────────────────┼───────────────────────────────────────────────────────────────────────┤${NC}"
+    # Get total supply from metrics
+    local total_supply=$(docker exec postgres psql -U postgres -d erc20_api -t -A -c \
+        "SELECT COALESCE(total_supply::text, '0') FROM token_metrics WHERE id = 1;" 2>/dev/null)
     
-    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid created_at; do
-        printf "${CYAN}│${NC} %-2s ${CYAN}│${NC} %-42s ${CYAN}│${NC} %-69s ${CYAN}│${NC}\n" "$id" "$evm_addr" "${party:0:69}"
+    echo ""
+    echo -e "${CYAN}┌────┬────────────────────────────────────────────┬──────────────────────────┬─────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│ ID │ EVM Address                                │ Cached Balance           │ Canton Party                                │${NC}"
+    echo -e "${CYAN}├────┼────────────────────────────────────────────┼──────────────────────────┼─────────────────────────────────────────────┤${NC}"
+    
+    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid balance balance_updated created_at; do
+        printf "${CYAN}│${NC} %-2s ${CYAN}│${NC} %-42s ${CYAN}│${NC} %-24s ${CYAN}│${NC} %-43s ${CYAN}│${NC}\n" "$id" "$evm_addr" "$balance" "${party:0:43}"
     done
     
-    echo -e "${CYAN}└────┴────────────────────────────────────────────┴───────────────────────────────────────────────────────────────────────┘${NC}"
+    echo -e "${CYAN}└────┴────────────────────────────────────────────┴──────────────────────────┴─────────────────────────────────────────────┘${NC}"
     
+    echo ""
+    echo -e "${GREEN}Total Supply (cached): ${total_supply:-0}${NC}"
     echo ""
     print_info "Detailed User Information:"
     echo ""
     
-    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid created_at; do
+    echo "$users" | while IFS='|' read -r id evm_addr party fingerprint mapping_cid balance balance_updated created_at; do
         echo -e "${GREEN}User $id:${NC}"
-        echo "  EVM Address:   $evm_addr"
-        echo "  Canton Party:  $party"
-        echo "  Fingerprint:   $fingerprint"
-        echo "  Mapping CID:   ${mapping_cid:-N/A}"
-        echo "  Registered:    $created_at"
+        echo "  EVM Address:     $evm_addr"
+        echo "  Cached Balance:  $balance"
+        echo "  Balance Updated: ${balance_updated:-Never}"
+        echo "  Canton Party:    $party"
+        echo "  Fingerprint:     $fingerprint"
+        echo "  Mapping CID:     ${mapping_cid:-N/A}"
+        echo "  Registered:      $created_at"
         echo ""
     done
 }

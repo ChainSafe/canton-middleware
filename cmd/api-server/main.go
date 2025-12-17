@@ -63,6 +63,23 @@ func main() {
 	logger.Info("Connected to Canton",
 		zap.String("rpc_url", cfg.Canton.RPCURL))
 
+	// Create and start reconciler for balance cache
+	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	
+	// Run initial reconciliation on startup
+	logger.Info("Running initial balance reconciliation...")
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	if err := reconciler.ReconcileAll(startupCtx); err != nil {
+		logger.Warn("Initial reconciliation failed (will retry periodically)", zap.Error(err))
+	} else {
+		logger.Info("Initial balance reconciliation completed")
+	}
+	startupCancel()
+
+	// Start periodic reconciliation (every 5 minutes)
+	reconciler.StartPeriodicReconciliation(5 * time.Minute)
+	defer reconciler.Stop()
+
 	// Create RPC server
 	rpcServer := rpc.NewServer(cfg, db, cantonClient, logger)
 

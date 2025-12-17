@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
@@ -155,10 +156,16 @@ type CantonDestination struct {
 	config       *config.EthereumConfig
 	relayerParty string
 	chainID      string
+	apiDB        *apidb.Store // Optional: for updating balance cache
 }
 
 func NewCantonDestination(client CantonBridgeClient, cfg *config.EthereumConfig, relayerParty string, chainID string) *CantonDestination {
 	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty, chainID: chainID}
+}
+
+// SetAPIDB sets the API database store for balance cache updates
+func (d *CantonDestination) SetAPIDB(apiDB *apidb.Store) {
+	d.apiDB = apiDB
 }
 
 func (d *CantonDestination) GetChainID() string {
@@ -167,11 +174,11 @@ func (d *CantonDestination) GetChainID() string {
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
 	// The recipient from EVM is a fingerprint (bytes32 as hex)
-	// Normalize to have 0x prefix to match FingerprintMapping storage format
+	// FingerprintMapping stores fingerprints WITHOUT 0x prefix (e.g., "6ef4f...")
+	// but GetFingerprintMapping normalizes for comparison
+	// We need to store the SAME format in PendingDeposit as in FingerprintMapping
 	fingerprint := event.Recipient
-	if !strings.HasPrefix(fingerprint, "0x") {
-		fingerprint = "0x" + fingerprint
-	}
+	fingerprint = strings.TrimPrefix(fingerprint, "0x") // Remove 0x for Daml storage
 
 	// Parse amount
 	amount := new(big.Int)
@@ -218,6 +225,19 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	holdingCid, err := d.client.ProcessDeposit(ctx, processReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to process deposit: %w", err)
+	}
+
+	// Step 4: Update balance cache if API DB is configured
+	if d.apiDB != nil {
+		// Increment user balance
+		if err := d.apiDB.IncrementBalanceByFingerprint(fingerprint, amountStr); err != nil {
+			// Log but don't fail - the deposit succeeded on Canton
+			fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", fingerprint, err)
+		}
+		// Increment total supply
+		if err := d.apiDB.IncrementTotalSupply(amountStr); err != nil {
+			fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
+		}
 	}
 
 	return holdingCid, nil
