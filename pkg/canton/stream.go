@@ -146,8 +146,6 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 		if tx := resp.GetTransaction(); tx != nil {
 			for _, event := range tx.Events {
 				if createdEvent := event.GetCreated(); createdEvent != nil {
-					*lastOffset = strconv.FormatInt(createdEvent.Offset, 10)
-
 					templateId := createdEvent.TemplateId
 					if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalEvent" {
 						withdrawalEvent, err := DecodeWithdrawalEvent(
@@ -164,6 +162,7 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 						if withdrawalEvent.Status == WithdrawalStatusPending {
 							select {
 							case outCh <- withdrawalEvent:
+								*lastOffset = strconv.FormatInt(createdEvent.Offset, 10)
 							case <-ctx.Done():
 								return ctx.Err()
 							}
