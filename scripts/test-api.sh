@@ -11,15 +11,17 @@
 #   ./scripts/test-api.sh --setup      # Setup test users only
 #   ./scripts/test-api.sh --test       # Run ERC-20 method tests
 #   ./scripts/test-api.sh --transfer   # Transfer 10 PROMPT User1 -> User2
+#   ./scripts/test-api.sh --withdraw   # Withdraw 30 PROMPT each to EVM
 #
 # Options:
 #   --start-only    Start services without running tests
 #   --stop          Stop all containers (keep data)
 #   --clean         Reset environment (docker compose down -v)
-#   --full-test     Run complete test (setup + methods + transfer)
+#   --full-test     Run complete test (setup + methods + transfer + withdraw)
 #   --setup         Setup test users (whitelist, register, fund 50 PROMPT)
 #   --test          Test all ERC-20 methods
 #   --transfer      Transfer 10 PROMPT from User1 to User2
+#   --withdraw      Withdraw 30 PROMPT each from Canton to EVM
 #   --status        Show container and API status
 #   -i, --interactive   Force interactive menu
 #
@@ -262,9 +264,10 @@ generate_host_config() {
     local CIP56_PACKAGE_ID=""
     
     if [ -n "$WAYFINDER_DAR" ]; then
-        BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)
-        BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)
-        CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep "^package_id:" | awk '{print $2}' | head -1)
+        # Extract package ID from DAR listing (format: package-name-version-HASH/...)
+        BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
     fi
     
     # Use contract addresses if already loaded, otherwise use defaults
@@ -796,15 +799,148 @@ show_status() {
 }
 
 # =============================================================================
+# Withdrawal
+# =============================================================================
+
+wait_for_withdrawal_confirmation() {
+    local user_address="$1"
+    local balance_before="$2"
+    local max_attempts=30
+    local attempt=0
+    
+    print_step "Waiting for withdrawal to complete on EVM..."
+    
+    while [ $attempt -lt $max_attempts ]; do
+        local balance_after=$(cast call $TOKEN "balanceOf(address)(uint256)" "$user_address" --rpc-url "$ANVIL_URL" 2>/dev/null | awk '{print $1}')
+        
+        # Check if EVM balance increased
+        if [ -n "$balance_after" ] && [ "$balance_after" != "$balance_before" ]; then
+            echo ""
+            print_success "Withdrawal confirmed on EVM!"
+            print_info "EVM balance: $balance_after"
+            return 0
+        fi
+        
+        echo -n "."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    
+    echo ""
+    print_warning "Withdrawal confirmation timed out"
+    return 1
+}
+
+withdraw_user() {
+    local address=$1
+    local private_key=$2
+    local name=$3
+    local amount=$4
+    
+    print_step "Withdrawing $amount PROMPT for $name..."
+    
+    # Get current Canton balance via RPC
+    local balance_result=$(rpc_call_auth "erc20_balanceOf" "{}" "$private_key")
+    local balance=$(echo "$balance_result" | jq -r '.result.balance // "0"')
+    
+    # Remove any decimal places for comparison (balance might be like "40.000000000000000000")
+    local balance_int=$(echo "$balance" | cut -d'.' -f1)
+    
+    if [ -z "$balance_int" ] || [ "$balance_int" = "0" ] || [ "$balance_int" = "null" ]; then
+        print_info "$name has no Canton balance to withdraw"
+        return 0
+    fi
+    
+    print_info "$name Canton balance: $balance"
+    
+    # Check if requested amount exceeds balance
+    if [ "$amount" -gt "$balance_int" ] 2>/dev/null; then
+        print_warning "Requested $amount but only $balance_int available, withdrawing $balance_int"
+        amount="$balance_int"
+    fi
+    
+    # Get EVM balance before withdrawal
+    local evm_balance_before=$(cast call $TOKEN "balanceOf(address)(uint256)" "$address" --rpc-url "$ANVIL_URL" 2>/dev/null | awk '{print $1}')
+    print_info "$name EVM balance before: $evm_balance_before"
+    
+    # Find holding CID for this user
+    local user_party=$(docker exec postgres psql -U postgres -d erc20_api -t -A -c \
+        "SELECT canton_party FROM users WHERE evm_address = '$address';" 2>/dev/null)
+    
+    if [ -z "$user_party" ]; then
+        print_error "Could not find Canton party for $name"
+        return 1
+    fi
+    
+    print_info "Canton party: ${user_party:0:40}..."
+    
+    # Use get-holding-cid.go with party filter
+    local holding_info=$(go run scripts/get-holding-cid.go -config "$PROJECT_DIR/.test-config.yaml" -party "$user_party" -with-balance 2>/dev/null)
+    
+    if [ -z "$holding_info" ]; then
+        print_warning "No holding found for $name - may have already withdrawn"
+        return 0
+    fi
+    
+    local holding_cid=$(echo "$holding_info" | awk '{print $1}')
+    local holding_balance=$(echo "$holding_info" | awk '{print $2}')
+    
+    print_info "Found holding: ${holding_cid:0:30}... (balance: $holding_balance)"
+    
+    # Format amount with decimal for Canton
+    local amount_decimal="${amount}.0"
+    
+    # Initiate withdrawal using the existing script
+    print_step "Initiating withdrawal of $amount to $address..."
+    
+    local withdraw_result=$(go run scripts/initiate-withdrawal.go \
+        -config "$PROJECT_DIR/.test-config.yaml" \
+        -holding-cid "$holding_cid" \
+        -amount "$amount_decimal" \
+        -evm-destination "$address" 2>&1)
+    
+    if echo "$withdraw_result" | grep -q -i "error\|failed"; then
+        print_error "Withdrawal failed for $name"
+        print_info "$withdraw_result"
+        return 1
+    fi
+    
+    print_success "Withdrawal initiated for $name"
+    
+    # Wait for withdrawal to complete
+    wait_for_withdrawal_confirmation "$address" "$evm_balance_before"
+}
+
+run_withdrawals() {
+    local amount="${1:-30}"
+    
+    print_header "Withdrawing $amount PROMPT Each (Canton -> EVM)"
+    
+    withdraw_user "$USER1_ADDRESS" "$USER1_KEY" "User1" "$amount"
+    echo ""
+    withdraw_user "$USER2_ADDRESS" "$USER2_KEY" "User2" "$amount"
+    
+    print_header "Withdrawals Complete"
+}
+
+# =============================================================================
 # Full Test
 # =============================================================================
 
 run_full_test() {
-    print_header "Full Test: Setup + Methods + Transfer"
+    print_header "Full Test: Setup + Methods + Transfer + Withdraw"
     
     setup_test_users || return 1
     test_erc20_methods
     run_transfer
+    
+    # Withdraw 30 PROMPT from each user
+    echo ""
+    run_withdrawals 30
+    
+    # Wait for cache updates to propagate
+    print_step "Waiting for cache updates..."
+    sleep 3
     
     print_header "Full Test Complete"
     show_status
@@ -866,15 +1002,16 @@ show_menu() {
     echo -e "${BLUE}  ERC-20 API SERVER MANAGER${NC}"
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo "  1) Full test (setup users + test methods + transfer)"
+    echo "  1) Full test (setup + methods + transfer + withdraw)"
     echo "  2) Setup test users (whitelist, register, fund 50 PROMPT)"
     echo "  3) Test ERC-20 methods"
     echo "  4) Transfer 10 PROMPT (User1 -> User2)"
-    echo "  5) View status"
-    echo "  6) Start services"
-    echo "  7) Stop services"
-    echo "  8) Clean & restart"
-    echo "  9) View registered users"
+    echo "  5) Withdraw 30 PROMPT each (Canton -> EVM)"
+    echo "  6) View status"
+    echo "  7) View registered users"
+    echo "  8) Start services"
+    echo "  9) Stop services"
+    echo "  c) Clean & restart"
     echo "  0) Exit"
     echo ""
     echo -e "${BLUE}══════════════════════════════════════════════════════════════════════${NC}"
@@ -919,22 +1056,27 @@ interactive_menu() {
                 fi
                 ;;
             5)
-                show_status
+                if ensure_services_running; then
+                    run_withdrawals 30 || true
+                fi
                 ;;
             6)
-                start_services || true
+                show_status
                 ;;
             7)
+                view_users
+                ;;
+            8)
+                start_services || true
+                ;;
+            9)
                 stop_services
                 TOKEN=""
                 BRIDGE=""
                 ;;
-            8)
+            c|C)
                 clean_environment
                 start_services || true
-                ;;
-            9)
-                view_users
                 ;;
             0|q|Q)
                 echo ""
@@ -963,6 +1105,7 @@ FULL_TEST=false
 SETUP=false
 TEST=false
 TRANSFER=false
+WITHDRAW=false
 STATUS=false
 INTERACTIVE=false
 HAS_ACTION=false
@@ -1005,6 +1148,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --transfer)
             TRANSFER=true
+            HAS_ACTION=true
+            shift
+            ;;
+        --withdraw)
+            WITHDRAW=true
             HAS_ACTION=true
             shift
             ;;
@@ -1089,6 +1237,11 @@ fi
 # Handle --transfer
 if [ "$TRANSFER" = true ]; then
     run_transfer
+fi
+
+# Handle --withdraw
+if [ "$WITHDRAW" = true ]; then
+    run_withdrawals 30
 fi
 
 # Show summary

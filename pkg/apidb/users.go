@@ -3,6 +3,7 @@ package apidb
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -72,16 +73,27 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 }
 
 // GetUserByFingerprint retrieves a user by their fingerprint
+// Handles fingerprint with or without 0x prefix
 func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	user := &User{}
 	var balance sql.NullString
 	var balanceUpdatedAt sql.NullTime
+
+	// Normalize fingerprint - try both with and without 0x prefix
+	withPrefix := fingerprint
+	withoutPrefix := fingerprint
+	if strings.HasPrefix(fingerprint, "0x") {
+		withoutPrefix = fingerprint[2:]
+	} else {
+		withPrefix = "0x" + fingerprint
+	}
+
 	query := `
 		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
 		FROM users
-		WHERE fingerprint = $1
+		WHERE fingerprint = $1 OR fingerprint = $2
 	`
-	err := s.db.QueryRow(query, fingerprint).Scan(
+	err := s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(
 		&user.ID,
 		&user.EVMAddress,
 		&user.CantonParty,
@@ -159,10 +171,20 @@ func (s *Store) GetUserBalance(evmAddress string) (string, error) {
 }
 
 // GetUserBalanceByFingerprint returns the cached balance for a user by fingerprint
+// Handles fingerprint with or without 0x prefix
 func (s *Store) GetUserBalanceByFingerprint(fingerprint string) (string, error) {
+	// Normalize fingerprint - try both with and without 0x prefix
+	withPrefix := fingerprint
+	withoutPrefix := fingerprint
+	if strings.HasPrefix(fingerprint, "0x") {
+		withoutPrefix = fingerprint[2:]
+	} else {
+		withPrefix = "0x" + fingerprint
+	}
+
 	var balance sql.NullString
-	query := `SELECT balance FROM users WHERE fingerprint = $1`
-	err := s.db.QueryRow(query, fingerprint).Scan(&balance)
+	query := `SELECT balance FROM users WHERE fingerprint = $1 OR fingerprint = $2`
+	err := s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(&balance)
 	if err == sql.ErrNoRows {
 		return "0", nil
 	}
@@ -197,13 +219,23 @@ func (s *Store) UpdateUserBalance(evmAddress, newBalance string) error {
 }
 
 // UpdateUserBalanceByFingerprint sets the balance for a user by fingerprint
+// Handles fingerprint with or without 0x prefix
 func (s *Store) UpdateUserBalanceByFingerprint(fingerprint, newBalance string) error {
+	// Normalize fingerprint - try both with and without 0x prefix
+	withPrefix := fingerprint
+	withoutPrefix := fingerprint
+	if strings.HasPrefix(fingerprint, "0x") {
+		withoutPrefix = fingerprint[2:]
+	} else {
+		withPrefix = "0x" + fingerprint
+	}
+
 	query := `
 		UPDATE users
 		SET balance = $1, balance_updated_at = NOW()
-		WHERE fingerprint = $2
+		WHERE fingerprint = $2 OR fingerprint = $3
 	`
-	result, err := s.db.Exec(query, newBalance, fingerprint)
+	result, err := s.db.Exec(query, newBalance, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to update balance: %w", err)
 	}
@@ -239,13 +271,24 @@ func (s *Store) IncrementBalance(evmAddress, amount string) error {
 }
 
 // IncrementBalanceByFingerprint adds amount to user's balance atomically by fingerprint
+// Handles fingerprint with or without 0x prefix
 func (s *Store) IncrementBalanceByFingerprint(fingerprint, amount string) error {
+	// Normalize fingerprint - try both with and without 0x prefix
 	query := `
 		UPDATE users
 		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
-		WHERE fingerprint = $2
+		WHERE fingerprint = $2 OR fingerprint = $3
 	`
-	result, err := s.db.Exec(query, amount, fingerprint)
+	// Create both variants
+	withPrefix := fingerprint
+	withoutPrefix := fingerprint
+	if strings.HasPrefix(fingerprint, "0x") {
+		withoutPrefix = fingerprint[2:]
+	} else {
+		withPrefix = "0x" + fingerprint
+	}
+
+	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to increment balance: %w", err)
 	}
@@ -281,13 +324,24 @@ func (s *Store) DecrementBalance(evmAddress, amount string) error {
 }
 
 // DecrementBalanceByFingerprint subtracts amount from user's balance atomically by fingerprint
+// Handles fingerprint with or without 0x prefix
 func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string) error {
+	// Normalize fingerprint - try both with and without 0x prefix
 	query := `
 		UPDATE users
 		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
-		WHERE fingerprint = $2
+		WHERE fingerprint = $2 OR fingerprint = $3
 	`
-	result, err := s.db.Exec(query, amount, fingerprint)
+	// Create both variants
+	withPrefix := fingerprint
+	withoutPrefix := fingerprint
+	if strings.HasPrefix(fingerprint, "0x") {
+		withoutPrefix = fingerprint[2:]
+	} else {
+		withPrefix = "0x" + fingerprint
+	}
+
+	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to decrement balance: %w", err)
 	}

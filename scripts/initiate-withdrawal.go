@@ -135,10 +135,8 @@ func main() {
 	}
 	fmt.Printf("    Holding Owner: %s\n", owner)
 
-	fingerprint := iwExtractFingerprint(owner)
-	fmt.Printf("    Fingerprint: %s\n", fingerprint)
-
-	mappingCid, err := iwFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset, fingerprint)
+	// Look up FingerprintMapping by canton party (owner), not by fingerprint extracted from party ID
+	mappingCid, err := iwFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset, owner)
 	if err != nil {
 		fmt.Printf("Failed to find FingerprintMapping: %v\n", err)
 		fmt.Println("\nUser must be registered first. Run:")
@@ -394,7 +392,7 @@ func iwGetHoldingOwner(ctx context.Context, client lapiv2.StateServiceClient, pa
 	return "", fmt.Errorf("holding not found: %s", holdingCid)
 }
 
-func iwFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClient, party string, offset int64, targetFingerprint string) (string, error) {
+func iwFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClient, party string, offset int64, targetCantonParty string) (string, error) {
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: offset,
 		EventFormat: &lapiv2.EventFormat{
@@ -426,9 +424,10 @@ func iwFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceCli
 			if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
 				fields := contract.CreatedEvent.CreateArguments.Fields
 				for _, field := range fields {
-					if field.Label == "fingerprint" {
-						if fp, ok := field.Value.Sum.(*lapiv2.Value_Text); ok {
-							if fp.Text == targetFingerprint {
+					// Look up by userParty (the holding owner), not by fingerprint
+					if field.Label == "userParty" {
+						if p, ok := field.Value.Sum.(*lapiv2.Value_Party); ok {
+							if p.Party == targetCantonParty {
 								return contract.CreatedEvent.ContractId, nil
 							}
 						}
@@ -437,19 +436,7 @@ func iwFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceCli
 			}
 		}
 	}
-	return "", fmt.Errorf("no FingerprintMapping found for fingerprint: %s", targetFingerprint)
-}
-
-func iwExtractFingerprint(partyID string) string {
-	parts := strings.Split(partyID, "::")
-	if len(parts) == 2 {
-		fp := parts[1]
-		if strings.HasPrefix(fp, "1220") && len(fp) == 68 {
-			return fp[4:]
-		}
-		return fp
-	}
-	return partyID
+	return "", fmt.Errorf("no FingerprintMapping found for user party: %s", targetCantonParty)
 }
 
 func iwInitiateWithdrawal(
