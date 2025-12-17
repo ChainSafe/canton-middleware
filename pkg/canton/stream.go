@@ -32,13 +32,11 @@ func isAuthError(err error) bool {
 }
 
 // StreamWithdrawalEvents streams WithdrawalEvent contracts from Canton with automatic reconnection on token expiry
-func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) (<-chan *WithdrawalEvent, <-chan error) {
+func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-chan *WithdrawalEvent {
 	outCh := make(chan *WithdrawalEvent, 10)
-	errCh := make(chan error, 1)
 
 	go func() {
 		defer close(outCh)
-		defer close(errCh)
 
 		currentOffset := offset
 		reconnectDelay := streamReconnectDelay
@@ -80,7 +78,7 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) (<-c
 		}
 	}()
 
-	return outCh, errCh
+	return outCh
 }
 
 func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, outCh chan<- *WithdrawalEvent, lastOffset *string) error {

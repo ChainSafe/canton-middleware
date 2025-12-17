@@ -42,7 +42,7 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 		defer close(errCh)
 
 		// Use the new issuer-centric StreamWithdrawalEvents
-		withdrawalCh, withdrawalErrCh := s.client.StreamWithdrawalEvents(ctx, offset)
+		withdrawalCh := s.client.StreamWithdrawalEvents(ctx, offset)
 
 		for {
 			select {
@@ -63,11 +63,6 @@ func (s *CantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					Nonce:             0,
 					SourceBlockNumber: 0,
 					Raw:               withdrawal,
-				}
-			case err := <-withdrawalErrCh:
-				select {
-				case errCh <- err:
-				default:
 				}
 			case <-ctx.Done():
 				return
