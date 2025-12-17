@@ -65,7 +65,7 @@ func main() {
 
 	// Create and start reconciler for balance cache
 	reconciler := apidb.NewReconciler(db, cantonClient, logger)
-	
+
 	// Run initial reconciliation on startup
 	logger.Info("Running initial balance reconciliation...",
 		zap.Duration("timeout", cfg.Reconciliation.InitialTimeout))
@@ -124,16 +124,9 @@ func main() {
 // setupLogger creates a configured zap logger
 func setupLogger(level, format string) (*zap.Logger, error) {
 	var zapLevel zapcore.Level
-	switch level {
-	case "debug":
-		zapLevel = zapcore.DebugLevel
-	case "info":
-		zapLevel = zapcore.InfoLevel
-	case "warn":
-		zapLevel = zapcore.WarnLevel
-	case "error":
-		zapLevel = zapcore.ErrorLevel
-	default:
+	if err := zapLevel.UnmarshalText([]byte(level)); err != nil {
+		// Default to InfoLevel if parsing fails or level is invalid
+		_, _ = fmt.Fprintf(os.Stderr, "Invalid log level, defaulting to InfoLevel. {%v}", zap.Error(err))
 		zapLevel = zapcore.InfoLevel
 	}
 
@@ -147,4 +140,3 @@ func setupLogger(level, format string) (*zap.Logger, error) {
 
 	return cfg.Build()
 }
-
