@@ -783,6 +783,16 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 // =============================================================================
 // ERC-20 API SERVER METHODS
 // =============================================================================
+//
+// NOTE: The functions below (GetUserBalance, GetTotalSupply, findHoldingForTransfer,
+// GetAllCIP56Holdings) use GetActiveContracts with wildcard filters. Canton Ledger
+// API v2 does not support server-side template filtering, so we fetch all contracts
+// visible to the relayer party and filter client-side by template ID. This approach
+// may not scale well for large contract volumes. The PostgreSQL balance cache in
+// the API server mitigates this for read-heavy workloads. For large-scale deployments,
+// consider implementing a Canton-side indexer or upgrading when template filtering
+// becomes available in the API.
+// =============================================================================
 
 // CIP56Holding represents a token holding contract
 type CIP56Holding struct {

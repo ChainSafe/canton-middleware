@@ -1,13 +1,14 @@
 -- =============================================================================
 -- ERC-20 API Server Database Schema
 -- =============================================================================
--- This file initializes the erc20_api database with tables for:
+-- This file contains the schema for the erc20_api database:
 -- - users: EVM address to Canton party mappings
 -- - whitelist: Allowed EVM addresses for registration
+-- - token_metrics: Total supply and reconciliation metadata
+--
+-- NOTE: This script assumes it is run against the erc20_api database.
+-- Database creation is handled by create-erc20-db.sh
 -- =============================================================================
-
-CREATE DATABASE erc20_api;
-\c erc20_api
 
 -- Users table: maps EVM addresses to Canton parties with cached balance
 CREATE TABLE users (

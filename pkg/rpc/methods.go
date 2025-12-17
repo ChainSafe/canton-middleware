@@ -366,40 +366,13 @@ func isInsufficientFunds(err error) bool {
 	})
 }
 
-// containsAny checks if s contains any of the substrings
+// containsAny checks if s contains any of the substrings (case-insensitive)
 func containsAny(s string, substrs []string) bool {
+	sLower := strings.ToLower(s)
 	for _, sub := range substrs {
-		if contains(s, sub) {
+		if strings.Contains(sLower, strings.ToLower(sub)) {
 			return true
 		}
 	}
 	return false
-}
-
-// contains is a simple case-insensitive contains check
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsCI(s, substr))
-}
-
-func containsCI(s, substr string) bool {
-	s = toLower(s)
-	substr = toLower(substr)
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
 }

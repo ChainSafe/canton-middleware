@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"sync"
 	"time"
@@ -165,20 +168,27 @@ func (v *JWTValidator) refreshKeys() error {
 	return nil
 }
 
-// parseRSAPublicKey parses RSA public key components
-func parseRSAPublicKey(nStr, eStr string) (interface{}, error) {
-	// Use jwt-go's built-in base64url decoding via a workaround
-	// by creating a minimal JWK and using standard parsing
-	jwkJSON := fmt.Sprintf(`{"kty":"RSA","n":"%s","e":"%s"}`, nStr, eStr)
-	
-	var rawKey map[string]interface{}
-	if err := json.Unmarshal([]byte(jwkJSON), &rawKey); err != nil {
-		return nil, err
+// parseRSAPublicKey parses RSA public key components from base64url-encoded strings
+func parseRSAPublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
+	// Decode base64url-encoded modulus (n)
+	nBytes, err := base64.RawURLEncoding.DecodeString(nStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode modulus: %w", err)
 	}
 
-	// Use crypto/rsa parsing via encoding/json round-trip
-	// For production, consider using a proper JWK library
-	return nil, fmt.Errorf("RSA key parsing not implemented - use github.com/lestrrat-go/jwx for full JWKS support")
+	// Decode base64url-encoded exponent (e)
+	eBytes, err := base64.RawURLEncoding.DecodeString(eStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode exponent: %w", err)
+	}
+
+	// Convert to big.Int for modulus
+	n := new(big.Int).SetBytes(nBytes)
+
+	// Convert exponent bytes to int
+	e := int(new(big.Int).SetBytes(eBytes).Int64())
+
+	return &rsa.PublicKey{N: n, E: e}, nil
 }
 
 // IsConfigured returns true if JWKS validation is configured

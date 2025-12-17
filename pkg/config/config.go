@@ -122,12 +122,14 @@ type LoggingConfig struct {
 
 // APIServerConfig represents the ERC-20 API server configuration
 type APIServerConfig struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Canton   CantonConfig   `mapstructure:"canton"`
-	Token    TokenConfig    `mapstructure:"token"`
-	JWKS     JWKSConfig     `mapstructure:"jwks"`
-	Logging  LoggingConfig  `mapstructure:"logging"`
+	Server         ServerConfig         `mapstructure:"server"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	Canton         CantonConfig         `mapstructure:"canton"`
+	Token          TokenConfig          `mapstructure:"token"`
+	JWKS           JWKSConfig           `mapstructure:"jwks"`
+	Logging        LoggingConfig        `mapstructure:"logging"`
+	Reconciliation ReconciliationConfig `mapstructure:"reconciliation"`
+	Shutdown       ShutdownConfig       `mapstructure:"shutdown"`
 }
 
 // TokenConfig contains ERC-20 token metadata
@@ -141,6 +143,17 @@ type TokenConfig struct {
 type JWKSConfig struct {
 	URL    string `mapstructure:"url"`
 	Issuer string `mapstructure:"issuer"`
+}
+
+// ReconciliationConfig contains settings for balance reconciliation
+type ReconciliationConfig struct {
+	InitialTimeout time.Duration `mapstructure:"initial_timeout"`
+	Interval       time.Duration `mapstructure:"interval"`
+}
+
+// ShutdownConfig contains graceful shutdown settings
+type ShutdownConfig struct {
+	Timeout time.Duration `mapstructure:"timeout"`
 }
 
 // LoadAPIServer loads API server configuration from file
@@ -188,6 +201,13 @@ func setAPIServerDefaults() {
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("logging.output_path", "stdout")
+
+	// Reconciliation defaults
+	viper.SetDefault("reconciliation.initial_timeout", "2m")
+	viper.SetDefault("reconciliation.interval", "5m")
+
+	// Shutdown defaults
+	viper.SetDefault("shutdown.timeout", "30s")
 }
 
 func validateAPIServer(config *APIServerConfig) error {

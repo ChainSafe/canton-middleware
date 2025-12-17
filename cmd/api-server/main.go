@@ -67,8 +67,9 @@ func main() {
 	reconciler := apidb.NewReconciler(db, cantonClient, logger)
 	
 	// Run initial reconciliation on startup
-	logger.Info("Running initial balance reconciliation...")
-	startupCtx, startupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	logger.Info("Running initial balance reconciliation...",
+		zap.Duration("timeout", cfg.Reconciliation.InitialTimeout))
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.Reconciliation.InitialTimeout)
 	if err := reconciler.ReconcileAll(startupCtx); err != nil {
 		logger.Warn("Initial reconciliation failed (will retry periodically)", zap.Error(err))
 	} else {
@@ -76,8 +77,9 @@ func main() {
 	}
 	startupCancel()
 
-	// Start periodic reconciliation (every 5 minutes)
-	reconciler.StartPeriodicReconciliation(5 * time.Minute)
+	// Start periodic reconciliation
+	logger.Info("Starting periodic reconciliation", zap.Duration("interval", cfg.Reconciliation.Interval))
+	reconciler.StartPeriodicReconciliation(cfg.Reconciliation.Interval)
 	defer reconciler.Stop()
 
 	// Create RPC server
@@ -106,10 +108,10 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
-	logger.Info("Shutting down server...")
+	logger.Info("Shutting down server...", zap.Duration("timeout", cfg.Shutdown.Timeout))
 
 	// Graceful shutdown with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Shutdown.Timeout)
 	defer cancel()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
