@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
@@ -174,11 +173,7 @@ func (d *CantonDestination) GetChainID() string {
 
 func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, error) {
 	// The recipient from EVM is a fingerprint (bytes32 as hex)
-	// FingerprintMapping stores fingerprints WITHOUT 0x prefix (e.g., "6ef4f...")
-	// but GetFingerprintMapping normalizes for comparison
-	// We need to store the SAME format in PendingDeposit as in FingerprintMapping
-	fingerprint := event.Recipient
-	fingerprint = strings.TrimPrefix(fingerprint, "0x") // Remove 0x for Daml storage
+	fingerprintFromEvent := event.Recipient
 
 	// Parse amount
 	amount := new(big.Int)
@@ -197,7 +192,19 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 		return fmt.Sprintf("already-processed:%s", event.SourceTxHash), nil
 	}
 
-	// Step 1: Create PendingDeposit from EVM event
+	// Step 1: Look up FingerprintMapping FIRST to get the exact stored fingerprint format
+	// GetFingerprintMapping normalizes the input for comparison, but we need the exact
+	// stored format to use in PendingDeposit so it matches during ProcessDeposit
+	mapping, err := d.client.GetFingerprintMapping(ctx, fingerprintFromEvent)
+	if err != nil {
+		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprintFromEvent, err)
+	}
+
+	// Use the EXACT fingerprint from the mapping - this ensures PendingDeposit.fingerprint
+	// will match FingerprintMapping.fingerprint exactly, regardless of whether it has 0x prefix
+	fingerprint := mapping.Fingerprint
+
+	// Step 2: Create PendingDeposit from EVM event using exact fingerprint from mapping
 	depositReq := &canton.CreatePendingDepositRequest{
 		Fingerprint: fingerprint,
 		Amount:      amountStr,
@@ -208,12 +215,6 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	depositCid, err := d.client.CreatePendingDeposit(ctx, depositReq)
 	if err != nil {
 		return "", fmt.Errorf("failed to create pending deposit: %w", err)
-	}
-
-	// Step 2: Look up FingerprintMapping by fingerprint
-	mapping, err := d.client.GetFingerprintMapping(ctx, fingerprint)
-	if err != nil {
-		return "", fmt.Errorf("failed to get fingerprint mapping for %s: %w", fingerprint, err)
 	}
 
 	// Step 3: Process deposit (unlock tokens on Canton side)
