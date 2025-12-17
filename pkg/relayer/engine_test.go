@@ -70,7 +70,6 @@ func TestProcessor_ProcessEvent(t *testing.T) {
 func TestCantonSource_StreamEvents(t *testing.T) {
 	// Setup mocks - using new issuer-centric WithdrawalEvent
 	withdrawalCh := make(chan *canton.WithdrawalEvent, 1)
-	errCh := make(chan error, 1)
 
 	withdrawalCh <- &canton.WithdrawalEvent{
 		EventID:        "event-1",
@@ -86,8 +85,8 @@ func TestCantonSource_StreamEvents(t *testing.T) {
 	close(withdrawalCh)
 
 	mockCantonClient := &MockCantonClient{
-		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
-			return withdrawalCh, errCh
+		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent {
+			return withdrawalCh
 		},
 	}
 

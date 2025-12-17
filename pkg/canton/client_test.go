@@ -44,16 +44,12 @@ func TestClient_StreamWithdrawalEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	withdrawalCh, errCh := client.StreamWithdrawalEvents(ctx, "BEGIN")
+	withdrawalCh := client.StreamWithdrawalEvents(ctx, "BEGIN")
 
 	// Wait for completion
 	select {
 	case <-withdrawalCh:
 		// Channel closed
-	case err := <-errCh:
-		if err != nil {
-			t.Errorf("StreamWithdrawalEvents returned error: %v", err)
-		}
 	case <-ctx.Done():
 		t.Errorf("Test timed out")
 	}
@@ -69,7 +65,7 @@ func TestClient_StreamWithdrawalEvents_WithData(t *testing.T) {
 				Sum: &lapiv2.Value_Record{
 					Record: &lapiv2.Record{
 						Fields: []*lapiv2.RecordField{
-							{Label: "address", Value: TextValue("0xRecipient")},
+							{Label: "value", Value: TextValue("0xRecipient")},
 						},
 					},
 				},
@@ -146,7 +142,7 @@ func TestClient_StreamWithdrawalEvents_WithData(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	withdrawalCh, errCh := client.StreamWithdrawalEvents(ctx, "BEGIN")
+	withdrawalCh := client.StreamWithdrawalEvents(ctx, "BEGIN")
 
 	select {
 	case withdrawal := <-withdrawalCh:
@@ -159,10 +155,6 @@ func TestClient_StreamWithdrawalEvents_WithData(t *testing.T) {
 		}
 		if withdrawal.EvmDestination != "0xRecipient" {
 			t.Errorf("Expected destination 0xRecipient, got %s", withdrawal.EvmDestination)
-		}
-	case err := <-errCh:
-		if err != nil {
-			t.Errorf("StreamWithdrawalEvents returned error: %v", err)
 		}
 	case <-ctx.Done():
 		t.Errorf("Test timed out waiting for withdrawal event")

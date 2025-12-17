@@ -66,27 +66,36 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 
 func TestCantonSource_StreamEvents_Error(t *testing.T) {
 	// Setup mock that returns error
-	errCh := make(chan error, 1)
 	withdrawalCh := make(chan *canton.WithdrawalEvent)
 
 	// Simulate error
 	go func() {
-		errCh <- context.DeadlineExceeded
-		close(errCh)
 		close(withdrawalCh)
 	}()
 
 	mockClient := &MockCantonClient{
-		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) (<-chan *canton.WithdrawalEvent, <-chan error) {
-			return withdrawalCh, errCh
+		StreamWithdrawalEventsFunc: func(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent {
+			return withdrawalCh
 		},
 	}
 
 	source := NewCantonSource(mockClient, "0xTokenAddress", "canton")
-	_, outErrCh := source.StreamEvents(context.Background(), "BEGIN")
+	eventCh, errCh := source.StreamEvents(context.Background(), "BEGIN")
 
-	err := <-outErrCh
-	if err != context.DeadlineExceeded {
-		t.Errorf("Expected DeadlineExceeded error, got %v", err)
+	// Expect no events and no errors, just the channel to close
+	for {
+		select {
+		case _, ok := <-eventCh:
+			if ok {
+				t.Error("Expected no events")
+			} else {
+				// Channel closed, test passed
+				return
+			}
+		case err, ok := <-errCh:
+			if ok {
+				t.Errorf("Expected no error, got %v", err)
+			}
+		}
 	}
 }
