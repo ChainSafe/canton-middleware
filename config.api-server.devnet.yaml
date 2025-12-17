@@ -1,0 +1,79 @@
+# =============================================================================
+# ERC-20 API Server Configuration (5North DevNet)
+# =============================================================================
+# This config connects the API server to ChainSafe's 5North DevNet for Canton
+# and Sepolia for Ethereum.
+#
+# Prerequisites:
+# - Valid JWT token (OAuth2 client credentials)
+# - Local PostgreSQL running with erc20_api database
+# - Sepolia ETH for gas
+# - PROMPT tokens on Sepolia for deposits
+#
+# See docs/API_SERVER_DEVNET_TESTING.md for full testing guide.
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "erc20_api"
+  ssl_mode: "disable"
+
+canton:
+  # 5North DevNet Ledger API (gRPC plaintext - TLS has ALPN issues with grpc-go 1.67+)
+  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+  ledger_id: ""
+  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
+  application_id: "erc20-api"
+  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+  
+  # Package IDs from 5North DevNet (already uploaded)
+  bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
+  core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"
+  cip56_package_id: ""
+  bridge_module: "Wayfinder.Bridge"
+  
+  # TLS disabled (using plaintext port 80)
+  tls:
+    enabled: false
+  
+  # OAuth2 Authentication for devnet
+  auth:
+    client_id: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
+    client_secret: "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+    audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+    token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+  
+  max_inbound_message_size: 52428800
+
+# Token metadata (PROMPT on Sepolia)
+token:
+  name: "PROMPT"
+  symbol: "PROMPT"
+  decimals: 18
+
+# JWKS endpoint for JWT validation (not used - we use EVM signatures)
+jwks:
+  url: ""
+  issuer: ""
+
+# Reconciliation settings
+reconciliation:
+  initial_timeout: "2m"
+  interval: "5m"
+
+# Shutdown settings
+shutdown:
+  timeout: "30s"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+
