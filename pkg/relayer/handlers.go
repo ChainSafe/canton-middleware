@@ -323,10 +323,11 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 
 		// Update balance cache if API DB is configured
 		if d.apiDB != nil {
-			// Decrement user balance using fingerprint from withdrawal event
-			if err := d.apiDB.DecrementBalanceByFingerprint(withdrawal.Fingerprint, event.Amount); err != nil {
+			// Decrement user balance using EVM destination address from withdrawal event
+			// Note: withdrawal.Fingerprint is the Canton party fingerprint, not the user's EVM fingerprint
+			if err := d.apiDB.DecrementBalance(withdrawal.EvmDestination, event.Amount); err != nil {
 				// Log but don't fail - the withdrawal succeeded
-				fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", withdrawal.Fingerprint, err)
+				fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", withdrawal.EvmDestination, err)
 			}
 			// Decrement total supply (tokens leaving Canton system)
 			if err := d.apiDB.DecrementTotalSupply(event.Amount); err != nil {

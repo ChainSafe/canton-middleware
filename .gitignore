@@ -68,8 +68,13 @@ contracts/canton-erc20/daml/**/.daml/
 deployments/production/*.secret.yaml
 deployments/staging/*.secret.yaml
 
-# Config files for non-local setup that now going to have secrets in them
+# Config files for non-local setup that have secrets in them
 config.devnet.yaml
 config.mainnet.yaml
+config.api-server.devnet.yaml
+config.api-server.mainnet.yaml
 # Auto-generated test config
 .test-config.yaml
+
+# E2E test config (contains private keys)
+config.e2e-test.yaml
