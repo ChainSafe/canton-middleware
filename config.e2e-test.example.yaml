@@ -1,0 +1,55 @@
+# =============================================================================
+# E2E Test Configuration
+# =============================================================================
+# Contains test-specific settings like user private keys, test amounts, etc.
+# This file should NOT be committed to the repository.
+#
+# Usage:
+#   go run scripts/e2e-test.go -config config.devnet.yaml -test-config config.e2e-test.yaml
+# =============================================================================
+
+# Test participants
+users:
+  user1:
+    # Ethereum private key (without 0x prefix)
+    private_key: "YOUR_USER1_PRIVATE_KEY_HERE"
+    # Ethereum address derived from private key
+    address: "0xYOUR_USER1_ADDRESS"
+    # Canton fingerprint (will be derived from registration if not set)
+    fingerprint: ""
+
+  user2:
+    private_key: "YOUR_USER2_PRIVATE_KEY_HERE"
+    address: "0xYOUR_USER2_ADDRESS"
+    fingerprint: ""
+
+# Service endpoints
+services:
+  # Relayer API endpoint
+  relayer_url: "http://localhost:8080"
+  # API Server RPC endpoint
+  api_server_url: "http://localhost:8081/rpc"
+  # Set to true if using locally deployed services via docker compose
+  local_deployment: true
+
+# Test amounts (in token decimals, e.g., "10.0" for 10 tokens)
+amounts:
+  # Total amount to deposit from Ethereum to Canton
+  total_deposit: "50.0"
+  # Amount to transfer from User1 to User2 on Canton
+  transfer_amount: "10.0"
+
+# Contract addresses (override from main config if needed)
+contracts:
+  # Leave empty to use values from main config
+  token_address: ""
+  bridge_address: ""
+
+# Timeouts
+timeouts:
+  # How long to wait for deposit to be processed by relayer
+  deposit_confirmation: "120s"
+  # How long to wait for Canton balance to update
+  balance_update: "30s"
+  # General RPC call timeout
+  rpc_call: "30s"

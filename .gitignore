@@ -73,3 +73,6 @@ config.devnet.yaml
 config.mainnet.yaml
 # Auto-generated test config
 .test-config.yaml
+
+# E2E test config (contains private keys)
+config.e2e-test.yaml
