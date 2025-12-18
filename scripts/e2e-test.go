@@ -21,6 +21,7 @@
 //   -test-config  Path to test config with user keys and amounts
 //   -local        Use local docker compose services
 //   -skip-docker  Skip docker compose start (assume services are running)
+//   -no-relayer   Don't start local relayer (use remote DevNet relayer instead)
 
 package main
 
@@ -28,6 +29,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -46,6 +48,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"gopkg.in/yaml.v3"
 )
 
@@ -67,10 +70,17 @@ type TestConfig struct {
 	} `yaml:"users"`
 
 	Services struct {
-		RelayerURL      string `yaml:"relayer_url"`
-		APIServerURL    string `yaml:"api_server_url"`
-		LocalDeployment bool   `yaml:"local_deployment"`
+		RelayerURL   string `yaml:"relayer_url"`
+		APIServerURL string `yaml:"api_server_url"`
 	} `yaml:"services"`
+
+	Database struct {
+		Host     string `yaml:"host"`
+		Port     int    `yaml:"port"`
+		User     string `yaml:"user"`
+		Password string `yaml:"password"`
+		Database string `yaml:"database"`
+	} `yaml:"database"`
 
 	Amounts struct {
 		TotalDeposit   string `yaml:"total_deposit"`
@@ -141,6 +151,7 @@ var (
 	testConfigPath = flag.String("test-config", "config.e2e-test.yaml", "Path to test config")
 	localMode      = flag.Bool("local", false, "Use local docker compose services")
 	skipDocker     = flag.Bool("skip-docker", false, "Skip docker compose start")
+	noRelayer      = flag.Bool("no-relayer", false, "Don't start local relayer (use remote DevNet relayer)")
 )
 
 func main() {
@@ -171,7 +182,7 @@ func main() {
 
 	// Start docker compose if needed
 	if *localMode && !*skipDocker {
-		if err := startDockerCompose(); err != nil {
+		if err := startDockerCompose(*noRelayer); err != nil {
 			printError("Failed to start docker compose: %v", err)
 			os.Exit(1)
 		}
@@ -179,19 +190,11 @@ func main() {
 
 	// Wait for services to be ready
 	printStep("Waiting for services...")
-	if err := waitForServices(testCfg); err != nil {
+	if err := waitForServices(testCfg, *noRelayer); err != nil {
 		printError("Services not ready: %v", err)
 		os.Exit(1)
 	}
 	printSuccess("Services are ready")
-
-	// Run local bootstrap if needed
-	if *localMode && testCfg.Services.LocalDeployment {
-		if err := runLocalBootstrap(cfg); err != nil {
-			printError("Bootstrap failed: %v", err)
-			os.Exit(1)
-		}
-	}
 
 	// Run the E2E test
 	ctx := context.Background()
@@ -250,9 +253,17 @@ func validateTestConfig(cfg *TestConfig) error {
 	return nil
 }
 
-func startDockerCompose() error {
+func startDockerCompose(skipRelayer bool) error {
 	printStep("Starting docker compose services...")
-	cmd := exec.Command("docker", "compose", "-f", "docker-compose.yaml", "-f", "docker-compose.devnet.yaml", "up", "-d")
+
+	args := []string{"compose", "-f", "docker-compose.yaml", "-f", "docker-compose.devnet.yaml", "up", "-d"}
+	if skipRelayer {
+		// Only start postgres and api-server, skip relayer (use remote DevNet relayer)
+		args = append(args, "postgres", "api-server")
+		printInfo("Skipping local relayer (using remote DevNet relayer)")
+	}
+
+	cmd := exec.Command("docker", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -262,17 +273,19 @@ func startDockerCompose() error {
 	return nil
 }
 
-func waitForServices(cfg *TestConfig) error {
+func waitForServices(cfg *TestConfig, skipRelayer bool) error {
 	// Wait for API server health
 	apiHealthURL := strings.TrimSuffix(cfg.Services.APIServerURL, "/rpc") + "/health"
 	if err := waitForHealth(apiHealthURL, 60); err != nil {
 		return fmt.Errorf("API server not healthy: %w", err)
 	}
 
-	// Wait for relayer health
-	relayerHealthURL := cfg.Services.RelayerURL + "/health"
-	if err := waitForHealth(relayerHealthURL, 60); err != nil {
-		return fmt.Errorf("relayer not healthy: %w", err)
+	// Wait for relayer health (skip if using remote relayer)
+	if !skipRelayer {
+		relayerHealthURL := cfg.Services.RelayerURL + "/health"
+		if err := waitForHealth(relayerHealthURL, 60); err != nil {
+			return fmt.Errorf("relayer not healthy: %w", err)
+		}
 	}
 
 	return nil
@@ -290,21 +303,6 @@ func waitForHealth(url string, maxAttempts int) error {
 		time.Sleep(2 * time.Second)
 	}
 	return fmt.Errorf("timeout waiting for %s", url)
-}
-
-func runLocalBootstrap(cfg *config.Config) error {
-	printStep("Running bootstrap scripts...")
-
-	// Run bootstrap-bridge.go
-	cmd := exec.Command("go", "run", "scripts/bootstrap-bridge.go", "-config", *configPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		printWarning("bootstrap-bridge.go failed (may already be bootstrapped): %v", err)
-	}
-
-	printSuccess("Bootstrap complete")
-	return nil
 }
 
 func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) error {
@@ -336,6 +334,16 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 	printInfo("User2 Address: %s", user2Addr.Hex())
 	printInfo("Token Contract: %s", tokenAddr)
 	printInfo("Bridge Contract: %s", bridgeAddr)
+
+	// =========================================================================
+	// Step 0 (local mode only): Whitelist users in PostgreSQL
+	// =========================================================================
+	if *localMode && testCfg.Database.Host != "" {
+		printHeader("Step 0: Whitelist Users (Local Mode)")
+		if err := whitelistUsers(testCfg, user1Addr, user2Addr); err != nil {
+			return fmt.Errorf("failed to whitelist users: %w", err)
+		}
+	}
 
 	// =========================================================================
 	// Step 1: Register users on API server
@@ -407,8 +415,8 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 	}
 	printSuccess("Approval tx: %s", tx.Hash().Hex())
 
-	// Wait for approval confirmation
-	if err := waitForTx(ctx, ethClient, tx.Hash(), 30*time.Second); err != nil {
+	// Wait for approval confirmation (90s timeout for Sepolia's ~12s block times)
+	if err := waitForTx(ctx, ethClient, tx.Hash(), 90*time.Second); err != nil {
 		return fmt.Errorf("approval tx failed: %w", err)
 	}
 
@@ -428,7 +436,8 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 	}
 	printSuccess("Deposit tx: %s", tx.Hash().Hex())
 
-	if err := waitForTx(ctx, ethClient, tx.Hash(), 30*time.Second); err != nil {
+	// 90s timeout for Sepolia's ~12s block times
+	if err := waitForTx(ctx, ethClient, tx.Hash(), 90*time.Second); err != nil {
 		return fmt.Errorf("deposit tx failed: %w", err)
 	}
 
@@ -546,24 +555,71 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 }
 
 // =============================================================================
+// Database Helpers (for local mode whitelisting)
+// =============================================================================
+
+// whitelistUsers adds users to the API server whitelist in PostgreSQL
+func whitelistUsers(cfg *TestConfig, users ...common.Address) error {
+	if cfg.Database.Host == "" {
+		return fmt.Errorf("database config not provided")
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database)
+
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer db.Close()
+
+	// Test connection
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	for _, addr := range users {
+		_, err := db.Exec(
+			"INSERT INTO whitelist (evm_address) VALUES ($1) ON CONFLICT DO NOTHING",
+			addr.Hex(),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to whitelist %s: %w", addr.Hex(), err)
+		}
+		printSuccess("Whitelisted %s", addr.Hex())
+	}
+
+	return nil
+}
+
+// =============================================================================
 // API Server RPC Helpers
 // =============================================================================
 
-func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params interface{}) (*RPCResponse, error) {
-	// Create signature
-	timestamp := time.Now().Unix()
-	message := fmt.Sprintf("%s:%d", method, timestamp)
-	messageHash := crypto.Keccak256Hash([]byte(message))
-	signature, err := crypto.Sign(messageHash.Bytes(), privateKey)
+// signEIP191 creates an EIP-191 personal signature (same format as eth_sign / cast wallet sign)
+func signEIP191(message string, privateKey *ecdsa.PrivateKey) (string, error) {
+	// EIP-191: "\x19Ethereum Signed Message:\n" + len(message) + message
+	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(message))
+	hash := crypto.Keccak256Hash([]byte(prefix + message))
+	signature, err := crypto.Sign(hash.Bytes(), privateKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
+		return "", err
 	}
-
-	// Adjust signature for Ethereum (v = 27 or 28)
+	// Adjust v value for Ethereum (27 or 28)
 	if signature[64] < 27 {
 		signature[64] += 27
 	}
-	sigHex := "0x" + hex.EncodeToString(signature)
+	return "0x" + hex.EncodeToString(signature), nil
+}
+
+func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params interface{}) (*RPCResponse, error) {
+	// Create signature using EIP-191 personal sign format
+	timestamp := time.Now().Unix()
+	message := fmt.Sprintf("%s:%d", method, timestamp)
+	sigHex, err := signEIP191(message, privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
 
 	// Create request
 	req := RPCRequest{
@@ -616,17 +672,15 @@ func registerUser(url string, privateKey *ecdsa.PrivateKey, name string) (string
 	if resp.Error != nil {
 		// Check if already registered
 		if resp.Error.Code == -32005 || strings.Contains(resp.Error.Message, "already registered") {
-			printWarning("%s already registered", name)
-			// Try to get fingerprint from balance call
-			balResp, err := rpcCall(url, privateKey, "erc20_balanceOf", map[string]interface{}{})
-			if err == nil && balResp.Error == nil {
-				var result BalanceResult
-				if json.Unmarshal(balResp.Result, &result) == nil {
-					// Extract fingerprint from address if available
-					return "", nil
-				}
-			}
-			return "", nil
+			printWarning("%s already registered, computing fingerprint from address", name)
+			// Compute fingerprint from address (same as API server's ComputeFingerprint)
+			addr := crypto.PubkeyToAddress(privateKey.PublicKey)
+			fingerprint := crypto.Keccak256Hash(addr.Bytes()).Hex()
+			return fingerprint, nil
+		}
+		// Check if not whitelisted (helpful error message)
+		if resp.Error.Code == -32004 || strings.Contains(resp.Error.Message, "not whitelisted") {
+			return "", fmt.Errorf("%s not whitelisted - for remote mode, ensure users are pre-whitelisted; for local mode, use -local flag", name)
 		}
 		return "", fmt.Errorf("RPC error: %s", resp.Error.Message)
 	}
