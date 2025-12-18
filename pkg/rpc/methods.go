@@ -1,15 +1,9 @@
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
-	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
@@ -223,11 +217,11 @@ func (h *MethodHandler) handleRegister(ctx context.Context) (interface{}, *Error
 	// Compute fingerprint
 	fingerprint := auth.ComputeFingerprint(evmAddress)
 
-	// Allocate a Canton party via HTTP API
-	partyID, err := allocateParty(ctx, h.server.config.Canton.RPCURL)
-	if err != nil {
-		h.server.logger.Error("Failed to allocate party", zap.Error(err))
-		return nil, NewError(InternalError, fmt.Sprintf("failed to allocate party: %v", err))
+	// Issuer-centric model: all users share the relayer party
+	// Users are differentiated by their EVM address/fingerprint via FingerprintMapping
+	partyID := h.server.config.Canton.RelayerParty
+	if partyID == "" {
+		return nil, NewError(InternalError, "relayer_party not configured - required for issuer-centric model")
 	}
 
 	// Register the user's fingerprint mapping on Canton
@@ -270,84 +264,6 @@ func (h *MethodHandler) handleRegister(ctx context.Context) (interface{}, *Error
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-// allocateParty allocates a new Canton party via HTTP API
-func allocateParty(ctx context.Context, rpcURL string) (string, error) {
-	// Convert gRPC URL to HTTP URL
-	// Canton gRPC is typically on port 5011, HTTP on 5013
-	httpURL := convertToHTTPURL(rpcURL)
-
-	// Generate a unique party hint based on timestamp
-	partyHint := fmt.Sprintf("User_%d", time.Now().UnixNano())
-
-	// Create request body
-	reqBody := map[string]string{
-		"partyIdHint": partyHint,
-	}
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Create HTTP request
-	url := fmt.Sprintf("%s/v2/parties", httpURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Execute request
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to call party allocation API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("party allocation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response
-	var partyResp struct {
-		PartyDetails struct {
-			Party string `json:"party"`
-		} `json:"partyDetails"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&partyResp); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if partyResp.PartyDetails.Party == "" {
-		return "", fmt.Errorf("party allocation returned empty party ID")
-	}
-
-	return partyResp.PartyDetails.Party, nil
-}
-
-// convertToHTTPURL converts a gRPC URL to HTTP URL
-func convertToHTTPURL(grpcURL string) string {
-	// Canton gRPC is typically on port 5011, HTTP on 5013
-	// Replace port if it looks like the standard gRPC port
-	host := grpcURL
-
-	// Remove any protocol prefix
-	host = strings.TrimPrefix(host, "http://")
-	host = strings.TrimPrefix(host, "https://")
-
-	// Check for common gRPC ports and convert to HTTP ports
-	// Participant 1: gRPC 5011 -> HTTP 5013
-	// Participant 2: gRPC 5021 -> HTTP 5023
-	if strings.HasSuffix(host, ":5011") {
-		host = strings.TrimSuffix(host, ":5011") + ":5013"
-	} else if strings.HasSuffix(host, ":5021") {
-		host = strings.TrimSuffix(host, ":5021") + ":5023"
-	}
-
-	return fmt.Sprintf("http://%s", host)
-}
 
 // isInsufficientFunds checks if an error indicates insufficient funds using structured error types.
 // Uses errors.Is() to check for sentinel errors from the canton package.

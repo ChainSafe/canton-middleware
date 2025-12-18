@@ -264,10 +264,10 @@ generate_host_config() {
     local CIP56_PACKAGE_ID=""
     
     if [ -n "$WAYFINDER_DAR" ]; then
-        # Extract package ID from DAR listing (format: package-name-version-HASH/...)
-        BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
-        BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
-        CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        # Extract package ID from DAR listing (format: package-name-v2-version-HASH/...)
+        BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
     fi
     
     # Use contract addresses if already loaded, otherwise use defaults
@@ -363,9 +363,36 @@ stop_services() {
     print_success "Services stopped"
 }
 
+update_api_server_config() {
+    local CONFIG_FILE="$PROJECT_DIR/config.api-server.docker.yaml"
+    
+    # Get package IDs from DAR files
+    local WAYFINDER_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/bridge-wayfinder/.daml/dist/"*.dar 2>/dev/null | head -1)
+    local CORE_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/bridge-core/.daml/dist/"*.dar 2>/dev/null | head -1)
+    local CIP56_DAR=$(ls "$PROJECT_DIR/contracts/canton-erc20/daml/cip56-token/.daml/dist/"*.dar 2>/dev/null | head -1)
+    
+    if [ -n "$WAYFINDER_DAR" ] && [ -f "$CONFIG_FILE" ]; then
+        local BRIDGE_PKG=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        local CORE_PKG=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        local CIP56_PKG=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+        
+        if [ -n "$BRIDGE_PKG" ] && [ -n "$CORE_PKG" ] && [ -n "$CIP56_PKG" ]; then
+            print_step "Updating API server config with package IDs..."
+            sed -i.bak "s/bridge_package_id: \"[a-f0-9]*\"/bridge_package_id: \"$BRIDGE_PKG\"/" "$CONFIG_FILE"
+            sed -i.bak "s/core_package_id: \"[a-f0-9]*\"/core_package_id: \"$CORE_PKG\"/" "$CONFIG_FILE"
+            sed -i.bak "s/cip56_package_id: \"[a-f0-9]*\"/cip56_package_id: \"$CIP56_PKG\"/" "$CONFIG_FILE"
+            rm -f "${CONFIG_FILE}.bak"
+            print_success "API server config updated"
+        fi
+    fi
+}
+
 start_services() {
     print_header "Starting Docker Services"
     cd "$PROJECT_DIR"
+    
+    # Update API server config with current package IDs before starting
+    update_api_server_config
     
     print_step "Starting docker compose..."
     $DOCKER_COMPOSE_CMD up --build -d
