@@ -4,11 +4,12 @@
 # This overlay:
 # - Disables local Canton, Anvil, deployer (using 5North hosted participant + Sepolia)
 # - Disables mock-oauth2 and bootstrap (not needed for devnet)
-# - Keeps Postgres for relayer state
-# - Uses config.devnet.yaml
+# - Keeps Postgres for relayer and API server state
+# - Configures relayer with config.devnet.yaml
+# - Configures api-server with config.api-server.devnet.yaml
 
 services:
-  # Disable local services - using 5North hosted participant
+  # Disable local services - using 5North hosted participant + Sepolia
   canton:
     profiles: ["disabled"]
 
@@ -24,14 +25,22 @@ services:
   bootstrap:
     profiles: ["disabled"]
 
+  # Relayer connecting to 5North DevNet + Sepolia
   relayer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
+    depends_on: !override
       postgres:
         condition: service_healthy
     volumes:
       - ./config.devnet.yaml:/app/config.yaml:ro
+    command: ["-config", "/app/config.yaml"]
 
-  # Postgres stays enabled for relayer state
+  # API Server connecting to 5North DevNet
+  api-server:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./config.api-server.devnet.yaml:/app/config.yaml:ro
+    command: ["-config", "/app/config.yaml"]
+
+  # Postgres stays enabled for relayer and API server state

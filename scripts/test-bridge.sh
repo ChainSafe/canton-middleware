@@ -259,7 +259,8 @@ get_package_id() {
     local pkg_name="$1"
     local dar_file=$(ls "$DAML_DIR/$pkg_name/.daml/dist/"*.dar 2>/dev/null | head -1)
     if [ -n "$dar_file" ] && [ -f "$dar_file" ]; then
-        daml damlc inspect-dar "$dar_file" 2>/dev/null | grep "^${pkg_name}-[0-9]" | tail -1 | grep -oE '"[a-f0-9]{64}"' | tr -d '"' || echo ""
+        # Package names now have -v2 suffix (e.g., cip56-token-v2-1.1.0-...)
+        daml damlc inspect-dar "$dar_file" 2>/dev/null | grep "^${pkg_name}-v2-" | head -1 | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/' || echo ""
     fi
 }
 
@@ -423,9 +424,9 @@ load_configuration() {
         
         if [ -n "$WAYFINDER_DAR" ] && [ -n "$CORE_DAR" ] && [ -n "$CIP56_DAR" ]; then
             # Extract package ID from DAR listing (format: package-name-version-HASH/...)
-            BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
-            BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
-            CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+            BRIDGE_WAYFINDER_PACKAGE_ID=$(daml damlc inspect-dar "$WAYFINDER_DAR" 2>/dev/null | grep -m1 "^bridge-wayfinder-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+            BRIDGE_CORE_PACKAGE_ID=$(daml damlc inspect-dar "$CORE_DAR" 2>/dev/null | grep -m1 "^bridge-core-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
+            CIP56_PACKAGE_ID=$(daml damlc inspect-dar "$CIP56_DAR" 2>/dev/null | grep -m1 "^cip56-token-v2-" | sed 's/.*-\([a-f0-9]\{64\}\)\/.*/\1/')
             print_info "Package IDs loaded from DAR files"
         else
             print_warning "DAR files not found - package IDs will be empty"
