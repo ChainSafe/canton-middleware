@@ -50,15 +50,28 @@ jobs:
             username: ${{ github.actor }}
             password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push Middlewware Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./cmd/relayer/Dockerfile
           push: true
           tags: |
             ghcr.io/chainsafe/canton-middleware:latest
             ghcr.io/chainsafe/canton-middleware:${{ steps.get_tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build and push ERC20 API Server Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./cmd/api-server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/chainsafe/canton-erc20-api:latest
+            ghcr.io/chainsafe/canton-erc20-api:${{ steps.get_tag.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
