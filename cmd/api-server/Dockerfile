@@ -1,6 +1,6 @@
 # Build stage
 # Using full golang image (not alpine) for toolchain auto-download support
-FROM golang:1.23 AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY . .
 # Download deps and build in one layer to preserve toolchain
 # GOTOOLCHAIN=auto downloads newer Go version if required by deps
 RUN GOTOOLCHAIN=auto go mod download && \
-    GOTOOLCHAIN=auto go build -o /app/bin/relayer ./cmd/relayer
+    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -ldflags="-w -s" -o /app/bin/api-server ./cmd/api-server
 
 # Runtime stage
 FROM alpine:latest
@@ -27,9 +27,9 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates
 
 # Copy binary from builder
-COPY --from=builder /app/bin/relayer /app/relayer
+COPY --from=builder /app/bin/api-server /app/api-server
 
-EXPOSE 8080 9090
+EXPOSE 8080
 
-ENTRYPOINT ["/app/relayer"]
+ENTRYPOINT ["/app/api-server"]
 CMD ["-config", "/app/config.yaml"]

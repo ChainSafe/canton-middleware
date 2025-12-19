@@ -150,8 +150,8 @@ var (
 	configPath     = flag.String("config", "config.devnet.yaml", "Path to main service config")
 	testConfigPath = flag.String("test-config", "config.e2e-test.yaml", "Path to test config")
 	localMode      = flag.Bool("local", false, "Use local docker compose services")
-	skipDocker     = flag.Bool("skip-docker", false, "Skip docker compose start")
-	noRelayer      = flag.Bool("no-relayer", false, "Don't start local relayer (use remote DevNet relayer)")
+	skipDocker     = flag.Bool("skip-docker", true, "Skip docker compose start")
+	noRelayer      = flag.Bool("no-relayer", true, "Don't start local relayer (use remote DevNet relayer)")
 )
 
 func main() {
