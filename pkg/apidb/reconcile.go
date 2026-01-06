@@ -3,7 +3,6 @@ package apidb
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,21 +31,23 @@ func NewReconciler(db *Store, cantonClient *canton.Client, logger *zap.Logger) *
 	}
 }
 
-// ReconcileAll synchronizes all user balances and total supply from Canton
+// ReconcileAll synchronizes total supply from Canton.
+// NOTE: User balances are NOT reconciled from Canton because in the issuer-centric model,
+// all holdings are owned by the same party (issuer) and individual user balances cannot
+// be determined from on-chain data. User balances are tracked via transaction history
+// (deposits, withdrawals, transfers) which is the source of truth.
 func (r *Reconciler) ReconcileAll(ctx context.Context) error {
-	r.logger.Info("Starting full reconciliation")
+	r.logger.Info("Starting total supply reconciliation")
 	start := time.Now()
 
-	// Get all holdings from Canton
+	// Get all holdings from Canton to calculate total supply
 	holdings, err := r.cantonClient.GetAllCIP56Holdings(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get holdings from Canton: %w", err)
 	}
 
-	// Group holdings by owner party and sum balances
-	partyBalances := make(map[string]decimal.Decimal)
+	// Calculate total supply from all holdings
 	totalSupply := decimal.Zero
-
 	for _, holding := range holdings {
 		amount, err := decimal.NewFromString(holding.Amount)
 		if err != nil {
@@ -56,54 +57,10 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 				zap.Error(err))
 			continue
 		}
-
-		if current, ok := partyBalances[holding.Owner]; ok {
-			partyBalances[holding.Owner] = current.Add(amount)
-		} else {
-			partyBalances[holding.Owner] = amount
-		}
 		totalSupply = totalSupply.Add(amount)
 	}
 
-	// Get all users from DB
-	users, err := r.db.GetAllUsers()
-	if err != nil {
-		return fmt.Errorf("failed to get users from DB: %w", err)
-	}
-
-	// Update each user's balance
-	var updated, mismatches int
-	for _, user := range users {
-		cantonBalance := decimal.Zero
-		if bal, ok := partyBalances[user.CantonParty]; ok {
-			cantonBalance = bal
-		}
-
-		dbBalance, err := decimal.NewFromString(user.Balance)
-		if err != nil {
-			r.logger.Warn("Failed to parse user balance", zap.String("evm_address", user.EVMAddress), zap.Error(err))
-			continue
-		}
-		
-		if !dbBalance.Equal(cantonBalance) {
-			mismatches++
-			r.logger.Info("Balance mismatch detected",
-				zap.String("evm_address", user.EVMAddress),
-				zap.String("db_balance", dbBalance.String()),
-				zap.String("canton_balance", cantonBalance.String()))
-		}
-
-		// Always update to ensure consistency
-		if err := r.db.UpdateUserBalance(user.EVMAddress, cantonBalance.String()); err != nil {
-			r.logger.Error("Failed to update user balance",
-				zap.String("evm_address", user.EVMAddress),
-				zap.Error(err))
-			continue
-		}
-		updated++
-	}
-
-	// Update total supply
+	// Update total supply from Canton (this is authoritative)
 	if err := r.db.SetTotalSupply(totalSupply.String()); err != nil {
 		return fmt.Errorf("failed to update total supply: %w", err)
 	}
@@ -113,40 +70,10 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 		r.logger.Warn("Failed to update last reconciled timestamp", zap.Error(err))
 	}
 
-	r.logger.Info("Reconciliation completed",
-		zap.Int("users_updated", updated),
-		zap.Int("mismatches_found", mismatches),
+	r.logger.Info("Total supply reconciliation completed",
 		zap.Int("holdings_processed", len(holdings)),
 		zap.String("total_supply", totalSupply.String()),
 		zap.Duration("duration", time.Since(start)))
-
-	return nil
-}
-
-// ReconcileUser synchronizes a single user's balance from Canton
-func (r *Reconciler) ReconcileUser(ctx context.Context, fingerprint string) error {
-	// Normalize fingerprint
-	normalizedFingerprint := fingerprint
-	if !strings.HasPrefix(normalizedFingerprint, "0x") {
-		normalizedFingerprint = "0x" + normalizedFingerprint
-	}
-
-	r.logger.Debug("Reconciling user", zap.String("fingerprint", normalizedFingerprint))
-
-	// Get balance from Canton
-	balance, err := r.cantonClient.GetUserBalance(ctx, normalizedFingerprint)
-	if err != nil {
-		return fmt.Errorf("failed to get balance from Canton: %w", err)
-	}
-
-	// Update in DB
-	if err := r.db.UpdateUserBalanceByFingerprint(normalizedFingerprint, balance); err != nil {
-		return fmt.Errorf("failed to update balance in DB: %w", err)
-	}
-
-	r.logger.Debug("User balance reconciled",
-		zap.String("fingerprint", normalizedFingerprint),
-		zap.String("balance", balance))
 
 	return nil
 }
