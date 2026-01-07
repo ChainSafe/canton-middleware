@@ -5,6 +5,9 @@ bin/
 *.dll
 *.so
 *.dylib
+relayer
+api-server
+e2e-test
 
 # Test binary
 *.test
