@@ -31,7 +31,7 @@ var (
 
 // CantonBridgeMetaData contains all meta data concerning the CantonBridge contract.
 var CantonBridgeMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_relayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_maxTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_minTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"addTokenMapping\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"cantonTokenId\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"cantonToEthereumToken\",\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"depositNonce\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"depositToCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cantonRecipient\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"emergencyWithdraw\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"ethereumToCantonToken\",\"inputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getBridgeBalance\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"maxTransferAmount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"minTransferAmount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pause\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"paused\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"processedCantonTxs\",\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"relayer\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"removeTokenMapping\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"unpause\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateLimits\",\"inputs\":[{\"name\":\"_maxTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_minTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateRelayer\",\"inputs\":[{\"name\":\"newRelayer\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"withdrawFromCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"recipient\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cantonTxHash\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"event\",\"name\":\"BridgeLimitsUpdated\",\"inputs\":[{\"name\":\"maxTransferAmount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"minTransferAmount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DepositToCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"sender\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"cantonRecipient\",\"type\":\"bytes32\",\"indexed\":true,\"internalType\":\"bytes32\"},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Paused\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RelayerUpdated\",\"inputs\":[{\"name\":\"oldRelayer\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newRelayer\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"TokenMappingAdded\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"cantonTokenId\",\"type\":\"bytes32\",\"indexed\":true,\"internalType\":\"bytes32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"TokenMappingRemoved\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Unpaused\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"WithdrawFromCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"recipient\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cantonTxHash\",\"type\":\"bytes32\",\"indexed\":false,\"internalType\":\"bytes32\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"EnforcedPause\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"ExpectedPause\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ReentrancyGuardReentrantCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"SafeERC20FailedOperation\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_relayer\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_maxTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_minTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"addTokenMapping\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"cantonTokenId\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"cantonToEthereumToken\",\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"depositNonce\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"depositToCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"cantonRecipient\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"emergencyWithdraw\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"ethereumToCantonToken\",\"inputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getBridgeBalance\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"maxTransferAmount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"minTransferAmount\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pause\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"paused\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"processedCantonTxs\",\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"isWithdrawalProcessed\",\"inputs\":[{\"name\":\"withdrawalId\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"processedWithdrawals\",\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"relayer\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"removeTokenMapping\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"unpause\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateLimits\",\"inputs\":[{\"name\":\"_maxTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_minTransferAmount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateRelayer\",\"inputs\":[{\"name\":\"newRelayer\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"withdrawFromCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"recipient\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"withdrawalId\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"event\",\"name\":\"BridgeLimitsUpdated\",\"inputs\":[{\"name\":\"maxTransferAmount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"minTransferAmount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DepositToCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"sender\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cantonRecipient\",\"type\":\"bytes32\",\"indexed\":true,\"internalType\":\"bytes32\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Paused\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RelayerUpdated\",\"inputs\":[{\"name\":\"oldRelayer\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newRelayer\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"TokenMappingAdded\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"cantonTokenId\",\"type\":\"bytes32\",\"indexed\":true,\"internalType\":\"bytes32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"TokenMappingRemoved\",\"inputs\":[{\"name\":\"ethereumToken\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Unpaused\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"WithdrawFromCanton\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"recipient\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"nonce\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"cantonTxHash\",\"type\":\"bytes32\",\"indexed\":false,\"internalType\":\"bytes32\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"EnforcedPause\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"ExpectedPause\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ReentrancyGuardReentrantCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"SafeERC20FailedOperation\",\"inputs\":[{\"name\":\"token\",\"type\":\"address\",\"internalType\":\"address\"}]}]",
 }
 
 // CantonBridgeABI is the input ABI used to generate the binding from.
@@ -459,6 +459,68 @@ func (_CantonBridge *CantonBridgeCallerSession) ProcessedCantonTxs(arg0 [32]byte
 	return _CantonBridge.Contract.ProcessedCantonTxs(&_CantonBridge.CallOpts, arg0)
 }
 
+// IsWithdrawalProcessed is a free data retrieval call binding the contract method.
+//
+// Solidity: function isWithdrawalProcessed(bytes32 withdrawalId) view returns(bool)
+func (_CantonBridge *CantonBridgeCaller) IsWithdrawalProcessed(opts *bind.CallOpts, withdrawalId [32]byte) (bool, error) {
+	var out []interface{}
+	err := _CantonBridge.contract.Call(opts, &out, "isWithdrawalProcessed", withdrawalId)
+
+	if err != nil {
+		return *new(bool), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+
+	return out0, err
+
+}
+
+// IsWithdrawalProcessed is a free data retrieval call binding the contract method.
+//
+// Solidity: function isWithdrawalProcessed(bytes32 withdrawalId) view returns(bool)
+func (_CantonBridge *CantonBridgeSession) IsWithdrawalProcessed(withdrawalId [32]byte) (bool, error) {
+	return _CantonBridge.Contract.IsWithdrawalProcessed(&_CantonBridge.CallOpts, withdrawalId)
+}
+
+// IsWithdrawalProcessed is a free data retrieval call binding the contract method.
+//
+// Solidity: function isWithdrawalProcessed(bytes32 withdrawalId) view returns(bool)
+func (_CantonBridge *CantonBridgeCallerSession) IsWithdrawalProcessed(withdrawalId [32]byte) (bool, error) {
+	return _CantonBridge.Contract.IsWithdrawalProcessed(&_CantonBridge.CallOpts, withdrawalId)
+}
+
+// ProcessedWithdrawals is a free data retrieval call binding the contract method.
+//
+// Solidity: function processedWithdrawals(bytes32 ) view returns(bool)
+func (_CantonBridge *CantonBridgeCaller) ProcessedWithdrawals(opts *bind.CallOpts, arg0 [32]byte) (bool, error) {
+	var out []interface{}
+	err := _CantonBridge.contract.Call(opts, &out, "processedWithdrawals", arg0)
+
+	if err != nil {
+		return *new(bool), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(bool)).(*bool)
+
+	return out0, err
+
+}
+
+// ProcessedWithdrawals is a free data retrieval call binding the contract method.
+//
+// Solidity: function processedWithdrawals(bytes32 ) view returns(bool)
+func (_CantonBridge *CantonBridgeSession) ProcessedWithdrawals(arg0 [32]byte) (bool, error) {
+	return _CantonBridge.Contract.ProcessedWithdrawals(&_CantonBridge.CallOpts, arg0)
+}
+
+// ProcessedWithdrawals is a free data retrieval call binding the contract method.
+//
+// Solidity: function processedWithdrawals(bytes32 ) view returns(bool)
+func (_CantonBridge *CantonBridgeCallerSession) ProcessedWithdrawals(arg0 [32]byte) (bool, error) {
+	return _CantonBridge.Contract.ProcessedWithdrawals(&_CantonBridge.CallOpts, arg0)
+}
+
 // Relayer is a free data retrieval call binding the contract method 0x8406c079.
 //
 // Solidity: function relayer() view returns(address)
@@ -702,23 +764,23 @@ func (_CantonBridge *CantonBridgeTransactorSession) UpdateRelayer(newRelayer com
 
 // WithdrawFromCanton is a paid mutator transaction binding the contract method 0x5a94d032.
 //
-// Solidity: function withdrawFromCanton(address token, address recipient, uint256 amount, uint256 nonce, bytes32 cantonTxHash) returns()
-func (_CantonBridge *CantonBridgeTransactor) WithdrawFromCanton(opts *bind.TransactOpts, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (*types.Transaction, error) {
-	return _CantonBridge.contract.Transact(opts, "withdrawFromCanton", token, recipient, amount, nonce, cantonTxHash)
+// Solidity: function withdrawFromCanton(address token, uint256 amount, address recipient, bytes32 withdrawalId, bytes proof) returns()
+func (_CantonBridge *CantonBridgeTransactor) WithdrawFromCanton(opts *bind.TransactOpts, token common.Address, amount *big.Int, recipient common.Address, withdrawalId [32]byte, proof []byte) (*types.Transaction, error) {
+	return _CantonBridge.contract.Transact(opts, "withdrawFromCanton", token, amount, recipient, withdrawalId, proof)
 }
 
 // WithdrawFromCanton is a paid mutator transaction binding the contract method 0x5a94d032.
 //
-// Solidity: function withdrawFromCanton(address token, address recipient, uint256 amount, uint256 nonce, bytes32 cantonTxHash) returns()
-func (_CantonBridge *CantonBridgeSession) WithdrawFromCanton(token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (*types.Transaction, error) {
-	return _CantonBridge.Contract.WithdrawFromCanton(&_CantonBridge.TransactOpts, token, recipient, amount, nonce, cantonTxHash)
+// Solidity: function withdrawFromCanton(address token, uint256 amount, address recipient, bytes32 withdrawalId, bytes proof) returns()
+func (_CantonBridge *CantonBridgeSession) WithdrawFromCanton(token common.Address, amount *big.Int, recipient common.Address, withdrawalId [32]byte, proof []byte) (*types.Transaction, error) {
+	return _CantonBridge.Contract.WithdrawFromCanton(&_CantonBridge.TransactOpts, token, amount, recipient, withdrawalId, proof)
 }
 
 // WithdrawFromCanton is a paid mutator transaction binding the contract method 0x5a94d032.
 //
-// Solidity: function withdrawFromCanton(address token, address recipient, uint256 amount, uint256 nonce, bytes32 cantonTxHash) returns()
-func (_CantonBridge *CantonBridgeTransactorSession) WithdrawFromCanton(token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (*types.Transaction, error) {
-	return _CantonBridge.Contract.WithdrawFromCanton(&_CantonBridge.TransactOpts, token, recipient, amount, nonce, cantonTxHash)
+// Solidity: function withdrawFromCanton(address token, uint256 amount, address recipient, bytes32 withdrawalId, bytes proof) returns()
+func (_CantonBridge *CantonBridgeTransactorSession) WithdrawFromCanton(token common.Address, amount *big.Int, recipient common.Address, withdrawalId [32]byte, proof []byte) (*types.Transaction, error) {
+	return _CantonBridge.Contract.WithdrawFromCanton(&_CantonBridge.TransactOpts, token, amount, recipient, withdrawalId, proof)
 }
 
 // CantonBridgeBridgeLimitsUpdatedIterator is returned from FilterBridgeLimitsUpdated and is used to iterate over the raw logs and unpacked data for BridgeLimitsUpdated events raised by the CantonBridge contract.
@@ -927,15 +989,15 @@ func (it *CantonBridgeDepositToCantonIterator) Close() error {
 type CantonBridgeDepositToCanton struct {
 	Token           common.Address
 	Sender          common.Address
-	CantonRecipient [32]byte
 	Amount          *big.Int
+	CantonRecipient [32]byte
 	Nonce           *big.Int
 	Raw             types.Log // Blockchain specific contextual infos
 }
 
-// FilterDepositToCanton is a free log retrieval operation binding the contract event 0xeb81e98a4f9bc1a984adfd1d0fa704f53a91dca986f7198277bc93037cb7e8ba.
+// FilterDepositToCanton is a free log retrieval operation binding the contract event 0x5915aa8ff4227fc8aa3b07e56b1ea3985d452f242cd123b30664ce06dee85fd4.
 //
-// Solidity: event DepositToCanton(address indexed token, address indexed sender, bytes32 indexed cantonRecipient, uint256 amount, uint256 nonce)
+// Solidity: event DepositToCanton(address indexed token, address indexed sender, uint256 amount, bytes32 indexed cantonRecipient, uint256 nonce)
 func (_CantonBridge *CantonBridgeFilterer) FilterDepositToCanton(opts *bind.FilterOpts, token []common.Address, sender []common.Address, cantonRecipient [][32]byte) (*CantonBridgeDepositToCantonIterator, error) {
 
 	var tokenRule []interface{}
@@ -958,9 +1020,9 @@ func (_CantonBridge *CantonBridgeFilterer) FilterDepositToCanton(opts *bind.Filt
 	return &CantonBridgeDepositToCantonIterator{contract: _CantonBridge.contract, event: "DepositToCanton", logs: logs, sub: sub}, nil
 }
 
-// WatchDepositToCanton is a free log subscription operation binding the contract event 0xeb81e98a4f9bc1a984adfd1d0fa704f53a91dca986f7198277bc93037cb7e8ba.
+// WatchDepositToCanton is a free log subscription operation binding the contract event 0x5915aa8ff4227fc8aa3b07e56b1ea3985d452f242cd123b30664ce06dee85fd4.
 //
-// Solidity: event DepositToCanton(address indexed token, address indexed sender, bytes32 indexed cantonRecipient, uint256 amount, uint256 nonce)
+// Solidity: event DepositToCanton(address indexed token, address indexed sender, uint256 amount, bytes32 indexed cantonRecipient, uint256 nonce)
 func (_CantonBridge *CantonBridgeFilterer) WatchDepositToCanton(opts *bind.WatchOpts, sink chan<- *CantonBridgeDepositToCanton, token []common.Address, sender []common.Address, cantonRecipient [][32]byte) (event.Subscription, error) {
 
 	var tokenRule []interface{}
@@ -1008,9 +1070,9 @@ func (_CantonBridge *CantonBridgeFilterer) WatchDepositToCanton(opts *bind.Watch
 	}), nil
 }
 
-// ParseDepositToCanton is a log parse operation binding the contract event 0xeb81e98a4f9bc1a984adfd1d0fa704f53a91dca986f7198277bc93037cb7e8ba.
+// ParseDepositToCanton is a log parse operation binding the contract event 0x5915aa8ff4227fc8aa3b07e56b1ea3985d452f242cd123b30664ce06dee85fd4.
 //
-// Solidity: event DepositToCanton(address indexed token, address indexed sender, bytes32 indexed cantonRecipient, uint256 amount, uint256 nonce)
+// Solidity: event DepositToCanton(address indexed token, address indexed sender, uint256 amount, bytes32 indexed cantonRecipient, uint256 nonce)
 func (_CantonBridge *CantonBridgeFilterer) ParseDepositToCanton(log types.Log) (*CantonBridgeDepositToCanton, error) {
 	event := new(CantonBridgeDepositToCanton)
 	if err := _CantonBridge.contract.UnpackLog(event, "DepositToCanton", log); err != nil {

@@ -118,7 +118,7 @@ func TestCantonSource_StreamEvents(t *testing.T) {
 
 func TestEthereumDestination_SubmitTransfer(t *testing.T) {
 	mockEthClient := &MockEthereumClient{
-		WithdrawFromCantonFunc: func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error) {
+		WithdrawFromCantonFunc: func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, withdrawalId [32]byte) (common.Hash, error) {
 			return common.HexToHash("0xeth-tx-hash"), nil
 		},
 	}

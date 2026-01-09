@@ -275,17 +275,18 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 		return "", fmt.Errorf("failed to parse amount: %w", err)
 	}
 
-	// Convert Canton tx hash to bytes32 for idempotency
-	cantonTxHashBytes, err := hex.DecodeString(event.SourceTxHash)
+	// Convert Canton withdrawal event contract ID to bytes32 for withdrawal ID
+	// Use first 32 bytes of contract ID as the unique withdrawal identifier
+	withdrawalIdBytes, err := hex.DecodeString(event.SourceTxHash)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode source tx hash: %w", err)
 	}
-	var cantonTxHash [32]byte
-	copy(cantonTxHash[:], cantonTxHashBytes)
+	var withdrawalId [32]byte
+	copy(withdrawalId[:], withdrawalIdBytes[:min(32, len(withdrawalIdBytes))])
 
 	// Defense in depth: Check if this withdrawal was already processed on EVM
 	// This prevents wasting gas on duplicate withdrawals that would revert anyway
-	alreadyProcessed, err := d.client.IsWithdrawalProcessed(ctx, cantonTxHash)
+	alreadyProcessed, err := d.client.IsWithdrawalProcessed(ctx, withdrawalId)
 	if err != nil {
 		// Log warning but continue - the contract will reject duplicates anyway
 		// This is just an optimization to avoid wasting gas
@@ -296,14 +297,14 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 		return fmt.Sprintf("already-processed:%s", event.SourceTxHash), nil
 	}
 
-	// Submit withdrawal to EVM
+	// Submit withdrawal to EVM with signature proof
+	// The client will generate the ECDSA signature for proof verification
 	txHash, err := d.client.WithdrawFromCanton(
 		ctx,
 		tokenAddress,
 		ethRecipientAddr,
 		amount,
-		big.NewInt(0), // Nonce managed by contract/client
-		cantonTxHash,
+		withdrawalId,
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to withdraw from Canton on EVM: %w", err)

@@ -1,7 +1,6 @@
 package canton
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -151,24 +151,21 @@ func (c *Client) loadToken() (string, error) {
 		return c.cachedToken, nil
 	}
 
-	payload := map[string]string{
-		"client_id":     auth.ClientID,
-		"client_secret": auth.ClientSecret,
-		"audience":      auth.Audience,
-		"grant_type":    "client_credentials",
-	}
-	bodyBytes, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal OAuth token request: %w", err)
+	// Build form-encoded payload (OAuth2 standard)
+	formData := url.Values{
+		"client_id":     {auth.ClientID},
+		"client_secret": {auth.ClientSecret},
+		"audience":      {auth.Audience},
+		"grant_type":    {"client_credentials"},
 	}
 
 	c.logger.Info("Fetching new OAuth2 access token", zap.String("token_url", auth.TokenURL))
 
-	req, err := http.NewRequest("POST", auth.TokenURL, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequest("POST", auth.TokenURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("failed to create OAuth token request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -236,8 +233,9 @@ func extractJWTSubject(tokenString string) (string, error) {
 // If cert files are provided, uses mTLS (mutual TLS with client certs)
 func loadTLSConfig(tlsCfg *config.TLSConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,           // Skip cert verification for dev - TODO: make configurable
-		NextProtos:         []string{"h2"}, // Force HTTP/2 ALPN for grpc-go 1.67+ compatibility
+		InsecureSkipVerify: tlsCfg.SkipVerify, // Configurable - default false (verify certs)
+		NextProtos:         []string{"h2"},    // Force HTTP/2 ALPN for grpc-go 1.67+ compatibility
+		MinVersion:         tls.VersionTLS12,  // Enforce minimum TLS 1.2
 	}
 
 	// If client cert/key provided, load them (mTLS)
@@ -753,6 +751,67 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req *InitiateWithdrawal
 	return "", fmt.Errorf("WithdrawalRequest contract not found in response")
 }
 
+// ProcessWithdrawalRequest exercises the ProcessWithdrawal choice on a WithdrawalRequest
+// to create a WithdrawalEvent that the relayer can detect
+func (c *Client) ProcessWithdrawalRequest(ctx context.Context, withdrawalRequestCid string) (string, error) {
+	c.logger.Info("Processing withdrawal request",
+		zap.String("withdrawal_request_cid", withdrawalRequestCid))
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// WithdrawalRequest is in bridge-core package
+	corePackageID := c.config.CorePackageID
+	if corePackageID == "" {
+		corePackageID = c.config.BridgePackageID
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  corePackageID,
+					ModuleName: "Bridge.Contracts",
+					EntityName: "WithdrawalRequest",
+				},
+				ContractId: withdrawalRequestCid,
+				Choice:     "ProcessWithdrawal",
+				ChoiceArgument: &lapiv2.Value{
+					Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{}},
+				},
+			},
+		},
+	}
+
+	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to process withdrawal request: %w", err)
+	}
+
+	// Extract the created WithdrawalEvent contract ID
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Bridge.Contracts" && templateId.EntityName == "WithdrawalEvent" {
+					c.logger.Info("WithdrawalEvent created",
+						zap.String("withdrawal_event_cid", created.ContractId))
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("WithdrawalEvent contract not found in response")
+}
+
 // CompleteWithdrawal marks a withdrawal as complete after EVM release
 func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawalRequest) error {
 	c.logger.Info("Completing withdrawal",
@@ -1113,6 +1172,19 @@ func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
 	}
 
 	return "", fmt.Errorf("no WayfinderBridgeConfig found")
+}
+
+// FindHoldingForAmount finds a CIP56Holding contract with sufficient balance for a given fingerprint.
+// This is the exported version used by the RPC server for withdrawals.
+func (c *Client) FindHoldingForAmount(ctx context.Context, fingerprint, requiredAmount string) (string, error) {
+	// First get the fingerprint mapping to find the user's party
+	mapping, err := c.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		return "", fmt.Errorf("failed to get fingerprint mapping: %w", err)
+	}
+
+	// Then find a holding for that party
+	return c.findHoldingForTransfer(ctx, mapping.UserParty, requiredAmount)
 }
 
 // findHoldingForTransfer finds a CIP56Holding contract with sufficient balance.

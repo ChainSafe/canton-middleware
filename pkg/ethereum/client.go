@@ -110,7 +110,7 @@ func (c *Client) setLastScannedBlock(b uint64) {
 	c.mu.Unlock()
 }
 
-// GetTransactor returns a transaction signer
+// GetTransactor returns a transaction signer with EIP-1559 gas pricing
 func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) {
 	chainID := big.NewInt(c.config.ChainID)
 
@@ -128,25 +128,52 @@ func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) 
 	auth.Nonce = big.NewInt(int64(nonce))
 	auth.GasLimit = c.config.GasLimit
 
-	// Set gas price if configured
+	// EIP-1559: Get base fee from latest block header
+	header, err := c.client.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get block header: %w", err)
+	}
+
+	// Get suggested priority fee (tip)
+	tip, err := c.client.SuggestGasTipCap(ctx)
+	if err != nil {
+		// Fallback: 2 gwei tip
+		tip = big.NewInt(2_000_000_000)
+		c.logger.Warn("Failed to get suggested tip, using fallback",
+			zap.String("tip_gwei", "2"),
+			zap.Error(err))
+	}
+
+	// Minimum tip: 2 gwei to ensure transactions are picked up
+	minTip := big.NewInt(2_000_000_000)
+	if tip.Cmp(minTip) < 0 {
+		tip = minTip
+	}
+
+	// maxFeePerGas = 2 * baseFee + tip (allows for 1 block of fee increase)
+	baseFee := header.BaseFee
+	maxFee := new(big.Int).Mul(baseFee, big.NewInt(2))
+	maxFee.Add(maxFee, tip)
+
+	// Cap at configured maximum
 	if c.config.MaxGasPrice != "" {
-		maxGasPrice := new(big.Int)
-		maxGasPrice.SetString(c.config.MaxGasPrice, 10)
-
-		gasPrice, err := c.client.SuggestGasPrice(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to suggest gas price: %w", err)
-		}
-
-		if gasPrice.Cmp(maxGasPrice) > 0 {
-			c.logger.Warn("Suggested gas price exceeds maximum",
-				zap.String("suggested", gasPrice.String()),
-				zap.String("max", maxGasPrice.String()))
-			auth.GasPrice = maxGasPrice
-		} else {
-			auth.GasPrice = gasPrice
+		maxAllowed := new(big.Int)
+		maxAllowed.SetString(c.config.MaxGasPrice, 10)
+		if maxFee.Cmp(maxAllowed) > 0 {
+			c.logger.Warn("Calculated maxFee exceeds limit, capping",
+				zap.String("calculated", maxFee.String()),
+				zap.String("max_allowed", maxAllowed.String()))
+			maxFee = maxAllowed
 		}
 	}
+
+	auth.GasFeeCap = maxFee // maxFeePerGas
+	auth.GasTipCap = tip    // maxPriorityFeePerGas
+
+	c.logger.Debug("EIP-1559 gas parameters",
+		zap.String("base_fee_gwei", new(big.Int).Div(baseFee, big.NewInt(1_000_000_000)).String()),
+		zap.String("tip_gwei", new(big.Int).Div(tip, big.NewInt(1_000_000_000)).String()),
+		zap.String("max_fee_gwei", new(big.Int).Div(maxFee, big.NewInt(1_000_000_000)).String()))
 
 	return auth, nil
 }
@@ -233,41 +260,104 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 	}
 }
 
-// WithdrawFromCanton submits a withdrawal transaction
+// WithdrawFromCanton submits a withdrawal transaction with signature proof
 func (c *Client) WithdrawFromCanton(
 	ctx context.Context,
 	token common.Address,
 	recipient common.Address,
 	amount *big.Int,
-	nonce *big.Int,
-	cantonTxHash [32]byte,
+	withdrawalId [32]byte,
 ) (common.Hash, error) {
 	c.logger.Info("Submitting withdrawal from Canton",
 		zap.String("token", token.Hex()),
 		zap.String("recipient", recipient.Hex()),
 		zap.String("amount", amount.String()),
-		zap.Uint64("nonce", nonce.Uint64()))
+		zap.String("withdrawal_id", common.Bytes2Hex(withdrawalId[:])))
+
+	// Generate the signature proof
+	// The contract verifies: keccak256(abi.encodePacked(token, amount, recipient, withdrawalId, block.chainid, address(this)))
+	chainID := big.NewInt(c.config.ChainID)
+
+	// Pack the message: token (20) + amount (32) + recipient (20) + withdrawalId (32) + chainId (32) + bridgeAddr (20)
+	messageData := make([]byte, 0, 156)
+	messageData = append(messageData, token.Bytes()...)
+	messageData = append(messageData, common.LeftPadBytes(amount.Bytes(), 32)...)
+	messageData = append(messageData, recipient.Bytes()...)
+	messageData = append(messageData, withdrawalId[:]...)
+	messageData = append(messageData, common.LeftPadBytes(chainID.Bytes(), 32)...)
+	messageData = append(messageData, c.bridgeAddress.Bytes()...)
+
+	// Hash the message
+	messageHash := crypto.Keccak256Hash(messageData)
+
+	// Create Ethereum signed message hash: keccak256("\x19Ethereum Signed Message:\n32" + messageHash)
+	ethSignedHash := crypto.Keccak256Hash(
+		[]byte(fmt.Sprintf("\x19Ethereum Signed Message:\n32")),
+		messageHash.Bytes(),
+	)
+
+	// Sign the hash
+	signature, err := crypto.Sign(ethSignedHash.Bytes(), c.privateKey)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to sign withdrawal proof: %w", err)
+	}
+
+	// Ethereum signature format: adjust v value from 0/1 to 27/28
+	if signature[64] < 27 {
+		signature[64] += 27
+	}
+
+	c.logger.Debug("Generated withdrawal proof",
+		zap.String("message_hash", messageHash.Hex()),
+		zap.String("eth_signed_hash", ethSignedHash.Hex()),
+		zap.Int("signature_len", len(signature)))
 
 	auth, err := c.GetTransactor(ctx)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to create transactor: %w", err)
 	}
 
-	tx, err := c.bridge.WithdrawFromCanton(auth, token, recipient, amount, nonce, cantonTxHash)
+	// Call contract with new signature: (token, amount, recipient, withdrawalId, proof)
+	tx, err := c.bridge.WithdrawFromCanton(auth, token, amount, recipient, withdrawalId, signature)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to submit withdrawal transaction: %w", err)
 	}
 
-	c.logger.Info("Withdrawal transaction submitted",
+	c.logger.Info("Withdrawal transaction submitted, waiting for confirmation",
 		zap.String("tx_hash", tx.Hash().Hex()),
-		zap.Uint64("nonce", nonce.Uint64()))
+		zap.String("withdrawal_id", common.Bytes2Hex(withdrawalId[:])))
+
+	// Wait for the transaction receipt and verify success
+	receipt, err := bind.WaitMined(ctx, c.client, tx)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to wait for withdrawal tx receipt: %w", err)
+	}
+
+	// Check if transaction reverted (status 0 = failed, status 1 = success)
+	if receipt.Status == 0 {
+		c.logger.Error("Withdrawal transaction reverted",
+			zap.String("tx_hash", tx.Hash().Hex()),
+			zap.Uint64("gas_used", receipt.GasUsed))
+		return common.Hash{}, fmt.Errorf("withdrawal transaction reverted (status=0), tx_hash=%s", tx.Hash().Hex())
+	}
+
+	c.logger.Info("Withdrawal transaction confirmed",
+		zap.String("tx_hash", tx.Hash().Hex()),
+		zap.Uint64("block_number", receipt.BlockNumber.Uint64()),
+		zap.Uint64("gas_used", receipt.GasUsed))
 
 	return tx.Hash(), nil
 }
 
 // IsWithdrawalProcessed checks if a Canton withdrawal has already been processed on EVM
-func (c *Client) IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error) {
-	return c.bridge.ProcessedCantonTxs(&bind.CallOpts{Context: ctx}, cantonTxHash)
+func (c *Client) IsWithdrawalProcessed(ctx context.Context, withdrawalId [32]byte) (bool, error) {
+	// Try the new contract function first
+	processed, err := c.bridge.IsWithdrawalProcessed(&bind.CallOpts{Context: ctx}, withdrawalId)
+	if err == nil {
+		return processed, nil
+	}
+	// Fall back to old function for backwards compatibility
+	return c.bridge.ProcessedCantonTxs(&bind.CallOpts{Context: ctx}, withdrawalId)
 }
 
 // DepositToCanton submits a deposit transaction (for testing)

@@ -127,8 +127,14 @@ func main() {
 
 	// API routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// CORS middleware for browser requests
+		r.Use(corsMiddleware)
+
 		r.Get("/transfers", handleGetTransfers(store, logger))
+		// IMPORTANT: Specific routes must come BEFORE parameterized routes
+		r.Get("/transfers/stuck", handleGetStuckTransfers(store, logger))
 		r.Get("/transfers/{id}", handleGetTransfer(store, logger))
+		r.Post("/transfers/{id}/retry", handleRetryTransfer(store, logger))
 		r.Get("/status", handleGetStatus(logger))
 	})
 
@@ -206,4 +212,61 @@ func handleGetStatus(logger *zap.Logger) http.HandlerFunc {
 			logger.Error("Failed to encode response", zap.Error(err))
 		}
 	}
+}
+
+func handleGetStuckTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		transfers, err := store.GetStuckTransfers()
+		if err != nil {
+			logger.Error("Failed to get stuck transfers", zap.Error(err))
+			http.Error(w, "Failed to get stuck transfers", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{"transfers": transfers}); err != nil {
+			logger.Error("Failed to encode response", zap.Error(err))
+		}
+	}
+}
+
+func handleRetryTransfer(store *db.Store, logger *zap.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			http.Error(w, "transfer ID required", http.StatusBadRequest)
+			return
+		}
+
+		// Mark the transfer for retry (reset to pending)
+		if err := store.MarkTransferForRetry(id); err != nil {
+			logger.Error("Failed to mark transfer for retry", zap.Error(err), zap.String("id", id))
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		logger.Info("Transfer marked for retry", zap.String("id", id))
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Transfer marked for retry",
+			"id":      id,
+		})
+	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

@@ -92,9 +92,9 @@ func (m *MockCantonClient) GetLedgerEnd(ctx context.Context) (string, error) {
 // MockEthereumClient is a mock implementation of EthereumBridgeClient
 type MockEthereumClient struct {
 	GetLatestBlockNumberFunc  func(ctx context.Context) (uint64, error)
-	WithdrawFromCantonFunc    func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WithdrawFromCantonFunc    func(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, withdrawalId [32]byte) (common.Hash, error)
 	WatchDepositEventsFunc    func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
-	IsWithdrawalProcessedFunc func(ctx context.Context, cantonTxHash [32]byte) (bool, error)
+	IsWithdrawalProcessedFunc func(ctx context.Context, withdrawalId [32]byte) (bool, error)
 	LastScannedBlock          uint64
 }
 
@@ -105,9 +105,9 @@ func (m *MockEthereumClient) GetLatestBlockNumber(ctx context.Context) (uint64, 
 	return 0, nil
 }
 
-func (m *MockEthereumClient) WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error) {
+func (m *MockEthereumClient) WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, withdrawalId [32]byte) (common.Hash, error) {
 	if m.WithdrawFromCantonFunc != nil {
-		return m.WithdrawFromCantonFunc(ctx, token, recipient, amount, nonce, cantonTxHash)
+		return m.WithdrawFromCantonFunc(ctx, token, recipient, amount, withdrawalId)
 	}
 	return common.Hash{}, nil
 }
@@ -119,9 +119,9 @@ func (m *MockEthereumClient) WatchDepositEvents(ctx context.Context, fromBlock u
 	return nil
 }
 
-func (m *MockEthereumClient) IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error) {
+func (m *MockEthereumClient) IsWithdrawalProcessed(ctx context.Context, withdrawalId [32]byte) (bool, error) {
 	if m.IsWithdrawalProcessedFunc != nil {
-		return m.IsWithdrawalProcessedFunc(ctx, cantonTxHash)
+		return m.IsWithdrawalProcessedFunc(ctx, withdrawalId)
 	}
 	return false, nil
 }

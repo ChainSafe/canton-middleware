@@ -107,33 +107,42 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 
 // processEvent handles a single event
 func (p *Processor) processEvent(ctx context.Context, event *Event) error {
-	// Check if already processed
+	// Check if already processed (only skip if completed successfully)
 	existing, _ := p.store.GetTransfer(event.ID)
-	if existing != nil {
-		p.logger.Debug("Event already processed", zap.String("event_id", event.ID))
+	if existing != nil && existing.Status == db.TransferStatusCompleted {
+		p.logger.Debug("Event already completed", zap.String("event_id", event.ID))
 		// Still persist offset to avoid replaying on restart
 		p.persistOffset(event)
 		return nil
 	}
 
-	// Create transfer record
-	transfer := &db.Transfer{
-		ID:                event.ID,
-		Direction:         p.getDirection(),
-		Status:            db.TransferStatusPending,
-		SourceChain:       p.source.GetChainID(),
-		DestinationChain:  p.destination.GetChainID(),
-		SourceTxHash:      event.SourceTxHash,
-		TokenAddress:      event.TokenAddress,
-		Amount:            event.Amount,
-		Sender:            event.Sender,
-		Recipient:         event.Recipient,
-		Nonce:             event.Nonce,
-		SourceBlockNumber: event.SourceBlockNumber,
-	}
+	// If existing but not completed (pending/failed), retry it
+	if existing != nil {
+		p.logger.Info("Retrying incomplete transfer",
+			zap.String("event_id", event.ID),
+			zap.String("previous_status", string(existing.Status)))
+		// Reset status to pending for retry and clear error
+		p.store.UpdateTransferStatus(event.ID, db.TransferStatusPending, nil)
+	} else {
+		// Create new transfer record
+		transfer := &db.Transfer{
+			ID:                event.ID,
+			Direction:         p.getDirection(),
+			Status:            db.TransferStatusPending,
+			SourceChain:       p.source.GetChainID(),
+			DestinationChain:  p.destination.GetChainID(),
+			SourceTxHash:      event.SourceTxHash,
+			TokenAddress:      event.TokenAddress,
+			Amount:            event.Amount,
+			Sender:            event.Sender,
+			Recipient:         event.Recipient,
+			Nonce:             event.Nonce,
+			SourceBlockNumber: event.SourceBlockNumber,
+		}
 
-	if err := p.store.CreateTransfer(transfer); err != nil {
-		return fmt.Errorf("failed to create transfer: %w", err)
+		if err := p.store.CreateTransfer(transfer); err != nil {
+			return fmt.Errorf("failed to create transfer: %w", err)
+		}
 	}
 
 	p.logger.Info("Processing transfer",

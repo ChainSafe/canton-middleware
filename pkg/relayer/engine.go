@@ -53,9 +53,9 @@ type CantonBridgeClient interface {
 // EthereumBridgeClient defines the interface for Ethereum interactions
 type EthereumBridgeClient interface {
 	GetLatestBlockNumber(ctx context.Context) (uint64, error)
-	WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, withdrawalId [32]byte) (common.Hash, error)
 	WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
-	IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error)
+	IsWithdrawalProcessed(ctx context.Context, withdrawalId [32]byte) (bool, error)
 	// GetLastScannedBlock returns how far the poller has scanned (for readiness checks)
 	GetLastScannedBlock() uint64
 }
@@ -69,6 +69,8 @@ type BridgeStore interface {
 	SetChainState(chainID string, blockNumber int64, blockHash string) error
 	GetPendingTransfers(direction db.TransferDirection) ([]*db.Transfer, error)
 	ListTransfers(limit int) ([]*db.Transfer, error)
+	GetStuckTransfers() ([]*db.Transfer, error)
+	MarkTransferForRetry(id string) error
 }
 
 // Engine orchestrates the bridge relayer operations

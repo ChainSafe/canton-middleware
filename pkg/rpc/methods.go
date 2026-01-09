@@ -25,6 +25,7 @@ func NewMethodHandler(server *Server) *MethodHandler {
 var authenticatedMethods = map[string]bool{
 	"erc20_balanceOf": true,
 	"erc20_transfer":  true,
+	"erc20_withdraw":  true, // Withdraw from Canton to EVM
 	"user_register":   true, // Requires EVM signature for registration
 }
 
@@ -48,6 +49,8 @@ func (h *MethodHandler) Handle(ctx context.Context, method string, params json.R
 		return h.handleBalanceOf(ctx, params)
 	case "erc20_transfer":
 		return h.handleTransfer(ctx, params)
+	case "erc20_withdraw":
+		return h.handleWithdraw(ctx, params)
 	case "user_register":
 		return h.handleRegister(ctx)
 	default:
@@ -184,6 +187,100 @@ func (h *MethodHandler) handleTransfer(ctx context.Context, params json.RawMessa
 		zap.String("amount", p.Amount))
 
 	return &TransferResult{Success: true}, nil
+}
+
+// handleWithdraw initiates a withdrawal from Canton to EVM
+func (h *MethodHandler) handleWithdraw(ctx context.Context, params json.RawMessage) (interface{}, *Error) {
+	// Get authenticated user info
+	authInfo := auth.AuthInfoFromContext(ctx)
+	if authInfo.Fingerprint == "" {
+		return nil, NewError(Unauthorized, "user not registered")
+	}
+
+	// Parse params
+	var p WithdrawParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, NewError(InvalidParams, err.Error())
+	}
+
+	if p.Amount == "" {
+		return nil, NewError(InvalidParams, "amount is required")
+	}
+
+	// Use provided destination or default to user's registered address
+	evmDestination := p.To
+	if evmDestination == "" {
+		evmDestination = authInfo.EVMAddress
+	}
+
+	// Validate EVM destination
+	if !auth.ValidateEVMAddress(evmDestination) {
+		return nil, NewError(InvalidParams, "invalid EVM destination address")
+	}
+	evmDestination = auth.NormalizeAddress(evmDestination)
+
+	// Get user's mapping CID
+	user, err := h.server.db.GetUserByFingerprint(authInfo.Fingerprint)
+	if err != nil || user == nil {
+		h.server.logger.Error("Failed to get user", zap.Error(err))
+		return nil, NewError(NotFound, "user not found")
+	}
+
+	// Find a holding with sufficient balance for the withdrawal
+	holdingCid, err := h.server.cantonClient.FindHoldingForAmount(ctx, authInfo.Fingerprint, p.Amount)
+	if err != nil {
+		h.server.logger.Error("Failed to find holding for withdrawal",
+			zap.String("fingerprint", authInfo.Fingerprint),
+			zap.String("amount", p.Amount),
+			zap.Error(err))
+		if isInsufficientFunds(err) {
+			return nil, NewError(InsufficientFunds, err.Error())
+		}
+		return nil, NewError(InternalError, err.Error())
+	}
+
+	// Initiate withdrawal on Canton (creates WithdrawalRequest)
+	withdrawalRequestCid, err := h.server.cantonClient.InitiateWithdrawal(ctx, &canton.InitiateWithdrawalRequest{
+		MappingCid:     user.MappingCID,
+		HoldingCid:     holdingCid,
+		Amount:         p.Amount,
+		EvmDestination: evmDestination,
+	})
+	if err != nil {
+		h.server.logger.Error("Withdrawal initiation failed",
+			zap.String("from", authInfo.EVMAddress),
+			zap.String("to", evmDestination),
+			zap.String("amount", p.Amount),
+			zap.Error(err))
+		return nil, NewError(InternalError, err.Error())
+	}
+
+	h.server.logger.Info("Withdrawal request created",
+		zap.String("user", authInfo.EVMAddress),
+		zap.String("withdrawal_request_cid", withdrawalRequestCid))
+
+	// Process the withdrawal request (burns tokens, creates WithdrawalEvent for relayer)
+	withdrawalEventCid, err := h.server.cantonClient.ProcessWithdrawalRequest(ctx, withdrawalRequestCid)
+	if err != nil {
+		h.server.logger.Error("Failed to process withdrawal request",
+			zap.String("withdrawal_request_cid", withdrawalRequestCid),
+			zap.Error(err))
+		return nil, NewError(InternalError, "withdrawal request created but processing failed: "+err.Error())
+	}
+
+	h.server.logger.Info("Withdrawal processed",
+		zap.String("user", authInfo.EVMAddress),
+		zap.String("destination", evmDestination),
+		zap.String("amount", p.Amount),
+		zap.String("withdrawal_event_cid", withdrawalEventCid))
+
+	return &WithdrawResult{
+		Success:        true,
+		WithdrawalID:   withdrawalEventCid,
+		Amount:         p.Amount,
+		EvmDestination: evmDestination,
+		Message:        "Withdrawal initiated. The middleware will process it and release tokens on EVM.",
+	}, nil
 }
 
 // handleRegister registers a new user

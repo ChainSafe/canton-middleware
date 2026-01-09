@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -76,10 +78,11 @@ type CantonConfig struct {
 
 // TLSConfig holds TLS configuration
 type TLSConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	CertFile string `mapstructure:"cert_file"`
-	KeyFile  string `mapstructure:"key_file"`
-	CAFile   string `mapstructure:"ca_file"`
+	Enabled    bool   `mapstructure:"enabled"`
+	SkipVerify bool   `mapstructure:"skip_verify"` // Only true for dev with self-signed certs
+	CertFile   string `mapstructure:"cert_file"`
+	KeyFile    string `mapstructure:"key_file"`
+	CAFile     string `mapstructure:"ca_file"`
 }
 
 // AuthConfig holds authentication configuration
@@ -267,6 +270,7 @@ func setDefaults() {
 	viper.SetDefault("canton.polling_interval", "10s")
 	viper.SetDefault("canton.start_block", 0)
 	viper.SetDefault("canton.lookback_blocks", 1000)
+	viper.SetDefault("canton.tls.skip_verify", false) // Secure default - verify certs
 
 	// Bridge defaults
 	viper.SetDefault("bridge.max_retries", 3)
@@ -300,6 +304,26 @@ func validate(config *Config) error {
 	if config.Canton.BridgeContract == "" {
 		return fmt.Errorf("canton.bridge_contract is required")
 	}
+
+	// Security warnings for hardcoded secrets
+	if config.Ethereum.RelayerPrivateKey != "" &&
+		!strings.HasPrefix(config.Ethereum.RelayerPrivateKey, "${") {
+		log.Println("[SECURITY WARNING] ethereum.relayer_private_key appears hardcoded - use environment variable in production")
+	}
+	if config.Database.Password != "" &&
+		!strings.HasPrefix(config.Database.Password, "${") {
+		log.Println("[SECURITY WARNING] database.password appears hardcoded - use environment variable in production")
+	}
+	if config.Canton.Auth.ClientSecret != "" &&
+		!strings.HasPrefix(config.Canton.Auth.ClientSecret, "${") {
+		log.Println("[SECURITY WARNING] canton.auth.client_secret appears hardcoded - use environment variable in production")
+	}
+
+	// TLS security warning
+	if config.Canton.TLS.SkipVerify {
+		log.Println("[SECURITY WARNING] canton.tls.skip_verify is true - TLS certificate verification disabled. Only use in development.")
+	}
+
 	return nil
 }
 

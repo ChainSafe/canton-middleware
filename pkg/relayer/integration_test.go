@@ -269,11 +269,10 @@ func TestIntegration_EthereumSubmitWithdrawal(t *testing.T) {
 	token := common.HexToAddress(testConfig.Ethereum.TokenContract)
 	recipient := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8") // Anvil account 1
 	amount := big.NewInt(1000000000000000000) // 1 token
-	nonce := big.NewInt(1)
-	var cantonTxHash [32]byte
-	copy(cantonTxHash[:], []byte("test-canton-tx-hash"))
+	var withdrawalId [32]byte
+	copy(withdrawalId[:], []byte("test-withdrawal-id-12345678"))
 
-	txHash, err := client.WithdrawFromCanton(ctx, token, recipient, amount, nonce, cantonTxHash)
+	txHash, err := client.WithdrawFromCanton(ctx, token, recipient, amount, withdrawalId)
 	if err != nil {
 		t.Logf("⚠️  WithdrawFromCanton failed (expected if token not properly set up): %v", err)
 		t.Skip("Token mapping may not be configured on the bridge contract")

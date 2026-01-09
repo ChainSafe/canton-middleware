@@ -211,3 +211,70 @@ func (s *Store) IncrementNonce(chainID, address string) (int64, error) {
 	err := s.db.QueryRow(query, chainID, address).Scan(&nonce)
 	return nonce, err
 }
+
+// GetStuckTransfers retrieves all pending and failed transfers (for retry UI)
+func (s *Store) GetStuckTransfers() ([]*Transfer, error) {
+	query := `
+		SELECT id, direction, status, source_chain, destination_chain,
+			source_tx_hash, destination_tx_hash, token_address, amount,
+			sender, recipient, nonce, source_block_number, confirmation_count,
+			created_at, updated_at, completed_at, error_message, retry_count
+		FROM transfers
+		WHERE status IN ('pending', 'failed')
+		ORDER BY created_at DESC
+		LIMIT 100
+	`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transfers []*Transfer
+	for rows.Next() {
+		transfer := &Transfer{}
+		err := rows.Scan(
+			&transfer.ID, &transfer.Direction, &transfer.Status,
+			&transfer.SourceChain, &transfer.DestinationChain,
+			&transfer.SourceTxHash, &transfer.DestinationTxHash,
+			&transfer.TokenAddress, &transfer.Amount, &transfer.Sender,
+			&transfer.Recipient, &transfer.Nonce, &transfer.SourceBlockNumber,
+			&transfer.ConfirmationCount, &transfer.CreatedAt, &transfer.UpdatedAt,
+			&transfer.CompletedAt, &transfer.ErrorMessage, &transfer.RetryCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+		transfers = append(transfers, transfer)
+	}
+	return transfers, rows.Err()
+}
+
+// IncrementRetryCount increments the retry count for a transfer
+func (s *Store) IncrementRetryCount(id string) error {
+	query := `
+		UPDATE transfers
+		SET retry_count = retry_count + 1, updated_at = $1
+		WHERE id = $2
+	`
+	_, err := s.db.Exec(query, time.Now(), id)
+	return err
+}
+
+// MarkTransferForRetry resets a failed transfer to pending for retry
+func (s *Store) MarkTransferForRetry(id string) error {
+	query := `
+		UPDATE transfers
+		SET status = 'pending', retry_count = retry_count + 1, error_message = NULL, updated_at = $1
+		WHERE id = $2 AND status = 'failed'
+	`
+	result, err := s.db.Exec(query, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("transfer %s not found or not in failed state", id)
+	}
+	return nil
+}

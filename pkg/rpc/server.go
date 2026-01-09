@@ -52,6 +52,17 @@ func NewServer(
 
 // ServeHTTP handles HTTP requests
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers for browser requests
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Signature, X-Message, Authorization")
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	// Health check endpoint
 	if r.URL.Path == "/health" {
 		w.WriteHeader(http.StatusOK)

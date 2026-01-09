@@ -127,6 +127,12 @@ type TransferParams struct {
 	Amount string `json:"amount"`
 }
 
+// WithdrawParams represents parameters for erc20_withdraw (Canton → EVM)
+type WithdrawParams struct {
+	Amount string `json:"amount"` // Amount to withdraw (e.g., "100.0")
+	To     string `json:"to"`     // Optional: EVM destination (defaults to user's registered address)
+}
+
 // RegisterParams represents parameters for user_register
 // No params needed - uses signature headers for authentication
 type RegisterParams struct{}
@@ -152,6 +158,15 @@ type BalanceResult struct {
 type TransferResult struct {
 	Success bool   `json:"success"`
 	TxID    string `json:"txId,omitempty"`
+}
+
+// WithdrawResult represents withdrawal initiation result
+type WithdrawResult struct {
+	Success        bool   `json:"success"`
+	WithdrawalID   string `json:"withdrawalId,omitempty"`   // Canton withdrawal event CID
+	Amount         string `json:"amount"`
+	EvmDestination string `json:"evmDestination"`
+	Message        string `json:"message,omitempty"` // Status message (e.g., "queued for timelock")
 }
 
 // RegisterResult represents user registration result
