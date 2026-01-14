@@ -7,6 +7,7 @@
 [submodule "contracts/canton-erc20"]
 	path = contracts/canton-erc20
 	url = git@github.com:ChainSafe/canton-erc20.git
+	branch = salindne/native_token_update
 [submodule "contracts/ethereum-wayfinder"]
 	path = contracts/ethereum-wayfinder
 	url = git@github.com:ChainSafe/canton-wayfinder.git

@@ -35,8 +35,8 @@ echo ""
 echo ">>> Updating Ethereum contract addresses from deployment..."
 BROADCAST_FILE="${BROADCAST_DIR}/Deployer.s.sol/31337/run-latest.json"
 if [ -f "$BROADCAST_FILE" ]; then
-    TOKEN_ADDR=$(jq -r '.transactions[] | select(.contractName == "PromptToken") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
-    BRIDGE_ADDR=$(jq -r '.transactions[] | select(.contractName == "CantonBridge") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
+    TOKEN_ADDR=$(jq -r '.transactions[] | select(.contractName == "PromptToken" and .transactionType == "CREATE") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
+    BRIDGE_ADDR=$(jq -r '.transactions[] | select(.contractName == "CantonBridge" and .transactionType == "CREATE") | .contractAddress' "$BROADCAST_FILE" 2>/dev/null || echo "")
     
     if [ -n "$TOKEN_ADDR" ] && [ -n "$BRIDGE_ADDR" ]; then
         echo "    Token contract: $TOKEN_ADDR"

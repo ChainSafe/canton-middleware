@@ -89,6 +89,7 @@ type CreatePendingDepositRequest struct {
 type ProcessDepositRequest struct {
 	DepositCid string
 	MappingCid string
+	Timestamp  time.Time // Required for audit event
 }
 
 // InitiateWithdrawalRequest represents a request to start a withdrawal
@@ -155,3 +156,41 @@ type ProcessedEvent struct {
 	ChainID int64
 	TxHash  string
 }
+
+// =============================================================================
+// BRIDGE AUDIT EVENTS (for reconciliation)
+// =============================================================================
+
+// BridgeMintEvent represents a mint operation on Canton (from deposits)
+type BridgeMintEvent struct {
+	ContractID     string
+	EventID        string
+	TransactionID  string
+	Offset         int64
+	Issuer         string
+	Recipient      string
+	Amount         string
+	HoldingCid     string
+	TokenSymbol    string
+	EvmTxHash      string
+	Fingerprint    string
+	Timestamp      time.Time
+	AuditObservers []string
+}
+
+// BridgeBurnEvent represents a burn operation on Canton (from withdrawals)
+type BridgeBurnEvent struct {
+	ContractID     string
+	EventID        string
+	TransactionID  string
+	Offset         int64
+	Issuer         string
+	BurnedFrom     string
+	Amount         string
+	EvmDestination string
+	TokenSymbol    string
+	Fingerprint    string
+	Timestamp      time.Time
+	AuditObservers []string
+}
+

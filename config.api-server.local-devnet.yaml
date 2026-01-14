@@ -1,0 +1,57 @@
+# Local API Server config for testing with DevNet Canton and Sepolia
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "erc20_api"
+  ssl_mode: "disable"
+
+canton:
+  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+  ledger_id: ""
+  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
+  application_id: "erc20-api"
+  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+  
+  bridge_package_id: "0b330457f833a871b728132c5c3c35e0906c9b3201f9f59628996924fe99fd2f"
+  core_package_id: "60fefa29a10287062c0944001f7bc5f7b5ecffd272183ce3ad78af4c282e8bba"
+  cip56_package_id: "e975777506e588b18317a66be74586b8b9d00325bc1c461749e7c658884130aa"
+  bridge_module: "Wayfinder.Bridge"
+  
+  tls:
+    enabled: false
+  
+  auth:
+    client_id: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
+    client_secret: "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+    audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+    token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+  
+  max_inbound_message_size: 52428800
+
+token:
+  name: "PROMPT"
+  symbol: "PROMPT"
+  decimals: 18
+
+jwks:
+  url: ""
+  issuer: ""
+
+reconciliation:
+  initial_timeout: "2m"
+  interval: "1m"
+
+shutdown:
+  timeout: "30s"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+

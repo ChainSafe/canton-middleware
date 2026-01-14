@@ -22,9 +22,9 @@ canton:
   domain_id: ""
   application_id: "erc20-api"
   relayer_party: ""
-  bridge_package_id: "0b330457f833a871b728132c5c3c35e0906c9b3201f9f59628996924fe99fd2f"
-  core_package_id: "60fefa29a10287062c0944001f7bc5f7b5ecffd272183ce3ad78af4c282e8bba"
-  cip56_package_id: "e975777506e588b18317a66be74586b8b9d00325bc1c461749e7c658884130aa"
+  bridge_package_id: "d96995a49cd9e3408e122a58a1db3a725251f9999ea7ffe2236ce4a045e675ba"
+  core_package_id: "e097fc72886638d3cc8f2328ce63994bcfc45f280ef11b0d5511676a1c431854"
+  cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
   bridge_module: "Wayfinder.Bridge"
   tls:
     enabled: false

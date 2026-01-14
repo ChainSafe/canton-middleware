@@ -54,6 +54,7 @@ func EncodeProcessDepositAndMintArgs(req *ProcessDepositRequest) *lapiv2.Record 
 		Fields: []*lapiv2.RecordField{
 			{Label: "depositCid", Value: ContractIdValue(req.DepositCid)},
 			{Label: "mappingCid", Value: ContractIdValue(req.MappingCid)},
+			{Label: "timestamp", Value: TimestampValue(req.Timestamp)},
 		},
 	}
 }
@@ -526,3 +527,153 @@ func extractContractIdV2(v *lapiv2.Value) (string, bool) {
 	}
 	return "", false
 }
+
+func extractTimestampV2(v *lapiv2.Value) (time.Time, error) {
+	if v == nil {
+		return time.Time{}, fmt.Errorf("nil value")
+	}
+	if t, ok := v.Sum.(*lapiv2.Value_Timestamp); ok {
+		// DAML timestamps are microseconds since Unix epoch
+		return time.UnixMicro(t.Timestamp), nil
+	}
+	return time.Time{}, fmt.Errorf("not a timestamp value")
+}
+
+func extractPartyListV2(v *lapiv2.Value) ([]string, error) {
+	if v == nil {
+		return nil, fmt.Errorf("nil value")
+	}
+	if l, ok := v.Sum.(*lapiv2.Value_List); ok {
+		var parties []string
+		for _, elem := range l.List.Elements {
+			if p, ok := elem.Sum.(*lapiv2.Value_Party); ok {
+				parties = append(parties, p.Party)
+			}
+		}
+		return parties, nil
+	}
+	return nil, fmt.Errorf("not a list value")
+}
+
+func extractOptionalContractIdV2(v *lapiv2.Value) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	if opt, ok := v.Sum.(*lapiv2.Value_Optional); ok {
+		if opt.Optional.Value == nil {
+			return "", nil
+		}
+		if c, ok := opt.Optional.Value.Sum.(*lapiv2.Value_ContractId); ok {
+			return c.ContractId, nil
+		}
+	}
+	return "", nil
+}
+
+// =============================================================================
+// BRIDGE EVENT DECODING
+// =============================================================================
+
+// DecodeBridgeMintEvent decodes a BridgeMintEvent contract
+func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMintEvent, error) {
+	fields := recordToMapV2(record)
+
+	issuer, err := extractPartyV2(fields["issuer"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract issuer: %w", err)
+	}
+
+	recipient, err := extractPartyV2(fields["recipient"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract recipient: %w", err)
+	}
+
+	amount, err := extractNumericV2(fields["amount"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract amount: %w", err)
+	}
+
+	holdingCid, _ := extractContractIdV2(fields["holdingCid"])
+
+	tokenSymbol, err := extractTextV2(fields["tokenSymbol"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
+	}
+
+	evmTxHash, err := extractTextV2(fields["evmTxHash"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract evmTxHash: %w", err)
+	}
+
+	fingerprint, err := extractTextV2(fields["fingerprint"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
+	}
+
+	timestamp, _ := extractTimestampV2(fields["timestamp"])
+	auditObservers, _ := extractPartyListV2(fields["auditObservers"])
+
+	return &BridgeMintEvent{
+		ContractID:     contractID,
+		Issuer:         issuer,
+		Recipient:      recipient,
+		Amount:         amount,
+		HoldingCid:     holdingCid,
+		TokenSymbol:    tokenSymbol,
+		EvmTxHash:      evmTxHash,
+		Fingerprint:    fingerprint,
+		Timestamp:      timestamp,
+		AuditObservers: auditObservers,
+	}, nil
+}
+
+// DecodeBridgeBurnEvent decodes a BridgeBurnEvent contract
+func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBurnEvent, error) {
+	fields := recordToMapV2(record)
+
+	issuer, err := extractPartyV2(fields["issuer"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract issuer: %w", err)
+	}
+
+	burnedFrom, err := extractPartyV2(fields["burnedFrom"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract burnedFrom: %w", err)
+	}
+
+	amount, err := extractNumericV2(fields["amount"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract amount: %w", err)
+	}
+
+	evmDestination, err := extractEvmAddressV2(fields["evmDestination"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract evmDestination: %w", err)
+	}
+
+	tokenSymbol, err := extractTextV2(fields["tokenSymbol"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
+	}
+
+	fingerprint, err := extractTextV2(fields["fingerprint"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
+	}
+
+	timestamp, _ := extractTimestampV2(fields["timestamp"])
+	auditObservers, _ := extractPartyListV2(fields["auditObservers"])
+
+	return &BridgeBurnEvent{
+		ContractID:     contractID,
+		Issuer:         issuer,
+		BurnedFrom:     burnedFrom,
+		Amount:         amount,
+		EvmDestination: evmDestination,
+		TokenSymbol:    tokenSymbol,
+		Fingerprint:    fingerprint,
+		Timestamp:      timestamp,
+		AuditObservers: auditObservers,
+	}, nil
+}
+

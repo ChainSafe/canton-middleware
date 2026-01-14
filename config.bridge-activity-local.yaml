@@ -1,0 +1,35 @@
+# =============================================================================
+# Bridge Activity Viewer - Local Docker Config
+# =============================================================================
+# Use this config with bridge-activity.go to view Canton activity after running
+# the local E2E test or docker compose.
+#
+# Usage:
+#   go run scripts/bridge-activity.go -config config.bridge-activity-local.yaml
+#   go run scripts/bridge-activity.go -config config.bridge-activity-local.yaml -debug
+#   go run scripts/bridge-activity.go -config config.bridge-activity-local.yaml -limit 50
+#
+# Note: The relayer_party is auto-allocated by bootstrap. If you get an error,
+# check the bootstrap logs for the actual party ID:
+#   docker logs bootstrap 2>&1 | grep -i party
+# =============================================================================
+
+canton:
+  # Local Canton Ledger API (exposed by docker compose)
+  rpc_url: "localhost:5011"
+  
+  # The relayer party allocated by bootstrap
+  # This is the default party name pattern - adjust if different
+  relayer_party: "bridge-relayer::1220..."  # Will be auto-detected
+  
+  # TLS disabled for local testing
+  tls:
+    enabled: false
+  
+  # OAuth2 auth via local mock server
+  auth:
+    client_id: "local-test-client"
+    client_secret: "local-test-secret"
+    audience: "http://localhost:5011"
+    token_url: "http://localhost:8088/oauth/token"
+

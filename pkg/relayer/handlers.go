@@ -218,6 +218,7 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 	processReq := &canton.ProcessDepositRequest{
 		DepositCid: depositCid,
 		MappingCid: mapping.ContractID,
+		Timestamp:  time.Now(),
 	}
 
 	holdingCid, err := d.client.ProcessDeposit(ctx, processReq)
