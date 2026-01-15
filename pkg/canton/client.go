@@ -1268,9 +1268,18 @@ func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, erro
 // BRIDGE EVENT QUERY METHODS (for reconciliation)
 // =============================================================================
 
-// GetBridgeMintEvents retrieves all BridgeMintEvent contracts from Canton
-// These are created when deposits are processed and tokens are minted
-func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, error) {
+// contractDecoder is a function type for decoding contract records into typed events
+type contractDecoder[T any] func(contractID string, record *lapiv2.Record) (*T, error)
+
+// getActiveContractsByTemplate is a generic helper that queries active contracts
+// filtered by module and entity name, then decodes them using the provided decoder.
+func getActiveContractsByTemplate[T any](
+	c *Client,
+	ctx context.Context,
+	moduleName string,
+	entityName string,
+	decoder contractDecoder[T],
+) ([]*T, error) {
 	authCtx := c.GetAuthContext(ctx)
 
 	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
@@ -1279,7 +1288,7 @@ func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, e
 	}
 	activeAtOffset := ledgerEndResp.Offset
 	if activeAtOffset == 0 {
-		return []*BridgeMintEvent{}, nil
+		return []*T{}, nil
 	}
 
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
@@ -1300,10 +1309,10 @@ func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, e
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to query bridge mint events: %w", err)
+		return nil, fmt.Errorf("failed to query %s.%s contracts: %w", moduleName, entityName, err)
 	}
 
-	var events []*BridgeMintEvent
+	var results []*T
 	contractCount := 0
 	for {
 		msg, err := resp.Recv()
@@ -1318,88 +1327,43 @@ func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, e
 				zap.String("entity", templateId.EntityName),
 				zap.String("package_id", templateId.PackageId))
 
-			if templateId.ModuleName != "Bridge.Events" || templateId.EntityName != "BridgeMintEvent" {
+			if templateId.ModuleName != moduleName || templateId.EntityName != entityName {
 				continue
 			}
 
-			event, err := DecodeBridgeMintEvent(
+			decoded, err := decoder(
 				contract.CreatedEvent.ContractId,
 				contract.CreatedEvent.CreateArguments,
 			)
 			if err != nil {
-				c.logger.Warn("Failed to decode BridgeMintEvent", zap.Error(err))
+				c.logger.Warn("Failed to decode contract",
+					zap.String("module", moduleName),
+					zap.String("entity", entityName),
+					zap.Error(err))
 				continue
 			}
-			events = append(events, event)
+			results = append(results, decoded)
 		}
 	}
 
-	c.logger.Debug("GetBridgeMintEvents completed",
+	c.logger.Debug("getActiveContractsByTemplate completed",
+		zap.String("module", moduleName),
+		zap.String("entity", entityName),
 		zap.Int("total_contracts_scanned", contractCount),
-		zap.Int("mint_events_found", len(events)))
+		zap.Int("matching_contracts_found", len(results)))
 
-	return events, nil
+	return results, nil
+}
+
+// GetBridgeMintEvents retrieves all BridgeMintEvent contracts from Canton
+// These are created when deposits are processed and tokens are minted
+func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, error) {
+	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeMintEvent", DecodeBridgeMintEvent)
 }
 
 // GetBridgeBurnEvents retrieves all BridgeBurnEvent contracts from Canton
 // These are created when withdrawals are initiated and tokens are burned
 func (c *Client) GetBridgeBurnEvents(ctx context.Context) ([]*BridgeBurnEvent, error) {
-	authCtx := c.GetAuthContext(ctx)
-
-	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get ledger end: %w", err)
-	}
-	activeAtOffset := ledgerEndResp.Offset
-	if activeAtOffset == 0 {
-		return []*BridgeBurnEvent{}, nil
-	}
-
-	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: activeAtOffset,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
-				},
-			},
-			Verbose: true,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to query bridge burn events: %w", err)
-	}
-
-	var events []*BridgeBurnEvent
-	for {
-		msg, err := resp.Recv()
-		if err != nil {
-			break
-		}
-		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "Bridge.Events" || templateId.EntityName != "BridgeBurnEvent" {
-				continue
-			}
-
-			event, err := DecodeBridgeBurnEvent(
-				contract.CreatedEvent.ContractId,
-				contract.CreatedEvent.CreateArguments,
-			)
-			if err != nil {
-				c.logger.Warn("Failed to decode BridgeBurnEvent", zap.Error(err))
-				continue
-			}
-			events = append(events, event)
-		}
-	}
-
-	return events, nil
+	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeBurnEvent", DecodeBridgeBurnEvent)
 }
 

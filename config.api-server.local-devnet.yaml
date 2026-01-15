@@ -27,8 +27,8 @@ canton:
     enabled: false
   
   auth:
-    client_id: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
-    client_secret: "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+    client_id: "${CANTON_AUTH_CLIENT_ID}"
+    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
     audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
     token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
   

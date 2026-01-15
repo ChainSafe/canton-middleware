@@ -593,8 +593,6 @@ func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMin
 		return nil, fmt.Errorf("failed to extract amount: %w", err)
 	}
 
-	holdingCid, _ := extractContractIdV2(fields["holdingCid"])
-
 	tokenSymbol, err := extractTextV2(fields["tokenSymbol"])
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
@@ -610,8 +608,20 @@ func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMin
 		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
 	}
 
-	timestamp, _ := extractTimestampV2(fields["timestamp"])
-	auditObservers, _ := extractPartyListV2(fields["auditObservers"])
+	holdingCid, ok := extractContractIdV2(fields["holdingCid"])
+	if !ok {
+		return nil, fmt.Errorf("failed to extract holdingCid: missing or invalid contract ID")
+	}
+
+	timestamp, err := extractTimestampV2(fields["timestamp"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract timestamp: %w", err)
+	}
+
+	auditObservers, err := extractPartyListV2(fields["auditObservers"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract auditObservers: %w", err)
+	}
 
 	return &BridgeMintEvent{
 		ContractID:     contractID,
@@ -661,8 +671,15 @@ func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBur
 		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
 	}
 
-	timestamp, _ := extractTimestampV2(fields["timestamp"])
-	auditObservers, _ := extractPartyListV2(fields["auditObservers"])
+	timestamp, err := extractTimestampV2(fields["timestamp"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract timestamp: %w", err)
+	}
+
+	auditObservers, err := extractPartyListV2(fields["auditObservers"])
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract auditObservers: %w", err)
+	}
 
 	return &BridgeBurnEvent{
 		ContractID:     contractID,

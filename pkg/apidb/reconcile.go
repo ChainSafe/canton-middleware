@@ -203,61 +203,39 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 // FullBalanceReconciliation performs a complete balance reset and rebuild
 // from bridge events. This should be used sparingly, e.g., on startup or
 // when data inconsistencies are detected.
+//
+// This function:
+// 1. Resets all user balances to 0
+// 2. Clears the bridge_events table (to prevent double-counting)
+// 3. Calls ReconcileFromBridgeEvents to rebuild both balances and event log
+//
 // Note: Only mint/burn events are considered since transfers are internal Canton operations.
 func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
-	r.logger.Info("Starting FULL balance reconciliation (resetting all balances)")
+	r.logger.Info("Starting FULL balance reconciliation (resetting all balances and events)")
 	start := time.Now()
 
-	// Reset all user balances to 0
+	// Step 1: Reset all user balances to 0
 	if err := r.db.ResetUserBalances(); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
+	r.logger.Debug("Reset all user balances to 0")
 
-	// Rebuild from bridge events
-	var mintCount, burnCount int
-
-	// Get all bridge mint events
-	mintEvents, err := r.cantonClient.GetBridgeMintEvents(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get mint events: %w", err)
+	// Step 2: Clear the bridge_events table to prevent double-counting
+	// when ReconcileFromBridgeEvents runs
+	if err := r.db.ClearBridgeEvents(); err != nil {
+		return fmt.Errorf("failed to clear bridge events: %w", err)
 	}
+	r.logger.Debug("Cleared bridge_events table")
 
-	// Process mint events (increment balances)
-	for _, event := range mintEvents {
-		if err := r.db.IncrementBalanceByFingerprint(event.Fingerprint, event.Amount); err != nil {
-			r.logger.Debug("Failed to increment balance for mint (user may not exist)",
-				zap.String("fingerprint", event.Fingerprint),
-				zap.Error(err))
-			continue
-		}
-		mintCount++
-	}
-
-	// Get all bridge burn events
-	burnEvents, err := r.cantonClient.GetBridgeBurnEvents(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get burn events: %w", err)
-	}
-
-	// Process burn events (decrement balances)
-	for _, event := range burnEvents {
-		if err := r.db.DecrementBalanceByFingerprint(event.Fingerprint, event.Amount); err != nil {
-			r.logger.Debug("Failed to decrement balance for burn (user may not exist)",
-				zap.String("fingerprint", event.Fingerprint),
-				zap.Error(err))
-			continue
-		}
-		burnCount++
-	}
-
-	// Mark full reconcile complete
-	if err := r.db.MarkFullReconcileComplete(); err != nil {
-		r.logger.Warn("Failed to mark reconcile complete", zap.Error(err))
+	// Step 3: Run incremental reconciliation which will:
+	// - Fetch all events from Canton
+	// - Store them in bridge_events table
+	// - Update user balances accordingly
+	if err := r.ReconcileFromBridgeEvents(ctx); err != nil {
+		return fmt.Errorf("failed to reconcile from bridge events: %w", err)
 	}
 
 	r.logger.Info("FULL balance reconciliation completed",
-		zap.Int("mint_events_applied", mintCount),
-		zap.Int("burn_events_applied", burnCount),
 		zap.Duration("duration", time.Since(start)))
 
 	return nil

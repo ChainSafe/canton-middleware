@@ -12,12 +12,12 @@ database:
   ssl_mode: "disable"
 
 ethereum:
-  rpc_url: "https://sepolia.infura.io/v3/dd3f23220d4348e2a3b192100fc71ba1"
-  ws_url: "wss://sepolia.infura.io/ws/v3/dd3f23220d4348e2a3b192100fc71ba1"
+  rpc_url: "${SEPOLIA_RPC_URL}"          # e.g., https://sepolia.infura.io/v3/<YOUR_KEY>
+  ws_url: "${SEPOLIA_WS_URL}"            # e.g., wss://sepolia.infura.io/ws/v3/<YOUR_KEY>
   chain_id: 11155111
   bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
   token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
-  relayer_private_key: "***REMOVED***"
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
   confirmation_blocks: 1
   gas_limit: 300000
   max_gas_price: "100000000000"
@@ -41,8 +41,8 @@ canton:
     enabled: false
 
   auth:
-    client_id: "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
-    client_secret: "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+    client_id: "${CANTON_AUTH_CLIENT_ID}"
+    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
     audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
     token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
 

@@ -844,7 +844,13 @@ func waitForTx(ctx context.Context, client *ethclient.Client, txHash common.Hash
 func fingerprintToBytes32(fingerprint string) [32]byte {
 	var result [32]byte
 	fingerprint = strings.TrimPrefix(fingerprint, "0x")
-	data, _ := hex.DecodeString(fingerprint)
+	data, err := hex.DecodeString(fingerprint)
+	if err != nil {
+		panic(fmt.Sprintf("fingerprintToBytes32: invalid hex string %q: %v", fingerprint, err))
+	}
+	if len(data) > 32 {
+		panic(fmt.Sprintf("fingerprintToBytes32: fingerprint too long (%d bytes, max 32)", len(data)))
+	}
 	copy(result[:], data)
 	return result
 }

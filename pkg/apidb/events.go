@@ -190,6 +190,22 @@ func (s *Store) MarkFullReconcileComplete() error {
 	return err
 }
 
+// ClearBridgeEvents removes all entries from the bridge_events table
+// This should be called before a full reconciliation to ensure consistency
+func (s *Store) ClearBridgeEvents() error {
+	_, err := s.db.Exec(`DELETE FROM bridge_events`)
+	if err != nil {
+		return fmt.Errorf("failed to clear bridge_events: %w", err)
+	}
+	// Reset the events processed counter
+	_, err = s.db.Exec(`
+		UPDATE reconciliation_state 
+		SET events_processed = 0, updated_at = NOW()
+		WHERE id = 1
+	`)
+	return err
+}
+
 // =============================================================================
 // Event Query Methods
 // =============================================================================
