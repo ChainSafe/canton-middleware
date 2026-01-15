@@ -45,10 +45,10 @@ ON CONFLICT (id) DO NOTHING;
 -- Bridge events table: tracks processed bridge events for reconciliation
 CREATE TABLE IF NOT EXISTS bridge_events (
     id SERIAL PRIMARY KEY,
-    event_type VARCHAR(20) NOT NULL,  -- 'mint', 'burn', 'transfer'
+    event_type VARCHAR(20) NOT NULL,  -- 'mint', 'burn'
     contract_id VARCHAR(255) UNIQUE NOT NULL,
     fingerprint VARCHAR(128),
-    recipient_fingerprint VARCHAR(128),  -- For transfers
+    recipient_fingerprint VARCHAR(128),
     amount DECIMAL(38,18) NOT NULL,
     evm_tx_hash VARCHAR(66),
     evm_destination VARCHAR(42),
