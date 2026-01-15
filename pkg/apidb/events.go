@@ -35,8 +35,21 @@ type ReconciliationState struct {
 // Bridge Event Storage Methods
 // =============================================================================
 
-// StoreBridgeMintEvent stores a mint event and updates user balance
-func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
+// bridgeEventParams holds the common parameters for storing bridge events
+type bridgeEventParams struct {
+	eventType      string
+	contractID     string
+	fingerprint    string
+	amount         string
+	tokenSymbol    string
+	timestamp      time.Time
+	evmTxHash      string // Used for mint events
+	evmDestination string // Used for burn events
+	isCredit       bool   // true = increment balance, false = decrement
+}
+
+// storeBridgeEvent is a helper that handles the common logic for storing bridge events
+func (s *Store) storeBridgeEvent(params bridgeEventParams) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -45,7 +58,7 @@ func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
 
 	// Check if event already processed
 	var exists bool
-	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM bridge_events WHERE contract_id = $1)`, event.ContractID).Scan(&exists)
+	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM bridge_events WHERE contract_id = $1)`, params.contractID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("failed to check event existence: %w", err)
 	}
@@ -55,24 +68,28 @@ func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
 
 	// Store the event
 	var cantonTimestamp *time.Time
-	if !event.Timestamp.IsZero() {
-		cantonTimestamp = &event.Timestamp
+	if !params.timestamp.IsZero() {
+		cantonTimestamp = &params.timestamp
 	}
 	_, err = tx.Exec(`
-		INSERT INTO bridge_events (event_type, contract_id, fingerprint, amount, evm_tx_hash, token_symbol, canton_timestamp)
-		VALUES ('mint', $1, $2, $3, $4, $5, $6)
-	`, event.ContractID, event.Fingerprint, event.Amount, event.EvmTxHash, event.TokenSymbol, cantonTimestamp)
+		INSERT INTO bridge_events (event_type, contract_id, fingerprint, amount, evm_tx_hash, evm_destination, token_symbol, canton_timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, params.eventType, params.contractID, params.fingerprint, params.amount, nullIfEmpty(params.evmTxHash), nullIfEmpty(params.evmDestination), params.tokenSymbol, cantonTimestamp)
 	if err != nil {
-		return fmt.Errorf("failed to store mint event: %w", err)
+		return fmt.Errorf("failed to store %s event: %w", params.eventType, err)
 	}
 
-	// Update user balance (increment)
-	withPrefix, withoutPrefix := normalizeFingerprint(event.Fingerprint)
-	_, err = tx.Exec(`
+	// Update user balance
+	withPrefix, withoutPrefix := normalizeFingerprint(params.fingerprint)
+	balanceOp := "-"
+	if params.isCredit {
+		balanceOp = "+"
+	}
+	_, err = tx.Exec(fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
+		SET balance = COALESCE(balance, 0) %s $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`, event.Amount, withPrefix, withoutPrefix)
+	`, balanceOp), params.amount, withPrefix, withoutPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to update user balance: %w", err)
 	}
@@ -90,59 +107,40 @@ func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
 	return tx.Commit()
 }
 
+// nullIfEmpty returns nil for empty strings (for SQL NULL handling)
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// StoreBridgeMintEvent stores a mint event and updates user balance
+func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
+	return s.storeBridgeEvent(bridgeEventParams{
+		eventType:   "mint",
+		contractID:  event.ContractID,
+		fingerprint: event.Fingerprint,
+		amount:      event.Amount,
+		tokenSymbol: event.TokenSymbol,
+		timestamp:   event.Timestamp,
+		evmTxHash:   event.EvmTxHash,
+		isCredit:    true,
+	})
+}
+
 // StoreBridgeBurnEvent stores a burn event and updates user balance
 func (s *Store) StoreBridgeBurnEvent(event *canton.BridgeBurnEvent) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Check if event already processed
-	var exists bool
-	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM bridge_events WHERE contract_id = $1)`, event.ContractID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("failed to check event existence: %w", err)
-	}
-	if exists {
-		return nil // Already processed, skip
-	}
-
-	// Store the event
-	var cantonTimestamp *time.Time
-	if !event.Timestamp.IsZero() {
-		cantonTimestamp = &event.Timestamp
-	}
-	_, err = tx.Exec(`
-		INSERT INTO bridge_events (event_type, contract_id, fingerprint, amount, evm_destination, token_symbol, canton_timestamp)
-		VALUES ('burn', $1, $2, $3, $4, $5, $6)
-	`, event.ContractID, event.Fingerprint, event.Amount, event.EvmDestination, event.TokenSymbol, cantonTimestamp)
-	if err != nil {
-		return fmt.Errorf("failed to store burn event: %w", err)
-	}
-
-	// Update user balance (decrement)
-	withPrefix, withoutPrefix := normalizeFingerprint(event.Fingerprint)
-	_, err = tx.Exec(`
-		UPDATE users
-		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
-		WHERE fingerprint = $2 OR fingerprint = $3
-	`, event.Amount, withPrefix, withoutPrefix)
-	if err != nil {
-		return fmt.Errorf("failed to update user balance: %w", err)
-	}
-
-	// Increment events processed counter
-	_, err = tx.Exec(`
-		UPDATE reconciliation_state 
-		SET events_processed = events_processed + 1, updated_at = NOW()
-		WHERE id = 1
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to update reconciliation state: %w", err)
-	}
-
-	return tx.Commit()
+	return s.storeBridgeEvent(bridgeEventParams{
+		eventType:      "burn",
+		contractID:     event.ContractID,
+		fingerprint:    event.Fingerprint,
+		amount:         event.Amount,
+		tokenSymbol:    event.TokenSymbol,
+		timestamp:      event.Timestamp,
+		evmDestination: event.EvmDestination,
+		isCredit:       false,
+	})
 }
 
 // =============================================================================
