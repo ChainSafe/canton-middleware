@@ -126,10 +126,22 @@ type APIServerConfig struct {
 	Database       DatabaseConfig       `mapstructure:"database"`
 	Canton         CantonConfig         `mapstructure:"canton"`
 	Token          TokenConfig          `mapstructure:"token"`
+	EthRPC         EthRPCConfig         `mapstructure:"eth_rpc"`
 	JWKS           JWKSConfig           `mapstructure:"jwks"`
 	Logging        LoggingConfig        `mapstructure:"logging"`
 	Reconciliation ReconciliationConfig `mapstructure:"reconciliation"`
 	Shutdown       ShutdownConfig       `mapstructure:"shutdown"`
+}
+
+// EthRPCConfig contains Ethereum JSON-RPC facade settings for MetaMask compatibility
+type EthRPCConfig struct {
+	Enabled          bool          `mapstructure:"enabled"`
+	ChainID          uint64        `mapstructure:"chain_id"`
+	TokenAddress     string        `mapstructure:"token_address"`
+	GasPriceWei      string        `mapstructure:"gas_price_wei"`
+	GasLimit         uint64        `mapstructure:"gas_limit"`
+	NativeBalanceWei string        `mapstructure:"native_balance_wei"`
+	RequestTimeout   time.Duration `mapstructure:"request_timeout"`
 }
 
 // TokenConfig contains ERC-20 token metadata
@@ -196,6 +208,15 @@ func setAPIServerDefaults() {
 	viper.SetDefault("token.name", "PROMPT")
 	viper.SetDefault("token.symbol", "PROMPT")
 	viper.SetDefault("token.decimals", 18)
+
+	// Eth RPC defaults (MetaMask compatibility)
+	viper.SetDefault("eth_rpc.enabled", false)
+	viper.SetDefault("eth_rpc.chain_id", 31337)
+	viper.SetDefault("eth_rpc.token_address", "")
+	viper.SetDefault("eth_rpc.gas_price_wei", "1000000000")
+	viper.SetDefault("eth_rpc.gas_limit", 21000)
+	viper.SetDefault("eth_rpc.native_balance_wei", "1000000000000000000000")
+	viper.SetDefault("eth_rpc.request_timeout", "30s")
 
 	// Logging defaults
 	viper.SetDefault("logging.level", "info")

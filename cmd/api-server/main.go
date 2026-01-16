@@ -13,7 +13,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/rpc"
+	"github.com/chainsafe/canton-middleware/pkg/service"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -82,14 +84,37 @@ func main() {
 	reconciler.StartPeriodicReconciliation(cfg.Reconciliation.Interval)
 	defer reconciler.Stop()
 
+	// Create shared token service
+	tokenService := service.NewTokenService(cfg, db, cantonClient, logger)
+
 	// Create RPC server
 	rpcServer := rpc.NewServer(cfg, db, cantonClient, logger)
+
+	// Create HTTP mux for multiple endpoints
+	mux := http.NewServeMux()
+	mux.Handle("/rpc", rpcServer)
+	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+
+	// Create Ethereum JSON-RPC server if enabled
+	if cfg.EthRPC.Enabled {
+		ethServer, err := ethrpc.NewServer(cfg, db, tokenService, logger)
+		if err != nil {
+			logger.Fatal("Failed to create Eth JSON-RPC server", zap.Error(err))
+		}
+		mux.Handle("/eth", ethServer)
+		logger.Info("Ethereum JSON-RPC endpoint enabled at /eth",
+			zap.Uint64("chain_id", cfg.EthRPC.ChainID),
+			zap.String("token_address", cfg.EthRPC.TokenAddress))
+	}
 
 	// Create HTTP server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      rpcServer,
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

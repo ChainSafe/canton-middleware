@@ -71,10 +71,47 @@ CREATE TABLE IF NOT EXISTS reconciliation_state (
 INSERT INTO reconciliation_state (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
--- Indexes for efficient lookups
+-- =============================================================================
+-- EVM Transactions (MetaMask JSON-RPC compatibility)
+-- =============================================================================
+
+-- EVM Transactions table: stores synthetic tx receipts for Eth JSON-RPC facade
+CREATE TABLE IF NOT EXISTS evm_transactions (
+    tx_hash          BYTEA PRIMARY KEY,
+    from_address     TEXT NOT NULL,
+    to_address       TEXT NOT NULL,
+    nonce            BIGINT NOT NULL,
+    input            BYTEA NOT NULL,
+    value_wei        TEXT NOT NULL DEFAULT '0',
+    status           SMALLINT NOT NULL DEFAULT 1,
+    block_number     BIGINT NOT NULL,
+    block_hash       BYTEA NOT NULL,
+    tx_index         INTEGER NOT NULL DEFAULT 0,
+    gas_used         BIGINT NOT NULL DEFAULT 21000,
+    error_message    TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- EVM Metadata table: stores chain state like latest block number
+CREATE TABLE IF NOT EXISTS evm_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Initialize latest block number
+INSERT INTO evm_meta (key, value) VALUES ('latest_block_number', '0')
+ON CONFLICT (key) DO NOTHING;
+
+-- =============================================================================
+-- Indexes
+-- =============================================================================
+
 CREATE INDEX IF NOT EXISTS idx_users_evm ON users(evm_address);
 CREATE INDEX IF NOT EXISTS idx_users_fingerprint ON users(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_fingerprint ON bridge_events(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_type ON bridge_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_evm_tx ON bridge_events(evm_tx_hash);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_from ON evm_transactions(from_address);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_to ON evm_transactions(to_address);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_block ON evm_transactions(block_number);
 
