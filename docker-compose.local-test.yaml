@@ -1,0 +1,36 @@
+# =============================================================================
+# Local E2E Test Docker Compose Override
+# =============================================================================
+# This override file is used specifically for e2e-local.go testing.
+# It disables port conflicts and adds test-specific configuration.
+#
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.local-test.yaml up -d
+#
+# =============================================================================
+
+services:
+  # Override relayer environment
+  relayer:
+    environment:
+      LOG_LEVEL: debug
+      E2E_TEST_MODE: "true"
+
+  # Override api-server environment
+  api-server:
+    environment:
+      LOG_LEVEL: debug
+      E2E_TEST_MODE: "true"
+
+  # Override postgres to skip persistent volume for clean test state
+  postgres:
+    volumes:
+      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/01-relayer-schema.sql
+      - ./deployments/api-server/create-erc20-db.sh:/docker-entrypoint-initdb.d/02-create-erc20-db.sh
+      - ./deployments/api-server/schema.sql:/docker-entrypoint-initdb.d/03-api-server-schema.sql
+    # No persistent volume - fresh DB each run
+    tmpfs:
+      - /var/lib/postgresql/data
+
+volumes: {}
+

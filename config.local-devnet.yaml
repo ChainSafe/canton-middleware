@@ -1,0 +1,68 @@
+# Local Relayer config for testing with DevNet Canton and Sepolia
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "relayer"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "${SEPOLIA_RPC_URL}"          # e.g., https://sepolia.infura.io/v3/<YOUR_KEY>
+  ws_url: "${SEPOLIA_WS_URL}"            # e.g., wss://sepolia.infura.io/ws/v3/<YOUR_KEY>
+  chain_id: 11155111
+  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  lookback_blocks: 200
+
+canton:
+  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+  ledger_id: ""
+  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
+  application_id: "canton-middleware"
+  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+
+  bridge_package_id: "0b330457f833a871b728132c5c3c35e0906c9b3201f9f59628996924fe99fd2f"
+  core_package_id: "60fefa29a10287062c0944001f7bc5f7b5ecffd272183ce3ad78af4c282e8bba"
+  cip56_package_id: "e975777506e588b18317a66be74586b8b9d00325bc1c461749e7c658884130aa"
+  bridge_module: "Wayfinder.Bridge"
+  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+
+  tls:
+    enabled: false
+
+  auth:
+    client_id: "${CANTON_AUTH_CLIENT_ID}"
+    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+    audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+    token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+
+  polling_interval: "5s"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"
+

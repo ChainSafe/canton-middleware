@@ -42,7 +42,39 @@ CREATE TABLE IF NOT EXISTS token_metrics (
 INSERT INTO token_metrics (id, total_supply) VALUES (1, 0)
 ON CONFLICT (id) DO NOTHING;
 
+-- Bridge events table: tracks processed bridge events for reconciliation
+CREATE TABLE IF NOT EXISTS bridge_events (
+    id SERIAL PRIMARY KEY,
+    event_type VARCHAR(20) NOT NULL,  -- 'mint', 'burn'
+    contract_id VARCHAR(255) UNIQUE NOT NULL,
+    fingerprint VARCHAR(128),
+    recipient_fingerprint VARCHAR(128),
+    amount DECIMAL(38,18) NOT NULL,
+    evm_tx_hash VARCHAR(66),
+    evm_destination VARCHAR(42),
+    token_symbol VARCHAR(20),
+    canton_timestamp TIMESTAMP,
+    processed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Reconciliation state table: tracks reconciliation progress
+CREATE TABLE IF NOT EXISTS reconciliation_state (
+    id INT PRIMARY KEY DEFAULT 1,
+    last_processed_offset BIGINT DEFAULT 0,
+    last_full_reconcile_at TIMESTAMP,
+    events_processed INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT single_reconcile_row CHECK (id = 1)
+);
+
+-- Initialize reconciliation state row
+INSERT INTO reconciliation_state (id) VALUES (1)
+ON CONFLICT (id) DO NOTHING;
+
 -- Indexes for efficient lookups
 CREATE INDEX IF NOT EXISTS idx_users_evm ON users(evm_address);
 CREATE INDEX IF NOT EXISTS idx_users_fingerprint ON users(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_bridge_events_fingerprint ON bridge_events(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_bridge_events_type ON bridge_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_bridge_events_evm_tx ON bridge_events(evm_tx_hash);
 

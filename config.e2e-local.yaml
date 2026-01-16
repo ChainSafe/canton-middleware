@@ -1,0 +1,71 @@
+# =============================================================================
+# Local E2E Test Configuration
+# =============================================================================
+# Configuration for fully local end-to-end testing using Docker + Anvil + Canton.
+# Uses Anvil's default mnemonic accounts for testing.
+#
+# Usage:
+#   go run scripts/e2e-local.go [-cleanup]
+#
+# =============================================================================
+
+# Test participants (Anvil default accounts from mnemonic)
+# Mnemonic: "test test test test test test test test test test test junk"
+users:
+  user1:
+    # Account 1 from Anvil (0xf39...)
+    private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    fingerprint: ""
+
+  user2:
+    # Account 2 from Anvil (0x70...)
+    private_key: "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+    address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    fingerprint: ""
+
+# Service endpoints (local docker compose)
+services:
+  relayer_url: "http://localhost:8080"
+  api_server_url: "http://localhost:8081/rpc"
+
+# Database configuration (local PostgreSQL)
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "p@ssw0rd"
+  database: "erc20_api"
+
+# Test amounts
+amounts:
+  # Deposit 100 tokens (Anvil accounts have plenty of ETH)
+  total_deposit: "100.0"
+  # Transfer 25 tokens
+  transfer_amount: "25.0"
+
+# Contract addresses (deployed by docker compose)
+# These are deterministic based on deployer script
+contracts:
+  # PromptToken deployed at this address by Foundry script
+  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  # CantonBridge deployed at this address by Foundry script  
+  bridge_address: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+
+# Timeouts (shorter for local testing)
+timeouts:
+  deposit_confirmation: "60s"
+  balance_update: "30s"
+  rpc_call: "15s"
+
+# Local test specific settings
+local:
+  # Docker compose files to use
+  compose_files:
+    - "docker-compose.yaml"
+    - "docker-compose.local-test.yaml"
+  # Anvil RPC URL
+  anvil_url: "http://localhost:8545"
+  # Canton HTTP URL
+  canton_url: "http://localhost:5013"
+

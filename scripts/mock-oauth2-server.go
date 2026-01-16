@@ -1,3 +1,5 @@
+//go:build ignore
+
 // mock-oauth2-server.go - Simple OAuth2 mock server for local testing
 //
 // Usage:

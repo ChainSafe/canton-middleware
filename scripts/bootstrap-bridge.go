@@ -494,6 +494,7 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 			{Label: "tokenManagerCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenManagerCid}}},
+			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
 
