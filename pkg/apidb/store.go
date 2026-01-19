@@ -35,4 +35,3 @@ func (s *Store) Close() error {
 func (s *Store) DB() *sql.DB {
 	return s.db
 }
-

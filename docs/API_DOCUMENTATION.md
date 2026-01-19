@@ -1,21 +1,22 @@
 # Canton Bridge API Documentation
 
-## API Endpoint
+## API Endpoints
 
-**Mainnet URL:** `https://middleware-api-prod1.02.chainsafe.dev/rpc`  
-*(Replace with actual mainnet URL when available)*
-
+**Ethereum JSON-RPC (MetaMask Compatible):** `https://middleware-api-prod1.02.chainsafe.dev/eth`
+**User Registration:** `https://middleware-api-prod1.02.chainsafe.dev/register`
 **Health Check:** `GET /health`
+
+*(Replace with actual mainnet URL when available)*
 
 ---
 
 ## Overview
 
-The Canton Bridge API provides a JSON-RPC 2.0 interface for interacting with bridged ERC-20 tokens on the Canton Network. It enables users to:
+The Canton Bridge API provides an **Ethereum-compatible JSON-RPC interface** for interacting with bridged ERC-20 tokens on the Canton Network. It enables users to:
 
 - **Register** with their Ethereum wallet (Web3 login)
-- **Query balances** of bridged tokens
-- **Transfer tokens** between users on Canton
+- **Query balances** of bridged tokens via standard ERC-20 methods
+- **Transfer tokens** using Ethereum transactions
 - **Access token metadata** (name, symbol, decimals, total supply)
 
 ### Architecture: Issuer-Centric Model
@@ -45,43 +46,221 @@ The bridge uses an **issuer-centric model** where:
 
 ---
 
-## Authentication
+## Ethereum JSON-RPC Endpoint (`/eth`)
 
-### Web3 Wallet Authentication (EIP-191)
+The `/eth` endpoint provides **MetaMask-compatible** Ethereum JSON-RPC methods. Connect to it just like you would connect to any Ethereum RPC endpoint.
 
-All authenticated endpoints require an **EIP-191 personal signature** from the user's Ethereum wallet.
+### RPC Authentication
 
-#### Required Headers
+#### Transaction Submission
 
-| Header | Description |
-|--------|-------------|
-| `X-Signature` | EIP-191 signature of the message (hex string with `0x` prefix) |
-| `X-Message` | The signed message in format: `{method}:{timestamp}` |
+All transaction submissions via `eth_sendRawTransaction` require sender addresses to be whitelisted:
 
-#### Signing Example
+1. **Signature Verification**: Transaction signature is verified and sender address extracted using cryptographic recovery
+2. **Whitelist Check**: Sender address is checked against the whitelist database
+3. **Rejection**: Non-whitelisted transactions are rejected with a clear error message
+
+To submit transactions, users must first:
+1. Get their address whitelisted by an administrator
+2. Register via the `/register` endpoint (see User Registration section)
+
+#### Read Methods
+
+Query methods remain **unauthenticated** for MetaMask compatibility. The following methods can be called by anyone:
+- `eth_getBalance`, `eth_call`, `eth_getTransactionCount`, `eth_getLogs`
+- `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`
+- All other read-only methods listed below
+
+#### Error Messages
+
+When transaction submission fails due to whitelist restrictions:
+
+- **"sender address X is not whitelisted for transactions"** - The sender address needs to be whitelisted and registered
+- **"invalid sender"** - Invalid transaction signature (signature does not match transaction data)
+- **"whitelist check failed"** - Internal error during whitelist verification (check server logs)
+
+### MetaMask Configuration
 
 ```javascript
-// Message format: "method_name:unix_timestamp"
-const message = `erc20_balanceOf:${Math.floor(Date.now() / 1000)}`;
+// Add network to MetaMask
+await window.ethereum.request({
+  method: 'wallet_addEthereumChain',
+  params: [{
+    chainId: '0x7A69', // 31337 in hex (or your configured chain ID)
+    chainName: 'Canton Bridge Network',
+    rpcUrls: ['https://middleware-api-prod1.02.chainsafe.dev/eth'],
+    nativeCurrency: {
+      name: 'Synthetic ETH',
+      symbol: 'sETH',
+      decimals: 18
+    }
+  }]
+});
+```
 
-// Sign with wallet (MetaMask, ethers.js, etc.)
+### Supported Methods
+
+The following standard Ethereum JSON-RPC methods are supported:
+
+#### Read Methods
+- `eth_chainId` - Returns the chain ID
+- `eth_blockNumber` - Returns the latest block number
+- `eth_gasPrice` - Returns the current gas price
+- `eth_maxPriorityFeePerGas` - Returns the suggested priority fee
+- `eth_estimateGas` - Estimates gas for a transaction
+- `eth_getBalance` - Returns the ETH balance (synthetic for registered users)
+- `eth_getTransactionCount` - Returns the nonce for an address
+- `eth_getCode` - Returns the code at an address
+- `eth_syncing` - Returns sync status (always false)
+- `eth_call` - Executes a call without creating a transaction
+- `eth_getTransactionByHash` - Returns a transaction by hash
+- `eth_getTransactionReceipt` - Returns a transaction receipt
+- `eth_getLogs` - Returns logs matching filter criteria
+- `eth_getBlockByNumber` - Returns a block by number
+- `net_version` - Returns the network ID
+- `web3_clientVersion` - Returns the client version
+
+#### Write Methods
+- `eth_sendRawTransaction` - Submits a signed transaction
+
+### ERC-20 Token Contract
+
+The bridged ERC-20 token is available at the configured token address. You can interact with it using standard ERC-20 methods:
+
+#### Standard ERC-20 Methods (via `eth_call`)
+
+```javascript
+// Get token balance
+const balanceOf = await ethersProvider.call({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('balanceOf', [userAddress])
+});
+
+// Get token name
+const name = await ethersProvider.call({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('name', [])
+});
+
+// Get token symbol
+const symbol = await ethersProvider.call({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('symbol', [])
+});
+
+// Get token decimals
+const decimals = await ethersProvider.call({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('decimals', [])
+});
+
+// Get total supply
+const totalSupply = await ethersProvider.call({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('totalSupply', [])
+});
+```
+
+#### Transfer Tokens (via `eth_sendRawTransaction`)
+
+```javascript
+// Create and sign transaction
+const tx = await wallet.signTransaction({
+  to: tokenAddress,
+  data: iface.encodeFunctionData('transfer', [recipientAddress, amount]),
+  gasLimit: 21000,
+  gasPrice: await provider.getGasPrice(),
+  nonce: await provider.getTransactionCount(wallet.address),
+  chainId: 31337
+});
+
+// Send transaction
+const txHash = await provider.send('eth_sendRawTransaction', [tx]);
+
+// Wait for receipt
+const receipt = await provider.waitForTransaction(txHash);
+```
+
+---
+
+## User Registration Endpoint (`/register`)
+
+Before users can interact with bridged tokens, they must register their Ethereum address.
+
+### Endpoint
+
+**POST** `/register`
+
+### Authentication
+
+Registration requires an **EIP-191 personal signature** from the user's Ethereum wallet.
+
+### Request Format
+
+#### Option 1: Signature in Body
+
+```json
+{
+  "signature": "0x...",
+  "message": "registration:1234567890"
+}
+```
+
+#### Option 2: Signature in Headers
+
+**Headers:**
+- `X-Signature`: EIP-191 signature (hex string with `0x` prefix)
+- `X-Message`: The signed message
+
+**Body:**
+```json
+{}
+```
+
+### Message Format
+
+The message should be in the format: `{arbitrary_text}:{timestamp}`
+
+Example: `registration:1234567890`
+
+### Response
+
+**Success (200 OK):**
+```json
+{
+  "party": "relay::1220...",
+  "fingerprint": "0x...",
+  "mapping_cid": "0x..."
+}
+```
+
+**Errors:**
+- `401 Unauthorized` - Invalid signature or missing authentication
+- `403 Forbidden` - Address not whitelisted
+- `409 Conflict` - User already registered
+- `500 Internal Server Error` - Registration failed
+
+### JavaScript Example
+
+```javascript
+// Sign message
+const timestamp = Math.floor(Date.now() / 1000);
+const message = `registration:${timestamp}`;
 const signature = await wallet.signMessage(message);
 
-// Send with request
-fetch('/rpc', {
+// Register user
+const response = await fetch('/register', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
     'X-Signature': signature,
     'X-Message': message
   },
-  body: JSON.stringify({
-    jsonrpc: '2.0',
-    method: 'erc20_balanceOf',
-    params: {},
-    id: 1
-  })
+  body: JSON.stringify({})
 });
+
+const result = await response.json();
+console.log('Registered with fingerprint:', result.fingerprint);
 ```
 
 ### Whitelisting
@@ -90,563 +269,123 @@ Before users can register, their Ethereum address must be **whitelisted** by an 
 
 ---
 
-## JSON-RPC 2.0 Methods
-
-### Public Methods (No Authentication)
-
-#### `erc20_name`
-
-Returns the token name.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_name",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": "PROMPT",
-  "id": 1
-}
-```
-
-**Curl Example:**
-```bash
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "erc20_name", "params": {}, "id": 1}'
-```
-
----
-
-#### `erc20_symbol`
-
-Returns the token symbol.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_symbol",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": "PROMPT",
-  "id": 1
-}
-```
-
-**Curl Example:**
-```bash
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "erc20_symbol", "params": {}, "id": 1}'
-```
-
----
-
-#### `erc20_decimals`
-
-Returns the token decimals.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_decimals",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": 18,
-  "id": 1
-}
-```
-
-**Curl Example:**
-```bash
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "erc20_decimals", "params": {}, "id": 1}'
-```
-
----
-
-#### `erc20_totalSupply`
-
-Returns the total supply of bridged tokens on Canton.
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_totalSupply",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "totalSupply": "1000000.000000000000000000"
-  },
-  "id": 1
-}
-```
-
-**Curl Example:**
-```bash
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "erc20_totalSupply", "params": {}, "id": 1}'
-```
-
----
-
-### Authenticated Methods
-
-#### `user_register`
-
-Registers a new user with their Ethereum wallet. Requires the user's address to be whitelisted.
-
-**Authentication:** Required (EIP-191 signature)
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "user_register",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "party": "daml-autopilot::122043f0b94e28125e4c65aa7e0f0ded912472731695f01cc83aa41ad3f03965a19b",
-    "fingerprint": "0x97226fafd8c54f2ba4556c78d1e7d235b08918b3fbd8e84d023bc2375cd46609",
-    "mappingCid": "00abc123..."
-  },
-  "id": 1
-}
-```
-
-**Errors:**
-- `-32004` - Address not whitelisted
-- `-32005` - User already registered
-
-**Curl Example:**
-```bash
-MESSAGE="user_register:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{"jsonrpc": "2.0", "method": "user_register", "params": {}, "id": 1}'
-```
-
----
-
-#### `erc20_balanceOf`
-
-Returns the token balance for the authenticated user.
-
-**Authentication:** Required (EIP-191 signature)
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_balanceOf",
-  "params": {},
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "balance": "100.000000000000000000",
-    "address": "0x4768CCb3cE015698468A65bf8208b3f6919c769e"
-  },
-  "id": 1
-}
-```
-
-**Curl Example:**
-```bash
-MESSAGE="erc20_balanceOf:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{"jsonrpc": "2.0", "method": "erc20_balanceOf", "params": {}, "id": 1}'
-```
-
----
-
-#### `erc20_transfer`
-
-Transfers tokens from the authenticated user to another registered user.
-
-**Authentication:** Required (EIP-191 signature)
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `to` | string | Yes | Recipient's Ethereum address |
-| `amount` | string | Yes | Amount to transfer (with decimals, e.g., "10.5") |
-
-**Request:**
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "erc20_transfer",
-  "params": {
-    "to": "0x79B3ff7ca5D5eeeF4d60bcEcD5C1294e0F328431",
-    "amount": "10.0"
-  },
-  "id": 1
-}
-```
-
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "success": true,
-    "txId": "1220abc123..."
-  },
-  "id": 1
-}
-```
-
-**Errors:**
-- `-32001` - Unauthorized (user not registered)
-- `-32002` - Recipient not found/registered
-- `-32003` - Insufficient funds
-- `-32602` - Invalid parameters
-
-**Curl Example:**
-```bash
-MESSAGE="erc20_transfer:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "erc20_transfer",
-    "params": {"to": "0x79B3ff7ca5D5eeeF4d60bcEcD5C1294e0F328431", "amount": "10.0"},
-    "id": 1
-  }'
-```
-
----
-
-## Error Codes
-
-| Code | Message | Description |
-|------|---------|-------------|
-| `-32700` | Parse error | Invalid JSON |
-| `-32600` | Invalid Request | Invalid JSON-RPC request |
-| `-32601` | Method not found | Unknown method |
-| `-32602` | Invalid params | Invalid method parameters |
-| `-32603` | Internal error | Server error |
-| `-32001` | Unauthorized | Authentication failed or user not registered |
-| `-32002` | Not found | Resource not found |
-| `-32003` | Insufficient funds | Not enough balance for transfer |
-| `-32004` | Address not whitelisted | User address not on whitelist |
-| `-32005` | User already registered | Cannot register twice |
-
----
-
-## OpenAPI Specification
-
-```yaml
-openapi: 3.0.3
-info:
-  title: Canton Bridge API
-  description: JSON-RPC 2.0 API for Canton-Ethereum token bridge
-  version: 1.0.0
-  contact:
-    name: ChainSafe Systems
-    url: https://chainsafe.io
-
-servers:
-  - url: https://middleware-api-prod1.02.chainsafe.dev/
-    description: Mainnet API
-
-paths:
-  /health:
-    get:
-      summary: Health check
-      responses:
-        '200':
-          description: Service is healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: "ok"
-
-  /rpc:
-    post:
-      summary: JSON-RPC 2.0 endpoint
-      description: |
-        All API methods are accessed via this single endpoint using JSON-RPC 2.0 protocol.
-        
-        **Public methods:** erc20_name, erc20_symbol, erc20_decimals, erc20_totalSupply
-        
-        **Authenticated methods:** user_register, erc20_balanceOf, erc20_transfer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/JsonRpcRequest'
-            examples:
-              getBalance:
-                summary: Get balance
-                value:
-                  jsonrpc: "2.0"
-                  method: "erc20_balanceOf"
-                  params: {}
-                  id: 1
-              transfer:
-                summary: Transfer tokens
-                value:
-                  jsonrpc: "2.0"
-                  method: "erc20_transfer"
-                  params:
-                    to: "0x79B3ff7ca5D5eeeF4d60bcEcD5C1294e0F328431"
-                    amount: "10.0"
-                  id: 1
-      parameters:
-        - name: X-Signature
-          in: header
-          description: EIP-191 signature (required for authenticated methods)
-          schema:
-            type: string
-            example: "0x1234567890abcdef..."
-        - name: X-Message
-          in: header
-          description: Signed message in format "method:timestamp"
-          schema:
-            type: string
-            example: "erc20_balanceOf:1703001234"
-      responses:
-        '200':
-          description: JSON-RPC response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JsonRpcResponse'
-
-components:
-  schemas:
-    JsonRpcRequest:
-      type: object
-      required:
-        - jsonrpc
-        - method
-        - id
-      properties:
-        jsonrpc:
-          type: string
-          enum: ["2.0"]
-        method:
-          type: string
-          enum:
-            - erc20_name
-            - erc20_symbol
-            - erc20_decimals
-            - erc20_totalSupply
-            - erc20_balanceOf
-            - erc20_transfer
-            - user_register
-        params:
-          type: object
-        id:
-          oneOf:
-            - type: string
-            - type: integer
-
-    JsonRpcResponse:
-      type: object
-      properties:
-        jsonrpc:
-          type: string
-          enum: ["2.0"]
-        result:
-          description: Result on success
-        error:
-          $ref: '#/components/schemas/JsonRpcError'
-        id:
-          oneOf:
-            - type: string
-            - type: integer
-
-    JsonRpcError:
-      type: object
-      properties:
-        code:
-          type: integer
-        message:
-          type: string
-        data:
-          description: Additional error data
-
-    BalanceResult:
-      type: object
-      properties:
-        balance:
-          type: string
-          example: "100.000000000000000000"
-        address:
-          type: string
-          example: "0x4768CCb3cE015698468A65bf8208b3f6919c769e"
-
-    TransferResult:
-      type: object
-      properties:
-        success:
-          type: boolean
-        txId:
-          type: string
-
-    RegisterResult:
-      type: object
-      properties:
-        party:
-          type: string
-        fingerprint:
-          type: string
-        mappingCid:
-          type: string
-
-    SupplyResult:
-      type: object
-      properties:
-        totalSupply:
-          type: string
-          example: "1000000.000000000000000000"
-```
-
----
-
-## Example: Complete Flow
-
-### 1. Check Whitelist Status & Register
-
-```bash
-# Sign message with your wallet
-MESSAGE="user_register:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-# Register
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "user_register",
-    "params": {},
-    "id": 1
-  }'
-```
-
-### 2. Check Balance
-
-```bash
-MESSAGE="erc20_balanceOf:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "erc20_balanceOf",
-    "params": {},
-    "id": 1
-  }'
-```
-
-### 3. Transfer Tokens
-
-```bash
-MESSAGE="erc20_transfer:$(date +%s)"
-SIGNATURE=$(cast wallet sign --private-key $PRIVATE_KEY "$MESSAGE")
-
-curl -X POST https://middleware-api-prod1.02.chainsafe.dev/rpc \
-  -H "Content-Type: application/json" \
-  -H "X-Signature: $SIGNATURE" \
-  -H "X-Message: $MESSAGE" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "erc20_transfer",
-    "params": {
-      "to": "0x79B3ff7ca5D5eeeF4d60bcEcD5C1294e0F328431",
-      "amount": "25.5"
+## Complete Integration Example
+
+Here's a complete example using ethers.js v6:
+
+```javascript
+import { ethers } from 'ethers';
+
+// Configuration
+const RPC_URL = 'https://middleware-api-prod1.02.chainsafe.dev/eth';
+const REGISTER_URL = 'https://middleware-api-prod1.02.chainsafe.dev/register';
+const TOKEN_ADDRESS = '0x...'; // Your token address
+const CHAIN_ID = 31337;
+
+// ERC20 ABI (minimal)
+const ERC20_ABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function name() view returns (string)',
+  'function symbol() view returns (string)',
+  'function decimals() view returns (uint8)',
+  'function totalSupply() view returns (uint256)'
+];
+
+async function main() {
+  // Connect to the API
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+  // Connect wallet (e.g., from MetaMask or private key)
+  const wallet = new ethers.Wallet('0x...', provider);
+
+  // Step 1: Register user
+  console.log('Registering user...');
+  const timestamp = Math.floor(Date.now() / 1000);
+  const message = `registration:${timestamp}`;
+  const signature = await wallet.signMessage(message);
+
+  const registerResponse = await fetch(REGISTER_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Signature': signature,
+      'X-Message': message
     },
-    "id": 1
-  }'
+    body: JSON.stringify({})
+  });
+
+  if (!registerResponse.ok) {
+    const error = await registerResponse.json();
+    console.error('Registration failed:', error);
+    return;
+  }
+
+  const registration = await registerResponse.json();
+  console.log('Registered! Fingerprint:', registration.fingerprint);
+
+  // Step 2: Get token contract
+  const token = new ethers.Contract(TOKEN_ADDRESS, ERC20_ABI, wallet);
+
+  // Step 3: Read token info
+  const [name, symbol, decimals, balance] = await Promise.all([
+    token.name(),
+    token.symbol(),
+    token.decimals(),
+    token.balanceOf(wallet.address)
+  ]);
+
+  console.log(`Token: ${name} (${symbol})`);
+  console.log(`Decimals: ${decimals}`);
+  console.log(`Balance: ${ethers.formatUnits(balance, decimals)}`);
+
+  // Step 4: Transfer tokens
+  const recipientAddress = '0x...';
+  const amount = ethers.parseUnits('10', decimals);
+
+  console.log('Transferring tokens...');
+  const tx = await token.transfer(recipientAddress, amount);
+  console.log('Transaction hash:', tx.hash);
+
+  const receipt = await tx.wait();
+  console.log('Transfer confirmed in block:', receipt.blockNumber);
+}
+
+main().catch(console.error);
 ```
 
 ---
 
-## Rate Limits
+## Error Handling
 
-| Endpoint | Limit |
-|----------|-------|
-| Public methods | 100 requests/minute |
-| Authenticated methods | 50 requests/minute per user |
+### Registration Errors
+
+| HTTP Status | Error | Description |
+|------------|-------|-------------|
+| 400 | Bad Request | Invalid JSON or missing required fields |
+| 401 | Unauthorized | Invalid or missing signature |
+| 403 | Forbidden | Address not whitelisted |
+| 409 | Conflict | User already registered |
+| 500 | Internal Server Error | Database or Canton connection error |
+
+### Ethereum JSON-RPC Errors
+
+Standard Ethereum JSON-RPC error codes:
+- `-32700` - Parse error
+- `-32600` - Invalid request
+- `-32601` - Method not found
+- `-32602` - Invalid params
+- `-32603` - Internal error
+
+---
+
+## Rate Limiting
+
+*(To be documented based on deployment requirements)*
 
 ---
 
 ## Support
 
-For issues or questions, please contact:
-- **GitHub:** [ChainSafe/canton-middleware](https://github.com/ChainSafe/canton-middleware)
-- **Email:** support@chainsafe.io
-
+For issues and questions:
+- GitHub Issues: [chainsafe/canton-middleware](https://github.com/chainsafe/canton-middleware/issues)

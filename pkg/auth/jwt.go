@@ -195,4 +195,3 @@ func parseRSAPublicKey(nStr, eStr string) (*rsa.PublicKey, error) {
 func (v *JWTValidator) IsConfigured() bool {
 	return v.jwksURL != ""
 }
-

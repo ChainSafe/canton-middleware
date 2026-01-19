@@ -50,7 +50,7 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 		SourceChain:  "ethereum",
 		SourceTxHash: "0xsrc-tx-hash",
 		Sender:       "0xAlice",
-		Recipient:    "BobFingerprint", // This is now the fingerprint from EVM event
+		Recipient:    "BobFingerprint",        // This is now the fingerprint from EVM event
 		Amount:       "100000000000000000000", // 100 tokens
 		TokenAddress: "0xToken",
 	}

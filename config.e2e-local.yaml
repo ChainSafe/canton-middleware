@@ -27,7 +27,13 @@ users:
 # Service endpoints (local docker compose)
 services:
   relayer_url: "http://localhost:8080"
-  api_server_url: "http://localhost:8081/rpc"
+  api_server_url: "http://localhost:8081"
+  # eth_rpc_url and register_url will be auto-generated if not specified
+
+# Ethereum RPC configuration
+eth_rpc:
+  chain_id: 31337
+  # token_address will use contracts.token_address if not specified
 
 # Database configuration (local PostgreSQL)
 database:

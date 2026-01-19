@@ -1366,4 +1366,3 @@ func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, e
 func (c *Client) GetBridgeBurnEvents(ctx context.Context) ([]*BridgeBurnEvent, error) {
 	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeBurnEvent", DecodeBridgeBurnEvent)
 }
-

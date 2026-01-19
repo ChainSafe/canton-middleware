@@ -79,4 +79,3 @@ func (s *Store) ListWhitelist() ([]*WhitelistEntry, error) {
 	}
 	return entries, rows.Err()
 }
-

@@ -24,6 +24,19 @@ type EvmTransaction struct {
 	ErrorMessage string
 }
 
+// EvmLog represents a synthetic EVM log entry for MetaMask compatibility
+type EvmLog struct {
+	TxHash      []byte
+	LogIndex    int
+	Address     []byte   // Contract address (20 bytes)
+	Topics      [][]byte // Topic hashes (each 32 bytes)
+	Data        []byte
+	BlockNumber int64
+	BlockHash   []byte
+	TxIndex     int
+	Removed     bool
+}
+
 // SaveEvmTransaction stores a synthetic EVM transaction
 func (s *Store) SaveEvmTransaction(tx *EvmTransaction) error {
 	query := `
@@ -162,4 +175,156 @@ func (s *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
 		return 0, fmt.Errorf("failed to get transaction count: %w", err)
 	}
 	return count, nil
+}
+
+// SaveEvmLog stores a synthetic EVM log entry
+func (s *Store) SaveEvmLog(log *EvmLog) error {
+	query := `
+		INSERT INTO evm_logs (
+			tx_hash, log_index, address, topic0, topic1, topic2, topic3,
+			data, block_number, block_hash, tx_index, removed
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (tx_hash, log_index) DO NOTHING
+	`
+	var topic0, topic1, topic2, topic3 []byte
+	if len(log.Topics) > 0 {
+		topic0 = log.Topics[0]
+	}
+	if len(log.Topics) > 1 {
+		topic1 = log.Topics[1]
+	}
+	if len(log.Topics) > 2 {
+		topic2 = log.Topics[2]
+	}
+	if len(log.Topics) > 3 {
+		topic3 = log.Topics[3]
+	}
+	_, err := s.db.Exec(query,
+		log.TxHash,
+		log.LogIndex,
+		log.Address,
+		topic0,
+		topic1,
+		topic2,
+		topic3,
+		log.Data,
+		log.BlockNumber,
+		log.BlockHash,
+		log.TxIndex,
+		log.Removed,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to save evm log: %w", err)
+	}
+	return nil
+}
+
+// GetEvmLogsByTxHash retrieves all logs for a transaction
+func (s *Store) GetEvmLogsByTxHash(txHash []byte) ([]*EvmLog, error) {
+	query := `
+		SELECT tx_hash, log_index, address, topic0, topic1, topic2, topic3,
+		       data, block_number, block_hash, tx_index, removed
+		FROM evm_logs
+		WHERE tx_hash = $1
+		ORDER BY log_index
+	`
+	rows, err := s.db.Query(query, txHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query evm logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []*EvmLog
+	for rows.Next() {
+		log := &EvmLog{}
+		var topic0, topic1, topic2, topic3 []byte
+		err := rows.Scan(
+			&log.TxHash,
+			&log.LogIndex,
+			&log.Address,
+			&topic0,
+			&topic1,
+			&topic2,
+			&topic3,
+			&log.Data,
+			&log.BlockNumber,
+			&log.BlockHash,
+			&log.TxIndex,
+			&log.Removed,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan evm log: %w", err)
+		}
+		if topic0 != nil {
+			log.Topics = append(log.Topics, topic0)
+		}
+		if topic1 != nil {
+			log.Topics = append(log.Topics, topic1)
+		}
+		if topic2 != nil {
+			log.Topics = append(log.Topics, topic2)
+		}
+		if topic3 != nil {
+			log.Topics = append(log.Topics, topic3)
+		}
+		logs = append(logs, log)
+	}
+	return logs, rows.Err()
+}
+
+// GetEvmLogs retrieves logs matching filter criteria
+func (s *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*EvmLog, error) {
+	query := `
+		SELECT tx_hash, log_index, address, topic0, topic1, topic2, topic3,
+		       data, block_number, block_hash, tx_index, removed
+		FROM evm_logs
+		WHERE ($1::bytea IS NULL OR address = $1)
+		  AND ($2::bytea IS NULL OR topic0 = $2)
+		  AND block_number >= $3
+		  AND block_number <= $4
+		ORDER BY block_number, tx_index, log_index
+		LIMIT 10000
+	`
+	rows, err := s.db.Query(query, address, topic0, fromBlock, toBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query evm logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []*EvmLog
+	for rows.Next() {
+		log := &EvmLog{}
+		var topic0, topic1, topic2, topic3 []byte
+		err := rows.Scan(
+			&log.TxHash,
+			&log.LogIndex,
+			&log.Address,
+			&topic0,
+			&topic1,
+			&topic2,
+			&topic3,
+			&log.Data,
+			&log.BlockNumber,
+			&log.BlockHash,
+			&log.TxIndex,
+			&log.Removed,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan evm log: %w", err)
+		}
+		if topic0 != nil {
+			log.Topics = append(log.Topics, topic0)
+		}
+		if topic1 != nil {
+			log.Topics = append(log.Topics, topic1)
+		}
+		if topic2 != nil {
+			log.Topics = append(log.Topics, topic2)
+		}
+		if topic3 != nil {
+			log.Topics = append(log.Topics, topic3)
+		}
+		logs = append(logs, log)
+	}
+	return logs, rows.Err()
 }

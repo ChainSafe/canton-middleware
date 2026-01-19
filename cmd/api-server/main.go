@@ -14,7 +14,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
-	"github.com/chainsafe/canton-middleware/pkg/rpc"
+	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -87,16 +87,19 @@ func main() {
 	// Create shared token service
 	tokenService := service.NewTokenService(cfg, db, cantonClient, logger)
 
-	// Create RPC server
-	rpcServer := rpc.NewServer(cfg, db, cantonClient, logger)
-
 	// Create HTTP mux for multiple endpoints
 	mux := http.NewServeMux()
-	mux.Handle("/rpc", rpcServer)
+
+	// Health check endpoint
 	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
+
+	// Create registration handler
+	registrationHandler := registration.NewHandler(cfg, db, cantonClient, logger)
+	mux.Handle("/register", registrationHandler)
+	logger.Info("Registration endpoint enabled at /register")
 
 	// Create Ethereum JSON-RPC server if enabled
 	if cfg.EthRPC.Enabled {

@@ -13,10 +13,10 @@ import (
 )
 
 var (
-	ErrUserNotRegistered  = errors.New("user not registered")
-	ErrInsufficientFunds  = errors.New("insufficient funds")
-	ErrInvalidAddress     = errors.New("invalid address")
-	ErrRecipientNotFound  = errors.New("recipient not registered")
+	ErrUserNotRegistered = errors.New("user not registered")
+	ErrInsufficientFunds = errors.New("insufficient funds")
+	ErrInvalidAddress    = errors.New("invalid address")
+	ErrRecipientNotFound = errors.New("recipient not registered")
 )
 
 // TokenService provides shared token operations for both RPC and EthRPC endpoints

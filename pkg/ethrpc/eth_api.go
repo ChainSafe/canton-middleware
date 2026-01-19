@@ -2,6 +2,8 @@ package ethrpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
 )
 
@@ -109,6 +112,22 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		return common.Hash{}, fmt.Errorf("invalid sender: %w", err)
 	}
 
+	// Check whitelist
+	normalizedAddr := auth.NormalizeAddress(from.Hex())
+	whitelisted, err := api.server.db.IsWhitelisted(normalizedAddr)
+	if err != nil {
+		api.server.logger.Error("Failed to check whitelist",
+			zap.String("address", normalizedAddr),
+			zap.Error(err))
+		return common.Hash{}, fmt.Errorf("whitelist check failed")
+	}
+	if !whitelisted {
+		api.server.logger.Warn("Transaction rejected: address not whitelisted",
+			zap.String("address", normalizedAddr),
+			zap.String("tx_hash", tx.Hash().Hex()))
+		return common.Hash{}, fmt.Errorf("sender address %s is not whitelisted for transactions", normalizedAddr)
+	}
+
 	if tx.To() == nil || *tx.To() != api.server.tokenAddress {
 		return common.Hash{}, fmt.Errorf("unsupported contract: only token transfers allowed")
 	}
@@ -182,6 +201,29 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		api.server.logger.Warn("Failed to save evm transaction", zap.Error(err))
 	}
 
+	// Create ERC20 Transfer event log
+	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	fromTopic := common.BytesToHash(common.LeftPadBytes(from.Bytes(), 32))
+	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), 32))
+
+	// ABI-encode the amount as uint256
+	amountBytes := common.LeftPadBytes(amount.Bytes(), 32)
+
+	evmLog := &apidb.EvmLog{
+		TxHash:      txHash.Bytes(),
+		LogIndex:    0,
+		Address:     api.server.tokenAddress.Bytes(),
+		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
+		Data:        amountBytes,
+		BlockNumber: int64(blockNumber),
+		BlockHash:   blockHash,
+		TxIndex:     txIndex,
+		Removed:     false,
+	}
+	if err := api.server.db.SaveEvmLog(evmLog); err != nil {
+		api.server.logger.Warn("Failed to save evm log", zap.Error(err))
+	}
+
 	api.server.logger.Info("Transaction submitted",
 		zap.String("hash", txHash.Hex()),
 		zap.String("from", from.Hex()),
@@ -204,6 +246,31 @@ func (api *EthAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) 
 	from := common.HexToAddress(row.FromAddress)
 	to := common.HexToAddress(row.ToAddress)
 
+	// Fetch logs for this transaction
+	dbLogs, err := api.server.db.GetEvmLogsByTxHash(hash.Bytes())
+	if err != nil {
+		api.server.logger.Warn("Failed to get logs for receipt", zap.Error(err))
+	}
+
+	var logs []*types.Log
+	for _, dbLog := range dbLogs {
+		log := &types.Log{
+			Address:     common.BytesToAddress(dbLog.Address),
+			Data:        dbLog.Data,
+			BlockNumber: uint64(dbLog.BlockNumber),
+			TxHash:      hash,
+			TxIndex:     uint(dbLog.TxIndex),
+			BlockHash:   common.BytesToHash(dbLog.BlockHash),
+			Index:       uint(dbLog.LogIndex),
+			Removed:     dbLog.Removed,
+		}
+		for _, topic := range dbLog.Topics {
+			log.Topics = append(log.Topics, common.BytesToHash(topic))
+		}
+		logs = append(logs, log)
+	}
+	bloom := types.CreateBloom(&types.Receipt{Logs: logs})
+
 	return &RPCReceipt{
 		TransactionHash:   hash,
 		TransactionIndex:  hexutil.Uint(row.TxIndex),
@@ -214,8 +281,8 @@ func (api *EthAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) 
 		CumulativeGasUsed: hexutil.Uint64(row.GasUsed),
 		GasUsed:           hexutil.Uint64(row.GasUsed),
 		ContractAddress:   nil,
-		Logs:              []*types.Log{},
-		LogsBloom:         types.Bloom{},
+		Logs:              logs,
+		LogsBloom:         bloom,
 		Status:            hexutil.Uint64(row.Status),
 		EffectiveGasPrice: hexutil.Uint64(1000000000),
 		Type:              hexutil.Uint64(2),
@@ -354,4 +421,158 @@ func (api *EthAPI) encodeString(s string) (hexutil.Bytes, error) {
 	stringType, _ := abi.NewType("string", "", nil)
 	args := abi.Arguments{{Type: stringType}}
 	return args.Pack(s)
+}
+
+// FilterQuery represents the filter for eth_getLogs
+type FilterQuery struct {
+	BlockHash *common.Hash    `json:"blockHash,omitempty"`
+	FromBlock *hexutil.Uint64 `json:"fromBlock,omitempty"`
+	ToBlock   *hexutil.Uint64 `json:"toBlock,omitempty"`
+	Address   interface{}     `json:"address,omitempty"` // single address or array
+	Topics    []interface{}   `json:"topics,omitempty"`
+}
+
+// GetLogs returns logs matching the filter criteria
+func (api *EthAPI) GetLogs(ctx context.Context, query FilterQuery) ([]*types.Log, error) {
+	// Parse from/to blocks
+	var fromBlock, toBlock int64
+	if query.FromBlock != nil {
+		fromBlock = int64(*query.FromBlock)
+	}
+	if query.ToBlock != nil {
+		toBlock = int64(*query.ToBlock)
+	} else {
+		latest, err := api.server.db.GetLatestEvmBlockNumber()
+		if err != nil {
+			return nil, err
+		}
+		toBlock = int64(latest)
+	}
+
+	// Parse address filter (only support single address for now)
+	var addressFilter []byte
+	if query.Address != nil {
+		switch addr := query.Address.(type) {
+		case string:
+			addressFilter = common.HexToAddress(addr).Bytes()
+		case common.Address:
+			addressFilter = addr.Bytes()
+		}
+	}
+
+	// Parse topic0 filter
+	var topic0Filter []byte
+	if len(query.Topics) > 0 && query.Topics[0] != nil {
+		switch t := query.Topics[0].(type) {
+		case string:
+			topic0Filter = common.HexToHash(t).Bytes()
+		case common.Hash:
+			topic0Filter = t.Bytes()
+		}
+	}
+
+	dbLogs, err := api.server.db.GetEvmLogs(addressFilter, topic0Filter, fromBlock, toBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	var logs []*types.Log
+	for _, dbLog := range dbLogs {
+		log := &types.Log{
+			Address:     common.BytesToAddress(dbLog.Address),
+			Data:        dbLog.Data,
+			BlockNumber: uint64(dbLog.BlockNumber),
+			TxHash:      common.BytesToHash(dbLog.TxHash),
+			TxIndex:     uint(dbLog.TxIndex),
+			BlockHash:   common.BytesToHash(dbLog.BlockHash),
+			Index:       uint(dbLog.LogIndex),
+			Removed:     dbLog.Removed,
+		}
+		for _, topic := range dbLog.Topics {
+			log.Topics = append(log.Topics, common.BytesToHash(topic))
+		}
+		logs = append(logs, log)
+	}
+	return logs, nil
+}
+
+// RPCBlock represents a block in JSON-RPC format
+type RPCBlock struct {
+	Number           hexutil.Uint64   `json:"number"`
+	Hash             common.Hash      `json:"hash"`
+	ParentHash       common.Hash      `json:"parentHash"`
+	Nonce            types.BlockNonce `json:"nonce"`
+	Sha3Uncles       common.Hash      `json:"sha3Uncles"`
+	LogsBloom        types.Bloom      `json:"logsBloom"`
+	TransactionsRoot common.Hash      `json:"transactionsRoot"`
+	StateRoot        common.Hash      `json:"stateRoot"`
+	ReceiptsRoot     common.Hash      `json:"receiptsRoot"`
+	Miner            common.Address   `json:"miner"`
+	Difficulty       *hexutil.Big     `json:"difficulty"`
+	TotalDifficulty  *hexutil.Big     `json:"totalDifficulty"`
+	ExtraData        hexutil.Bytes    `json:"extraData"`
+	Size             hexutil.Uint64   `json:"size"`
+	GasLimit         hexutil.Uint64   `json:"gasLimit"`
+	GasUsed          hexutil.Uint64   `json:"gasUsed"`
+	Timestamp        hexutil.Uint64   `json:"timestamp"`
+	Transactions     []interface{}    `json:"transactions"`
+	Uncles           []common.Hash    `json:"uncles"`
+	BaseFeePerGas    *hexutil.Big     `json:"baseFeePerGas,omitempty"`
+}
+
+// GetBlockByNumber returns a synthetic block by number
+func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHash, fullTx bool) (*RPCBlock, error) {
+	var blockNum uint64
+	if blockNr.BlockNumber != nil {
+		blockNum = uint64(*blockNr.BlockNumber)
+	} else {
+		// "latest" or unspecified
+		latest, err := api.server.db.GetLatestEvmBlockNumber()
+		if err != nil {
+			return nil, err
+		}
+		blockNum = latest
+	}
+
+	if blockNum == 0 {
+		return nil, nil
+	}
+
+	blockHash := common.BytesToHash(computeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum))
+	parentHash := common.Hash{}
+	if blockNum > 1 {
+		parentHash = common.BytesToHash(computeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum-1))
+	}
+
+	return &RPCBlock{
+		Number:           hexutil.Uint64(blockNum),
+		Hash:             blockHash,
+		ParentHash:       parentHash,
+		Nonce:            types.BlockNonce{},
+		Sha3Uncles:       common.Hash{},
+		LogsBloom:        types.Bloom{},
+		TransactionsRoot: common.Hash{},
+		StateRoot:        common.Hash{},
+		ReceiptsRoot:     common.Hash{},
+		Miner:            common.Address{},
+		Difficulty:       (*hexutil.Big)(big.NewInt(0)),
+		TotalDifficulty:  (*hexutil.Big)(big.NewInt(0)),
+		ExtraData:        []byte{},
+		Size:             hexutil.Uint64(0),
+		GasLimit:         hexutil.Uint64(api.server.cfg.EthRPC.GasLimit),
+		GasUsed:          hexutil.Uint64(0),
+		Timestamp:        hexutil.Uint64(blockNum * 12), // synthetic timestamp
+		Transactions:     []interface{}{},
+		Uncles:           []common.Hash{},
+		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(1000000000)),
+	}, nil
+}
+
+// computeBlockHash generates a deterministic block hash (duplicated from apidb for local use)
+func computeBlockHash(chainID, blockNumber uint64) []byte {
+	data := make([]byte, 16)
+	binary.BigEndian.PutUint64(data[0:8], chainID)
+	binary.BigEndian.PutUint64(data[8:16], blockNumber)
+	hash := sha256.Sum256(data)
+	return hash[:]
 }
