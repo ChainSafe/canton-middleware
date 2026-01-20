@@ -32,12 +32,42 @@ Lightweight E2E test using `cast` (Foundry) commands for all ERC20 interactions.
 - No Go compilation needed
 - Great for quick testing and CI pipelines
 - Demonstrates MetaMask-compatible workflows
+- Uses shared libraries in `scripts/lib/`
+
+### 3. `metamask-test.sh` - Interactive MetaMask Testing ⭐
+
+Interactive test script that prepares the environment and pauses for manual MetaMask testing.
+
+```bash
+./scripts/metamask-test.sh [--cleanup] [--skip-docker] [--verbose]
+```
+
+**Features:**
+- Automated setup (deposits, registration, etc.)
+- Pauses for manual MetaMask interaction
+- Provides detailed MetaMask setup instructions
+- Verifies results after manual testing
+- Perfect for UX validation
+
+**See**: [MetaMask Testing Guide](README-metamask-test.md) for detailed instructions
 
 **Requirements:**
 - [Foundry](https://getfoundry.sh/) (`cast` command)
 - `jq` (JSON processing)
 - `psql` (PostgreSQL client)
 - Docker and Docker Compose
+- MetaMask browser extension
+
+## Shared Libraries
+
+The bash scripts use shared libraries located in `scripts/lib/`:
+
+- **`common.sh`** - Color definitions and print utilities
+- **`config.sh`** - Configuration and environment variables
+- **`services.sh`** - Docker and service health checks
+- **`bridge.sh`** - Bridge operations (register, deposit, transfer, etc.)
+
+This modular approach makes it easy to create new test scripts by reusing common functionality.
 
 ## Test Flow
 
