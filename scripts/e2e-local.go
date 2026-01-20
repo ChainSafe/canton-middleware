@@ -627,12 +627,23 @@ func whitelistUsers(cfg *LocalTestConfig, users ...common.Address) error {
 	defer db.Close()
 
 	// Retry connection with timeout
+	var lastErr error
 	for i := 0; i < 10; i++ {
 		if err := db.Ping(); err == nil {
+			lastErr = nil
 			break
+		} else {
+			lastErr = err
+			printInfo("Waiting for database connection (attempt %d/10)...", i+1)
 		}
 		time.Sleep(2 * time.Second)
 	}
+
+	if lastErr != nil {
+		return fmt.Errorf("failed to connect to database after retries: %w", lastErr)
+	}
+
+	printInfo("Connected to database: %s", cfg.Database.Database)
 
 	for _, addr := range users {
 		_, err := db.Exec(
@@ -870,15 +881,15 @@ func transferTokens(ethRPCURL string, tokenAddress string, chainID uint64, priva
 	gasPrice := new(big.Int).SetBytes(gasPriceBytes)
 
 	// Create transaction
+	tokenAddr := common.HexToAddress(tokenAddress)
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
-		To:       &common.Address{},
+		To:       &tokenAddr,
 		Value:    big.NewInt(0),
 		Gas:      100000,
 		GasPrice: gasPrice,
 		Data:     data,
 	})
-	*tx.To() = common.HexToAddress(tokenAddress)
 
 	// Sign transaction
 	signer := types.NewEIP155Signer(big.NewInt(int64(chainID)))

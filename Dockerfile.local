@@ -17,10 +17,10 @@ COPY . .
 # Build all binaries
 # CGO_ENABLED=0 creates static binaries compatible with alpine
 RUN GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go
+    CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
+    CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
+    CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
+    CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go
 
 # Runtime stage for relayer
 FROM alpine:latest AS relayer

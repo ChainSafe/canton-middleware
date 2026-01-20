@@ -25,6 +25,10 @@ services:
   bootstrap:
     profiles: ["disabled"]
 
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   # Relayer connecting to 5North DevNet + Sepolia
   relayer:
     depends_on: !override

@@ -9,6 +9,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
+	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -129,6 +130,10 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	}
 
 	if tx.To() == nil || *tx.To() != api.server.tokenAddress {
+		api.server.logger.Warn("Transaction rejected: unsupported contract",
+			zap.String("tx_to", func() string { if tx.To() == nil { return "<nil>" }; return tx.To().Hex() }()),
+			zap.String("expected_token", api.server.tokenAddress.Hex()),
+			zap.Bool("addresses_match", tx.To() != nil && *tx.To() == api.server.tokenAddress))
 		return common.Hash{}, fmt.Errorf("unsupported contract: only token transfers allowed")
 	}
 
@@ -160,19 +165,25 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		return common.Hash{}, fmt.Errorf("invalid 'value' in transfer")
 	}
 
+	// Convert Wei amount to human-readable decimal format for Canton
+	// Canton expects amounts like "25.0" not "25000000000000000000"
+	decimals := api.server.tokenService.GetTokenDecimals()
+	humanReadableAmount := canton.BigIntToDecimal(amount, decimals)
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, api.server.cfg.EthRPC.RequestTimeout)
 	defer cancel()
 
 	_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
 		FromEVMAddress: from.Hex(),
 		ToEVMAddress:   toAddr.Hex(),
-		Amount:         amount.String(),
+		Amount:         humanReadableAmount,
 	})
 	if err != nil {
 		api.server.logger.Error("Transfer failed",
 			zap.String("from", from.Hex()),
 			zap.String("to", toAddr.Hex()),
-			zap.String("amount", amount.String()),
+			zap.String("amount_wei", amount.String()),
+			zap.String("amount_human", humanReadableAmount),
 			zap.Error(err))
 		return common.Hash{}, fmt.Errorf("transfer failed: %w", err)
 	}

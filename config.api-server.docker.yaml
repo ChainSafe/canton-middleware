@@ -41,6 +41,16 @@ token:
   symbol: "PROMPT"
   decimals: 18
 
+# Ethereum JSON-RPC facade (MetaMask compatibility)
+eth_rpc:
+  enabled: true
+  chain_id: 31337
+  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  gas_price_wei: "1000000000"
+  gas_limit: 21000
+  native_balance_wei: "1000000000000000000000"
+  request_timeout: "30s"
+
 # JWKS endpoint for JWT validation (optional - if not using EVM signatures)
 jwks:
   url: ""
@@ -49,4 +59,13 @@ jwks:
 logging:
   level: "info"
   format: "json"
+
+# Reconciliation settings
+reconciliation:
+  initial_timeout: "2m"
+  interval: "10s"  # Faster reconciliation for testing
+
+# Shutdown settings
+shutdown:
+  timeout: "30s"
 

@@ -1,6 +1,9 @@
 package ethrpc
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -35,6 +38,39 @@ func (args *CallArgs) GetData() []byte {
 type BlockNumberOrHash struct {
 	BlockNumber *hexutil.Uint64 `json:"blockNumber,omitempty"`
 	BlockHash   *common.Hash    `json:"blockHash,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling for block parameters
+// Handles: "latest", "earliest", "pending", hex block numbers, and block hashes
+func (b *BlockNumberOrHash) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		// Handle special block tags
+		switch str {
+		case "latest", "earliest", "pending":
+			// For now, treat all these as latest (block number will be nil)
+			return nil
+		default:
+			// Try to parse as hex block number or hash
+			if len(str) == 66 && strings.HasPrefix(str, "0x") {
+				// Looks like a block hash
+				hash := common.HexToHash(str)
+				b.BlockHash = &hash
+			} else {
+				// Try to parse as block number
+				var num hexutil.Uint64
+				if err := num.UnmarshalText([]byte(str)); err == nil {
+					b.BlockNumber = &num
+				}
+			}
+		}
+		return nil
+	}
+
+	// Try to unmarshal as object with blockNumber or blockHash fields
+	type Alias BlockNumberOrHash
+	aux := (*Alias)(b)
+	return json.Unmarshal(data, aux)
 }
 
 // RPCReceipt represents a transaction receipt in JSON-RPC format

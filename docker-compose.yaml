@@ -112,7 +112,6 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
       - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/01-relayer-schema.sql
       - ./deployments/api-server/create-erc20-db.sh:/docker-entrypoint-initdb.d/02-create-erc20-db.sh
       - ./deployments/api-server/schema.sql:/docker-entrypoint-initdb.d/03-api-server-schema.sql
