@@ -41,7 +41,9 @@ func (api *EthAPI) BlockNumber() (hexutil.Uint64, error) {
 		api.server.logger.Error("Failed to get block number", zap.Error(err))
 		return 0, err
 	}
-	return hexutil.Uint64(n), nil
+	// Return latest block + 12 to ensure transactions have enough confirmations
+	// This helps MetaMask recognize transactions as confirmed rather than pending
+	return hexutil.Uint64(n + 12), nil
 }
 
 // GasPrice returns the current gas price
@@ -198,7 +200,7 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	evmTx := &apidb.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: auth.NormalizeAddress(from.Hex()),
-		ToAddress:   auth.NormalizeAddress(toAddr.Hex()),
+		ToAddress:   auth.NormalizeAddress(api.server.tokenAddress.Hex()), // Token contract address, not recipient
 		Nonce:       int64(tx.Nonce()),
 		Input:       input,
 		ValueWei:    "0",
@@ -263,7 +265,8 @@ func (api *EthAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) 
 		api.server.logger.Warn("Failed to get logs for receipt", zap.Error(err))
 	}
 
-	var logs []*types.Log
+	// Initialize as empty slice to ensure JSON marshals to [] not null
+	logs := make([]*types.Log, 0)
 	for _, dbLog := range dbLogs {
 		log := &types.Log{
 			Address:     common.BytesToAddress(dbLog.Address),
@@ -385,8 +388,12 @@ func (api *EthAPI) callBalanceOf(ctx context.Context, data []byte) (hexutil.Byte
 		return nil, err
 	}
 
-	bal := new(big.Int)
-	bal.SetString(balStr, 10)
+	// Convert human-readable balance to Wei for ERC20 compatibility
+	decimals := api.server.tokenService.GetTokenDecimals()
+	bal, err := canton.DecimalToBigInt(balStr, decimals)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert balance: %w", err)
+	}
 	return api.encodeUint256(bal)
 }
 
@@ -407,8 +414,12 @@ func (api *EthAPI) callTotalSupply(ctx context.Context) (hexutil.Bytes, error) {
 	if err != nil {
 		return nil, err
 	}
-	supply := new(big.Int)
-	supply.SetString(supplyStr, 10)
+	// Convert human-readable supply to Wei for ERC20 compatibility
+	decimals := api.server.tokenService.GetTokenDecimals()
+	supply, err := canton.DecimalToBigInt(supplyStr, decimals)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert total supply: %w", err)
+	}
 	return api.encodeUint256(supply)
 }
 

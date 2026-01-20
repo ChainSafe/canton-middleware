@@ -166,8 +166,22 @@ func computeBlockHash(chainID, blockNumber uint64) []byte {
 	return hash[:]
 }
 
-// GetEvmTransactionCount returns the nonce for an address (count of transactions sent)
+// GetEvmTransactionCount returns the next nonce for an address (max nonce + 1)
 func (s *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
+	var maxNonce sql.NullInt64
+	query := `SELECT MAX(nonce) FROM evm_transactions WHERE from_address = $1`
+	err := s.db.QueryRow(query, fromAddress).Scan(&maxNonce)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get transaction count: %w", err)
+	}
+	if !maxNonce.Valid {
+		return 0, nil // No transactions yet
+	}
+	return uint64(maxNonce.Int64 + 1), nil
+}
+
+// GetEvmTransactionCountOld returns the count of transactions (kept for reference)
+func (s *Store) GetEvmTransactionCountOld(fromAddress string) (uint64, error) {
 	var count uint64
 	query := `SELECT COUNT(*) FROM evm_transactions WHERE from_address = $1`
 	err := s.db.QueryRow(query, fromAddress).Scan(&count)
@@ -255,16 +269,17 @@ func (s *Store) GetEvmLogsByTxHash(txHash []byte) ([]*EvmLog, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan evm log: %w", err)
 		}
-		if topic0 != nil {
+		// Check len() instead of nil because empty []byte{} is not nil
+		if len(topic0) > 0 {
 			log.Topics = append(log.Topics, topic0)
 		}
-		if topic1 != nil {
+		if len(topic1) > 0 {
 			log.Topics = append(log.Topics, topic1)
 		}
-		if topic2 != nil {
+		if len(topic2) > 0 {
 			log.Topics = append(log.Topics, topic2)
 		}
-		if topic3 != nil {
+		if len(topic3) > 0 {
 			log.Topics = append(log.Topics, topic3)
 		}
 		logs = append(logs, log)
@@ -312,16 +327,17 @@ func (s *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan evm log: %w", err)
 		}
-		if topic0 != nil {
+		// Check len() instead of nil because empty []byte{} is not nil
+		if len(topic0) > 0 {
 			log.Topics = append(log.Topics, topic0)
 		}
-		if topic1 != nil {
+		if len(topic1) > 0 {
 			log.Topics = append(log.Topics, topic1)
 		}
-		if topic2 != nil {
+		if len(topic2) > 0 {
 			log.Topics = append(log.Topics, topic2)
 		}
-		if topic3 != nil {
+		if len(topic3) > 0 {
 			log.Topics = append(log.Topics, topic3)
 		}
 		logs = append(logs, log)
