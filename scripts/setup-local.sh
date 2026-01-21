@@ -297,11 +297,17 @@ wait_for_services() {
     done
     print_success "Anvil ready"
     
-    # Wait for Canton
+    # Wait for Canton (check Docker health status or HTTP endpoint)
     print_info "Waiting for Canton..."
-    while ! docker exec canton grpcurl --plaintext localhost:5011 \
-        com.digitalasset.canton.health.admin.v0.StatusService.Status 2>/dev/null | \
-        grep -q '"active": true'; do
+    while true; do
+        # Check if Docker reports healthy
+        if docker ps --format "{{.Names}}\t{{.Status}}" | grep -q "canton.*healthy"; then
+            break
+        fi
+        # Also try HTTP health endpoint
+        if curl -s http://localhost:5013/v2/version > /dev/null 2>&1; then
+            break
+        fi
         sleep 5
         waited=$((waited + 5))
         if [ $waited -gt $max_wait ]; then
