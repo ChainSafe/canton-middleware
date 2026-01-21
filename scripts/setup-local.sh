@@ -163,14 +163,32 @@ init_submodules() {
     
     cd "$PROJECT_ROOT"
     
-    if [ ! -f "contracts/canton-erc20/.git" ] && [ ! -d "contracts/canton-erc20/.git" ]; then
+    # Check if canton-erc20 submodule exists (the main one we need)
+    if [ ! -d "contracts/canton-erc20/daml" ]; then
         print_info "Initializing submodules..."
-        git submodule update --init --recursive
+        git submodule update --init --recursive 2>/dev/null || {
+            print_warning "Some submodules failed to update - trying individual init..."
+            # Initialize just canton-erc20 which is required
+            git submodule update --init contracts/canton-erc20 || {
+                print_error "Failed to initialize canton-erc20 submodule"
+                exit 1
+            }
+        }
         print_success "Submodules initialized"
     else
-        print_info "Updating submodules..."
-        git submodule update --recursive
-        print_success "Submodules up to date"
+        print_info "Submodules already present"
+        # Try to update but don't fail if some submodules have issues
+        git submodule update --recursive 2>/dev/null || {
+            print_warning "Some submodules could not be updated (this is usually fine)"
+        }
+        print_success "Submodules checked"
+    fi
+    
+    # Verify canton-erc20 is present
+    if [ ! -d "contracts/canton-erc20/daml" ]; then
+        print_error "canton-erc20 submodule not found"
+        echo "Try: git submodule update --init contracts/canton-erc20"
+        exit 1
     fi
 }
 
