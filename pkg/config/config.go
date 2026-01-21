@@ -54,26 +54,27 @@ type EthereumConfig struct {
 
 // CantonConfig contains Canton Network client settings
 type CantonConfig struct {
-	RPCURL             string        `yaml:"rpc_url"`
-	LedgerID           string        `yaml:"ledger_id"`
-	DomainID           string        `yaml:"domain_id"`
-	ApplicationID      string        `yaml:"application_id"`
-	ChainID            string        `yaml:"chain_id"`
-	BridgeContract     string        `yaml:"bridge_contract"`
-	RelayerParty       string        `yaml:"relayer_party"`
-	BridgePackageID    string        `yaml:"bridge_package_id"`
-	CorePackageID      string        `yaml:"core_package_id"`
-	CIP56PackageID     string        `yaml:"cip56_package_id"`
-	BridgeModule       string        `yaml:"bridge_module"`
-	RelayerPrivateKey  string        `yaml:"relayer_private_key"`
-	ConfirmationBlocks int           `yaml:"confirmation_blocks"`
-	PollingInterval    time.Duration `yaml:"polling_interval"`
-	StartBlock         int64         `yaml:"start_block"`
-	LookbackBlocks     int64         `yaml:"lookback_blocks"`
-	TLS                TLSConfig     `yaml:"tls"`
-	Auth               AuthConfig    `yaml:"auth"`
-	DedupDuration      time.Duration `yaml:"dedup_duration"`
-	MaxMessageSize     int           `yaml:"max_inbound_message_size"`
+	RPCURL               string        `yaml:"rpc_url"`
+	LedgerID             string        `yaml:"ledger_id"`
+	DomainID             string        `yaml:"domain_id"`
+	ApplicationID        string        `yaml:"application_id"`
+	ChainID              string        `yaml:"chain_id"`
+	BridgeContract       string        `yaml:"bridge_contract"`
+	RelayerParty         string        `yaml:"relayer_party"`
+	BridgePackageID      string        `yaml:"bridge_package_id"`
+	CorePackageID        string        `yaml:"core_package_id"`
+	CIP56PackageID       string        `yaml:"cip56_package_id"`
+	NativeTokenPackageID string        `yaml:"native_token_package_id"` // Package ID for native-token DAR
+	BridgeModule         string        `yaml:"bridge_module"`
+	RelayerPrivateKey    string        `yaml:"relayer_private_key"`
+	ConfirmationBlocks   int           `yaml:"confirmation_blocks"`
+	PollingInterval      time.Duration `yaml:"polling_interval"`
+	StartBlock           int64         `yaml:"start_block"`
+	LookbackBlocks       int64         `yaml:"lookback_blocks"`
+	TLS                  TLSConfig     `yaml:"tls"`
+	Auth                 AuthConfig    `yaml:"auth"`
+	DedupDuration        time.Duration `yaml:"dedup_duration"`
+	MaxMessageSize       int           `yaml:"max_inbound_message_size"`
 }
 
 // TLSConfig holds TLS configuration
@@ -128,6 +129,7 @@ type APIServerConfig struct {
 	Database       DatabaseConfig       `yaml:"database"`
 	Canton         CantonConfig         `yaml:"canton"`
 	Token          TokenConfig          `yaml:"token"`
+	DemoToken      DemoTokenConfig      `yaml:"demo_token"` // DEMO token metadata (native)
 	EthRPC         EthRPCConfig         `yaml:"eth_rpc"`
 	JWKS           JWKSConfig           `yaml:"jwks"`
 	Logging        LoggingConfig        `yaml:"logging"`
@@ -139,11 +141,19 @@ type APIServerConfig struct {
 type EthRPCConfig struct {
 	Enabled          bool          `yaml:"enabled"`
 	ChainID          uint64        `yaml:"chain_id"`
-	TokenAddress     string        `yaml:"token_address"`
+	TokenAddress     string        `yaml:"token_address"`      // PROMPT token address
+	DemoTokenAddress string        `yaml:"demo_token_address"` // DEMO token address (native)
 	GasPriceWei      string        `yaml:"gas_price_wei"`
 	GasLimit         uint64        `yaml:"gas_limit"`
 	NativeBalanceWei string        `yaml:"native_balance_wei"`
 	RequestTimeout   time.Duration `yaml:"request_timeout"`
+}
+
+// DemoTokenConfig contains DEMO token metadata for native token issuance
+type DemoTokenConfig struct {
+	Name     string `yaml:"name"`
+	Symbol   string `yaml:"symbol"`
+	Decimals int    `yaml:"decimals"`
 }
 
 // TokenConfig contains ERC-20 token metadata
@@ -221,7 +231,7 @@ func setAPIServerDefaults(config *APIServerConfig) {
 		config.Database.Database = "erc20_api"
 	}
 
-	// Token defaults
+	// Token defaults (PROMPT - bridge token)
 	if config.Token.Name == "" {
 		config.Token.Name = "PROMPT"
 	}
@@ -230,6 +240,17 @@ func setAPIServerDefaults(config *APIServerConfig) {
 	}
 	if config.Token.Decimals == 0 {
 		config.Token.Decimals = 18
+	}
+
+	// DemoToken defaults (DEMO - native token)
+	if config.DemoToken.Name == "" {
+		config.DemoToken.Name = "Demo Token"
+	}
+	if config.DemoToken.Symbol == "" {
+		config.DemoToken.Symbol = "DEMO"
+	}
+	if config.DemoToken.Decimals == 0 {
+		config.DemoToken.Decimals = 18
 	}
 
 	// Eth RPC defaults
@@ -247,6 +268,10 @@ func setAPIServerDefaults(config *APIServerConfig) {
 	}
 	if config.EthRPC.RequestTimeout == 0 {
 		config.EthRPC.RequestTimeout = 30 * time.Second
+	}
+	// Default DEMO token address (synthetic address for native token)
+	if config.EthRPC.DemoTokenAddress == "" {
+		config.EthRPC.DemoTokenAddress = "0xDE30000000000000000000000000000000000001"
 	}
 
 	// Logging defaults

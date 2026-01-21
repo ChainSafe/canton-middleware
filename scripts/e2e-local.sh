@@ -96,6 +96,45 @@ main() {
     USER2_FINGERPRINT=$(register_user "User2" "$USER2_KEY" "$USER2_ADDR")
 
     # ==========================================================================
+    # Step 3.5: Bootstrap DEMO Token (Native Canton Token)
+    # ==========================================================================
+    print_header "Step 3.5: Bootstrap DEMO Token"
+    
+    # Get the native token package ID from config or DAR
+    NATIVE_PKG_ID=$(get_native_token_package_id)
+    
+    if [ -n "$NATIVE_PKG_ID" ]; then
+        # Extract relayer_party and domain_id from bootstrap container logs
+        RELAYER_PARTY=$(docker logs bootstrap 2>&1 | grep -o 'relayer_party: "[^"]*"' | head -1 | sed 's/relayer_party: "//;s/"$//')
+        DOMAIN_ID=$(docker logs bootstrap 2>&1 | grep -o 'domain_id: "[^"]*"' | head -1 | sed 's/domain_id: "//;s/"$//')
+        
+        if [ -z "$RELAYER_PARTY" ] || [ -z "$DOMAIN_ID" ]; then
+            print_warning "Could not extract relayer_party or domain_id from bootstrap logs, skipping DEMO token"
+        else
+            print_step "Bootstrapping DEMO token with native-package-id: ${NATIVE_PKG_ID:0:16}..."
+            print_info "Issuer: ${RELAYER_PARTY:0:40}..."
+            print_info "Domain: ${DOMAIN_ID:0:40}..."
+            
+            go run "$SCRIPT_DIR/bootstrap-demo.go" \
+                -config config.e2e-local.yaml \
+                -native-package-id "$NATIVE_PKG_ID" \
+                -issuer "$RELAYER_PARTY" \
+                -domain "$DOMAIN_ID" \
+                -user1-fingerprint "$USER1_FINGERPRINT" \
+                -user2-fingerprint "$USER2_FINGERPRINT" \
+                -mint-amount "500.0"
+            
+            if [ $? -eq 0 ]; then
+                print_success "DEMO token bootstrapped: 500 DEMO to each user"
+            else
+                print_warning "DEMO token bootstrap failed (continuing with PROMPT test)"
+            fi
+        fi
+    else
+        print_warning "native_token_package_id not configured, skipping DEMO token"
+    fi
+
+    # ==========================================================================
     # Step 4: Deposit Tokens to Canton
     # ==========================================================================
     deposit_to_canton "$DEPOSIT_AMOUNT" "$USER1_FINGERPRINT" "$USER1_KEY"

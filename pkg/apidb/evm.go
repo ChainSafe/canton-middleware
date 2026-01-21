@@ -157,6 +157,21 @@ func (s *Store) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
 	return nextBlock, blockHash, 0, nil
 }
 
+// GetBlockNumberByHash returns the block number for a given block hash
+// by looking up transactions stored with that block hash
+func (s *Store) GetBlockNumberByHash(blockHash []byte) (uint64, error) {
+	var blockNum int64
+	query := `SELECT block_number FROM evm_transactions WHERE block_hash = $1 LIMIT 1`
+	err := s.db.QueryRow(query, blockHash).Scan(&blockNum)
+	if err == sql.ErrNoRows {
+		return 0, nil // Not found
+	}
+	if err != nil {
+		return 0, fmt.Errorf("failed to get block number by hash: %w", err)
+	}
+	return uint64(blockNum), nil
+}
+
 // GetEvmTransactionCount returns the next nonce for an address (max nonce + 1)
 func (s *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
 	var maxNonce sql.NullInt64

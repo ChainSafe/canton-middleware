@@ -183,3 +183,113 @@ func isInsufficientFunds(err error) bool {
 	}
 	return false
 }
+
+// GetCantonClient returns the underlying Canton client for direct access
+// Used by EthRPC for DEMO token operations
+func (s *TokenService) GetCantonClient() *canton.Client {
+	return s.cantonClient
+}
+
+// TransferDemoRequest represents a DEMO token transfer request
+type TransferDemoRequest struct {
+	FromEVMAddress string
+	ToEVMAddress   string
+	Amount         string
+}
+
+// TransferDemo executes a DEMO token transfer from one user to another via Canton
+// This works identically to PROMPT transfers, using Burn + Mint via CIP56Manager
+func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoRequest) (*TransferResult, error) {
+	fromAddress := auth.NormalizeAddress(req.FromEVMAddress)
+	toAddress := auth.NormalizeAddress(req.ToEVMAddress)
+
+	if !auth.ValidateEVMAddress(toAddress) {
+		return nil, ErrInvalidAddress
+	}
+
+	fromUser, err := s.db.GetUserByEVMAddress(fromAddress)
+	if err != nil {
+		s.logger.Error("Failed to get sender", zap.Error(err))
+		return nil, fmt.Errorf("failed to get sender: %w", err)
+	}
+	if fromUser == nil || fromUser.Fingerprint == "" {
+		return nil, ErrUserNotRegistered
+	}
+
+	toUser, err := s.db.GetUserByEVMAddress(toAddress)
+	if err != nil {
+		s.logger.Error("Failed to get recipient", zap.Error(err))
+		return nil, fmt.Errorf("failed to get recipient: %w", err)
+	}
+	if toUser == nil || toUser.Fingerprint == "" {
+		return nil, ErrRecipientNotFound
+	}
+
+	// Transfer via Canton (Burn + Mint)
+	err = s.cantonClient.TransferDemo(ctx, &canton.TransferDemoRequest{
+		FromFingerprint: fromUser.Fingerprint,
+		ToFingerprint:   toUser.Fingerprint,
+		Amount:          req.Amount,
+	})
+	if err != nil {
+		s.logger.Error("DEMO transfer failed",
+			zap.String("from", fromAddress),
+			zap.String("to", toAddress),
+			zap.String("amount", req.Amount),
+			zap.Error(err))
+
+		if isInsufficientFunds(err) {
+			return nil, ErrInsufficientFunds
+		}
+		return nil, fmt.Errorf("canton DEMO transfer failed: %w", err)
+	}
+
+	// Update database balance cache
+	// Note: We use a simple approach here - decrement sender, increment recipient
+	// The reconciliation process will correct any discrepancies
+	if err := s.db.DecrementDemoBalanceByFingerprint(fromUser.Fingerprint, req.Amount); err != nil {
+		s.logger.Warn("Failed to update sender DEMO balance cache",
+			zap.String("fingerprint", fromUser.Fingerprint),
+			zap.Error(err))
+	}
+	if err := s.db.IncrementDemoBalanceByFingerprint(toUser.Fingerprint, req.Amount); err != nil {
+		s.logger.Warn("Failed to update recipient DEMO balance cache",
+			zap.String("fingerprint", toUser.Fingerprint),
+			zap.Error(err))
+	}
+
+	s.logger.Info("DEMO transfer completed",
+		zap.String("from", fromAddress),
+		zap.String("to", toAddress),
+		zap.String("amount", req.Amount))
+
+	return &TransferResult{
+		Success:         true,
+		FromFingerprint: fromUser.Fingerprint,
+		ToFingerprint:   toUser.Fingerprint,
+	}, nil
+}
+
+// GetDemoBalance returns the DEMO token balance for an EVM address
+func (s *TokenService) GetDemoBalance(ctx context.Context, evmAddress string) (string, error) {
+	addr := auth.NormalizeAddress(evmAddress)
+
+	user, err := s.db.GetUserByEVMAddress(addr)
+	if err != nil {
+		return "0", fmt.Errorf("failed to get user: %w", err)
+	}
+	if user == nil || user.Fingerprint == "" {
+		return "0", nil
+	}
+
+	// Get balance from database cache
+	balance, err := s.db.GetDemoBalanceByFingerprint(user.Fingerprint)
+	if err != nil {
+		s.logger.Warn("Failed to get DEMO balance from cache, returning 0",
+			zap.String("fingerprint", user.Fingerprint),
+			zap.Error(err))
+		return "0", nil
+	}
+
+	return balance, nil
+}

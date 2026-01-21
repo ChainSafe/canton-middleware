@@ -18,9 +18,19 @@ CREATE TABLE IF NOT EXISTS users (
     fingerprint VARCHAR(128) NOT NULL,
     mapping_cid VARCHAR(255),
     balance DECIMAL(38,18) DEFAULT 0,
+    demo_balance DECIMAL(38,18) DEFAULT 0,  -- DEMO (native) token balance
     balance_updated_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Migration: Add demo_balance column if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='users' AND column_name='demo_balance') THEN
+        ALTER TABLE users ADD COLUMN demo_balance DECIMAL(38,18) DEFAULT 0;
+    END IF;
+END $$;
 
 -- Whitelist table: controls who can register
 CREATE TABLE IF NOT EXISTS whitelist (
@@ -101,6 +111,23 @@ CREATE TABLE IF NOT EXISTS evm_meta (
 -- Initialize latest block number
 INSERT INTO evm_meta (key, value) VALUES ('latest_block_number', '0')
 ON CONFLICT (key) DO NOTHING;
+
+-- EVM Logs table: stores synthetic event logs for Eth JSON-RPC facade
+CREATE TABLE IF NOT EXISTS evm_logs (
+    tx_hash      BYTEA NOT NULL,
+    log_index    INTEGER NOT NULL,
+    address      BYTEA NOT NULL,
+    topic0       BYTEA,
+    topic1       BYTEA,
+    topic2       BYTEA,
+    topic3       BYTEA,
+    data         BYTEA,
+    block_number BIGINT NOT NULL,
+    block_hash   BYTEA NOT NULL,
+    tx_index     INTEGER NOT NULL DEFAULT 0,
+    removed      BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (tx_hash, log_index)
+);
 
 -- =============================================================================
 -- Indexes

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
@@ -40,9 +41,19 @@ func (api *EthAPI) BlockNumber() (hexutil.Uint64, error) {
 		api.server.logger.Error("Failed to get block number", zap.Error(err))
 		return 0, err
 	}
-	// Return latest block + 12 to ensure transactions have enough confirmations
-	// This helps MetaMask recognize transactions as confirmed rather than pending
-	return hexutil.Uint64(n + 12), nil
+	// Add time-based block progression to simulate block production
+	// This ensures MetaMask sees confirmations accumulating over time
+	// Simulates ~1 block per second since we don't have real block production
+	timeSinceStart := time.Since(api.server.startTime).Seconds()
+	timeBasedBlocks := uint64(timeSinceStart)
+	
+	// Return max of: (latest tx block + 12) or (time-based blocks)
+	// This ensures both old transactions and new ones appear confirmed
+	baseBlock := n + 12
+	if timeBasedBlocks > baseBlock {
+		return hexutil.Uint64(timeBasedBlocks), nil
+	}
+	return hexutil.Uint64(baseBlock), nil
 }
 
 // GasPrice returns the current gas price
@@ -89,7 +100,11 @@ func (api *EthAPI) GetTransactionCount(ctx context.Context, address common.Addre
 
 // GetCode returns the code at an address
 func (api *EthAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash BlockNumberOrHash) (hexutil.Bytes, error) {
+	// Return fake bytecode for both PROMPT and DEMO tokens so MetaMask trusts them as contracts
 	if address == api.server.tokenAddress {
+		return hexutil.Bytes{0x60, 0x80}, nil
+	}
+	if api.server.demoTokenAddress != (common.Address{}) && address == api.server.demoTokenAddress {
 		return hexutil.Bytes{0x60, 0x80}, nil
 	}
 	return hexutil.Bytes{}, nil
@@ -130,12 +145,16 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		return common.Hash{}, fmt.Errorf("sender address %s is not whitelisted for transactions", normalizedAddr)
 	}
 
-	if tx.To() == nil || *tx.To() != api.server.tokenAddress {
+	// Determine which token is being transferred
+	isPromptToken := tx.To() != nil && *tx.To() == api.server.tokenAddress
+	isDemoToken := tx.To() != nil && api.server.demoTokenAddress != (common.Address{}) && *tx.To() == api.server.demoTokenAddress
+
+	if tx.To() == nil || (!isPromptToken && !isDemoToken) {
 		api.server.logger.Warn("Transaction rejected: unsupported contract",
 			zap.String("tx_to", func() string { if tx.To() == nil { return "<nil>" }; return tx.To().Hex() }()),
-			zap.String("expected_token", api.server.tokenAddress.Hex()),
-			zap.Bool("addresses_match", tx.To() != nil && *tx.To() == api.server.tokenAddress))
-		return common.Hash{}, fmt.Errorf("unsupported contract: only token transfers allowed")
+			zap.String("prompt_token", api.server.tokenAddress.Hex()),
+			zap.String("demo_token", api.server.demoTokenAddress.Hex()))
+		return common.Hash{}, fmt.Errorf("unsupported contract: only PROMPT and DEMO token transfers allowed")
 	}
 
 	if tx.Value().Sign() != 0 {
@@ -166,21 +185,42 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		return common.Hash{}, fmt.Errorf("invalid 'value' in transfer")
 	}
 
-	// Convert Wei amount to human-readable decimal format for Canton
-	// Canton expects amounts like "25.0" not "25000000000000000000"
-	decimals := api.server.tokenService.GetTokenDecimals()
+	// Get decimals for the appropriate token
+	var decimals int
+	var tokenAddress common.Address
+	if isDemoToken {
+		decimals = api.server.cfg.DemoToken.Decimals
+		if decimals == 0 {
+			decimals = 18
+		}
+		tokenAddress = api.server.demoTokenAddress
+	} else {
+		decimals = api.server.tokenService.GetTokenDecimals()
+		tokenAddress = api.server.tokenAddress
+	}
+
+	// Convert Wei amount to human-readable decimal format
 	humanReadableAmount := canton.BigIntToDecimal(amount, decimals)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, api.server.cfg.EthRPC.RequestTimeout)
 	defer cancel()
 
-	_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
-		FromEVMAddress: from.Hex(),
-		ToEVMAddress:   toAddr.Hex(),
-		Amount:         humanReadableAmount,
-	})
+	// Route transfer to appropriate handler
+	if isDemoToken {
+		// DEMO token: update database balances directly
+		err = api.transferDemoToken(timeoutCtx, from, toAddr, humanReadableAmount)
+	} else {
+		// PROMPT token: transfer via Canton
+		_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
+			FromEVMAddress: from.Hex(),
+			ToEVMAddress:   toAddr.Hex(),
+			Amount:         humanReadableAmount,
+		})
+	}
+
 	if err != nil {
 		api.server.logger.Error("Transfer failed",
+			zap.String("token", func() string { if isDemoToken { return "DEMO" }; return "PROMPT" }()),
 			zap.String("from", from.Hex()),
 			zap.String("to", toAddr.Hex()),
 			zap.String("amount_wei", amount.String()),
@@ -199,7 +239,7 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	evmTx := &apidb.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: auth.NormalizeAddress(from.Hex()),
-		ToAddress:   auth.NormalizeAddress(api.server.tokenAddress.Hex()), // Token contract address, not recipient
+		ToAddress:   auth.NormalizeAddress(tokenAddress.Hex()), // Token contract address
 		Nonce:       int64(tx.Nonce()),
 		Input:       input,
 		ValueWei:    "0",
@@ -224,7 +264,7 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	evmLog := &apidb.EvmLog{
 		TxHash:      txHash.Bytes(),
 		LogIndex:    0,
-		Address:     api.server.tokenAddress.Bytes(),
+		Address:     tokenAddress.Bytes(),
 		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:        amountBytes,
 		BlockNumber: int64(blockNumber),
@@ -237,12 +277,24 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	}
 
 	api.server.logger.Info("Transaction submitted",
+		zap.String("token", func() string { if isDemoToken { return "DEMO" }; return "PROMPT" }()),
 		zap.String("hash", txHash.Hex()),
 		zap.String("from", from.Hex()),
 		zap.String("to", toAddr.Hex()),
 		zap.String("amount", amount.String()))
 
 	return txHash, nil
+}
+
+// transferDemoToken handles DEMO token transfers via Canton (same as PROMPT)
+func (api *EthAPI) transferDemoToken(ctx context.Context, from, to common.Address, amount string) error {
+	// Use TokenService.TransferDemo which handles Canton Burn + Mint
+	_, err := api.server.tokenService.TransferDemo(ctx, &service.TransferDemoRequest{
+		FromEVMAddress: from.Hex(),
+		ToEVMAddress:   to.Hex(),
+		Amount:         amount,
+	})
+	return err
 }
 
 // GetTransactionReceipt returns the receipt for a transaction
@@ -338,7 +390,24 @@ func (api *EthAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (
 
 // Call executes a call without creating a transaction
 func (api *EthAPI) Call(ctx context.Context, args CallArgs, blockNrOrHash BlockNumberOrHash, overrides *map[common.Address]interface{}) (hexutil.Bytes, error) {
-	if args.To == nil || *args.To != api.server.tokenAddress {
+	if args.To == nil {
+		return nil, fmt.Errorf("unsupported contract")
+	}
+
+	// Determine which token is being queried
+	isPromptToken := *args.To == api.server.tokenAddress
+	isDemoToken := api.server.demoTokenAddress != (common.Address{}) && *args.To == api.server.demoTokenAddress
+
+	// Debug logging for token routing
+	api.server.logger.Debug("eth_call routing",
+		zap.String("to", args.To.Hex()),
+		zap.String("prompt_addr", api.server.tokenAddress.Hex()),
+		zap.String("demo_addr", api.server.demoTokenAddress.Hex()),
+		zap.Bool("is_prompt", isPromptToken),
+		zap.Bool("is_demo", isDemoToken))
+
+	if !isPromptToken && !isDemoToken {
+		api.server.logger.Warn("eth_call to unknown contract", zap.String("to", args.To.Hex()))
 		return nil, fmt.Errorf("unsupported contract")
 	}
 
@@ -352,6 +421,12 @@ func (api *EthAPI) Call(ctx context.Context, args CallArgs, blockNrOrHash BlockN
 		return nil, fmt.Errorf("unknown method")
 	}
 
+	// Route to appropriate handler based on token
+	if isDemoToken {
+		return api.callDemoToken(ctx, method.Name, input[4:])
+	}
+
+	// Default: PROMPT token
 	switch method.Name {
 	case "balanceOf":
 		return api.callBalanceOf(ctx, input[4:])
@@ -424,6 +499,102 @@ func (api *EthAPI) callTotalSupply(ctx context.Context) (hexutil.Bytes, error) {
 
 func (api *EthAPI) callAllowance() (hexutil.Bytes, error) {
 	return api.encodeUint256(big.NewInt(0))
+}
+
+// =============================================================================
+// DEMO TOKEN (Native Canton Token) Methods
+// =============================================================================
+
+// callDemoToken handles ERC20 calls for the DEMO token
+func (api *EthAPI) callDemoToken(ctx context.Context, methodName string, data []byte) (hexutil.Bytes, error) {
+	switch methodName {
+	case "balanceOf":
+		return api.callDemoBalanceOf(ctx, data)
+	case "decimals":
+		return api.callDemoDecimals()
+	case "symbol":
+		return api.callDemoSymbol()
+	case "name":
+		return api.callDemoName()
+	case "totalSupply":
+		return api.callDemoTotalSupply()
+	case "allowance":
+		return api.callAllowance() // Same as PROMPT
+	default:
+		return nil, fmt.Errorf("unsupported method for DEMO token: %s", methodName)
+	}
+}
+
+func (api *EthAPI) callDemoBalanceOf(ctx context.Context, data []byte) (hexutil.Bytes, error) {
+	method := api.server.erc20ABI.Methods["balanceOf"]
+	args := make(map[string]interface{})
+	if err := method.Inputs.UnpackIntoMap(args, data); err != nil {
+		return nil, err
+	}
+
+	addr, ok := args["account"].(common.Address)
+	if !ok {
+		return nil, fmt.Errorf("invalid account address")
+	}
+
+	// Get DEMO balance via TokenService (same pattern as PROMPT)
+	balStr, err := api.server.tokenService.GetDemoBalance(ctx, addr.Hex())
+	if err != nil {
+		api.server.logger.Warn("Failed to get DEMO balance",
+			zap.String("address", addr.Hex()),
+			zap.Error(err))
+		return api.encodeUint256(big.NewInt(0))
+	}
+
+	if balStr == "" || balStr == "0" {
+		return api.encodeUint256(big.NewInt(0))
+	}
+
+	// Convert to Wei (balStr is in token units)
+	decimals := api.server.cfg.DemoToken.Decimals
+	if decimals == 0 {
+		decimals = 18
+	}
+	bal, err := canton.DecimalToBigInt(balStr, decimals)
+	if err != nil {
+		api.server.logger.Warn("Failed to convert DEMO balance",
+			zap.String("balance", balStr),
+			zap.Error(err))
+		return api.encodeUint256(big.NewInt(0))
+	}
+	return api.encodeUint256(bal)
+}
+
+func (api *EthAPI) callDemoDecimals() (hexutil.Bytes, error) {
+	decimals := api.server.cfg.DemoToken.Decimals
+	if decimals == 0 {
+		decimals = 18
+	}
+	return api.encodeUint8(uint8(decimals))
+}
+
+func (api *EthAPI) callDemoSymbol() (hexutil.Bytes, error) {
+	symbol := api.server.cfg.DemoToken.Symbol
+	if symbol == "" {
+		symbol = "DEMO"
+	}
+	return api.encodeString(symbol)
+}
+
+func (api *EthAPI) callDemoName() (hexutil.Bytes, error) {
+	name := api.server.cfg.DemoToken.Name
+	if name == "" {
+		name = "Demo Token"
+	}
+	return api.encodeString(name)
+}
+
+func (api *EthAPI) callDemoTotalSupply() (hexutil.Bytes, error) {
+	// For DEMO token, return a fixed total supply (1 million tokens)
+	// In a production system, this would query all DEMO holdings from Canton
+	supply := new(big.Int)
+	supply.SetString("1000000000000000000000000", 10) // 1 million with 18 decimals
+	return api.encodeUint256(supply)
 }
 
 func (api *EthAPI) encodeUint256(v *big.Int) (hexutil.Bytes, error) {
@@ -544,15 +715,26 @@ type RPCBlock struct {
 // GetBlockByNumber returns a synthetic block by number
 func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHash, fullTx bool) (*RPCBlock, error) {
 	var blockNum uint64
-	if blockNr.BlockNumber != nil {
+	if blockNr.BlockNumber != nil && *blockNr.BlockNumber >= 0 {
 		blockNum = uint64(*blockNr.BlockNumber)
 	} else {
-		// "latest" or unspecified
-		latest, err := api.server.db.GetLatestEvmBlockNumber()
+		// "latest", "pending", or unspecified - use same logic as eth_blockNumber
+		// This ensures consistency between eth_blockNumber and eth_getBlockByNumber("latest")
+		latestTxBlock, err := api.server.db.GetLatestEvmBlockNumber()
 		if err != nil {
 			return nil, err
 		}
-		blockNum = latest
+		
+		// Add time-based progression (same logic as BlockNumber())
+		timeSinceStart := time.Since(api.server.startTime).Seconds()
+		timeBasedBlocks := uint64(timeSinceStart)
+		
+		baseBlock := latestTxBlock + 12
+		if timeBasedBlocks > baseBlock {
+			blockNum = timeBasedBlocks
+		} else {
+			blockNum = baseBlock
+		}
 	}
 
 	if blockNum == 0 {
@@ -587,4 +769,29 @@ func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHa
 		Uncles:           []common.Hash{},
 		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(1000000000)),
 	}, nil
+}
+
+// GetBlockByHash returns a synthetic block by hash
+// MetaMask uses this to verify blocks exist
+func (api *EthAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*RPCBlock, error) {
+	// Try to find a transaction with this block hash
+	// If not found, we can still generate a synthetic block if it matches our hash pattern
+	
+	// Check if any stored transaction uses this block hash
+	blockNum, err := api.server.db.GetBlockNumberByHash(hash.Bytes())
+	if err != nil {
+		api.server.logger.Debug("GetBlockByHash: not found in DB, generating synthetic", zap.String("hash", hash.Hex()))
+	}
+	
+	if blockNum > 0 {
+		// Found in DB - generate block for this number
+		return api.GetBlockByNumber(ctx, BlockNumberOrHash{BlockNumber: (*hexutil.Uint64)(&blockNum)}, fullTx)
+	}
+	
+	// For any hash query, try to reverse-engineer the block number from our hash scheme
+	// Our hashes are computed as: keccak256(chainID || blockNumber)
+	// We can't easily reverse this, so just return the latest block for unknown hashes
+	// This is a workaround - MetaMask will at least get a valid block response
+	
+	return api.GetBlockByNumber(ctx, BlockNumberOrHash{}, fullTx)
 }
