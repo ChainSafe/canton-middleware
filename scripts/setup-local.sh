@@ -432,7 +432,7 @@ print_summary() {
     echo "    DEMO:   0xDE30000000000000000000000000000000000001"
     echo ""
     echo "  Next steps:"
-    echo "    1. Test with MetaMask: ./scripts/metamask-test.sh"
+    echo "    1. Test with MetaMask: ./scripts/metamask-info.sh"
     echo "    2. View logs:          docker compose logs -f"
     echo "    3. Stop services:      docker compose down"
     echo ""
