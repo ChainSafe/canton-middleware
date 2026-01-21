@@ -9,14 +9,14 @@ ENV GOTOOLCHAIN=auto
 
 # Copy go mod files first and download deps - this layer is cached unless go.mod/go.sum change
 COPY go.mod go.sum ./
-RUN GOTOOLCHAIN=auto go mod download
+RUN go mod download
 
 # Copy source code (this layer changes frequently but deps are already cached)
 COPY . .
 
 # Build all binaries
 # CGO_ENABLED=0 creates static binaries compatible with alpine
-RUN GOTOOLCHAIN=auto CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
+RUN CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
     CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
