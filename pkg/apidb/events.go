@@ -25,10 +25,10 @@ type BridgeEvent struct {
 
 // ReconciliationState tracks reconciliation progress
 type ReconciliationState struct {
-	LastProcessedOffset  int64      `json:"last_processed_offset"`
-	LastFullReconcileAt  *time.Time `json:"last_full_reconcile_at,omitempty"`
-	EventsProcessed      int        `json:"events_processed"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	LastProcessedOffset int64      `json:"last_processed_offset"`
+	LastFullReconcileAt *time.Time `json:"last_full_reconcile_at,omitempty"`
+	EventsProcessed     int        `json:"events_processed"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // =============================================================================
@@ -305,4 +305,3 @@ func (s *Store) ResetUserBalances() error {
 	_, err := s.db.Exec(`UPDATE users SET balance = 0, balance_updated_at = NOW()`)
 	return err
 }
-

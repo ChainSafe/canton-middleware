@@ -2,7 +2,7 @@
 
 // Archive old DAML contracts to allow migration to new package versions
 //
-// This script archives contracts from old packages (CIP56, bridge-wayfinder, 
+// This script archives contracts from old packages (CIP56, bridge-wayfinder,
 // bridge-core, common) so new contracts can be created with updated packages.
 //
 // Usage:
@@ -82,11 +82,6 @@ var oldPackages = map[string][]TemplateInfo{
 	},
 	// common package (first one)
 	"77878cfbd718737f9a15169f9295f58a4f2a48347fce6b40a1d06852bec2136a": {
-		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
-		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingMint"},
-	},
-	// common package (second one)
-	"dc37ab24385d93293253f77d244e2cb770fb392483f0047318e4a79938c6801f": {
 		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
 		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingMint"},
 	},

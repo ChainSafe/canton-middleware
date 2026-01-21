@@ -25,6 +25,7 @@ canton:
   bridge_package_id: "d96995a49cd9e3408e122a58a1db3a725251f9999ea7ffe2236ce4a045e675ba"
   core_package_id: "e097fc72886638d3cc8f2328ce63994bcfc45f280ef11b0d5511676a1c431854"
   cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
+  native_token_package_id: "ac82e23c515461dbb683a0565a1e5f02ab2e23193d77d2f141f8f4d98b812458"
   bridge_module: "Wayfinder.Bridge"
   tls:
     enabled: false
@@ -35,11 +36,28 @@ canton:
     token_url: "http://mock-oauth2:8088/oauth/token"
   max_inbound_message_size: 52428800
 
-# Token metadata
+# Token metadata (PROMPT - bridge token)
 token:
   name: "PROMPT"
   symbol: "PROMPT"
   decimals: 18
+
+# DEMO token metadata (native Canton token)
+demo_token:
+  name: "Demo Token"
+  symbol: "DEMO"
+  decimals: 18
+
+# Ethereum JSON-RPC facade (MetaMask compatibility)
+eth_rpc:
+  enabled: true
+  chain_id: 31337
+  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  demo_token_address: "0xDE30000000000000000000000000000000000001"
+  gas_price_wei: "1000000000"
+  gas_limit: 21000
+  native_balance_wei: "1000000000000000000000"
+  request_timeout: "30s"
 
 # JWKS endpoint for JWT validation (optional - if not using EVM signatures)
 jwks:
@@ -47,6 +65,15 @@ jwks:
   issuer: ""
 
 logging:
-  level: "info"
+  level: "debug"
   format: "json"
+
+# Reconciliation settings
+reconciliation:
+  initial_timeout: "2m"
+  interval: "10s"  # Faster reconciliation for testing
+
+# Shutdown settings
+shutdown:
+  timeout: "30s"
 

@@ -6,6 +6,7 @@
 #
 # Usage:
 #   go run scripts/e2e-local.go [-cleanup]
+#   ./scripts/e2e-local.sh
 #
 # =============================================================================
 
@@ -27,7 +28,17 @@ users:
 # Service endpoints (local docker compose)
 services:
   relayer_url: "http://localhost:8080"
-  api_server_url: "http://localhost:8081/rpc"
+  api_server_url: "http://localhost:8081"
+  # eth_rpc_url and register_url will be auto-generated if not specified
+
+# Ethereum RPC configuration (for host-side scripts)
+eth_rpc:
+  chain_id: 31337
+  # token_address will use contracts.token_address if not specified
+
+# =============================================================================
+# Required relayer config fields (for bootstrap-demo.go compatibility)
+# =============================================================================
 
 # Database configuration (local PostgreSQL)
 database:
@@ -36,6 +47,56 @@ database:
   user: "postgres"
   password: "p@ssw0rd"
   database: "erc20_api"
+  ssl_mode: "disable"
+
+# Ethereum config (required by config.Load validation)
+ethereum:
+  rpc_url: "http://localhost:8545"
+  ws_url: "ws://localhost:8545"
+  chain_id: 31337
+  bridge_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+  token_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  relayer_private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0
+
+# Canton config (required by config.Load validation and bootstrap-demo.go)
+canton:
+  rpc_url: "localhost:5011"
+  ledger_id: "canton-ledger-id"
+  domain_id: ""  # Auto-detected by bootstrap
+  application_id: "canton-middleware"
+  relayer_party: ""  # Auto-detected by bootstrap
+  bridge_package_id: "d96995a49cd9e3408e122a58a1db3a725251f9999ea7ffe2236ce4a045e675ba"
+  core_package_id: "e097fc72886638d3cc8f2328ce63994bcfc45f280ef11b0d5511676a1c431854"
+  cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
+  native_token_package_id: "ac82e23c515461dbb683a0565a1e5f02ab2e23193d77d2f141f8f4d98b812458"
+  bridge_module: "Wayfinder.Bridge"
+  bridge_contract: "WayfinderBridgeConfig"
+  tls:
+    enabled: false
+  auth:
+    client_id: "local-test-client"
+    client_secret: "local-test-secret"
+    audience: "http://canton:5011"
+    token_url: "http://localhost:8088/oauth/token"
+  polling_interval: "1s"
+
+# Bridge config
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+
+# =============================================================================
+# Test-specific settings
+# =============================================================================
 
 # Test amounts
 amounts:
@@ -51,6 +112,16 @@ contracts:
   token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
   # CantonBridge deployed at this address by Foundry script  
   bridge_address: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+  # DEMO token (native Canton token) - synthetic address for MetaMask
+  demo_token_address: "0xDE30000000000000000000000000000000000001"
+
+# DEMO token settings (native Canton token)
+demo_token:
+  name: "Demo Token"
+  symbol: "DEMO"
+  decimals: 18
+  # Amount to mint to each user at bootstrap
+  mint_amount: "500.0"
 
 # Timeouts (shorter for local testing)
 timeouts:

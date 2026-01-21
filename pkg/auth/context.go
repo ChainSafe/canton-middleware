@@ -88,4 +88,3 @@ func AuthInfoFromContext(ctx context.Context) *AuthInfo {
 	info.UserID, _ = UserIDFromContext(ctx)
 	return info
 }
-

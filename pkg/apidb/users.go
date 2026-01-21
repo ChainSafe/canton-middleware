@@ -23,7 +23,8 @@ type User struct {
 	CantonParty      string     `json:"canton_party"`
 	Fingerprint      string     `json:"fingerprint"`
 	MappingCID       string     `json:"mapping_cid,omitempty"`
-	Balance          string     `json:"balance"`
+	Balance          string     `json:"balance"`          // PROMPT token balance
+	DemoBalance      string     `json:"demo_balance"`     // DEMO token balance
 	BalanceUpdatedAt *time.Time `json:"balance_updated_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
@@ -426,5 +427,135 @@ func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amo
 		return fmt.Errorf("failed to commit transfer transaction: %w", err)
 	}
 
+	return nil
+}
+
+// =============================================================================
+// DEMO Token Balance Methods
+// =============================================================================
+
+// GetDemoBalance returns the cached DEMO balance for a user by EVM address
+func (s *Store) GetDemoBalance(evmAddress string) (string, error) {
+	var balance sql.NullString
+	query := `SELECT demo_balance FROM users WHERE evm_address = $1`
+	err := s.db.QueryRow(query, evmAddress).Scan(&balance)
+	if err == sql.ErrNoRows {
+		return "0", nil
+	}
+	if err != nil {
+		return "0", fmt.Errorf("failed to get demo balance: %w", err)
+	}
+	if !balance.Valid {
+		return "0", nil
+	}
+	return balance.String, nil
+}
+
+// GetDemoBalanceByFingerprint returns the cached DEMO balance for a user by fingerprint
+func (s *Store) GetDemoBalanceByFingerprint(fingerprint string) (string, error) {
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
+	var balance sql.NullString
+	query := `SELECT demo_balance FROM users WHERE fingerprint = $1 OR fingerprint = $2`
+	err := s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(&balance)
+	if err == sql.ErrNoRows {
+		return "0", nil
+	}
+	if err != nil {
+		return "0", fmt.Errorf("failed to get demo balance: %w", err)
+	}
+	if !balance.Valid {
+		return "0", nil
+	}
+	return balance.String, nil
+}
+
+// UpdateDemoBalance sets the DEMO balance for a user
+func (s *Store) UpdateDemoBalance(evmAddress, newBalance string) error {
+	query := `
+		UPDATE users
+		SET demo_balance = $1, balance_updated_at = NOW()
+		WHERE evm_address = $2
+	`
+	result, err := s.db.Exec(query, newBalance, evmAddress)
+	if err != nil {
+		return fmt.Errorf("failed to update demo balance: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", evmAddress)
+	}
+	return nil
+}
+
+// UpdateDemoBalanceByFingerprint sets the DEMO balance for a user by fingerprint
+func (s *Store) UpdateDemoBalanceByFingerprint(fingerprint, newBalance string) error {
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
+	query := `
+		UPDATE users
+		SET demo_balance = $1, balance_updated_at = NOW()
+		WHERE fingerprint = $2 OR fingerprint = $3
+	`
+	result, err := s.db.Exec(query, newBalance, withPrefix, withoutPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to update demo balance: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
+	}
+	return nil
+}
+
+// IncrementDemoBalanceByFingerprint adds amount to user's DEMO balance
+func (s *Store) IncrementDemoBalanceByFingerprint(fingerprint, amount string) error {
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
+	query := `
+		UPDATE users
+		SET demo_balance = COALESCE(demo_balance, '0')::DECIMAL + $1::DECIMAL, balance_updated_at = NOW()
+		WHERE fingerprint = $2 OR fingerprint = $3
+	`
+	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to increment demo balance: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
+	}
+	return nil
+}
+
+// DecrementDemoBalanceByFingerprint subtracts amount from user's DEMO balance
+func (s *Store) DecrementDemoBalanceByFingerprint(fingerprint, amount string) error {
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
+	query := `
+		UPDATE users
+		SET demo_balance = COALESCE(demo_balance, '0')::DECIMAL - $1::DECIMAL, balance_updated_at = NOW()
+		WHERE fingerprint = $2 OR fingerprint = $3
+	`
+	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to decrement demo balance: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
+	}
 	return nil
 }

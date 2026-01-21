@@ -18,9 +18,19 @@ CREATE TABLE IF NOT EXISTS users (
     fingerprint VARCHAR(128) NOT NULL,
     mapping_cid VARCHAR(255),
     balance DECIMAL(38,18) DEFAULT 0,
+    demo_balance DECIMAL(38,18) DEFAULT 0,  -- DEMO (native) token balance
     balance_updated_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Migration: Add demo_balance column if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                   WHERE table_name='users' AND column_name='demo_balance') THEN
+        ALTER TABLE users ADD COLUMN demo_balance DECIMAL(38,18) DEFAULT 0;
+    END IF;
+END $$;
 
 -- Whitelist table: controls who can register
 CREATE TABLE IF NOT EXISTS whitelist (
@@ -71,10 +81,64 @@ CREATE TABLE IF NOT EXISTS reconciliation_state (
 INSERT INTO reconciliation_state (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
 
--- Indexes for efficient lookups
+-- =============================================================================
+-- EVM Transactions (MetaMask JSON-RPC compatibility)
+-- =============================================================================
+
+-- EVM Transactions table: stores synthetic tx receipts for Eth JSON-RPC facade
+CREATE TABLE IF NOT EXISTS evm_transactions (
+    tx_hash          BYTEA PRIMARY KEY,
+    from_address     TEXT NOT NULL,
+    to_address       TEXT NOT NULL,
+    nonce            BIGINT NOT NULL,
+    input            BYTEA NOT NULL,
+    value_wei        TEXT NOT NULL DEFAULT '0',
+    status           SMALLINT NOT NULL DEFAULT 1,
+    block_number     BIGINT NOT NULL,
+    block_hash       BYTEA NOT NULL,
+    tx_index         INTEGER NOT NULL DEFAULT 0,
+    gas_used         BIGINT NOT NULL DEFAULT 21000,
+    error_message    TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- EVM Metadata table: stores chain state like latest block number
+CREATE TABLE IF NOT EXISTS evm_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Initialize latest block number
+INSERT INTO evm_meta (key, value) VALUES ('latest_block_number', '0')
+ON CONFLICT (key) DO NOTHING;
+
+-- EVM Logs table: stores synthetic event logs for Eth JSON-RPC facade
+CREATE TABLE IF NOT EXISTS evm_logs (
+    tx_hash      BYTEA NOT NULL,
+    log_index    INTEGER NOT NULL,
+    address      BYTEA NOT NULL,
+    topic0       BYTEA,
+    topic1       BYTEA,
+    topic2       BYTEA,
+    topic3       BYTEA,
+    data         BYTEA,
+    block_number BIGINT NOT NULL,
+    block_hash   BYTEA NOT NULL,
+    tx_index     INTEGER NOT NULL DEFAULT 0,
+    removed      BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (tx_hash, log_index)
+);
+
+-- =============================================================================
+-- Indexes
+-- =============================================================================
+
 CREATE INDEX IF NOT EXISTS idx_users_evm ON users(evm_address);
 CREATE INDEX IF NOT EXISTS idx_users_fingerprint ON users(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_fingerprint ON bridge_events(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_type ON bridge_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_evm_tx ON bridge_events(evm_tx_hash);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_from ON evm_transactions(from_address);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_to ON evm_transactions(to_address);
+CREATE INDEX IF NOT EXISTS idx_evm_transactions_block ON evm_transactions(block_number);
 

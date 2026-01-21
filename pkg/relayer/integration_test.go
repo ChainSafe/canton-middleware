@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package relayer
@@ -268,7 +269,7 @@ func TestIntegration_EthereumSubmitWithdrawal(t *testing.T) {
 	// Note: This will likely fail if token isn't set up properly
 	token := common.HexToAddress(testConfig.Ethereum.TokenContract)
 	recipient := common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8") // Anvil account 1
-	amount := big.NewInt(1000000000000000000) // 1 token
+	amount := big.NewInt(1000000000000000000)                                      // 1 token
 	nonce := big.NewInt(1)
 	var cantonTxHash [32]byte
 	copy(cantonTxHash[:], []byte("test-canton-tx-hash"))
@@ -302,4 +303,3 @@ func TestIntegration_FullFlow(t *testing.T) {
 	t.Run("EthereumConnectivity", TestIntegration_EthereumConnectivity)
 	t.Run("CantonGetBridgeConfig", TestIntegration_CantonGetBridgeConfig)
 }
-

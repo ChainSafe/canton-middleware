@@ -69,4 +69,3 @@ func ValidateEVMAddress(address string) bool {
 func NormalizeAddress(address string) string {
 	return common.HexToAddress(address).Hex()
 }
-

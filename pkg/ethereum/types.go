@@ -23,11 +23,11 @@ type DepositEvent struct {
 
 // WithdrawalEvent represents a withdrawal from Canton event on Ethereum
 type WithdrawalEvent struct {
-	Token           common.Address
-	Recipient       common.Address
-	Amount          *big.Int
-	Nonce           *big.Int
-	CantonTxHash    [32]byte
-	BlockNumber     uint64
-	TxHash          common.Hash
+	Token        common.Address
+	Recipient    common.Address
+	Amount       *big.Int
+	Nonce        *big.Int
+	CantonTxHash [32]byte
+	BlockNumber  uint64
+	TxHash       common.Hash
 }

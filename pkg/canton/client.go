@@ -1367,3 +1367,522 @@ func (c *Client) GetBridgeBurnEvents(ctx context.Context) ([]*BridgeBurnEvent, e
 	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeBurnEvent", DecodeBridgeBurnEvent)
 }
 
+// =============================================================================
+// NATIVE TOKEN (DEMO) METHODS
+// =============================================================================
+
+// GetNativeTokenConfig finds the active NativeTokenConfig contract
+func (c *Client) GetNativeTokenConfig(ctx context.Context) (string, error) {
+	if c.config.NativeTokenPackageID == "" {
+		return "", fmt.Errorf("native_token_package_id not configured")
+	}
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Get current ledger end
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return "", fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
+	// Query for NativeTokenConfig contracts
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+								TemplateFilter: &lapiv2.TemplateFilter{
+									TemplateId: &lapiv2.Identifier{
+										PackageId:  c.config.NativeTokenPackageID,
+										ModuleName: "Native.Token",
+										EntityName: "NativeTokenConfig",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to search for NativeTokenConfig: %w", err)
+	}
+
+	// Read the stream
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break // EOF or error
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			return contract.CreatedEvent.ContractId, nil
+		}
+	}
+
+	return "", fmt.Errorf("no active NativeTokenConfig found")
+}
+
+// NativeTokenMintRequest represents a request to mint native tokens
+type NativeTokenMintRequest struct {
+	RecipientParty    string // Canton party to mint to
+	Amount            string // Amount to mint (decimal string)
+	UserFingerprint   string // EVM fingerprint of the recipient
+	NativeConfigCid   string // NativeTokenConfig contract ID (optional, will be fetched if empty)
+}
+
+// NativeTokenMint mints DEMO tokens to a user via NativeTokenConfig.IssuerMint
+func (c *Client) NativeTokenMint(ctx context.Context, req *NativeTokenMintRequest) (string, error) {
+	c.logger.Info("Minting native tokens",
+		zap.String("recipient", req.RecipientParty),
+		zap.String("amount", req.Amount),
+		zap.String("fingerprint", req.UserFingerprint))
+
+	// Get NativeTokenConfig contract ID if not provided
+	configCid := req.NativeConfigCid
+	if configCid == "" {
+		var err error
+		configCid, err = c.GetNativeTokenConfig(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to get NativeTokenConfig: %w", err)
+		}
+	}
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Build IssuerMint choice arguments
+	mintArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "recipient", Value: PartyValue(req.RecipientParty)},
+			{Label: "amount", Value: NumericValue(req.Amount)},
+			{Label: "eventTime", Value: TimestampValue(time.Now())},
+			{Label: "userFingerprint", Value: TextValue(req.UserFingerprint)},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.NativeTokenPackageID,
+					ModuleName: "Native.Token",
+					EntityName: "NativeTokenConfig",
+				},
+				ContractId:     configCid,
+				Choice:         "IssuerMint",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: mintArgs}},
+			},
+		},
+	}
+
+	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to mint native tokens: %w", err)
+	}
+
+	// Extract the created CIP56Holding contract ID from the response
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Holding" {
+					c.logger.Info("Native tokens minted successfully",
+						zap.String("holding_cid", created.ContractId),
+						zap.String("recipient", req.RecipientParty),
+						zap.String("amount", req.Amount))
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("CIP56Holding contract not found in mint response")
+}
+
+// GetDemoTokenBalance gets the DEMO token balance for a user by party
+// This queries CIP56Holding contracts and filters by the DEMO token symbol in metadata
+func (c *Client) GetDemoTokenBalance(ctx context.Context, userParty string) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	// Get current ledger end
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "0", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return "0", nil // Empty ledger, no balance
+	}
+
+	// Query for CIP56Holding contracts owned by this party
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				userParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+								TemplateFilter: &lapiv2.TemplateFilter{
+									TemplateId: &lapiv2.Identifier{
+										PackageId:  c.config.CIP56PackageID,
+										ModuleName: "CIP56.Token",
+										EntityName: "CIP56Holding",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "0", fmt.Errorf("failed to query CIP56Holding contracts: %w", err)
+	}
+
+	// Sum up balances from DEMO holdings (filter by symbol in metadata)
+	totalBalance := 0.0
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
+				continue
+			}
+
+			// Decode the holding to check metadata symbol
+			args := contract.CreatedEvent.CreateArguments
+			if args == nil {
+				continue
+			}
+
+			// Check owner matches
+			owner := ""
+			amount := 0.0
+			symbol := ""
+
+			for _, field := range args.Fields {
+				switch field.Label {
+				case "owner":
+					if p := field.Value.GetParty(); p != "" {
+						owner = p
+					}
+				case "amount":
+					if n := field.Value.GetNumeric(); n != "" {
+						if v, err := strconv.ParseFloat(n, 64); err == nil {
+							amount = v
+						}
+					}
+				case "meta":
+					if metaRecord := field.Value.GetRecord(); metaRecord != nil {
+						for _, metaField := range metaRecord.Fields {
+							if metaField.Label == "symbol" {
+								if s := metaField.Value.GetText(); s != "" {
+									symbol = s
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Only count DEMO tokens owned by the requested party
+			if owner == userParty && symbol == "DEMO" {
+				totalBalance += amount
+			}
+		}
+	}
+
+	return fmt.Sprintf("%.18f", totalBalance), nil
+}
+
+// TransferDemoRequest represents a request to transfer DEMO tokens between users
+type TransferDemoRequest struct {
+	FromFingerprint string
+	ToFingerprint   string
+	Amount          string
+}
+
+// TransferDemo performs a DEMO token transfer using Burn + Mint via the DEMO CIP56Manager
+// This is identical to PROMPT transfers but uses the DEMO token's manager
+func (c *Client) TransferDemo(ctx context.Context, req *TransferDemoRequest) error {
+	c.logger.Info("Executing DEMO transfer",
+		zap.String("from_fingerprint", req.FromFingerprint),
+		zap.String("to_fingerprint", req.ToFingerprint),
+		zap.String("amount", req.Amount))
+
+	// Get the sender's mapping
+	fromMapping, err := c.GetFingerprintMapping(ctx, req.FromFingerprint)
+	if err != nil {
+		return fmt.Errorf("sender not found: %w", err)
+	}
+
+	// Get the recipient's mapping
+	toMapping, err := c.GetFingerprintMapping(ctx, req.ToFingerprint)
+	if err != nil {
+		return fmt.Errorf("recipient not found: %w", err)
+	}
+
+	// Find the sender's DEMO holding with sufficient balance
+	holdingCid, err := c.findDemoHoldingForTransfer(ctx, fromMapping.UserParty, req.Amount)
+	if err != nil {
+		return fmt.Errorf("insufficient DEMO balance: %w", err)
+	}
+
+	// Get the DEMO CIP56Manager from NativeTokenConfig
+	demoManagerCid, err := c.getDemoTokenManagerCid(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get DEMO token manager: %w", err)
+	}
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Step 1: Burn DEMO tokens from sender's holding
+	burnCmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Manager",
+				},
+				ContractId: demoManagerCid,
+				Choice:     "Burn",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
+					Fields: []*lapiv2.RecordField{
+						{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
+						{Label: "amount", Value: NumericValue(req.Amount)},
+					},
+				}}},
+			},
+		},
+	}
+
+	// Step 2: Mint DEMO tokens to recipient
+	mintCmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Manager",
+				},
+				ContractId: demoManagerCid,
+				Choice:     "Mint",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
+					Fields: []*lapiv2.RecordField{
+						{Label: "to", Value: PartyValue(toMapping.UserParty)},
+						{Label: "amount", Value: NumericValue(req.Amount)},
+					},
+				}}},
+			},
+		},
+	}
+
+	// Submit both commands atomically
+	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{burnCmd, mintCmd},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("DEMO transfer failed: %w", err)
+	}
+
+	c.logger.Info("DEMO transfer completed",
+		zap.String("from", req.FromFingerprint),
+		zap.String("to", req.ToFingerprint),
+		zap.String("amount", req.Amount))
+
+	return nil
+}
+
+// getDemoTokenManagerCid retrieves the DEMO CIP56Manager contract ID from NativeTokenConfig
+func (c *Client) getDemoTokenManagerCid(ctx context.Context) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: ledgerEndResp.Offset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to query contracts: %w", err)
+	}
+
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			// NativeTokenConfig stores the DEMO CIP56Manager
+			if templateId.ModuleName == "Native.Token" && templateId.EntityName == "NativeTokenConfig" {
+				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+				if tokenManagerCid, ok := extractContractIdV2(fields["tokenManagerCid"]); ok {
+					return tokenManagerCid, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no NativeTokenConfig found - DEMO token not bootstrapped")
+}
+
+// findDemoHoldingForTransfer finds a DEMO CIP56Holding contract with sufficient balance.
+func (c *Client) findDemoHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount string) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	activeAtOffset := ledgerEndResp.Offset
+	if activeAtOffset == 0 {
+		return "", fmt.Errorf("%w: no holdings exist", ErrInsufficientBalance)
+	}
+
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to query holdings: %w", err)
+	}
+
+	// Parse required amount
+	requiredAmountFloat, err := strconv.ParseFloat(requiredAmount, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid amount: %w", err)
+	}
+
+	// Track total DEMO balance and individual holdings
+	var totalBalance float64 = 0
+	var holdingCount int
+
+	// Find a DEMO holding with sufficient balance
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
+				continue
+			}
+
+			args := contract.CreatedEvent.CreateArguments
+			if args == nil {
+				continue
+			}
+
+			var owner string
+			var amount float64
+			var symbol string
+
+			for _, field := range args.Fields {
+				switch field.Label {
+				case "owner":
+					if p := field.Value.GetParty(); p != "" {
+						owner = p
+					}
+				case "amount":
+					if n := field.Value.GetNumeric(); n != "" {
+						if v, err := strconv.ParseFloat(n, 64); err == nil {
+							amount = v
+						}
+					}
+				case "meta":
+					if metaRecord := field.Value.GetRecord(); metaRecord != nil {
+						for _, metaField := range metaRecord.Fields {
+							if metaField.Label == "symbol" {
+								if s := metaField.Value.GetText(); s != "" {
+									symbol = s
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Only consider DEMO holdings owned by the sender
+			if owner != ownerParty || symbol != "DEMO" {
+				continue
+			}
+
+			holdingCount++
+			totalBalance += amount
+
+			// If this holding has enough, return it
+			if amount >= requiredAmountFloat {
+				return contract.CreatedEvent.ContractId, nil
+			}
+		}
+	}
+
+	// No single holding had enough
+	if holdingCount == 0 {
+		return "", fmt.Errorf("%w: no DEMO holdings found", ErrInsufficientBalance)
+	}
+	if totalBalance < requiredAmountFloat {
+		return "", fmt.Errorf("%w: total DEMO balance %.2f, need %.2f", ErrInsufficientBalance, totalBalance, requiredAmountFloat)
+	}
+	return "", fmt.Errorf("%w: DEMO balance spread across %d holdings", ErrBalanceFragmented, holdingCount)
+}

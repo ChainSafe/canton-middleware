@@ -34,8 +34,20 @@ users:
 services:
   # Relayer API endpoint
   relayer_url: "http://localhost:8080"
-  # API Server RPC endpoint
-  api_server_url: "http://localhost:8081/rpc"
+  # API Server base URL
+  api_server_url: "http://localhost:8081"
+  # Ethereum JSON-RPC endpoint (leave empty to use api_server_url/eth)
+  eth_rpc_url: ""
+  # Registration endpoint (leave empty to use api_server_url/register)
+  register_url: ""
+
+# Ethereum RPC configuration
+eth_rpc:
+  # Chain ID for the eth-compatible RPC (default: 31337)
+  chain_id: 31337
+  # Token contract address on the eth-compatible RPC
+  # Leave empty to use the same address as contracts.token_address
+  token_address: ""
 
 # Database configuration (for local mode whitelisting only)
 # When using -local flag, the script will connect to this database

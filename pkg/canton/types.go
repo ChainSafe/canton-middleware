@@ -193,4 +193,3 @@ type BridgeBurnEvent struct {
 	Timestamp      time.Time
 	AuditObservers []string
 }
-

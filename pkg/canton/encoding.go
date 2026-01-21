@@ -693,4 +693,3 @@ func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBur
 		AuditObservers: auditObservers,
 	}, nil
 }
-

@@ -48,9 +48,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	_ "github.com/lib/pq"
@@ -75,9 +78,16 @@ type LocalTestConfig struct {
 	} `yaml:"users"`
 
 	Services struct {
-		RelayerURL   string `yaml:"relayer_url"`
-		APIServerURL string `yaml:"api_server_url"`
+		RelayerURL    string `yaml:"relayer_url"`
+		APIServerURL  string `yaml:"api_server_url"`
+		EthRPCURL     string `yaml:"eth_rpc_url"`
+		RegisterURL   string `yaml:"register_url"`
 	} `yaml:"services"`
+
+	EthRPC struct {
+		ChainID      uint64 `yaml:"chain_id"`
+		TokenAddress string `yaml:"token_address"`
+	} `yaml:"eth_rpc"`
 
 	Database struct {
 		Host     string `yaml:"host"`
@@ -229,7 +239,16 @@ func loadConfig(path string) (*LocalTestConfig, error) {
 		cfg.Services.RelayerURL = "http://localhost:8080"
 	}
 	if cfg.Services.APIServerURL == "" {
-		cfg.Services.APIServerURL = "http://localhost:8081/rpc"
+		cfg.Services.APIServerURL = "http://localhost:8081"
+	}
+	if cfg.Services.EthRPCURL == "" {
+		cfg.Services.EthRPCURL = cfg.Services.APIServerURL + "/eth"
+	}
+	if cfg.Services.RegisterURL == "" {
+		cfg.Services.RegisterURL = cfg.Services.APIServerURL + "/register"
+	}
+	if cfg.EthRPC.ChainID == 0 {
+		cfg.EthRPC.ChainID = 31337 // Default chain ID
 	}
 	if cfg.Local.AnvilURL == "" {
 		cfg.Local.AnvilURL = "http://localhost:8545"
@@ -312,7 +331,7 @@ func waitForServices(cfg *LocalTestConfig) error {
 		name string
 		url  string
 	}{
-		{"API Server", strings.TrimSuffix(cfg.Services.APIServerURL, "/rpc") + "/health"},
+		{"API Server", strings.TrimSuffix(cfg.Services.APIServerURL, "/") + "/health"},
 		{"Relayer", cfg.Services.RelayerURL + "/health"},
 	}
 
@@ -394,6 +413,12 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	printInfo("Token: %s", tokenAddr.Hex())
 	printInfo("Bridge: %s", bridgeAddr.Hex())
 
+	// Get token address for eth RPC calls
+	ethTokenAddr := cfg.EthRPC.TokenAddress
+	if ethTokenAddr == "" {
+		ethTokenAddr = tokenAddr.Hex() // Fall back to Anvil token address
+	}
+
 	// Create contract bindings
 	token, err := contracts.NewPromptToken(tokenAddr, ethClient)
 	if err != nil {
@@ -439,13 +464,13 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	// =========================================================================
 	printHeader("Step 3: Register Users")
 
-	user1Fingerprint, err := registerUser(cfg.Services.APIServerURL, user1Key, "User1")
+	user1Fingerprint, err := registerUser(cfg.Services.RegisterURL, user1Key, "User1")
 	if err != nil {
 		return fmt.Errorf("failed to register user1: %w", err)
 	}
 	printSuccess("User1 fingerprint: %s", truncate(user1Fingerprint, 20))
 
-	user2Fingerprint, err := registerUser(cfg.Services.APIServerURL, user2Key, "User2")
+	user2Fingerprint, err := registerUser(cfg.Services.RegisterURL, user2Key, "User2")
 	if err != nil {
 		return fmt.Errorf("failed to register user2: %w", err)
 	}
@@ -503,7 +528,7 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	var user1Balance string
 	deadline := time.Now().Add(depositTimeout)
 	for time.Now().Before(deadline) {
-		user1Balance, err = getBalance(cfg.Services.APIServerURL, user1Key)
+		user1Balance, err = getBalance(cfg.Services.EthRPCURL, ethTokenAddr, user1Key)
 		if err == nil && user1Balance != "0" && user1Balance != "" {
 			break
 		}
@@ -524,11 +549,17 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	transferAmount := cfg.Amounts.TransferAmount
 	printStep("Transferring %s tokens...", transferAmount)
 
-	txID, err := transferTokens(cfg.Services.APIServerURL, user1Key, user2Addr.Hex(), transferAmount)
+	// Parse transfer amount to wei
+	transferAmountWei, err := parseTokenAmount(transferAmount, 18)
+	if err != nil {
+		return fmt.Errorf("failed to parse transfer amount: %w", err)
+	}
+
+	txHash, err := transferTokens(cfg.Services.EthRPCURL, ethTokenAddr, cfg.EthRPC.ChainID, user1Key, user2Addr.Hex(), transferAmountWei.String())
 	if err != nil {
 		return fmt.Errorf("transfer failed: %w", err)
 	}
-	printSuccess("Transfer completed: %s", truncate(txID, 30))
+	printSuccess("Transfer completed: %s", truncate(txHash, 30))
 
 	// Wait for balance update
 	time.Sleep(3 * time.Second)
@@ -541,15 +572,15 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	deadline = time.Now().Add(balanceTimeout)
 	var user2Balance string
 	for time.Now().Before(deadline) {
-		user2Balance, _ = getBalance(cfg.Services.APIServerURL, user2Key)
+		user2Balance, _ = getBalance(cfg.Services.EthRPCURL, ethTokenAddr, user2Key)
 		if user2Balance != "" && user2Balance != "0" {
 			break
 		}
 		time.Sleep(2 * time.Second)
 	}
 
-	user1Balance, _ = getBalance(cfg.Services.APIServerURL, user1Key)
-	user2Balance, _ = getBalance(cfg.Services.APIServerURL, user2Key)
+	user1Balance, _ = getBalance(cfg.Services.EthRPCURL, ethTokenAddr, user1Key)
+	user2Balance, _ = getBalance(cfg.Services.EthRPCURL, ethTokenAddr, user2Key)
 
 	printSuccess("User1 final balance: %s", user1Balance)
 	printSuccess("User2 final balance: %s", user2Balance)
@@ -559,10 +590,10 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 	// =========================================================================
 	printHeader("Step 8: Test ERC20 Metadata")
 
-	name, _ := callERC20Method(cfg.Services.APIServerURL, user1Key, "erc20_name")
-	symbol, _ := callERC20Method(cfg.Services.APIServerURL, user1Key, "erc20_symbol")
-	decimals, _ := callERC20Method(cfg.Services.APIServerURL, user1Key, "erc20_decimals")
-	totalSupply, _ := callERC20Method(cfg.Services.APIServerURL, user1Key, "erc20_totalSupply")
+	name, _ := callERC20Method(cfg.Services.EthRPCURL, ethTokenAddr, "name")
+	symbol, _ := callERC20Method(cfg.Services.EthRPCURL, ethTokenAddr, "symbol")
+	decimals, _ := callERC20Method(cfg.Services.EthRPCURL, ethTokenAddr, "decimals")
+	totalSupply, _ := callERC20Method(cfg.Services.EthRPCURL, ethTokenAddr, "totalSupply")
 
 	printSuccess("Name: %s", name)
 	printSuccess("Symbol: %s", symbol)
@@ -587,12 +618,23 @@ func whitelistUsers(cfg *LocalTestConfig, users ...common.Address) error {
 	defer db.Close()
 
 	// Retry connection with timeout
+	var lastErr error
 	for i := 0; i < 10; i++ {
 		if err := db.Ping(); err == nil {
+			lastErr = nil
 			break
+		} else {
+			lastErr = err
+			printInfo("Waiting for database connection (attempt %d/10)...", i+1)
 		}
 		time.Sleep(2 * time.Second)
 	}
+
+	if lastErr != nil {
+		return fmt.Errorf("failed to connect to database after retries: %w", lastErr)
+	}
+
+	printInfo("Connected to database: %s", cfg.Database.Database)
 
 	for _, addr := range users {
 		_, err := db.Exec(
@@ -625,14 +667,8 @@ func signEIP191(message string, privateKey *ecdsa.PrivateKey) (string, error) {
 	return "0x" + hex.EncodeToString(signature), nil
 }
 
-func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params interface{}) (*RPCResponse, error) {
-	timestamp := time.Now().Unix()
-	message := fmt.Sprintf("%s:%d", method, timestamp)
-	sigHex, err := signEIP191(message, privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign: %w", err)
-	}
-
+// ethRPCCall makes an Ethereum JSON-RPC call (no authentication)
+func ethRPCCall(url string, method string, params interface{}) (json.RawMessage, error) {
 	req := RPCRequest{
 		JSONRPC: "2.0",
 		Method:  method,
@@ -642,7 +678,7 @@ func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params int
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
@@ -651,13 +687,11 @@ func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params int
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Signature", sigHex)
-	httpReq.Header.Set("X-Message", message)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -668,106 +702,281 @@ func rpcCall(url string, privateKey *ecdsa.PrivateKey, method string, params int
 
 	var rpcResp RPCResponse
 	if err := json.Unmarshal(respBody, &rpcResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
 	}
 
-	return &rpcResp, nil
+	if rpcResp.Error != nil {
+		return nil, fmt.Errorf("RPC error: %s", rpcResp.Error.Message)
+	}
+
+	return rpcResp.Result, nil
 }
 
 func registerUser(url string, privateKey *ecdsa.PrivateKey, name string) (string, error) {
-	resp, err := rpcCall(url, privateKey, "user_register", map[string]interface{}{})
+	// Create signature
+	timestamp := time.Now().Unix()
+	message := fmt.Sprintf("registration:%d", timestamp)
+	sigHex, err := signEIP191(message, privateKey)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	if resp.Error != nil {
-		if resp.Error.Code == -32005 || strings.Contains(resp.Error.Message, "already registered") {
+	// Create request body
+	reqBody := map[string]string{
+		"signature": sigHex,
+		"message":   message,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Send request
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Handle non-success status codes
+	if resp.StatusCode != http.StatusOK {
+		// Check if already registered
+		if resp.StatusCode == http.StatusConflict {
+			printWarning("%s already registered, computing fingerprint from address", name)
 			addr := crypto.PubkeyToAddress(privateKey.PublicKey)
 			fingerprint := crypto.Keccak256Hash(addr.Bytes()).Hex()
-			printWarning("%s already registered", name)
 			return fingerprint, nil
 		}
-		return "", fmt.Errorf("RPC error: %s", resp.Error.Message)
+		// Check if not whitelisted
+		if resp.StatusCode == http.StatusForbidden {
+			return "", fmt.Errorf("%s not whitelisted", name)
+		}
+		return "", fmt.Errorf("registration failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result RegisterResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", fmt.Errorf("failed to parse result: %w", err)
 	}
 
 	return result.Fingerprint, nil
 }
 
-func getBalance(url string, privateKey *ecdsa.PrivateKey) (string, error) {
-	resp, err := rpcCall(url, privateKey, "erc20_balanceOf", map[string]interface{}{})
+func getBalance(ethRPCURL string, tokenAddress string, privateKey *ecdsa.PrivateKey) (string, error) {
+	// Parse ABI
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	// Get address from private key
+	addr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// Encode balanceOf call
+	data, err := parsedABI.Pack("balanceOf", addr)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack balanceOf: %w", err)
+	}
+
+	// Make eth_call request
+	params := []interface{}{
+		map[string]interface{}{
+			"to":   tokenAddress,
+			"data": "0x" + hex.EncodeToString(data),
+		},
+		"latest",
+	}
+
+	respData, err := ethRPCCall(ethRPCURL, "eth_call", params)
 	if err != nil {
 		return "", err
 	}
 
-	if resp.Error != nil {
-		return "", fmt.Errorf("RPC error: %s", resp.Error.Message)
+	// Decode result
+	var resultHex string
+	if err := json.Unmarshal(respData, &resultHex); err != nil {
+		return "", fmt.Errorf("failed to parse result: %w", err)
 	}
 
-	var result BalanceResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return "", err
+	// Parse hex to big.Int
+	resultBytes, err := hex.DecodeString(strings.TrimPrefix(resultHex, "0x"))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode hex: %w", err)
 	}
 
-	return result.Balance, nil
+	balance := new(big.Int).SetBytes(resultBytes)
+	return balance.String(), nil
 }
 
-func transferTokens(url string, privateKey *ecdsa.PrivateKey, to, amount string) (string, error) {
-	params := map[string]interface{}{
-		"to":     to,
-		"amount": amount,
-	}
-
-	resp, err := rpcCall(url, privateKey, "erc20_transfer", params)
+func transferTokens(ethRPCURL string, tokenAddress string, chainID uint64, privateKey *ecdsa.PrivateKey, to, amount string) (string, error) {
+	// Parse ABI
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
-	if resp.Error != nil {
-		return "", fmt.Errorf("RPC error: %s", resp.Error.Message)
+	// Parse recipient address
+	toAddr := common.HexToAddress(to)
+
+	// Parse amount
+	amountBig := new(big.Int)
+	if _, ok := amountBig.SetString(amount, 10); !ok {
+		return "", fmt.Errorf("invalid amount: %s", amount)
 	}
 
-	var result TransferResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return "", err
+	// Encode transfer call
+	data, err := parsedABI.Pack("transfer", toAddr, amountBig)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack transfer: %w", err)
 	}
 
-	if !result.Success {
-		return "", fmt.Errorf("transfer failed")
+	// Get sender address
+	fromAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	// Get nonce
+	nonceResp, err := ethRPCCall(ethRPCURL, "eth_getTransactionCount", []interface{}{fromAddr.Hex(), "latest"})
+	if err != nil {
+		return "", fmt.Errorf("failed to get nonce: %w", err)
+	}
+	var nonceHex string
+	if err := json.Unmarshal(nonceResp, &nonceHex); err != nil {
+		return "", fmt.Errorf("failed to parse nonce: %w", err)
+	}
+	nonceBytes, _ := hex.DecodeString(strings.TrimPrefix(nonceHex, "0x"))
+	nonce := new(big.Int).SetBytes(nonceBytes).Uint64()
+
+	// Get gas price
+	gasPriceResp, err := ethRPCCall(ethRPCURL, "eth_gasPrice", []interface{}{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get gas price: %w", err)
+	}
+	var gasPriceHex string
+	if err := json.Unmarshal(gasPriceResp, &gasPriceHex); err != nil {
+		return "", fmt.Errorf("failed to parse gas price: %w", err)
+	}
+	gasPriceBytes, _ := hex.DecodeString(strings.TrimPrefix(gasPriceHex, "0x"))
+	gasPrice := new(big.Int).SetBytes(gasPriceBytes)
+
+	// Create transaction
+	tokenAddr := common.HexToAddress(tokenAddress)
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		To:       &tokenAddr,
+		Value:    big.NewInt(0),
+		Gas:      100000,
+		GasPrice: gasPrice,
+		Data:     data,
+	})
+
+	// Sign transaction
+	signer := types.NewEIP155Signer(big.NewInt(int64(chainID)))
+	signedTx, err := types.SignTx(tx, signer, privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
-	return result.TxID, nil
+	// Encode transaction
+	txBytes, err := signedTx.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("failed to encode transaction: %w", err)
+	}
+
+	// Send transaction
+	txHashResp, err := ethRPCCall(ethRPCURL, "eth_sendRawTransaction", []interface{}{"0x" + hex.EncodeToString(txBytes)})
+	if err != nil {
+		return "", fmt.Errorf("failed to send transaction: %w", err)
+	}
+
+	var txHash string
+	if err := json.Unmarshal(txHashResp, &txHash); err != nil {
+		return "", fmt.Errorf("failed to parse tx hash: %w", err)
+	}
+
+	return txHash, nil
 }
 
-func callERC20Method(url string, privateKey *ecdsa.PrivateKey, method string) (string, error) {
-	resp, err := rpcCall(url, privateKey, method, map[string]interface{}{})
+func callERC20Method(ethRPCURL string, tokenAddress string, method string) (string, error) {
+	// Parse ABI
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	// Encode method call (methods like name, symbol, decimals, totalSupply have no params)
+	data, err := parsedABI.Pack(method)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack %s: %w", method, err)
+	}
+
+	// Make eth_call request
+	params := []interface{}{
+		map[string]interface{}{
+			"to":   tokenAddress,
+			"data": "0x" + hex.EncodeToString(data),
+		},
+		"latest",
+	}
+
+	respData, err := ethRPCCall(ethRPCURL, "eth_call", params)
 	if err != nil {
 		return "", err
 	}
 
-	if resp.Error != nil {
-		return "", fmt.Errorf("RPC error: %s", resp.Error.Message)
+	// Decode result
+	var resultHex string
+	if err := json.Unmarshal(respData, &resultHex); err != nil {
+		return "", fmt.Errorf("failed to parse result: %w", err)
 	}
 
-	var strResult string
-	if err := json.Unmarshal(resp.Result, &strResult); err == nil {
-		return strResult, nil
+	// Parse hex response
+	resultBytes, err := hex.DecodeString(strings.TrimPrefix(resultHex, "0x"))
+	if err != nil {
+		return "", fmt.Errorf("failed to decode hex: %w", err)
 	}
 
-	var objResult map[string]interface{}
-	if err := json.Unmarshal(resp.Result, &objResult); err == nil {
-		for _, key := range []string{"totalSupply", "decimals", "name", "symbol"} {
-			if v, ok := objResult[key]; ok {
-				return fmt.Sprintf("%v", v), nil
-			}
+	// Unpack based on method type
+	switch method {
+	case "name", "symbol":
+		// String type
+		var result string
+		err := parsedABI.UnpackIntoInterface(&result, method, resultBytes)
+		if err != nil {
+			return "", fmt.Errorf("failed to unpack %s: %w", method, err)
 		}
+		return result, nil
+	case "decimals":
+		// uint8 type
+		var result uint8
+		err := parsedABI.UnpackIntoInterface(&result, method, resultBytes)
+		if err != nil {
+			return "", fmt.Errorf("failed to unpack decimals: %w", err)
+		}
+		return fmt.Sprintf("%d", result), nil
+	case "totalSupply":
+		// uint256 type
+		var result *big.Int
+		err := parsedABI.UnpackIntoInterface(&result, method, resultBytes)
+		if err != nil {
+			return "", fmt.Errorf("failed to unpack totalSupply: %w", err)
+		}
+		return result.String(), nil
+	default:
+		return "", fmt.Errorf("unsupported method: %s", method)
 	}
-
-	return string(resp.Result), nil
 }
 
 // =============================================================================
