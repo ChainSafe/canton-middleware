@@ -1,11 +1,11 @@
 package apidb
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/binary"
 	"fmt"
 	"strconv"
+
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 )
 
 // EvmTransaction represents a synthetic EVM transaction for MetaMask compatibility
@@ -153,17 +153,8 @@ func (s *Store) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
 		return 0, nil, 0, fmt.Errorf("failed to commit: %w", err)
 	}
 
-	blockHash := computeBlockHash(chainID, nextBlock)
+	blockHash := ethereum.ComputeBlockHash(chainID, nextBlock)
 	return nextBlock, blockHash, 0, nil
-}
-
-// computeBlockHash generates a deterministic block hash from chainID and block number
-func computeBlockHash(chainID, blockNumber uint64) []byte {
-	data := make([]byte, 16)
-	binary.BigEndian.PutUint64(data[0:8], chainID)
-	binary.BigEndian.PutUint64(data[8:16], blockNumber)
-	hash := sha256.Sum256(data)
-	return hash[:]
 }
 
 // GetEvmTransactionCount returns the next nonce for an address (max nonce + 1)
@@ -178,17 +169,6 @@ func (s *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
 		return 0, nil // No transactions yet
 	}
 	return uint64(maxNonce.Int64 + 1), nil
-}
-
-// GetEvmTransactionCountOld returns the count of transactions (kept for reference)
-func (s *Store) GetEvmTransactionCountOld(fromAddress string) (uint64, error) {
-	var count uint64
-	query := `SELECT COUNT(*) FROM evm_transactions WHERE from_address = $1`
-	err := s.db.QueryRow(query, fromAddress).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get transaction count: %w", err)
-	}
-	return count, nil
 }
 
 // SaveEvmLog stores a synthetic EVM log entry

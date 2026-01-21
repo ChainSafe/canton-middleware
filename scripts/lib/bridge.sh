@@ -85,8 +85,10 @@ get_canton_balance() {
     local token_addr=$1
     local user_addr=$2
 
-    # Use cast to call balanceOf
-    cast call "$token_addr" "balanceOf(address)(uint256)" "$user_addr" --rpc-url "$ETH_RPC_URL" 2>/dev/null || echo "0"
+    # Use cast to call balanceOf, strip scientific notation suffix (e.g., "123 [1.23e2]" -> "123")
+    local result
+    result=$(cast call "$token_addr" "balanceOf(address)(uint256)" "$user_addr" --rpc-url "$ETH_RPC_URL" 2>/dev/null || echo "0")
+    echo "${result%% *}"
 }
 
 # Deposit tokens to Canton
@@ -140,7 +142,8 @@ wait_for_balance() {
 
     for ((i=0; i<max_wait; i+=balance_check_interval)); do
         balance=$(get_canton_balance "$token_addr" "$user_addr")
-        if [ "$balance" != "0" ] && [ "$balance" -gt "$expected_min" ]; then
+        # Use awk for large number comparison (Wei values exceed bash integer limits)
+        if [ "$balance" != "0" ] && awk "BEGIN {exit !($balance > $expected_min)}"; then
             break
         fi
         print_info "Waiting for balance... (current: $balance)"

@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -63,16 +64,6 @@ const (
 	colorCyan   = "\033[0;36m"
 	colorReset  = "\033[0m"
 )
-
-// ERC20 ABI for encoding calls
-const erc20ABI = `[
-	{"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},
-	{"constant":false,"inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"},
-	{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"type":"function"},
-	{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"type":"function"},
-	{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"},
-	{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"type":"function"}
-]`
 
 // TestConfig holds test-specific configuration
 type TestConfig struct {
@@ -757,7 +748,7 @@ func registerUser(url string, privateKey *ecdsa.PrivateKey, name string) (string
 
 func getBalance(ethRPCURL string, tokenAddress string, privateKey *ecdsa.PrivateKey) (string, error) {
 	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse ABI: %w", err)
 	}
@@ -803,7 +794,7 @@ func getBalance(ethRPCURL string, tokenAddress string, privateKey *ecdsa.Private
 
 func transferTokens(ethRPCURL string, tokenAddress string, chainID uint64, privateKey *ecdsa.PrivateKey, to, amount string) (string, error) {
 	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse ABI: %w", err)
 	}
@@ -890,7 +881,7 @@ func transferTokens(ethRPCURL string, tokenAddress string, chainID uint64, priva
 
 func callERC20Method(ethRPCURL string, tokenAddress string, method string) (string, error) {
 	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc20ABI))
+	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse ABI: %w", err)
 	}

@@ -2,14 +2,13 @@ package ethrpc
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"math/big"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -560,10 +559,10 @@ func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHa
 		return nil, nil
 	}
 
-	blockHash := common.BytesToHash(computeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum))
+	blockHash := common.BytesToHash(ethereum.ComputeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum))
 	parentHash := common.Hash{}
 	if blockNum > 1 {
-		parentHash = common.BytesToHash(computeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum-1))
+		parentHash = common.BytesToHash(ethereum.ComputeBlockHash(api.server.cfg.EthRPC.ChainID, blockNum-1))
 	}
 
 	return &RPCBlock{
@@ -588,13 +587,4 @@ func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHa
 		Uncles:           []common.Hash{},
 		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(1000000000)),
 	}, nil
-}
-
-// computeBlockHash generates a deterministic block hash (duplicated from apidb for local use)
-func computeBlockHash(chainID, blockNumber uint64) []byte {
-	data := make([]byte, 16)
-	binary.BigEndian.PutUint64(data[0:8], chainID)
-	binary.BigEndian.PutUint64(data[8:16], blockNumber)
-	hash := sha256.Sum256(data)
-	return hash[:]
 }
