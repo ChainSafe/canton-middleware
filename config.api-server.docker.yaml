@@ -51,8 +51,8 @@ demo_token:
 # Ethereum JSON-RPC facade (MetaMask compatibility)
 eth_rpc:
   enabled: true
-  chain_id: 31337
-  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton DevNet
+  token_address: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"  # PROMPT on Sepolia
   demo_token_address: "0xDE30000000000000000000000000000000000001"
   gas_price_wei: "1000000000"
   gas_limit: 21000

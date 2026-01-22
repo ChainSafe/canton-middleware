@@ -63,28 +63,67 @@ type ContractInfo struct {
 	EntityName string
 }
 
-// Old package IDs to archive
-var oldPackages = map[string][]TemplateInfo{
-	// CIP56 token package
-	"e02fdc1d7d2245dad7a0f3238087b155a03bd15cec7c27924ecfa52af1a47dbe": {
+// Templates to archive per package type
+// Package IDs are loaded from config at runtime
+var templatesByPackageType = map[string][]TemplateInfo{
+	// bridge-wayfinder (config: bridge_package_id)
+	"bridge": {
+		{ModuleName: "Wayfinder.Bridge", EntityName: "WayfinderBridgeConfig"},
+	},
+	// bridge-core (config: core_package_id)
+	"core": {
+		{ModuleName: "Bridge.Contracts", EntityName: "MintCommand"},
+		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalRequest"},
+		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalEvent"},
+		{ModuleName: "Bridge.Events", EntityName: "BridgeMintEvent"},
+		{ModuleName: "Bridge.Events", EntityName: "BridgeBurnEvent"},
+		// common module templates are compiled into bridge-core
+		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
+		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingDeposit"},
+		{ModuleName: "Common.FingerprintAuth", EntityName: "DepositReceipt"},
+	},
+	// cip56-token (config: cip56_package_id)
+	"cip56": {
 		{ModuleName: "CIP56.Token", EntityName: "CIP56Manager"},
 		{ModuleName: "CIP56.Token", EntityName: "CIP56Holding"},
 		{ModuleName: "CIP56.Token", EntityName: "LockedAsset"},
+		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceRules"},
+		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceProof"},
 	},
-	// bridge-wayfinder package
-	"6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d": {
-		{ModuleName: "Wayfinder.Bridge", EntityName: "WayfinderBridgeConfig"},
+	// native-token (config: native_token_package_id)
+	"native": {
+		{ModuleName: "Native.Token", EntityName: "NativeTokenConfig"},
+		{ModuleName: "Native.Events", EntityName: "MintEvent"},
+		{ModuleName: "Native.Events", EntityName: "BurnEvent"},
+		{ModuleName: "Native.Events", EntityName: "TransferEvent"},
 	},
-	// bridge-core package
-	"60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc": {
-		{ModuleName: "Bridge.Contracts", EntityName: "DepositReceipt"},
-		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawRequest"},
-	},
-	// common package (first one)
-	"77878cfbd718737f9a15169f9295f58a4f2a48347fce6b40a1d06852bec2136a": {
-		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
-		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingMint"},
-	},
+}
+
+// buildPackagesFromConfig creates the oldPackages map from config package IDs
+func buildPackagesFromConfig(cfg *config.Config) map[string][]TemplateInfo {
+	packages := make(map[string][]TemplateInfo)
+
+	// Bridge package (bridge-wayfinder)
+	if cfg.Canton.BridgePackageID != "" {
+		packages[cfg.Canton.BridgePackageID] = templatesByPackageType["bridge"]
+	}
+
+	// Core package (bridge-core)
+	if cfg.Canton.CorePackageID != "" {
+		packages[cfg.Canton.CorePackageID] = templatesByPackageType["core"]
+	}
+
+	// CIP56 package
+	if cfg.Canton.CIP56PackageID != "" {
+		packages[cfg.Canton.CIP56PackageID] = templatesByPackageType["cip56"]
+	}
+
+	// Native token package
+	if cfg.Canton.NativeTokenPackageID != "" {
+		packages[cfg.Canton.NativeTokenPackageID] = templatesByPackageType["native"]
+	}
+
+	return packages
 }
 
 type TemplateInfo struct {
@@ -139,22 +178,38 @@ func main() {
 	issuerParty := cfg.Canton.RelayerParty
 	domainID := cfg.Canton.DomainID
 
-	printHeader("Old Contract Archive Tool")
+	// Build package map from config
+	oldPackages := buildPackagesFromConfig(cfg)
+
+	printHeader("Contract Archive Tool")
 	fmt.Printf("Canton RPC:     %s\n", cfg.Canton.RPCURL)
 	fmt.Printf("Issuer Party:   %s\n", issuerParty)
 	fmt.Printf("Domain ID:      %s\n", domainID)
 	fmt.Printf("Mode:           %s\n", modeString(*dryRun))
 	fmt.Println()
-	fmt.Println("Packages to check:")
-	for pkgID := range oldPackages {
-		fmt.Printf("  - %s\n", pkgID[:16]+"...")
+	fmt.Println("Packages to archive (from config):")
+	if cfg.Canton.BridgePackageID != "" {
+		fmt.Printf("  - bridge:       %s\n", cfg.Canton.BridgePackageID[:16]+"...")
+	}
+	if cfg.Canton.CorePackageID != "" {
+		fmt.Printf("  - core:         %s\n", cfg.Canton.CorePackageID[:16]+"...")
+	}
+	if cfg.Canton.CIP56PackageID != "" {
+		fmt.Printf("  - cip56:        %s\n", cfg.Canton.CIP56PackageID[:16]+"...")
+	}
+	if cfg.Canton.NativeTokenPackageID != "" {
+		fmt.Printf("  - native-token: %s\n", cfg.Canton.NativeTokenPackageID[:16]+"...")
+	}
+	if len(oldPackages) == 0 {
+		printWarning("No package IDs configured - nothing to archive")
+		return
 	}
 	fmt.Println()
 
 	stateService := lapiv2.NewStateServiceClient(conn)
 	commandService := lapiv2.NewCommandServiceClient(conn)
 
-	// Query all contracts from all old packages
+	// Query all contracts from all packages
 	var allContracts []ContractInfo
 	for pkgID, templates := range oldPackages {
 		for _, tmpl := range templates {
@@ -204,11 +259,24 @@ func main() {
 	// Archive all contracts
 	var archived, failed int
 
-	// Archive in reverse dependency order (holdings before managers, etc.)
+	// Archive in reverse dependency order (holdings/events before managers/configs)
 	archiveOrder := []string{
-		"CIP56Holding", "LockedAsset", "CIP56Manager",
-		"FingerprintMapping", "PendingMint",
-		"DepositReceipt", "WithdrawRequest",
+		// Native token events first
+		"MintEvent", "BurnEvent", "TransferEvent",
+		// Bridge events
+		"BridgeMintEvent", "BridgeBurnEvent",
+		// Holdings and locked assets (before managers)
+		"CIP56Holding", "LockedAsset",
+		// Compliance
+		"ComplianceProof", "ComplianceRules",
+		// Withdrawal/deposit related
+		"WithdrawalEvent", "WithdrawalRequest", "MintCommand",
+		"DepositReceipt", "PendingDeposit",
+		// Fingerprint mappings
+		"FingerprintMapping",
+		// Managers/configs last (they are referenced by other contracts)
+		"CIP56Manager",
+		"NativeTokenConfig",
 		"WayfinderBridgeConfig",
 	}
 

@@ -65,6 +65,7 @@ type CantonConfig struct {
 	CorePackageID        string        `yaml:"core_package_id"`
 	CIP56PackageID       string        `yaml:"cip56_package_id"`
 	NativeTokenPackageID string        `yaml:"native_token_package_id"` // Package ID for native-token DAR
+	CommonPackageID      string        `yaml:"common_package_id"`       // Package ID for common DAR (FingerprintMapping)
 	BridgeModule         string        `yaml:"bridge_module"`
 	RelayerPrivateKey    string        `yaml:"relayer_private_key"`
 	ConfirmationBlocks   int           `yaml:"confirmation_blocks"`

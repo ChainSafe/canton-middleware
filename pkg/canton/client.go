@@ -449,9 +449,8 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	// Use wildcard filter to find FingerprintMapping contracts
-	// FingerprintMapping is in the 'common' package which has a different package ID
-	// than bridge-wayfinder, so we use a wildcard and filter by entity name
+	// Query for FingerprintMapping contracts using the configured common package ID
+	// This ensures we find contracts from the current package version, not old ones
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
@@ -459,8 +458,14 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 				c.config.RelayerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{
 						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
+							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+								TemplateFilter: &lapiv2.TemplateFilter{
+									TemplateId: &lapiv2.Identifier{
+										PackageId:  c.config.CommonPackageID,
+										ModuleName: "Common.FingerprintAuth",
+										EntityName: "FingerprintMapping",
+									},
+								},
 							},
 						},
 					},
@@ -480,8 +485,8 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			// Filter by module and entity name since we're using wildcard
 			templateId := contract.CreatedEvent.TemplateId
+			// Double-check template (should match since we filtered)
 			if templateId.ModuleName != "Common.FingerprintAuth" || templateId.EntityName != "FingerprintMapping" {
 				continue
 			}
@@ -1624,10 +1629,10 @@ type TransferDemoRequest struct {
 	Amount          string
 }
 
-// TransferDemo performs a DEMO token transfer using Burn + Mint via the DEMO CIP56Manager
-// This is identical to PROMPT transfers but uses the DEMO token's manager
+// TransferDemo performs a DEMO token transfer using NativeTokenConfig.IssuerTransfer
+// This creates a TransferEvent contract that can be used for reconciliation.
 func (c *Client) TransferDemo(ctx context.Context, req *TransferDemoRequest) error {
-	c.logger.Info("Executing DEMO transfer",
+	c.logger.Info("Executing DEMO transfer via IssuerTransfer",
 		zap.String("from_fingerprint", req.FromFingerprint),
 		zap.String("to_fingerprint", req.ToFingerprint),
 		zap.String("amount", req.Amount))
@@ -1650,71 +1655,58 @@ func (c *Client) TransferDemo(ctx context.Context, req *TransferDemoRequest) err
 		return fmt.Errorf("insufficient DEMO balance: %w", err)
 	}
 
-	// Get the DEMO CIP56Manager from NativeTokenConfig
-	demoManagerCid, err := c.getDemoTokenManagerCid(ctx)
+	// Get the NativeTokenConfig contract ID
+	nativeConfigCid, err := c.GetNativeTokenConfig(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get DEMO token manager: %w", err)
+		return fmt.Errorf("failed to get NativeTokenConfig: %w", err)
 	}
 
 	authCtx := c.GetAuthContext(ctx)
 
-	// Step 1: Burn DEMO tokens from sender's holding
-	burnCmd := &lapiv2.Command{
+	// Build IssuerTransfer choice arguments
+	// IssuerTransfer creates a TransferEvent with fingerprints for reconciliation
+	transferArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "senderHoldingCid", Value: ContractIdValue(holdingCid)},
+			{Label: "recipient", Value: PartyValue(toMapping.UserParty)},
+			{Label: "amount", Value: NumericValue(req.Amount)},
+			{Label: "eventTime", Value: TimestampValue(time.Now())},
+			{Label: "senderFingerprint", Value: TextValue(req.FromFingerprint)},
+			{Label: "recipientFingerprint", Value: TextValue(req.ToFingerprint)},
+		},
+	}
+
+	// Execute IssuerTransfer on NativeTokenConfig
+	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Manager",
+					PackageId:  c.config.NativeTokenPackageID,
+					ModuleName: "Native.Token",
+					EntityName: "NativeTokenConfig",
 				},
-				ContractId: demoManagerCid,
-				Choice:     "Burn",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
-					Fields: []*lapiv2.RecordField{
-						{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
-						{Label: "amount", Value: NumericValue(req.Amount)},
-					},
-				}}},
+				ContractId:     nativeConfigCid,
+				Choice:         "IssuerTransfer",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: transferArgs}},
 			},
 		},
 	}
 
-	// Step 2: Mint DEMO tokens to recipient
-	mintCmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Manager",
-				},
-				ContractId: demoManagerCid,
-				Choice:     "Mint",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
-					Fields: []*lapiv2.RecordField{
-						{Label: "to", Value: PartyValue(toMapping.UserParty)},
-						{Label: "amount", Value: NumericValue(req.Amount)},
-					},
-				}}},
-			},
-		},
-	}
-
-	// Submit both commands atomically
+	// Submit the command
 	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
 			UserId:         c.jwtSubject,
 			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{burnCmd, mintCmd},
+			Commands:       []*lapiv2.Command{cmd},
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("DEMO transfer failed: %w", err)
 	}
 
-	c.logger.Info("DEMO transfer completed",
+	c.logger.Info("DEMO transfer completed (TransferEvent created)",
 		zap.String("from", req.FromFingerprint),
 		zap.String("to", req.ToFingerprint),
 		zap.String("amount", req.Amount))
