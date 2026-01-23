@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Bridge deposit script - deposits PROMPT from Sepolia to Canton
 package main
 
