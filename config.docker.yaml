@@ -29,9 +29,9 @@ canton:
   domain_id: ""  # Auto-detected by bootstrap
   application_id: "canton-middleware"
   relayer_party: ""  # Auto-detected by bootstrap
-  bridge_package_id: "d96995a49cd9e3408e122a58a1db3a725251f9999ea7ffe2236ce4a045e675ba"
-  core_package_id: "e097fc72886638d3cc8f2328ce63994bcfc45f280ef11b0d5511676a1c431854"
-  cip56_package_id: "c091a84c30b517faa6b702c10a0169d2e09541a24fa1355abc4dbfaafc6d4c2b"
+  bridge_package_id: "2f7a146ffc5bdb1365c818c461ecfeafda78fc99e014fb793539aa1a87fe6c99"
+  core_package_id: "32df30f15a3eed8c319d541e9f6332f173a7b738dd121cf666fc54185f4f05c0"
+  cip56_package_id: "c649b42035710f991345b9f010f599870842a821d52c676cb235dcda419407df"
   bridge_module: "Wayfinder.Bridge" 
   bridge_contract: "WayfinderBridgeConfig"
   tls:

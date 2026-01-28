@@ -1,328 +1,370 @@
-# 5North DevNet Setup Guide
+# DevNet Setup Guide
 
-This guide explains how to connect the Canton-Ethereum Bridge to ChainSafe's 5North DevNet instead of a local Docker Canton instance.
-
----
-
-## Quick Start (Pre-Configured Setup)
-
-If the DevNet is already configured (JWT, DARs, party, user rights are shared), just:
-
-```bash
-# 1. Check JWT token is not expired (add == padding for base64url)
-TOKEN=$(cat secrets/devnet-token.txt | cut -d'.' -f2)
-EXP=$(echo "${TOKEN}==" | base64 -d | jq -r '.exp')
-echo "Expires: $(date -r $EXP)"   # macOS
-# echo "Expires: $(date -d @$EXP)" # Linux
-
-# 2. Run the test (first time)
-./scripts/test-bridge-devnet.sh --clean
-
-# 3. For subsequent runs (skip bootstrap)
-./scripts/test-bridge-devnet.sh --skip-bootstrap
-```
-
-**Pre-configured values:**
-- Party: `daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c`
-- JWT Subject: `RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients`
-- Endpoint: `canton-ledger-api-grpc-dev1.chainsafe.dev:80` (plaintext gRPC)
-
-If you need to set up from scratch, continue reading below.
-
----
-
-## Overview
-
-| Component | Local Docker | 5North DevNet |
-|-----------|--------------|---------------|
-| Canton Ledger API | `localhost:5011` | `canton-ledger-api-grpc-dev1.chainsafe.dev:80` |
-| Authentication | Wildcard (no auth) | JWT (Auth0) |
-| TLS | Disabled | Disabled (plaintext gRPC port 80) |
-| Party Allocation | Via HTTP API | Via 5N Dashboard |
-| DAR Upload | Via deployer container | Via 5N Dashboard |
-| Domain/Synchronizer | Auto-configured | Query via API |
+This guide covers setting up the Canton-Ethereum bridge middleware for DevNet (Canton) and Sepolia (Ethereum), including bootstrapping tokens, registering users, and connecting MetaMask.
 
 ## Prerequisites
 
-### 1. Tools Required
 - Go 1.21+
 - Docker & Docker Compose
-- Foundry (`cast`, `forge`)
-- `grpcurl` (for debugging)
-- `jq` (for JSON parsing)
+- Access to Canton DevNet (OAuth credentials)
+- Sepolia ETH for gas (get from faucet)
+- PROMPT tokens on Sepolia (for bridging)
 
-### 2. Access Requirements
-- JWT token from ChainSafe infrastructure team
-- Access to 5N Dashboard (for new setups)
+## 1. Configuration Setup
 
----
+### 1.1 Create Secrets File
 
-## Step-by-Step Setup
-
-### Step 1: Store JWT Token
-
-Once you receive the JWT token from the infrastructure team, save it to:
+Create `secrets/devnet-secrets.sh` with your credentials:
 
 ```bash
-# Save token to secrets directory (this file is gitignored)
-echo "eyJhbGciOiJSUzI1NiI..." > secrets/devnet-token.txt
+#!/bin/bash
+# DevNet Secrets - DO NOT COMMIT THIS FILE
+
+# Canton DevNet OAuth2 Credentials (Auth0)
+export CANTON_AUTH_CLIENT_ID="your-client-id"
+export CANTON_AUTH_CLIENT_SECRET="your-client-secret"
+export CANTON_AUTH_AUDIENCE="https://canton-ledger-api-dev1.01.chainsafe.dev"
+export CANTON_AUTH_TOKEN_URL="https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+
+# Test User Private Keys (for MetaMask import)
+export USER1_PRIVATE_KEY="your-user1-private-key"
+export USER2_PRIVATE_KEY="your-user2-private-key"
+
+# Test User Addresses (derived from private keys above)
+export USER1_ADDRESS="0xYourUser1Address"
+export USER2_ADDRESS="0xYourUser2Address"
+
+# Sepolia Ethereum RPC (Infura)
+export ETHEREUM_RPC_URL="https://sepolia.infura.io/v3/your-infura-key"
+export ETHEREUM_WS_URL="wss://sepolia.infura.io/ws/v3/your-infura-key"
+
+# Relayer Private Key (for signing Ethereum transactions)
+export ETHEREUM_RELAYER_PRIVATE_KEY="your-relayer-private-key"
 ```
 
-**Check token expiration:**
+Make it executable:
 ```bash
-TOKEN=$(cat secrets/devnet-token.txt | cut -d'.' -f2)
-EXP=$(echo "${TOKEN}==" | base64 -d | jq -r '.exp')
-echo "Expires: $(date -r $EXP)"   # macOS
-# echo "Expires: $(date -d @$EXP)" # Linux
+chmod +x secrets/devnet-secrets.sh
 ```
 
-### Step 2: Upload DARs to 5North
+### 1.2 Create Local Config Files
 
-Build the DAR files locally:
-```bash
-cd contracts/canton-erc20/daml
-./scripts/build-all.sh
-```
-
-Upload via 5N Dashboard or admin API:
-- `bridge-wayfinder-*.dar`
-- `bridge-core-*.dar`
-- `cip56-token-*.dar`
-- `common-*.dar`
-
-**Note the package IDs** after upload (you'll need `bridge_package_id` for config).
-
-### Step 3: Allocate Party
-
-Via 5N Dashboard, create a party (e.g., "daml-autopilot" or "BridgeIssuer").
-
-Note the full party ID format:
-```
-hint::1220fingerprint...
-```
-
-Example:
-```
-daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c
-```
-
-### Step 4: Grant User Rights (CRITICAL!)
-
-**This step is often missed and causes "PermissionDenied" errors.**
-
-The JWT's `sub` claim must be mapped to a Canton user with `canActAs` and `canReadAs` rights.
+Copy and customize the config files:
 
 ```bash
-# Set variables
-TOKEN=$(cat secrets/devnet-token.txt)
-JWT_SUB="RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients"  # From JWT 'sub' claim
-PARTY_ID="daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+# API Server config
+cp config.api-server.devnet.yaml config.api-server.local-devnet.yaml
 
-# Grant rights
-grpcurl -plaintext -H "Authorization: Bearer $TOKEN" -d "{
-  \"user_id\": \"$JWT_SUB\",
-  \"rights\": [
-    {\"can_act_as\": {\"party\": \"$PARTY_ID\"}},
-    {\"can_read_as\": {\"party\": \"$PARTY_ID\"}},
-    {\"participant_admin\": {}}
-  ]
-}" canton-ledger-api-grpc-dev1.chainsafe.dev:80 \
-  com.daml.ledger.api.v2.admin.UserManagementService/GrantUserRights
+# Relayer config  
+cp config.devnet.yaml config.local-devnet.yaml
 ```
 
-**Verify rights were granted:**
+Edit `config.local-devnet.yaml` to add:
+- Sepolia RPC/WS URLs (from your Infura account)
+- Relayer private key
+- OAuth credentials (hardcoded, since Go doesn't expand env vars in YAML)
+
+Edit `config.api-server.local-devnet.yaml` to add:
+- OAuth credentials (hardcoded)
+- Custom chain ID for MetaMask (e.g., `1155111101`)
+
+> **Note:** These config files are in `.gitignore` to prevent committing secrets.
+
+## 2. Start Infrastructure
+
+### 2.1 Start PostgreSQL
+
 ```bash
-grpcurl -plaintext -H "Authorization: Bearer $TOKEN" -d "{
-  \"user_id\": \"$JWT_SUB\"
-}" canton-ledger-api-grpc-dev1.chainsafe.dev:80 \
-  com.daml.ledger.api.v2.admin.UserManagementService/ListUserRights
+docker run -d \
+  --name postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=erc20_api \
+  -p 5432:5432 \
+  postgres:15
+
+# Wait for it to start
+sleep 5
+
+# Initialize schema
+docker exec -i postgres psql -U postgres -d erc20_api < pkg/db/schema.sql
 ```
 
-Expected output:
-```json
-{
-  "rights": [
-    {"participant_admin": {}},
-    {"can_act_as": {"party": "daml-autopilot::1220..."}},
-    {"can_read_as": {"party": "daml-autopilot::1220..."}}
-  ]
+### 2.2 Build and Start API Server
+
+```bash
+# Source secrets
+source secrets/devnet-secrets.sh
+
+# Build
+go build -o bin/api-server ./cmd/api-server
+
+# Start (runs on port 8081)
+./bin/api-server -config config.api-server.local-devnet.yaml
+```
+
+### 2.3 Build and Start Relayer
+
+In a new terminal:
+
+```bash
+# Source secrets
+source secrets/devnet-secrets.sh
+
+# Build
+go build -o bin/relayer ./cmd/relayer
+
+# Start (runs on port 8080)
+./bin/relayer -config config.local-devnet.yaml
+```
+
+## 3. Register Users
+
+Users need a `FingerprintMapping` contract on Canton to receive tokens.
+
+### 3.1 Compute Fingerprints
+
+Fingerprints are derived from EVM addresses (Keccak256 hash):
+
+```bash
+# User 1
+go run -exec '' - "0x4768CCb3cE015698468A65bf8208b3f6919c769e" << 'EOF'
+package main
+import (
+    "fmt"
+    "os"
+    "strings"
+    "github.com/ethereum/go-ethereum/common"
+    "golang.org/x/crypto/sha3"
+)
+func main() {
+    addr := common.HexToAddress(os.Args[1])
+    h := sha3.NewLegacyKeccak256()
+    h.Write(addr.Bytes())
+    fmt.Printf("%x\n", h.Sum(nil))
 }
+EOF
 ```
 
-### Step 5: Get Domain/Synchronizer ID
+### 3.2 Register Users on Canton
 
 ```bash
-grpcurl -plaintext -H "Authorization: Bearer $TOKEN" -d "{
-  \"party\": \"$PARTY_ID\"
-}" canton-ledger-api-grpc-dev1.chainsafe.dev:80 \
-  com.daml.ledger.api.v2.StateService/GetConnectedSynchronizers
+# User 1
+go run scripts/register-user.go \
+  -config config.local-devnet.yaml \
+  -fingerprint "USER1_FINGERPRINT" \
+  -evm-address "0xUser1Address"
+
+# User 2
+go run scripts/register-user.go \
+  -config config.local-devnet.yaml \
+  -fingerprint "USER2_FINGERPRINT" \
+  -evm-address "0xUser2Address"
 ```
 
-Example output:
-```json
-{
-  "connected_synchronizers": [{
-    "synchronizer_alias": "global",
-    "synchronizer_id": "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
-  }]
-}
-```
-
-### Step 6: Update config.devnet.yaml
-
-```yaml
-canton:
-  # 5North DevNet gRPC endpoint (plaintext)
-  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
-  ledger_id: ""
-  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
-  application_id: "canton-middleware"
-  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
-  bridge_package_id: "6694b7794de78352c5893ded301e6cf0080db02cbdfa7fab23cfd9e8a56eb73d"
-  core_package_id: "60c0e065bc4bb98d0ef9507e28666e18c8af0f68c56fc224d4a7f423a20909bc"
-  
-  # TLS disabled (using plaintext port 80)
-  tls:
-    enabled: false
-  
-  # JWT Authentication
-  auth:
-    token_file: "secrets/devnet-token.txt"
-```
-
----
-
-## Running the Tests
-
-### Quick Test (after setup is complete)
+### 3.3 Add Users to Database Whitelist
 
 ```bash
-# First run - bootstraps Canton contracts
-./scripts/test-bridge-devnet.sh --clean
+docker exec postgres psql -U postgres -d erc20_api << EOF
+INSERT INTO whitelist (evm_address, added_at) VALUES
+  ('0xUser1Address', NOW()),
+  ('0xUser2Address', NOW())
+ON CONFLICT (evm_address) DO NOTHING;
 
-# Subsequent runs - skip bootstrap
-./scripts/test-bridge-devnet.sh --skip-bootstrap
+INSERT INTO users (evm_address, fingerprint, balance, demo_balance, created_at, updated_at) VALUES
+  ('0xUser1Address', 'USER1_FINGERPRINT', 0, 0, NOW(), NOW()),
+  ('0xUser2Address', 'USER2_FINGERPRINT', 0, 0, NOW(), NOW())
+ON CONFLICT (evm_address) DO UPDATE SET
+  fingerprint = EXCLUDED.fingerprint,
+  updated_at = NOW();
+EOF
 ```
 
-### Manual Testing
+## 4. Bootstrap DEMO Token (Native Canton Token)
+
+DEMO is a native Canton token that doesn't require bridging.
 
 ```bash
-# 1. Start local services (Anvil + Postgres)
-docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml up -d
+# Mint 500 DEMO to User 1
+go run scripts/bootstrap-demo.go \
+  -config config.local-devnet.yaml \
+  -fingerprint "USER1_FINGERPRINT" \
+  -amount 500
 
-# 2. Bootstrap Canton contracts (only once)
-go run scripts/bootstrap-bridge.go -config config.devnet.yaml -issuer "$PARTY_ID"
-
-# 3. Register user for deposits
-go run scripts/register-user.go -config config.devnet.yaml -party "$PARTY_ID"
-
-# 4. Start relayer
-go run cmd/relayer/main.go -config config.devnet.yaml
-
-# 5. Query holdings
-go run scripts/query-holdings.go -config config.devnet.yaml -party "$PARTY_ID"
+# Mint 500 DEMO to User 2
+go run scripts/bootstrap-demo.go \
+  -config config.local-devnet.yaml \
+  -fingerprint "USER2_FINGERPRINT" \
+  -amount 500
 ```
 
----
-
-## Troubleshooting
-
-### "Unauthenticated" Error
-
-**Cause:** JWT token is missing, invalid, or expired.
-
-**Fix:**
-1. Check token exists: `cat secrets/devnet-token.txt`
-2. Verify token isn't expired (see Step 1 for how to check expiration)
-3. If expired, request a new token from the infrastructure team
-
-### "PermissionDenied" Error
-
-**Cause:** JWT user doesn't have `canActAs`/`canReadAs` rights.
-
-**Fix:** Run the `GrantUserRights` command from Step 4 above.
-
-### "INVALID_PRESCRIBED_SYNCHRONIZER_ID" Error
-
-**Cause:** Wrong `domain_id` in config.
-
-**Fix:**
-1. Run `GetConnectedSynchronizers` to get the current domain ID
-2. Update `domain_id` in `config.devnet.yaml`
-
-### "Transport: authentication handshake failed" (ALPN Error)
-
-**Cause:** gRPC-go 1.67+ TLS ALPN incompatibility.
-
-**Fix:** Use plaintext port 80 instead of TLS port 443:
-```yaml
-canton:
-  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
-  tls:
-    enabled: false
+Update database balances:
+```bash
+docker exec postgres psql -U postgres -d erc20_api << EOF
+UPDATE users SET demo_balance = 500 WHERE evm_address = '0xUser1Address';
+UPDATE users SET demo_balance = 500 WHERE evm_address = '0xUser2Address';
+EOF
 ```
 
-### Connection Timeout
+## 5. Bridge PROMPT Token (From Sepolia)
 
-**Cause:** Wrong endpoint or port not accessible.
+PROMPT is an ERC-20 token on Sepolia that gets bridged to Canton.
 
-**Fix:**
-1. Test connectivity: `nc -zv canton-ledger-api-grpc-dev1.chainsafe.dev 80`
-2. Verify endpoint with health check:
-   ```bash
-   grpcurl -plaintext canton-ledger-api-grpc-dev1.chainsafe.dev:80 grpc.health.v1.Health/Check
-   ```
+### 5.1 Prerequisites
 
----
+- User needs PROMPT tokens on Sepolia
+- User needs Sepolia ETH for gas
 
-## Code Changes for DevNet
+### 5.2 Bridge PROMPT
 
-The following files have hardcoded user IDs that must match the JWT `sub` claim:
+```bash
+source secrets/devnet-secrets.sh
 
-### scripts/bootstrap-bridge.go
-```go
-// Line ~355, ~415
-UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients", // JWT subject
+# Bridge 50 PROMPT from Sepolia to Canton for User 1
+go run scripts/bridge-deposit.go
 ```
 
-### scripts/register-user.go
-```go
-// Line ~335
-UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
+The script will:
+1. Approve the bridge contract to spend PROMPT
+2. Call `depositToCanton()` on the bridge
+3. The relayer detects the deposit and mints PROMPT on Canton
+
+Watch relayer logs to confirm:
+```bash
+tail -f logs/relayer.log
 ```
 
-### scripts/initiate-withdrawal.go
-```go
-// Line ~399, ~449
-UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
+You should see:
+```
+Processing transfer {"direction": "ethereum_to_canton", "amount": "50000000000000000000"}
+Creating pending deposit
+Processing deposit and minting tokens
+Transfer completed
 ```
 
-### pkg/canton/client.go
-```go
-// Multiple locations
-UserId: "RSrzTpeADIJU4QHlWkr0xtmm2mgZ5Epb@clients",
+## 6. Connect MetaMask
+
+### 6.1 Add Custom Network
+
+Add a new network in MetaMask:
+
+| Field | Value |
+|-------|-------|
+| Network Name | Canton DevNet (Local) |
+| RPC URL | `http://localhost:8081/eth` |
+| Chain ID | `1155111101` |
+| Currency Symbol | ETH |
+
+> **Note:** Use a unique Chain ID (not 11155111) to avoid conflicts with Sepolia.
+
+### 6.2 Import Test Accounts
+
+Import User 1 and User 2 using their private keys from `secrets/devnet-secrets.sh`.
+
+### 6.3 Add Token Contracts
+
+Import tokens in MetaMask:
+
+**PROMPT Token (bridged ERC-20):**
+- Address: `0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e`
+- Symbol: PROMPT
+- Decimals: 18
+
+**DEMO Token (native Canton):**
+- Address: `0xDE30000000000000000000000000000000000001`
+- Symbol: DEMO
+- Decimals: 18
+
+## 7. Making Transfers
+
+### 7.1 Transfer via MetaMask
+
+1. Select the Canton DevNet network
+2. Select the sender account (User 1 or User 2)
+3. Click "Send" on the token
+4. Enter recipient address and amount
+5. Confirm transaction
+
+The API server intercepts the transaction and executes it on Canton.
+
+### 7.2 Verify Balances
+
+Check database:
+```bash
+docker exec postgres psql -U postgres -d erc20_api \
+  -c "SELECT evm_address, balance as prompt, demo_balance as demo FROM users;"
 ```
 
-**TODO:** Make `UserId` configurable via `config.yaml` instead of hardcoded.
+Check via RPC:
+```bash
+# User 1 PROMPT balance
+curl -s -X POST http://localhost:8081/eth \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e","data":"0x70a08231000000000000000000000000USER1_ADDRESS_NO_0x"},"latest"],"id":1}'
+```
 
----
+## 8. Useful Scripts
 
-## Endpoints Reference
+| Script | Description |
+|--------|-------------|
+| `scripts/setup-devnet.sh` | Automated setup (start services, register users, bootstrap tokens) |
+| `scripts/metamask-info-devnet.sh` | Display MetaMask connection details |
+| `scripts/bridge-deposit.go` | Bridge PROMPT from Sepolia to Canton |
+| `scripts/demo-activity.go` | Query DEMO holdings and events on Canton |
+| `scripts/reconcile-demo.go` | Reconcile database with Canton events |
+| `scripts/register-user.go` | Register a user on Canton |
+| `scripts/bootstrap-demo.go` | Mint DEMO tokens to a user |
 
-| Service | Endpoint |
-|---------|----------|
-| gRPC (plaintext) | `canton-ledger-api-grpc-dev1.chainsafe.dev:80` |
-| gRPC (TLS) | `canton-ledger-api-grpc-dev1.chainsafe.dev:443` (may have ALPN issues) |
+## 9. Troubleshooting
 
----
+### API Server won't start
+- Check PostgreSQL is running: `docker ps | grep postgres`
+- Check config file has correct OAuth credentials
+- Check Canton DevNet is accessible
 
-## Next Steps
+### Relayer won't connect to Sepolia
+- Verify `ETHEREUM_RPC_URL` is correct
+- Check Infura API key is valid
+- Ensure relayer has Sepolia ETH for gas
 
-After DevNet testing is successful:
+### MetaMask shows 0 balance
+- Verify user is registered on Canton (`scripts/register-user.go`)
+- Verify user is in database whitelist
+- Check API server logs for errors
 
-1. **Sepolia Testing:** Update Ethereum config to use Sepolia testnet instead of Anvil
-2. **Production Preparation:** 
-   - Get production JWT credentials from infrastructure team
-   - Connect to Canton mainnet
-   - Deploy Ethereum contracts to mainnet
+### Bridge deposit not processed
+- Check relayer logs for errors
+- Verify user has `FingerprintMapping` with correct package version
+- Ensure deposit transaction was confirmed on Sepolia
 
+### Package version mismatch error
+```
+INTERPRETATION_UPGRADE_ERROR_VALIDATION_FAILED
+```
+This means old contracts exist from a previous package version. The user needs to be re-registered with the current package, or old contracts need to be archived.
+
+## 10. Architecture Overview
+
+```
+┌─────────────────┐     ┌─────────────────┐
+│    MetaMask     │────▶│   API Server    │──────┐
+│  (Chain 1155...)│     │   (port 8081)   │      │
+└─────────────────┘     └─────────────────┘      │
+                                                  ▼
+┌─────────────────┐     ┌─────────────────┐  ┌──────────┐
+│    Sepolia      │────▶│    Relayer      │──▶│ Canton   │
+│  (Chain 11155111)     │   (port 8080)   │  │ DevNet   │
+└─────────────────┘     └─────────────────┘  └──────────┘
+        │                       │
+        │                       ▼
+        │               ┌─────────────────┐
+        └──────────────▶│   PostgreSQL    │
+                        │   (port 5432)   │
+                        └─────────────────┘
+```
+
+- **API Server**: Emulates Ethereum RPC for MetaMask, translates to Canton operations
+- **Relayer**: Bridges events between Sepolia and Canton
+- **PostgreSQL**: Caches balances and tracks processed events
+- **Canton DevNet**: DAML ledger with token contracts
+- **Sepolia**: Ethereum testnet with bridge and PROMPT contracts

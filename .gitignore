@@ -81,3 +81,7 @@ config.api-server.mainnet.yaml
 
 # E2E test config (contains private keys)
 config.e2e-test.yaml
+
+# Local devnet configs (contain OAuth secrets)
+config.local-devnet.yaml
+config.api-server.local-devnet.yaml

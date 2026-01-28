@@ -49,6 +49,7 @@ func (s *Store) CreateUser(user *User) error {
 func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	user := &User{}
 	var balance sql.NullString
+	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
 	query := `
 		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
@@ -60,7 +61,7 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 		&user.EVMAddress,
 		&user.CantonParty,
 		&user.Fingerprint,
-		&user.MappingCID,
+		&mappingCID,
 		&balance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
@@ -70,6 +71,9 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if mappingCID.Valid {
+		user.MappingCID = mappingCID.String
 	}
 	if balance.Valid {
 		user.Balance = balance.String
@@ -87,6 +91,7 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	user := &User{}
 	var balance sql.NullString
+	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
 
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
@@ -101,7 +106,7 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 		&user.EVMAddress,
 		&user.CantonParty,
 		&user.Fingerprint,
-		&user.MappingCID,
+		&mappingCID,
 		&balance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
@@ -111,6 +116,9 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if mappingCID.Valid {
+		user.MappingCID = mappingCID.String
 	}
 	if balance.Valid {
 		user.Balance = balance.String
