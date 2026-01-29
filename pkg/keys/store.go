@@ -1,7 +1,6 @@
 package keys
 
 import (
-	"crypto/ed25519"
 	"fmt"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
@@ -10,13 +9,16 @@ import (
 // KeyStore provides an interface for retrieving and storing Canton keys
 type KeyStore interface {
 	// GetUserKey retrieves and decrypts the Canton private key for a user
-	GetUserKey(evmAddress string) (partyID string, privateKey ed25519.PrivateKey, err error)
+	// Returns 32-byte secp256k1 private key
+	GetUserKey(evmAddress string) (partyID string, privateKey []byte, err error)
 
 	// GetUserKeyByFingerprint retrieves and decrypts the Canton private key by fingerprint
-	GetUserKeyByFingerprint(fingerprint string) (partyID string, privateKey ed25519.PrivateKey, err error)
+	// Returns 32-byte secp256k1 private key
+	GetUserKeyByFingerprint(fingerprint string) (partyID string, privateKey []byte, err error)
 
 	// SetUserKey encrypts and stores the Canton key for a user
-	SetUserKey(evmAddress, cantonPartyID string, privateKey ed25519.PrivateKey) error
+	// Expects 32-byte secp256k1 private key
+	SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error
 
 	// HasUserKey checks if a user has a Canton key
 	HasUserKey(evmAddress string) (bool, error)
@@ -40,7 +42,7 @@ func NewPostgresKeyStore(db *apidb.Store, masterKey []byte) (*PostgresKeyStore, 
 }
 
 // GetUserKey retrieves and decrypts the Canton private key for a user
-func (s *PostgresKeyStore) GetUserKey(evmAddress string) (string, ed25519.PrivateKey, error) {
+func (s *PostgresKeyStore) GetUserKey(evmAddress string) (string, []byte, error) {
 	partyID, encryptedKey, err := s.db.GetUserCantonKey(evmAddress)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get encrypted key: %w", err)
@@ -58,7 +60,7 @@ func (s *PostgresKeyStore) GetUserKey(evmAddress string) (string, ed25519.Privat
 }
 
 // GetUserKeyByFingerprint retrieves and decrypts the Canton private key by fingerprint
-func (s *PostgresKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, ed25519.PrivateKey, error) {
+func (s *PostgresKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, []byte, error) {
 	partyID, encryptedKey, err := s.db.GetUserCantonKeyByFingerprint(fingerprint)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get encrypted key: %w", err)
@@ -76,7 +78,11 @@ func (s *PostgresKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, 
 }
 
 // SetUserKey encrypts and stores the Canton key for a user
-func (s *PostgresKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey ed25519.PrivateKey) error {
+func (s *PostgresKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error {
+	if len(privateKey) != 32 {
+		return fmt.Errorf("private key must be 32 bytes (secp256k1)")
+	}
+
 	encryptedKey, err := EncryptPrivateKey(privateKey, s.masterKey)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt key: %w", err)
@@ -102,7 +108,7 @@ type MemoryKeyStore struct {
 
 type userKeyEntry struct {
 	partyID    string
-	privateKey ed25519.PrivateKey
+	privateKey []byte // 32-byte secp256k1 private key
 }
 
 // NewMemoryKeyStore creates a new in-memory key store (for testing)
@@ -114,7 +120,7 @@ func NewMemoryKeyStore(masterKey []byte) *MemoryKeyStore {
 }
 
 // GetUserKey retrieves the Canton private key for a user (from memory)
-func (s *MemoryKeyStore) GetUserKey(evmAddress string) (string, ed25519.PrivateKey, error) {
+func (s *MemoryKeyStore) GetUserKey(evmAddress string) (string, []byte, error) {
 	entry, ok := s.keys[evmAddress]
 	if !ok {
 		return "", nil, nil
@@ -123,12 +129,15 @@ func (s *MemoryKeyStore) GetUserKey(evmAddress string) (string, ed25519.PrivateK
 }
 
 // GetUserKeyByFingerprint is not supported by MemoryKeyStore
-func (s *MemoryKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, ed25519.PrivateKey, error) {
+func (s *MemoryKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, []byte, error) {
 	return "", nil, fmt.Errorf("GetUserKeyByFingerprint not supported by MemoryKeyStore")
 }
 
 // SetUserKey stores the Canton key for a user (in memory)
-func (s *MemoryKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey ed25519.PrivateKey) error {
+func (s *MemoryKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error {
+	if len(privateKey) != 32 {
+		return fmt.Errorf("private key must be 32 bytes (secp256k1)")
+	}
 	s.keys[evmAddress] = &userKeyEntry{
 		partyID:    cantonPartyID,
 		privateKey: privateKey,

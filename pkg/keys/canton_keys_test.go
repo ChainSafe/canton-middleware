@@ -1,9 +1,13 @@
 package keys
 
 import (
-	"crypto/ed25519"
 	"encoding/base64"
 	"testing"
+)
+
+const (
+	secp256k1PrivateKeySize = 32 // secp256k1 private key is 32 bytes
+	secp256k1PublicKeySize  = 33 // Compressed secp256k1 public key is 33 bytes
 )
 
 func TestGenerateCantonKeyPair(t *testing.T) {
@@ -13,17 +17,20 @@ func TestGenerateCantonKeyPair(t *testing.T) {
 	}
 
 	// Check key sizes
-	if len(kp.PublicKey) != ed25519.PublicKeySize {
-		t.Errorf("Expected public key size %d, got %d", ed25519.PublicKeySize, len(kp.PublicKey))
+	if len(kp.PublicKey) != secp256k1PublicKeySize {
+		t.Errorf("Expected public key size %d, got %d", secp256k1PublicKeySize, len(kp.PublicKey))
 	}
-	if len(kp.PrivateKey) != ed25519.PrivateKeySize {
-		t.Errorf("Expected private key size %d, got %d", ed25519.PrivateKeySize, len(kp.PrivateKey))
+	if len(kp.PrivateKey) != secp256k1PrivateKeySize {
+		t.Errorf("Expected private key size %d, got %d", secp256k1PrivateKeySize, len(kp.PrivateKey))
 	}
 
 	// Verify the keypair works for signing
 	message := []byte("test message")
-	signature := kp.Sign(message)
-	if !ed25519.Verify(kp.PublicKey, message, signature) {
+	signature, err := kp.Sign(message)
+	if err != nil {
+		t.Fatalf("Sign failed: %v", err)
+	}
+	if !kp.Verify(message, signature) {
 		t.Error("Signature verification failed")
 	}
 }
@@ -113,8 +120,15 @@ func TestEncryptDecryptPrivateKey(t *testing.T) {
 
 	// Decrypted key should still work for signing
 	message := []byte("test message")
-	signature := ed25519.Sign(decrypted, message)
-	if !ed25519.Verify(kp.PublicKey, message, signature) {
+	decryptedKP := &CantonKeyPair{
+		PrivateKey: decrypted,
+		PublicKey:  kp.PublicKey,
+	}
+	signature, err := decryptedKP.Sign(message)
+	if err != nil {
+		t.Fatalf("Sign with decrypted key failed: %v", err)
+	}
+	if !kp.Verify(message, signature) {
 		t.Error("Signature with decrypted key failed verification")
 	}
 }
@@ -203,8 +217,8 @@ func TestPublicKeyEncodings(t *testing.T) {
 
 	// Hex encoding
 	hex := kp.PublicKeyHex()
-	if len(hex) != ed25519.PublicKeySize*2 {
-		t.Errorf("Hex encoding length wrong: got %d, want %d", len(hex), ed25519.PublicKeySize*2)
+	if len(hex) != secp256k1PublicKeySize*2 {
+		t.Errorf("Hex encoding length wrong: got %d, want %d", len(hex), secp256k1PublicKeySize*2)
 	}
 
 	// Base64 encoding
@@ -213,7 +227,7 @@ func TestPublicKeyEncodings(t *testing.T) {
 	if err != nil {
 		t.Errorf("Base64 decoding failed: %v", err)
 	}
-	if len(decoded) != ed25519.PublicKeySize {
-		t.Errorf("Decoded length wrong: got %d, want %d", len(decoded), ed25519.PublicKeySize)
+	if len(decoded) != secp256k1PublicKeySize {
+		t.Errorf("Decoded length wrong: got %d, want %d", len(decoded), secp256k1PublicKeySize)
 	}
 }

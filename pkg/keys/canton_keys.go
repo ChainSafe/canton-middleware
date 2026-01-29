@@ -1,35 +1,44 @@
 // Package keys provides Canton key generation and encryption for custodial key management.
 // This package is used to generate Canton keypairs for users and encrypt them for secure storage.
+// Uses secp256k1 (same curve as Ethereum) for compatibility with user wallets.
 package keys
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/hkdf"
 )
 
-// CantonKeyPair represents a Canton signing keypair
+// CantonKeyPair represents a Canton signing keypair using secp256k1
 type CantonKeyPair struct {
-	PublicKey  ed25519.PublicKey
-	PrivateKey ed25519.PrivateKey
+	PublicKey  []byte // 33-byte compressed secp256k1 public key
+	PrivateKey []byte // 32-byte secp256k1 private key
 }
 
-// GenerateCantonKeyPair generates a new ed25519 keypair for Canton signing
+// GenerateCantonKeyPair generates a new secp256k1 keypair for Canton signing
+// This uses the same curve as Ethereum for potential wallet integration
 func GenerateCantonKeyPair() (*CantonKeyPair, error) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	privateKey, err := crypto.GenerateKey()
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate ed25519 keypair: %w", err)
+		return nil, fmt.Errorf("failed to generate secp256k1 keypair: %w", err)
 	}
+
+	// Get the 32-byte private key
+	privateKeyBytes := crypto.FromECDSA(privateKey)
+
+	// Get the compressed 33-byte public key
+	publicKeyBytes := crypto.CompressPubkey(&privateKey.PublicKey)
+
 	return &CantonKeyPair{
-		PublicKey:  publicKey,
-		PrivateKey: privateKey,
+		PublicKey:  publicKeyBytes,
+		PrivateKey: privateKeyBytes,
 	}, nil
 }
 
@@ -45,18 +54,24 @@ func DeriveCantonKeyPair(evmAddress string, serverSeed []byte) (*CantonKeyPair, 
 	info := []byte("canton-key-" + evmAddress)
 	hkdfReader := hkdf.New(sha256.New, serverSeed, nil, info)
 
-	// ed25519 seed is 32 bytes
-	seed := make([]byte, ed25519.SeedSize)
-	if _, err := io.ReadFull(hkdfReader, seed); err != nil {
+	// secp256k1 private key is 32 bytes
+	privateKeyBytes := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, privateKeyBytes); err != nil {
 		return nil, fmt.Errorf("failed to derive key seed: %w", err)
 	}
 
-	privateKey := ed25519.NewKeyFromSeed(seed)
-	publicKey := privateKey.Public().(ed25519.PublicKey)
+	// Convert to ECDSA private key
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create private key: %w", err)
+	}
+
+	// Get compressed public key
+	publicKeyBytes := crypto.CompressPubkey(&privateKey.PublicKey)
 
 	return &CantonKeyPair{
-		PublicKey:  publicKey,
-		PrivateKey: privateKey,
+		PublicKey:  publicKeyBytes,
+		PrivateKey: privateKeyBytes,
 	}, nil
 }
 
@@ -72,9 +87,13 @@ func (kp *CantonKeyPair) PublicKeyBase64() string {
 
 // EncryptPrivateKey encrypts the private key using AES-256-GCM with the provided master key.
 // Returns the encrypted key as a base64-encoded string containing: nonce || ciphertext || tag
-func EncryptPrivateKey(privateKey ed25519.PrivateKey, masterKey []byte) (string, error) {
+func EncryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {
 	if len(masterKey) != 32 {
 		return "", fmt.Errorf("master key must be 32 bytes (AES-256)")
+	}
+
+	if len(privateKey) != 32 {
+		return "", fmt.Errorf("private key must be 32 bytes (secp256k1)")
 	}
 
 	// Create AES cipher
@@ -96,7 +115,7 @@ func EncryptPrivateKey(privateKey ed25519.PrivateKey, masterKey []byte) (string,
 	}
 
 	// Encrypt the private key
-	// The private key is 64 bytes for ed25519 (seed + public key)
+	// The private key is 32 bytes for secp256k1
 	ciphertext := gcm.Seal(nonce, nonce, privateKey, nil)
 
 	// Return as base64
@@ -105,7 +124,7 @@ func EncryptPrivateKey(privateKey ed25519.PrivateKey, masterKey []byte) (string,
 
 // DecryptPrivateKey decrypts an encrypted private key using AES-256-GCM.
 // The encrypted string should be base64-encoded containing: nonce || ciphertext || tag
-func DecryptPrivateKey(encrypted string, masterKey []byte) (ed25519.PrivateKey, error) {
+func DecryptPrivateKey(encrypted string, masterKey []byte) ([]byte, error) {
 	if len(masterKey) != 32 {
 		return nil, fmt.Errorf("master key must be 32 bytes (AES-256)")
 	}
@@ -141,17 +160,98 @@ func DecryptPrivateKey(encrypted string, masterKey []byte) (ed25519.PrivateKey, 
 		return nil, fmt.Errorf("failed to decrypt: %w", err)
 	}
 
-	// Verify it's a valid ed25519 private key (64 bytes)
-	if len(plaintext) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("decrypted key has wrong size: got %d, want %d", len(plaintext), ed25519.PrivateKeySize)
+	// Verify it's a valid secp256k1 private key (32 bytes)
+	if len(plaintext) != 32 {
+		return nil, fmt.Errorf("decrypted key has wrong size: got %d, want 32", len(plaintext))
 	}
 
-	return ed25519.PrivateKey(plaintext), nil
+	return plaintext, nil
 }
 
-// Sign signs a message with the private key
-func (kp *CantonKeyPair) Sign(message []byte) []byte {
-	return ed25519.Sign(kp.PrivateKey, message)
+// Sign signs a message with the private key using ECDSA with SHA-256
+// Returns the signature in DER format (compatible with Canton)
+func (kp *CantonKeyPair) Sign(message []byte) ([]byte, error) {
+	// Convert private key bytes to ECDSA private key
+	privateKey, err := crypto.ToECDSA(kp.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert private key: %w", err)
+	}
+
+	// Hash the message with SHA-256
+	hash := sha256.Sum256(message)
+
+	// Sign with ECDSA
+	signature, err := crypto.Sign(hash[:], privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign: %w", err)
+	}
+
+	// The crypto.Sign function returns a 65-byte signature [R || S || V]
+	// For Canton, we need just the DER-encoded signature without the recovery ID
+	// We'll return the R and S values (first 64 bytes)
+	return signature[:64], nil
+}
+
+// SignHash signs a pre-hashed message (useful when Canton provides the hash)
+func (kp *CantonKeyPair) SignHash(hash []byte) ([]byte, error) {
+	if len(hash) != 32 {
+		return nil, fmt.Errorf("hash must be 32 bytes")
+	}
+
+	privateKey, err := crypto.ToECDSA(kp.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert private key: %w", err)
+	}
+
+	signature, err := crypto.Sign(hash, privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign: %w", err)
+	}
+
+	return signature[:64], nil
+}
+
+// Verify verifies a signature against a message
+func (kp *CantonKeyPair) Verify(message, signature []byte) bool {
+	// Hash the message
+	hash := sha256.Sum256(message)
+
+	if len(signature) != 64 {
+		return false
+	}
+
+	// Add recovery ID (V) for verification (need to try both 0 and 1)
+	sig := make([]byte, 65)
+	copy(sig, signature)
+
+	// Try recovery ID 0
+	sig[64] = 0
+	recoveredPub, err := crypto.SigToPub(hash[:], sig)
+	if err == nil {
+		// Compare public keys by converting both to addresses
+		expectedAddr := crypto.PubkeyToAddress(*recoveredPub)
+		actualPub, err := crypto.DecompressPubkey(kp.PublicKey)
+		if err == nil {
+			actualAddr := crypto.PubkeyToAddress(*actualPub)
+			if expectedAddr == actualAddr {
+				return true
+			}
+		}
+	}
+
+	// Try recovery ID 1
+	sig[64] = 1
+	recoveredPub, err = crypto.SigToPub(hash[:], sig)
+	if err == nil {
+		expectedAddr := crypto.PubkeyToAddress(*recoveredPub)
+		actualPub, err := crypto.DecompressPubkey(kp.PublicKey)
+		if err == nil {
+			actualAddr := crypto.PubkeyToAddress(*actualPub)
+			return expectedAddr == actualAddr
+		}
+	}
+
+	return false
 }
 
 // GenerateMasterKey generates a new random 32-byte master key for encrypting Canton keys.
