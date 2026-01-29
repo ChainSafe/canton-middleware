@@ -228,10 +228,10 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 
 	// Step 4: Update balance cache if API DB is configured
 	if d.apiDB != nil {
-		// Increment user balance
-		if err := d.apiDB.IncrementBalanceByFingerprint(fingerprint, amountStr); err != nil {
+		// Increment user PROMPT balance
+		if err := d.apiDB.IncrementBalanceByFingerprint(fingerprint, amountStr, apidb.TokenPrompt); err != nil {
 			// Log but don't fail - the deposit succeeded on Canton
-			fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", fingerprint, err)
+			fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", fingerprint, err)
 		}
 		// Increment total supply
 		if err := d.apiDB.IncrementTotalSupply(amountStr); err != nil {
@@ -324,11 +324,11 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 
 		// Update balance cache if API DB is configured
 		if d.apiDB != nil {
-			// Decrement user balance using EVM destination address from withdrawal event
+			// Decrement user PROMPT balance using EVM destination address from withdrawal event
 			// Note: withdrawal.Fingerprint is the Canton party fingerprint, not the user's EVM fingerprint
-			if err := d.apiDB.DecrementBalance(withdrawal.EvmDestination, event.Amount); err != nil {
+			if err := d.apiDB.DecrementBalance(withdrawal.EvmDestination, event.Amount, apidb.TokenPrompt); err != nil {
 				// Log but don't fail - the withdrawal succeeded
-				fmt.Printf("WARN: Failed to update balance cache for %s: %v\n", withdrawal.EvmDestination, err)
+				fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", withdrawal.EvmDestination, err)
 			}
 			// Decrement total supply (tokens leaving Canton system)
 			if err := d.apiDB.DecrementTotalSupply(event.Amount); err != nil {

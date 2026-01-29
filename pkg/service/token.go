@@ -102,8 +102,8 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, fmt.Errorf("canton transfer failed: %w", err)
 	}
 
-	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update balance cache",
+	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, apidb.TokenPrompt); err != nil {
+		s.logger.Warn("Failed to update prompt balance cache",
 			zap.String("from_fingerprint", fromUser.Fingerprint),
 			zap.String("to_fingerprint", toUser.Fingerprint),
 			zap.String("amount", req.Amount),
@@ -134,9 +134,9 @@ func (s *TokenService) GetBalance(ctx context.Context, evmAddress string) (strin
 		return "0", nil
 	}
 
-	balance, err := s.db.GetUserBalanceByFingerprint(user.Fingerprint)
+	balance, err := s.db.GetBalanceByFingerprint(user.Fingerprint, apidb.TokenPrompt)
 	if err != nil {
-		s.logger.Warn("Failed to get balance from cache, returning 0",
+		s.logger.Warn("Failed to get prompt balance from cache, returning 0",
 			zap.String("fingerprint", user.Fingerprint),
 			zap.Error(err))
 		return "0", nil
@@ -244,15 +244,11 @@ func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoReques
 		return nil, fmt.Errorf("canton DEMO transfer failed: %w", err)
 	}
 
-	// Update database balance cache
-	if err := s.db.DecrementDemoBalanceByFingerprint(fromUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update sender DEMO balance cache",
-			zap.String("fingerprint", fromUser.Fingerprint),
-			zap.Error(err))
-	}
-	if err := s.db.IncrementDemoBalanceByFingerprint(toUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update recipient DEMO balance cache",
-			zap.String("fingerprint", toUser.Fingerprint),
+	// Update database balance cache atomically
+	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, apidb.TokenDemo); err != nil {
+		s.logger.Warn("Failed to update DEMO balance cache",
+			zap.String("from_fingerprint", fromUser.Fingerprint),
+			zap.String("to_fingerprint", toUser.Fingerprint),
 			zap.Error(err))
 	}
 
@@ -281,7 +277,7 @@ func (s *TokenService) GetDemoBalance(ctx context.Context, evmAddress string) (s
 	}
 
 	// Get balance from database cache
-	balance, err := s.db.GetDemoBalanceByFingerprint(user.Fingerprint)
+	balance, err := s.db.GetBalanceByFingerprint(user.Fingerprint, apidb.TokenDemo)
 	if err != nil {
 		s.logger.Warn("Failed to get DEMO balance from cache, returning 0",
 			zap.String("fingerprint", user.Fingerprint),

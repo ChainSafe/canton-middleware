@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     canton_party VARCHAR(255) NOT NULL,           -- User's Canton party ID
     fingerprint VARCHAR(128) NOT NULL,
     mapping_cid VARCHAR(255),
-    balance DECIMAL(38,18) DEFAULT 0,
+    prompt_balance DECIMAL(38,18) DEFAULT 0,      -- PROMPT (bridged) token balance
     demo_balance DECIMAL(38,18) DEFAULT 0,        -- DEMO (native) token balance
     balance_updated_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),

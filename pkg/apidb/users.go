@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+// TokenType represents a token type for balance operations
+type TokenType string
+
+const (
+	TokenPrompt TokenType = "prompt" // PROMPT (bridged) token
+	TokenDemo   TokenType = "demo"   // DEMO (native) token
+)
+
+// tokenColumn returns the database column name for a token type
+func tokenColumn(token TokenType) string {
+	switch token {
+	case TokenPrompt:
+		return "prompt_balance"
+	case TokenDemo:
+		return "demo_balance"
+	default:
+		return "prompt_balance" // Default to PROMPT for safety
+	}
+}
+
 // normalizeFingerprint returns both 0x-prefixed and non-prefixed versions of a fingerprint.
 // This allows queries to match fingerprints stored in either format.
 func normalizeFingerprint(fingerprint string) (withPrefix, withoutPrefix string) {
@@ -23,8 +43,8 @@ type User struct {
 	CantonParty      string     `json:"canton_party"` // Legacy: relayer party (for backward compat)
 	Fingerprint      string     `json:"fingerprint"`
 	MappingCID       string     `json:"mapping_cid,omitempty"`
-	Balance          string     `json:"balance"`      // PROMPT token balance
-	DemoBalance      string     `json:"demo_balance"` // DEMO token balance
+	PromptBalance    string     `json:"prompt_balance"` // PROMPT (bridged) token balance
+	DemoBalance      string     `json:"demo_balance"`   // DEMO (native) token balance
 	BalanceUpdatedAt *time.Time `json:"balance_updated_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
 
@@ -56,14 +76,15 @@ func (s *Store) CreateUser(user *User) error {
 // GetUserByEVMAddress retrieves a user by their EVM address
 func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	user := &User{}
-	var balance sql.NullString
+	var promptBalance sql.NullString
+	var demoBalance sql.NullString
 	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
 	var cantonPartyID sql.NullString
 	var cantonPrivateKeyEncrypted sql.NullString
 	var cantonKeyCreatedAt sql.NullTime
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at,
 		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
 		FROM users
 		WHERE evm_address = $1
@@ -74,7 +95,8 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 		&user.CantonParty,
 		&user.Fingerprint,
 		&mappingCID,
-		&balance,
+		&promptBalance,
+		&demoBalance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
 		&cantonPartyID,
@@ -90,10 +112,15 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	if mappingCID.Valid {
 		user.MappingCID = mappingCID.String
 	}
-	if balance.Valid {
-		user.Balance = balance.String
+	if promptBalance.Valid {
+		user.PromptBalance = promptBalance.String
 	} else {
-		user.Balance = "0"
+		user.PromptBalance = "0"
+	}
+	if demoBalance.Valid {
+		user.DemoBalance = demoBalance.String
+	} else {
+		user.DemoBalance = "0"
 	}
 	if balanceUpdatedAt.Valid {
 		user.BalanceUpdatedAt = &balanceUpdatedAt.Time
@@ -114,7 +141,8 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 // Handles fingerprint with or without 0x prefix
 func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	user := &User{}
-	var balance sql.NullString
+	var promptBalance sql.NullString
+	var demoBalance sql.NullString
 	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
 	var cantonPartyID sql.NullString
@@ -124,7 +152,7 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at,
 		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
 		FROM users
 		WHERE fingerprint = $1 OR fingerprint = $2
@@ -135,7 +163,8 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 		&user.CantonParty,
 		&user.Fingerprint,
 		&mappingCID,
-		&balance,
+		&promptBalance,
+		&demoBalance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
 		&cantonPartyID,
@@ -151,10 +180,15 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	if mappingCID.Valid {
 		user.MappingCID = mappingCID.String
 	}
-	if balance.Valid {
-		user.Balance = balance.String
+	if promptBalance.Valid {
+		user.PromptBalance = promptBalance.String
 	} else {
-		user.Balance = "0"
+		user.PromptBalance = "0"
+	}
+	if demoBalance.Valid {
+		user.DemoBalance = demoBalance.String
+	} else {
+		user.DemoBalance = "0"
 	}
 	if balanceUpdatedAt.Valid {
 		user.BalanceUpdatedAt = &balanceUpdatedAt.Time
@@ -192,6 +226,16 @@ func (s *Store) UpdateUserMappingCID(evmAddress, mappingCID string) error {
 	return nil
 }
 
+// DeleteUser removes a user by EVM address (used for cleanup on failed registration)
+func (s *Store) DeleteUser(evmAddress string) error {
+	query := `DELETE FROM users WHERE evm_address = $1`
+	_, err := s.db.Exec(query, evmAddress)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
 // UserExists checks if a user with the given EVM address exists
 func (s *Store) UserExists(evmAddress string) (bool, error) {
 	var exists bool
@@ -201,19 +245,20 @@ func (s *Store) UserExists(evmAddress string) (bool, error) {
 }
 
 // =============================================================================
-// Balance Cache Methods
+// Generic Token Balance Cache Methods
 // =============================================================================
 
-// GetUserBalance returns the cached balance for a user by EVM address
-func (s *Store) GetUserBalance(evmAddress string) (string, error) {
+// GetBalance returns the cached balance for a user by EVM address and token type
+func (s *Store) GetBalance(evmAddress string, token TokenType) (string, error) {
 	var balance sql.NullString
-	query := `SELECT balance FROM users WHERE evm_address = $1`
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`SELECT %s FROM users WHERE evm_address = $1`, col)
 	err := s.db.QueryRow(query, evmAddress).Scan(&balance)
 	if err == sql.ErrNoRows {
 		return "0", nil
 	}
 	if err != nil {
-		return "0", fmt.Errorf("failed to get balance: %w", err)
+		return "0", fmt.Errorf("failed to get %s balance: %w", token, err)
 	}
 	if !balance.Valid {
 		return "0", nil
@@ -221,19 +266,20 @@ func (s *Store) GetUserBalance(evmAddress string) (string, error) {
 	return balance.String, nil
 }
 
-// GetUserBalanceByFingerprint returns the cached balance for a user by fingerprint
+// GetBalanceByFingerprint returns the cached balance for a user by fingerprint and token type
 // Handles fingerprint with or without 0x prefix
-func (s *Store) GetUserBalanceByFingerprint(fingerprint string) (string, error) {
+func (s *Store) GetBalanceByFingerprint(fingerprint string, token TokenType) (string, error) {
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	var balance sql.NullString
-	query := `SELECT balance FROM users WHERE fingerprint = $1 OR fingerprint = $2`
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`SELECT %s FROM users WHERE fingerprint = $1 OR fingerprint = $2`, col)
 	err := s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(&balance)
 	if err == sql.ErrNoRows {
 		return "0", nil
 	}
 	if err != nil {
-		return "0", fmt.Errorf("failed to get balance: %w", err)
+		return "0", fmt.Errorf("failed to get %s balance: %w", token, err)
 	}
 	if !balance.Valid {
 		return "0", nil
@@ -241,16 +287,17 @@ func (s *Store) GetUserBalanceByFingerprint(fingerprint string) (string, error) 
 	return balance.String, nil
 }
 
-// UpdateUserBalance sets the balance for a user (full replacement)
-func (s *Store) UpdateUserBalance(evmAddress, newBalance string) error {
-	query := `
+// UpdateBalance sets the balance for a user (full replacement)
+func (s *Store) UpdateBalance(evmAddress, newBalance string, token TokenType) error {
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = $1, balance_updated_at = NOW()
+		SET %s = $1, balance_updated_at = NOW()
 		WHERE evm_address = $2
-	`
+	`, col)
 	result, err := s.db.Exec(query, newBalance, evmAddress)
 	if err != nil {
-		return fmt.Errorf("failed to update balance: %w", err)
+		return fmt.Errorf("failed to update %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -262,19 +309,20 @@ func (s *Store) UpdateUserBalance(evmAddress, newBalance string) error {
 	return nil
 }
 
-// UpdateUserBalanceByFingerprint sets the balance for a user by fingerprint
+// UpdateBalanceByFingerprint sets the balance for a user by fingerprint
 // Handles fingerprint with or without 0x prefix
-func (s *Store) UpdateUserBalanceByFingerprint(fingerprint, newBalance string) error {
+func (s *Store) UpdateBalanceByFingerprint(fingerprint, newBalance string, token TokenType) error {
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
-	query := `
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = $1, balance_updated_at = NOW()
+		SET %s = $1, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`
+	`, col)
 	result, err := s.db.Exec(query, newBalance, withPrefix, withoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to update balance: %w", err)
+		return fmt.Errorf("failed to update %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -287,15 +335,16 @@ func (s *Store) UpdateUserBalanceByFingerprint(fingerprint, newBalance string) e
 }
 
 // IncrementBalance adds amount to user's balance atomically
-func (s *Store) IncrementBalance(evmAddress, amount string) error {
-	query := `
+func (s *Store) IncrementBalance(evmAddress, amount string, token TokenType) error {
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) + $1::DECIMAL, balance_updated_at = NOW()
 		WHERE evm_address = $2
-	`
+	`, col, col)
 	result, err := s.db.Exec(query, amount, evmAddress)
 	if err != nil {
-		return fmt.Errorf("failed to increment balance: %w", err)
+		return fmt.Errorf("failed to increment %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -309,17 +358,18 @@ func (s *Store) IncrementBalance(evmAddress, amount string) error {
 
 // IncrementBalanceByFingerprint adds amount to user's balance atomically by fingerprint
 // Handles fingerprint with or without 0x prefix
-func (s *Store) IncrementBalanceByFingerprint(fingerprint, amount string) error {
+func (s *Store) IncrementBalanceByFingerprint(fingerprint, amount string, token TokenType) error {
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
-	query := `
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) + $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`
+	`, col, col)
 	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to increment balance: %w", err)
+		return fmt.Errorf("failed to increment %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -332,15 +382,16 @@ func (s *Store) IncrementBalanceByFingerprint(fingerprint, amount string) error 
 }
 
 // DecrementBalance subtracts amount from user's balance atomically
-func (s *Store) DecrementBalance(evmAddress, amount string) error {
-	query := `
+func (s *Store) DecrementBalance(evmAddress, amount string, token TokenType) error {
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) - $1::DECIMAL, balance_updated_at = NOW()
 		WHERE evm_address = $2
-	`
+	`, col, col)
 	result, err := s.db.Exec(query, amount, evmAddress)
 	if err != nil {
-		return fmt.Errorf("failed to decrement balance: %w", err)
+		return fmt.Errorf("failed to decrement %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -354,17 +405,18 @@ func (s *Store) DecrementBalance(evmAddress, amount string) error {
 
 // DecrementBalanceByFingerprint subtracts amount from user's balance atomically by fingerprint
 // Handles fingerprint with or without 0x prefix
-func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string) error {
+func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string, token TokenType) error {
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
-	query := `
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) - $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`
+	`, col, col)
 	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to decrement balance: %w", err)
+		return fmt.Errorf("failed to decrement %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -379,7 +431,7 @@ func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string) error 
 // GetAllUsers returns all registered users with their balances
 func (s *Store) GetAllUsers() ([]*User, error) {
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at
 		FROM users
 		ORDER BY id
 	`
@@ -392,7 +444,8 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		user := &User{}
-		var balance sql.NullString
+		var promptBalance sql.NullString
+		var demoBalance sql.NullString
 		var balanceUpdatedAt sql.NullTime
 		err := rows.Scan(
 			&user.ID,
@@ -400,17 +453,23 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 			&user.CantonParty,
 			&user.Fingerprint,
 			&user.MappingCID,
-			&balance,
+			&promptBalance,
+			&demoBalance,
 			&balanceUpdatedAt,
 			&user.CreatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
-		if balance.Valid {
-			user.Balance = balance.String
+		if promptBalance.Valid {
+			user.PromptBalance = promptBalance.String
 		} else {
-			user.Balance = "0"
+			user.PromptBalance = "0"
+		}
+		if demoBalance.Valid {
+			user.DemoBalance = demoBalance.String
+		} else {
+			user.DemoBalance = "0"
 		}
 		if balanceUpdatedAt.Valid {
 			user.BalanceUpdatedAt = &balanceUpdatedAt.Time
@@ -424,9 +483,11 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 // Both the decrement and increment are performed in a single database transaction
 // to ensure consistency of the balance cache.
 // Handles fingerprints with or without 0x prefix.
-func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amount string) error {
+func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amount string, token TokenType) error {
 	fromWithPrefix, fromWithoutPrefix := normalizeFingerprint(fromFingerprint)
 	toWithPrefix, toWithoutPrefix := normalizeFingerprint(toFingerprint)
+
+	col := tokenColumn(token)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -435,14 +496,14 @@ func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amo
 	defer tx.Rollback()
 
 	// Decrement sender's balance
-	decrementQuery := `
+	decrementQuery := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) - $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) - $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`
+	`, col, col)
 	result, err := tx.Exec(decrementQuery, amount, fromWithPrefix, fromWithoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to decrement sender balance: %w", err)
+		return fmt.Errorf("failed to decrement sender %s balance: %w", token, err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
@@ -453,14 +514,14 @@ func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amo
 	}
 
 	// Increment recipient's balance
-	incrementQuery := `
+	incrementQuery := fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) + $1::DECIMAL, balance_updated_at = NOW()
+		SET %s = COALESCE(%s, 0) + $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
-	`
+	`, col, col)
 	result, err = tx.Exec(incrementQuery, amount, toWithPrefix, toWithoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to increment recipient balance: %w", err)
+		return fmt.Errorf("failed to increment recipient %s balance: %w", token, err)
 	}
 	rows, err = result.RowsAffected()
 	if err != nil {
@@ -478,134 +539,12 @@ func (s *Store) TransferBalanceByFingerprint(fromFingerprint, toFingerprint, amo
 	return nil
 }
 
-// =============================================================================
-// DEMO Token Balance Methods
-// =============================================================================
-
-// GetDemoBalance returns the cached DEMO balance for a user by EVM address
-func (s *Store) GetDemoBalance(evmAddress string) (string, error) {
-	var balance sql.NullString
-	query := `SELECT demo_balance FROM users WHERE evm_address = $1`
-	err := s.db.QueryRow(query, evmAddress).Scan(&balance)
-	if err == sql.ErrNoRows {
-		return "0", nil
-	}
-	if err != nil {
-		return "0", fmt.Errorf("failed to get demo balance: %w", err)
-	}
-	if !balance.Valid {
-		return "0", nil
-	}
-	return balance.String, nil
-}
-
-// GetDemoBalanceByFingerprint returns the cached DEMO balance for a user by fingerprint
-func (s *Store) GetDemoBalanceByFingerprint(fingerprint string) (string, error) {
-	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
-
-	var balance sql.NullString
-	query := `SELECT demo_balance FROM users WHERE fingerprint = $1 OR fingerprint = $2`
-	err := s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(&balance)
-	if err == sql.ErrNoRows {
-		return "0", nil
-	}
-	if err != nil {
-		return "0", fmt.Errorf("failed to get demo balance: %w", err)
-	}
-	if !balance.Valid {
-		return "0", nil
-	}
-	return balance.String, nil
-}
-
-// UpdateDemoBalance sets the DEMO balance for a user
-func (s *Store) UpdateDemoBalance(evmAddress, newBalance string) error {
-	query := `
-		UPDATE users
-		SET demo_balance = $1, balance_updated_at = NOW()
-		WHERE evm_address = $2
-	`
-	result, err := s.db.Exec(query, newBalance, evmAddress)
-	if err != nil {
-		return fmt.Errorf("failed to update demo balance: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("user not found: %s", evmAddress)
-	}
-	return nil
-}
-
-// UpdateDemoBalanceByFingerprint sets the DEMO balance for a user by fingerprint
-func (s *Store) UpdateDemoBalanceByFingerprint(fingerprint, newBalance string) error {
-	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
-
-	query := `
-		UPDATE users
-		SET demo_balance = $1, balance_updated_at = NOW()
-		WHERE fingerprint = $2 OR fingerprint = $3
-	`
-	result, err := s.db.Exec(query, newBalance, withPrefix, withoutPrefix)
-	if err != nil {
-		return fmt.Errorf("failed to update demo balance: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
-	}
-	return nil
-}
-
-// IncrementDemoBalanceByFingerprint adds amount to user's DEMO balance
-func (s *Store) IncrementDemoBalanceByFingerprint(fingerprint, amount string) error {
-	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
-
-	query := `
-		UPDATE users
-		SET demo_balance = COALESCE(demo_balance, '0')::DECIMAL + $1::DECIMAL, balance_updated_at = NOW()
-		WHERE fingerprint = $2 OR fingerprint = $3
-	`
-	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
-	if err != nil {
-		return fmt.Errorf("failed to increment demo balance: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
-	}
-	return nil
-}
-
-// DecrementDemoBalanceByFingerprint subtracts amount from user's DEMO balance
-func (s *Store) DecrementDemoBalanceByFingerprint(fingerprint, amount string) error {
-	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
-
-	query := `
-		UPDATE users
-		SET demo_balance = COALESCE(demo_balance, '0')::DECIMAL - $1::DECIMAL, balance_updated_at = NOW()
-		WHERE fingerprint = $2 OR fingerprint = $3
-	`
-	result, err := s.db.Exec(query, amount, withPrefix, withoutPrefix)
-	if err != nil {
-		return fmt.Errorf("failed to decrement demo balance: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
-	}
-	return nil
+// ResetBalances resets all user balances to 0 for a specific token (used before full reconciliation)
+func (s *Store) ResetBalances(token TokenType) error {
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`UPDATE users SET %s = 0, balance_updated_at = NOW()`, col)
+	_, err := s.db.Exec(query)
+	return err
 }
 
 // =============================================================================
@@ -705,7 +644,7 @@ func (s *Store) HasCantonKey(evmAddress string) (bool, error) {
 // GetUsersWithoutCantonKey returns all users that don't have Canton keys (for migration)
 func (s *Store) GetUsersWithoutCantonKey() ([]*User, error) {
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at,
 		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
 		FROM users
 		WHERE canton_party_id IS NULL OR canton_private_key_encrypted IS NULL
@@ -720,7 +659,8 @@ func (s *Store) GetUsersWithoutCantonKey() ([]*User, error) {
 	var users []*User
 	for rows.Next() {
 		user := &User{}
-		var balance sql.NullString
+		var promptBalance sql.NullString
+		var demoBalance sql.NullString
 		var mappingCID sql.NullString
 		var balanceUpdatedAt sql.NullTime
 		var cantonPartyID sql.NullString
@@ -733,7 +673,8 @@ func (s *Store) GetUsersWithoutCantonKey() ([]*User, error) {
 			&user.CantonParty,
 			&user.Fingerprint,
 			&mappingCID,
-			&balance,
+			&promptBalance,
+			&demoBalance,
 			&balanceUpdatedAt,
 			&user.CreatedAt,
 			&cantonPartyID,
@@ -746,10 +687,15 @@ func (s *Store) GetUsersWithoutCantonKey() ([]*User, error) {
 		if mappingCID.Valid {
 			user.MappingCID = mappingCID.String
 		}
-		if balance.Valid {
-			user.Balance = balance.String
+		if promptBalance.Valid {
+			user.PromptBalance = promptBalance.String
 		} else {
-			user.Balance = "0"
+			user.PromptBalance = "0"
+		}
+		if demoBalance.Valid {
+			user.DemoBalance = demoBalance.String
+		} else {
+			user.DemoBalance = "0"
 		}
 		if balanceUpdatedAt.Valid {
 			user.BalanceUpdatedAt = &balanceUpdatedAt.Time

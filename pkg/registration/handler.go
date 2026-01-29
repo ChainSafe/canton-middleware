@@ -194,7 +194,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error("Failed to store Canton key",
 				zap.String("evm_address", evmAddress),
 				zap.Error(err))
-			// Don't fail registration - key can be regenerated later
+			// Cleanup: delete the user we just created to maintain consistency
+			if delErr := h.db.DeleteUser(evmAddress); delErr != nil {
+				h.logger.Error("Failed to cleanup user after key storage failure",
+					zap.String("evm_address", evmAddress),
+					zap.Error(delErr))
+			}
+			h.writeError(w, http.StatusInternalServerError, "failed to store Canton key")
+			return
 		}
 	}
 

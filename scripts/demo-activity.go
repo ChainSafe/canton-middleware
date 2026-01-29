@@ -455,7 +455,7 @@ func printUserBalances(cfg *config.Config) {
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT evm_address, balance::text, demo_balance::text 
+		SELECT evm_address, prompt_balance::text, demo_balance::text 
 		FROM users 
 		ORDER BY evm_address
 	`)

@@ -215,7 +215,7 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 	start := time.Now()
 
 	// Step 1: Reset all user balances to 0
-	if err := r.db.ResetUserBalances(); err != nil {
+	if err := r.db.ResetBalances(TokenPrompt); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
 	r.logger.Debug("Reset all user balances to 0")
