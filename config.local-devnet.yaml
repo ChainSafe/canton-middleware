@@ -31,9 +31,12 @@ canton:
   application_id: "canton-middleware"
   relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
 
-  bridge_package_id: "0b330457f833a871b728132c5c3c35e0906c9b3201f9f59628996924fe99fd2f"
-  core_package_id: "60fefa29a10287062c0944001f7bc5f7b5ecffd272183ce3ad78af4c282e8bba"
-  cip56_package_id: "e975777506e588b18317a66be74586b8b9d00325bc1c461749e7c658884130aa"
+  # v1.2.0 packages (uploaded 2026-01-22)
+  bridge_package_id: "2f7a146ffc5bdb1365c818c461ecfeafda78fc99e014fb793539aa1a87fe6c99"
+  core_package_id: "32df30f15a3eed8c319d541e9f6332f173a7b738dd121cf666fc54185f4f05c0"
+  cip56_package_id: "c649b42035710f991345b9f010f599870842a821d52c676cb235dcda419407df"
+  native_token_package_id: "3cc8001e5d4814175003822af1efc5bcfb7826c00b1f764d9d17d4f4ca1f0809"
+  common_package_id: "d36f79e9e092169c097cfff43f6e45a5b96594e7445d4cedf5602f838a4d3651"
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
 

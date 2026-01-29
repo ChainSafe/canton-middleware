@@ -11,26 +11,22 @@
 -- =============================================================================
 
 -- Users table: maps EVM addresses to Canton parties with cached balance
+-- Includes custodial Canton key fields for user-owned holdings
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     evm_address VARCHAR(42) UNIQUE NOT NULL,
-    canton_party VARCHAR(255) NOT NULL,
+    canton_party VARCHAR(255) NOT NULL,           -- User's Canton party ID
     fingerprint VARCHAR(128) NOT NULL,
     mapping_cid VARCHAR(255),
     balance DECIMAL(38,18) DEFAULT 0,
-    demo_balance DECIMAL(38,18) DEFAULT 0,  -- DEMO (native) token balance
+    demo_balance DECIMAL(38,18) DEFAULT 0,        -- DEMO (native) token balance
     balance_updated_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    -- Custodial Canton key fields
+    canton_party_id VARCHAR(255),                 -- User's own Canton party (same as canton_party for new users)
+    canton_private_key_encrypted TEXT,            -- AES-256-GCM encrypted Canton private key (base64)
+    canton_key_created_at TIMESTAMP               -- When the Canton key was generated
 );
-
--- Migration: Add demo_balance column if it doesn't exist
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                   WHERE table_name='users' AND column_name='demo_balance') THEN
-        ALTER TABLE users ADD COLUMN demo_balance DECIMAL(38,18) DEFAULT 0;
-    END IF;
-END $$;
 
 -- Whitelist table: controls who can register
 CREATE TABLE IF NOT EXISTS whitelist (
@@ -135,6 +131,7 @@ CREATE TABLE IF NOT EXISTS evm_logs (
 
 CREATE INDEX IF NOT EXISTS idx_users_evm ON users(evm_address);
 CREATE INDEX IF NOT EXISTS idx_users_fingerprint ON users(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_users_canton_party_id ON users(canton_party_id);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_fingerprint ON bridge_events(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_type ON bridge_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_bridge_events_evm_tx ON bridge_events(evm_tx_hash);

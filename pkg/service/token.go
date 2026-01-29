@@ -56,7 +56,7 @@ type TransferResult struct {
 	ToFingerprint   string
 }
 
-// Transfer executes a token transfer from one user to another
+// Transfer executes a token transfer from one user to another using user-owned holdings
 func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*TransferResult, error) {
 	fromAddress := auth.NormalizeAddress(req.FromEVMAddress)
 	toAddress := auth.NormalizeAddress(req.ToEVMAddress)
@@ -83,11 +83,12 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, ErrRecipientNotFound
 	}
 
-	err = s.cantonClient.Transfer(ctx, &canton.TransferRequest{
-		FromFingerprint: fromUser.Fingerprint,
-		ToFingerprint:   toUser.Fingerprint,
-		Amount:          req.Amount,
-	})
+	// Use user-owned Transfer choice (CIP56Holding.Transfer)
+	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+		fromUser.Fingerprint,
+		toUser.Fingerprint,
+		req.Amount,
+		"PROMPT")
 	if err != nil {
 		s.logger.Error("Transfer failed",
 			zap.String("from", fromAddress),
@@ -197,8 +198,7 @@ type TransferDemoRequest struct {
 	Amount         string
 }
 
-// TransferDemo executes a DEMO token transfer from one user to another via Canton
-// This works identically to PROMPT transfers, using Burn + Mint via CIP56Manager
+// TransferDemo executes a DEMO token transfer from one user to another using user-owned holdings
 func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoRequest) (*TransferResult, error) {
 	fromAddress := auth.NormalizeAddress(req.FromEVMAddress)
 	toAddress := auth.NormalizeAddress(req.ToEVMAddress)
@@ -225,12 +225,12 @@ func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoReques
 		return nil, ErrRecipientNotFound
 	}
 
-	// Transfer via Canton (Burn + Mint)
-	err = s.cantonClient.TransferDemo(ctx, &canton.TransferDemoRequest{
-		FromFingerprint: fromUser.Fingerprint,
-		ToFingerprint:   toUser.Fingerprint,
-		Amount:          req.Amount,
-	})
+	// Use user-owned Transfer choice (CIP56Holding.Transfer)
+	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+		fromUser.Fingerprint,
+		toUser.Fingerprint,
+		req.Amount,
+		"DEMO")
 	if err != nil {
 		s.logger.Error("DEMO transfer failed",
 			zap.String("from", fromAddress),
@@ -245,8 +245,6 @@ func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoReques
 	}
 
 	// Update database balance cache
-	// Note: We use a simple approach here - decrement sender, increment recipient
-	// The reconciliation process will correct any discrepancies
 	if err := s.db.DecrementDemoBalanceByFingerprint(fromUser.Fingerprint, req.Amount); err != nil {
 		s.logger.Warn("Failed to update sender DEMO balance cache",
 			zap.String("fingerprint", fromUser.Fingerprint),

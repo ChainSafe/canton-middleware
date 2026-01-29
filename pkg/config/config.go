@@ -136,6 +136,7 @@ type APIServerConfig struct {
 	Logging        LoggingConfig        `yaml:"logging"`
 	Reconciliation ReconciliationConfig `yaml:"reconciliation"`
 	Shutdown       ShutdownConfig       `yaml:"shutdown"`
+	KeyManagement  KeyManagementConfig  `yaml:"key_management"` // Custodial Canton key settings
 }
 
 // EthRPCConfig contains Ethereum JSON-RPC facade settings for MetaMask compatibility
@@ -179,6 +180,14 @@ type ReconciliationConfig struct {
 // ShutdownConfig contains graceful shutdown settings
 type ShutdownConfig struct {
 	Timeout time.Duration `yaml:"timeout"`
+}
+
+// KeyManagementConfig contains settings for custodial Canton key management
+type KeyManagementConfig struct {
+	// MasterKeyEnv is the environment variable name containing the master encryption key (base64)
+	MasterKeyEnv string `yaml:"master_key_env"`
+	// KeyDerivation specifies how to generate Canton keys: "generate" (random) or "derive" (from EVM + seed)
+	KeyDerivation string `yaml:"key_derivation"`
 }
 
 // LoadAPIServer loads API server configuration from file
@@ -297,6 +306,14 @@ func setAPIServerDefaults(config *APIServerConfig) {
 	// Shutdown defaults
 	if config.Shutdown.Timeout == 0 {
 		config.Shutdown.Timeout = 30 * time.Second
+	}
+
+	// KeyManagement defaults
+	if config.KeyManagement.MasterKeyEnv == "" {
+		config.KeyManagement.MasterKeyEnv = "CANTON_MASTER_KEY"
+	}
+	if config.KeyManagement.KeyDerivation == "" {
+		config.KeyManagement.KeyDerivation = "generate"
 	}
 }
 

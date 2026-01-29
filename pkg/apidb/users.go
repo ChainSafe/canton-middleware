@@ -20,20 +20,25 @@ func normalizeFingerprint(fingerprint string) (withPrefix, withoutPrefix string)
 type User struct {
 	ID               int64      `json:"id"`
 	EVMAddress       string     `json:"evm_address"`
-	CantonParty      string     `json:"canton_party"`
+	CantonParty      string     `json:"canton_party"` // Legacy: relayer party (for backward compat)
 	Fingerprint      string     `json:"fingerprint"`
 	MappingCID       string     `json:"mapping_cid,omitempty"`
-	Balance          string     `json:"balance"`          // PROMPT token balance
-	DemoBalance      string     `json:"demo_balance"`     // DEMO token balance
+	Balance          string     `json:"balance"`      // PROMPT token balance
+	DemoBalance      string     `json:"demo_balance"` // DEMO token balance
 	BalanceUpdatedAt *time.Time `json:"balance_updated_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
+
+	// Custodial Canton key fields (for user-owned holdings)
+	CantonPartyID             string     `json:"canton_party_id,omitempty"` // User's own Canton party (from AllocateParty)
+	CantonPrivateKeyEncrypted string     `json:"-"`                         // Never expose in JSON
+	CantonKeyCreatedAt        *time.Time `json:"canton_key_created_at,omitempty"`
 }
 
 // CreateUser creates a new user record
 func (s *Store) CreateUser(user *User) error {
 	query := `
-		INSERT INTO users (evm_address, canton_party, fingerprint, mapping_cid)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (evm_address, canton_party, fingerprint, mapping_cid, canton_party_id, canton_private_key_encrypted, canton_key_created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at
 	`
 	return s.db.QueryRow(
@@ -42,6 +47,9 @@ func (s *Store) CreateUser(user *User) error {
 		user.CantonParty,
 		user.Fingerprint,
 		user.MappingCID,
+		sql.NullString{String: user.CantonPartyID, Valid: user.CantonPartyID != ""},
+		sql.NullString{String: user.CantonPrivateKeyEncrypted, Valid: user.CantonPrivateKeyEncrypted != ""},
+		user.CantonKeyCreatedAt,
 	).Scan(&user.ID, &user.CreatedAt)
 }
 
@@ -51,8 +59,12 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	var balance sql.NullString
 	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
+	var cantonPartyID sql.NullString
+	var cantonPrivateKeyEncrypted sql.NullString
+	var cantonKeyCreatedAt sql.NullTime
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
 		FROM users
 		WHERE evm_address = $1
 	`
@@ -65,6 +77,9 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 		&balance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
+		&cantonPartyID,
+		&cantonPrivateKeyEncrypted,
+		&cantonKeyCreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -83,6 +98,15 @@ func (s *Store) GetUserByEVMAddress(evmAddress string) (*User, error) {
 	if balanceUpdatedAt.Valid {
 		user.BalanceUpdatedAt = &balanceUpdatedAt.Time
 	}
+	if cantonPartyID.Valid {
+		user.CantonPartyID = cantonPartyID.String
+	}
+	if cantonPrivateKeyEncrypted.Valid {
+		user.CantonPrivateKeyEncrypted = cantonPrivateKeyEncrypted.String
+	}
+	if cantonKeyCreatedAt.Valid {
+		user.CantonKeyCreatedAt = &cantonKeyCreatedAt.Time
+	}
 	return user, nil
 }
 
@@ -93,11 +117,15 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	var balance sql.NullString
 	var mappingCID sql.NullString
 	var balanceUpdatedAt sql.NullTime
+	var cantonPartyID sql.NullString
+	var cantonPrivateKeyEncrypted sql.NullString
+	var cantonKeyCreatedAt sql.NullTime
 
 	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
 
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
 		FROM users
 		WHERE fingerprint = $1 OR fingerprint = $2
 	`
@@ -110,6 +138,9 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 		&balance,
 		&balanceUpdatedAt,
 		&user.CreatedAt,
+		&cantonPartyID,
+		&cantonPrivateKeyEncrypted,
+		&cantonKeyCreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -127,6 +158,15 @@ func (s *Store) GetUserByFingerprint(fingerprint string) (*User, error) {
 	}
 	if balanceUpdatedAt.Valid {
 		user.BalanceUpdatedAt = &balanceUpdatedAt.Time
+	}
+	if cantonPartyID.Valid {
+		user.CantonPartyID = cantonPartyID.String
+	}
+	if cantonPrivateKeyEncrypted.Valid {
+		user.CantonPrivateKeyEncrypted = cantonPrivateKeyEncrypted.String
+	}
+	if cantonKeyCreatedAt.Valid {
+		user.CantonKeyCreatedAt = &cantonKeyCreatedAt.Time
 	}
 	return user, nil
 }
@@ -566,4 +606,156 @@ func (s *Store) DecrementDemoBalanceByFingerprint(fingerprint, amount string) er
 		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
 	}
 	return nil
+}
+
+// =============================================================================
+// Custodial Canton Key Methods
+// =============================================================================
+
+// SetUserCantonKey stores the user's Canton party ID and encrypted private key
+func (s *Store) SetUserCantonKey(evmAddress, cantonPartyID, encryptedKey string) error {
+	query := `
+		UPDATE users
+		SET canton_party_id = $1,
+		    canton_private_key_encrypted = $2,
+		    canton_key_created_at = NOW()
+		WHERE evm_address = $3
+	`
+	result, err := s.db.Exec(query, cantonPartyID, encryptedKey, evmAddress)
+	if err != nil {
+		return fmt.Errorf("failed to set Canton key: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("user not found: %s", evmAddress)
+	}
+	return nil
+}
+
+// GetUserCantonKey retrieves the encrypted Canton private key for a user
+// Returns empty string if user has no Canton key
+func (s *Store) GetUserCantonKey(evmAddress string) (cantonPartyID, encryptedKey string, err error) {
+	var partyID sql.NullString
+	var key sql.NullString
+	query := `
+		SELECT canton_party_id, canton_private_key_encrypted
+		FROM users
+		WHERE evm_address = $1
+	`
+	err = s.db.QueryRow(query, evmAddress).Scan(&partyID, &key)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get Canton key: %w", err)
+	}
+	if partyID.Valid {
+		cantonPartyID = partyID.String
+	}
+	if key.Valid {
+		encryptedKey = key.String
+	}
+	return cantonPartyID, encryptedKey, nil
+}
+
+// GetUserCantonKeyByFingerprint retrieves the encrypted Canton private key for a user by fingerprint
+func (s *Store) GetUserCantonKeyByFingerprint(fingerprint string) (cantonPartyID, encryptedKey string, err error) {
+	withPrefix, withoutPrefix := normalizeFingerprint(fingerprint)
+
+	var partyID sql.NullString
+	var key sql.NullString
+	query := `
+		SELECT canton_party_id, canton_private_key_encrypted
+		FROM users
+		WHERE fingerprint = $1 OR fingerprint = $2
+	`
+	err = s.db.QueryRow(query, withPrefix, withoutPrefix).Scan(&partyID, &key)
+	if err == sql.ErrNoRows {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get Canton key: %w", err)
+	}
+	if partyID.Valid {
+		cantonPartyID = partyID.String
+	}
+	if key.Valid {
+		encryptedKey = key.String
+	}
+	return cantonPartyID, encryptedKey, nil
+}
+
+// HasCantonKey checks if a user has a Canton custodial key
+func (s *Store) HasCantonKey(evmAddress string) (bool, error) {
+	var count int
+	query := `
+		SELECT COUNT(*) FROM users
+		WHERE evm_address = $1 AND canton_party_id IS NOT NULL AND canton_private_key_encrypted IS NOT NULL
+	`
+	err := s.db.QueryRow(query, evmAddress).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check Canton key: %w", err)
+	}
+	return count > 0, nil
+}
+
+// GetUsersWithoutCantonKey returns all users that don't have Canton keys (for migration)
+func (s *Store) GetUsersWithoutCantonKey() ([]*User, error) {
+	query := `
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, balance, balance_updated_at, created_at,
+		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
+		FROM users
+		WHERE canton_party_id IS NULL OR canton_private_key_encrypted IS NULL
+		ORDER BY id
+	`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users without Canton key: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		user := &User{}
+		var balance sql.NullString
+		var mappingCID sql.NullString
+		var balanceUpdatedAt sql.NullTime
+		var cantonPartyID sql.NullString
+		var cantonPrivateKeyEncrypted sql.NullString
+		var cantonKeyCreatedAt sql.NullTime
+
+		err := rows.Scan(
+			&user.ID,
+			&user.EVMAddress,
+			&user.CantonParty,
+			&user.Fingerprint,
+			&mappingCID,
+			&balance,
+			&balanceUpdatedAt,
+			&user.CreatedAt,
+			&cantonPartyID,
+			&cantonPrivateKeyEncrypted,
+			&cantonKeyCreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		if mappingCID.Valid {
+			user.MappingCID = mappingCID.String
+		}
+		if balance.Valid {
+			user.Balance = balance.String
+		} else {
+			user.Balance = "0"
+		}
+		if balanceUpdatedAt.Valid {
+			user.BalanceUpdatedAt = &balanceUpdatedAt.Time
+		}
+		// Canton key fields will be NULL for users without keys
+		users = append(users, user)
+	}
+	return users, nil
 }

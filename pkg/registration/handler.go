@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"go.uber.org/zap"
 )
 
@@ -18,20 +20,23 @@ type Handler struct {
 	config       *config.APIServerConfig
 	db           *apidb.Store
 	cantonClient *canton.Client
+	keyStore     keys.KeyStore
 	logger       *zap.Logger
 }
 
-// NewHandler creates a new registration handler
+// NewHandler creates a new registration handler with custodial key management
 func NewHandler(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
 	cantonClient *canton.Client,
+	keyStore keys.KeyStore,
 	logger *zap.Logger,
 ) *Handler {
 	return &Handler{
 		config:       cfg,
 		db:           db,
 		cantonClient: cantonClient,
+		keyStore:     keyStore,
 		logger:       logger,
 	}
 }
@@ -125,50 +130,82 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Compute fingerprint
 	fingerprint := auth.ComputeFingerprint(evmAddress)
+	ctx := r.Context()
 
-	// Get the relayer party ID
-	partyID := h.config.Canton.RelayerParty
-	if partyID == "" {
-		h.writeError(w, http.StatusInternalServerError, "relayer_party not configured")
+	// Generate Canton keypair for user
+	cantonKeyPair, err := keys.GenerateCantonKeyPair()
+	if err != nil {
+		h.logger.Error("Failed to generate Canton keypair", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "key generation failed")
 		return
 	}
 
-	// Register the user's fingerprint mapping on Canton
-	ctx := r.Context()
+	// Allocate a unique Canton party for this user
+	partyHint := fmt.Sprintf("user_%s", evmAddress[2:10]) // e.g., "user_f39Fd6e5"
+	partyResult, err := h.cantonClient.AllocateParty(ctx, partyHint)
+	if err != nil {
+		h.logger.Error("Failed to allocate Canton party",
+			zap.String("hint", partyHint),
+			zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+		return
+	}
+	cantonPartyID := partyResult.PartyID
+
+	h.logger.Info("Allocated Canton party for user",
+		zap.String("evm_address", evmAddress),
+		zap.String("party_id", cantonPartyID),
+		zap.String("public_key", cantonKeyPair.PublicKeyHex()[:32]+"..."))
+
+	// Register fingerprint mapping
 	mappingCID, err := h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
-		UserParty:   partyID,
+		UserParty:   cantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
 	})
 	if err != nil {
 		h.logger.Error("Failed to register user on Canton",
-			zap.String("party", partyID),
+			zap.String("party", cantonPartyID),
 			zap.Error(err))
 		h.writeError(w, http.StatusInternalServerError, "registration failed")
 		return
 	}
 
 	// Save user to database
+	now := time.Now()
 	user := &apidb.User{
-		EVMAddress:  evmAddress,
-		CantonParty: partyID,
-		Fingerprint: fingerprint,
-		MappingCID:  mappingCID,
+		EVMAddress:         evmAddress,
+		CantonParty:        cantonPartyID,
+		Fingerprint:        fingerprint,
+		MappingCID:         mappingCID,
+		CantonPartyID:      cantonPartyID,
+		CantonKeyCreatedAt: &now,
 	}
+
 	if err := h.db.CreateUser(user); err != nil {
 		h.logger.Error("Failed to save user", zap.Error(err))
 		h.writeError(w, http.StatusInternalServerError, "failed to save user")
 		return
 	}
 
+	// Store the encrypted Canton key
+	if h.keyStore != nil {
+		if err := h.keyStore.SetUserKey(evmAddress, cantonPartyID, cantonKeyPair.PrivateKey); err != nil {
+			h.logger.Error("Failed to store Canton key",
+				zap.String("evm_address", evmAddress),
+				zap.Error(err))
+			// Don't fail registration - key can be regenerated later
+		}
+	}
+
 	h.logger.Info("User registered",
 		zap.String("evm_address", evmAddress),
-		zap.String("party", partyID),
+		zap.String("party", cantonPartyID),
 		zap.String("fingerprint", fingerprint))
 
 	// Write success response
 	h.writeJSON(w, http.StatusOK, RegisterResponse{
-		Party:       partyID,
+		Party:       cantonPartyID,
 		Fingerprint: fingerprint,
 		MappingCID:  mappingCID,
 	})

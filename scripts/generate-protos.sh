@@ -76,6 +76,20 @@ protoc \
     --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
     "$DAML_PROTO_V2_DIR"/*.proto
 
+# Generate admin protos (for party management, etc.)
+if [ -d "$ADMIN_DIR" ]; then
+    echo "Generating Go code for V2 admin..."
+    mkdir -p "$OUT_DIR/v2/admin"
+    protoc \
+        --proto_path="$PROTO_DIR/daml" \
+        --proto_path="$PROTO_DIR" \
+        --go_out="$PROJECT_ROOT" \
+        --go_opt=module=github.com/chainsafe/canton-middleware \
+        --go-grpc_out="$PROJECT_ROOT" \
+        --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
+        "$ADMIN_DIR"/*.proto
+fi
+
 echo "✓ Proto generation complete"
 echo "Generated files in: $OUT_DIR"
 
