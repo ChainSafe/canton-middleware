@@ -21,14 +21,15 @@ The Canton Bridge API provides an **Ethereum-compatible JSON-RPC interface** for
 - **Transfer tokens** using Ethereum transactions
 - **Access token metadata** (name, symbol, decimals, total supply)
 
-### Architecture: Issuer-Centric Model
+### Architecture: Custodial Model
 
-The bridge uses an **issuer-centric model** where:
+The bridge uses a **custodial model** where:
 
-1. **Single Issuer Party**: All bridged tokens are managed by a single issuer (the bridge relayer party) on Canton
-2. **Fingerprint Mapping**: Users are identified by a cryptographic fingerprint derived from their Ethereum address (`keccak256(address)`)
-3. **CIP-56 Tokens**: Tokens follow the CIP-56 standard on Canton, enabling compliant asset management
-4. **No Canton Keys Required**: Users authenticate with their existing Ethereum wallets—no Canton-specific keys needed
+1. **User-Owned Holdings**: Each user has their own Canton party ID; CIP56Holdings belong to the user's party
+2. **Custodial Key Management**: The API server generates and holds Canton signing keys (secp256k1) on behalf of users
+3. **Fingerprint Mapping**: Users are identified by a cryptographic fingerprint derived from their Ethereum address (`keccak256(address)`)
+4. **CIP-56 Tokens**: Tokens follow the CIP-56 standard on Canton, enabling compliant asset management
+5. **MetaMask Authentication**: Users authenticate with their existing Ethereum wallets—the API server signs Canton transactions on their behalf
 
 ### How Bridging Works
 

@@ -126,42 +126,51 @@ A bi-directional relay between Ethereum and Canton for the PROMPT token.
 
 ---
 
-## Issuer-Centric Privacy Model
+## Custodial Model with User-Owned Holdings
 
-All operations occur within the **issuer's (bridge operator's) visibility boundary**, preserving Canton's privacy model.
+The bridge uses a **custodial model** for key management while maintaining **user-owned holdings** on Canton.
+
+### Key Characteristics
+
+| Aspect | Description |
+|--------|-------------|
+| **Holdings Ownership** | Each CIP56Holding belongs to the user's Canton party |
+| **Key Management** | API server custodially holds Canton signing keys for users |
+| **User Parties** | Each registered user gets their own Canton party ID |
+| **Signing** | API server signs Canton transactions on behalf of users |
 
 ### Visibility
 
 | Party | Can See |
 |-------|---------|
-| **Bridge Issuer** | All contracts (mappings, holdings, events) |
-| **User Parties** | Only their own holdings |
+| **Bridge Operator** | Mappings, events, transfers they facilitate |
+| **User Parties** | Their own holdings and transfers |
 | **Other Canton Participants** | Nothing |
 
 ### Privacy Guarantees
 
 1. **No global visibility** - Balances aren't broadcast network-wide
-2. **Issuer as custodian** - Only the operator's node indexes this data
+2. **User-owned assets** - Holdings belong to user parties, not the operator
 3. **User isolation** - Users can't see each other's holdings
-4. **Regulatory compliance** - KYC/AML within issuer scope
+4. **Custodial convenience** - Users interact via MetaMask without managing Canton keys
 
 ---
 
 ## Multi-Token Support
 
-A single issuer can bridge **multiple EVM tokens**, letting users hold and interact with many assets simultaneously.
+A single deployment can bridge **multiple EVM tokens**, with users holding assets in their own Canton parties.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                 Issuer's Participant Node               │
+│                   Participant Node                      │
 │                                                         │
-│  EVM Bridges          Canton Holdings                   │
-│  ───────────          ───────────────                   │
-│  PROMPT Bridge  ←──→  CIP56Holdings (PROMPT)           │
-│  USDC Bridge    ←──→  CIP56Holdings (USDC)             │
-│  WETH Bridge    ←──→  CIP56Holdings (WETH)             │
+│  EVM Bridges          User Holdings (per party)         │
+│  ───────────          ─────────────────────────         │
+│  PROMPT Bridge  ←──→  Alice::... owns CIP56Holding     │
+│  USDC Bridge    ←──→  Bob::... owns CIP56Holding       │
+│  WETH Bridge    ←──→  Carol::... owns CIP56Holding     │
 │                                                         │
-│  Single Relayer + Single API Server                    │
+│  API Server (custodial keys) + Relayer                 │
 │  handles all tokens                                     │
 └─────────────────────────────────────────────────────────┘
 ```
