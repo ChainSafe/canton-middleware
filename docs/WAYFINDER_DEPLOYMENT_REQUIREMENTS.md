@@ -53,12 +53,20 @@ When Wayfinder deploys as the **participant node owner and issuer**, the complet
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌──────────────────┐   ┌──────────────────┐   ┌──────────────┐ │
-│  │  Canton          │   │   Relayer        │   │  PostgreSQL  │ │
-│  │  Participant     │   │   Middleware     │   │  Database    │ │
-│  │  Node            │   │   (Go Binary)    │   │              │ │
+│  │  Canton          │   │   API Server     │   │  PostgreSQL  │ │
+│  │  Participant     │   │   (Port 8081)    │   │  Database    │ │
+│  │  Node            │   │                  │   │              │ │
+│  │                  │   │  • /eth JSON-RPC │   │  • Users     │ │
+│  │  Ports:          │   │  • /register     │   │  • Balances  │ │
+│  │  • 5011 gRPC     │   │  • MetaMask      │   │  • Transfers │ │
+│  │  • 5013 HTTP     │   │    compatible    │   │              │ │
 │  └────────┬─────────┘   └────────┬─────────┘   └──────┬───────┘ │
 │           │                      │                     │         │
-│           └──────────────────────┼─────────────────────┘         │
+│           │             ┌────────┴─────────┐          │         │
+│           │             │     Relayer      │          │         │
+│           │             │  (Bridge Events) │          │         │
+│           │             └────────┬─────────┘          │         │
+│           └──────────────────────┼────────────────────┘         │
 │                                  │                               │
 │  ┌──────────────────────────────────────────────────────────────┤
 │  │                        ETHEREUM                               │
@@ -69,6 +77,10 @@ When Wayfinder deploys as the **participant node owner and issuer**, the complet
 │  └──────────────────────────────────────────────────────────────┤
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**Two Go services:**
+- **API Server** - Handles MetaMask connections, user registration, ERC-20 translation
+- **Relayer** - Bridges PROMPT token between Ethereum ↔ Canton
 
 ---
 
@@ -126,7 +138,7 @@ canton.participants.participant1 {
 cd contracts/canton-erc20/daml
 
 # Build all packages
-./scripts/build-all.sh
+./scripts/setup/build-dars.sh
 
 # Upload to participant (order matters):
 # 1. common
@@ -177,13 +189,13 @@ cast send $TOKEN "grantRole(bytes32,address)" $MINTER_ROLE $RELAYER \
 
 ---
 
-#### D. Relayer Middleware
+#### D. API Server & Relayer
 
-**Build the Go binary:**
+**Build the Go binaries:**
 
 ```bash
 make build
-# Creates: bin/relayer
+# Creates: bin/api-server, bin/relayer
 ```
 
 **Production Configuration** (`config.production.yaml`):
@@ -223,7 +235,10 @@ canton:
   tls:
     enabled: false  # Self-hosted, no TLS needed for local connection
   auth:
-    token_file: ""  # Not needed with wildcard auth
+    type: "oauth2"
+    token_url: "https://your-oauth-provider/token"
+    client_id: "${OAUTH_CLIENT_ID}"
+    client_secret: "${OAUTH_CLIENT_SECRET}"
   polling_interval: "1s"
 
 bridge:
@@ -234,6 +249,23 @@ bridge:
 monitoring:
   enabled: true
   metrics_port: 9090
+```
+
+**Environment Variables Required:**
+
+```bash
+# Encryption key for custodial Canton keys (generate securely)
+export CANTON_MASTER_KEY=$(openssl rand -base64 32)
+
+# Database credentials
+export DB_PASSWORD="<secure-password>"
+
+# Ethereum relayer private key
+export RELAYER_PRIVATE_KEY="<hex-encoded-key>"
+
+# OAuth2 credentials for Canton authentication
+export OAUTH_CLIENT_ID="<client-id>"
+export OAUTH_CLIENT_SECRET="<client-secret>"
 ```
 
 ---
@@ -251,7 +283,7 @@ curl -X POST http://localhost:5013/v2/parties \
 # Record: Party ID like "WayfinderIssuer::1220abc...def"
 
 # 2. Run bootstrap script
-go run scripts/bootstrap-bridge.go \
+go run scripts/setup/bootstrap-bridge.go \
   -config config.production.yaml \
   -issuer "WayfinderIssuer::1220..." \
   -package "<BRIDGE_WAYFINDER_PACKAGE_ID>"
@@ -267,12 +299,13 @@ go run scripts/bootstrap-bridge.go \
 
 | Aspect | Requirement |
 |--------|-------------|
-| **Uptime** | Relayer must be running 24/7 to process transfers |
-| **Private Keys** | Securely store Ethereum relayer private key (HSM recommended) |
+| **Uptime** | API Server and Relayer must run 24/7 |
+| **Private Keys** | Securely store: Ethereum relayer key, `CANTON_MASTER_KEY` (HSM recommended) |
 | **ETH Balance** | Keep relayer address funded for gas fees |
 | **Monitoring** | Prometheus metrics at `:9090/metrics` |
-| **Database Backup** | Regular PostgreSQL backups for transfer state |
+| **Database Backup** | Regular PostgreSQL backups (users, balances, transfer state) |
 | **Logs** | Structured JSON logging, shipped to observability stack |
+| **TLS Termination** | HTTPS for API Server public endpoint |
 
 ---
 
@@ -311,17 +344,16 @@ Wayfinder becomes the **participant node operator** and **bridge issuer**, requi
 
 1. ✅ Canton participant node infrastructure
 2. ✅ PostgreSQL database
-3. ✅ Relayer middleware deployment
-4. ✅ Ethereum contract deployment and configuration
-5. ✅ Monitoring and operational procedures
-6. ✅ Private key management
+3. ✅ API Server deployment (MetaMask compatibility layer)
+4. ✅ Relayer deployment (bridge event processing)
+5. ✅ Ethereum contract deployment and configuration
+6. ✅ Monitoring and operational procedures
+7. ✅ Private key management (`CANTON_MASTER_KEY`, relayer key)
 
 ---
 
 ## Related Documentation
 
-- [Testnet Migration Guide](./TESTNET_MIGRATION_GUIDE.md)
-- [Bridge Testing Guide](./BRIDGE_TESTING_GUIDE.md)
-- [Architecture Design](./architecture_design.md)
-- [Canton Integration](./canton-integration.md)
-
+- [Architecture](./ARCHITECTURE.md) - System design and data flows
+- [Setup and Testing](./SETUP_AND_TESTING.md) - Local setup and environment configuration
+- [API Documentation](./API_DOCUMENTATION.md) - Endpoint reference

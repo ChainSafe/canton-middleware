@@ -893,6 +893,7 @@ type CIP56Holding struct {
 	Owner      string
 	Amount     string
 	TokenID    string
+	Symbol     string // Token symbol from metadata ("DEMO" or "PROMPT")
 }
 
 // GetUserBalance gets the total CIP56Holding balance for a user by fingerprint
@@ -1219,11 +1220,26 @@ func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, erro
 			owner, _ := extractPartyV2(fields["owner"])
 			amount, _ := extractNumericV2(fields["amount"])
 
+			// Extract symbol from metadata
+			var symbol string
+			if metaVal, ok := fields["meta"]; ok {
+				if metaRecord := metaVal.GetRecord(); metaRecord != nil {
+					for _, metaField := range metaRecord.Fields {
+						if metaField.Label == "symbol" {
+							if s := metaField.Value.GetText(); s != "" {
+								symbol = s
+							}
+						}
+					}
+				}
+			}
+
 			holdings = append(holdings, &CIP56Holding{
 				ContractID: contract.CreatedEvent.ContractId,
 				Issuer:     issuer,
 				Owner:      owner,
 				Amount:     amount,
+				Symbol:     symbol,
 			})
 		}
 	}

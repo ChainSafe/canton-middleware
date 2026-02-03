@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ func main() {
 	// Get OAuth token
 	tokenURL := "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
 	clientID := "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
-	clientSecret := "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+	clientSecret := os.Getenv("CANTON_AUTH_CLIENT_SECRET") // Set via environment variable
 	audience := "https://canton-ledger-api-dev1.01.chainsafe.dev"
 
 	data := url.Values{}
@@ -65,7 +66,7 @@ func main() {
 	// Old package ID from error: 03f7efaf... (full ID needed)
 	// Let's query with a wildcard to find all FingerprintAuth contracts
 	// The old package is common-v2, let's search for the template specifically
-	
+
 	// First get ledger end
 	endResp, err := client.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {

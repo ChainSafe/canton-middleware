@@ -244,6 +244,70 @@ func (s *Store) UserExists(evmAddress string) (bool, error) {
 	return exists, err
 }
 
+// GetUserByCantonPartyID retrieves a user by their Canton party ID
+func (s *Store) GetUserByCantonPartyID(cantonPartyID string) (*User, error) {
+	user := &User{}
+	var promptBalance sql.NullString
+	var demoBalance sql.NullString
+	var mappingCID sql.NullString
+	var balanceUpdatedAt sql.NullTime
+	var cantonPartyIDNull sql.NullString
+	var cantonPrivateKeyEncrypted sql.NullString
+	var cantonKeyCreatedAt sql.NullTime
+	query := `
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at,
+		       canton_party_id, canton_private_key_encrypted, canton_key_created_at
+		FROM users
+		WHERE canton_party_id = $1
+	`
+	err := s.db.QueryRow(query, cantonPartyID).Scan(
+		&user.ID,
+		&user.EVMAddress,
+		&user.CantonParty,
+		&user.Fingerprint,
+		&mappingCID,
+		&promptBalance,
+		&demoBalance,
+		&balanceUpdatedAt,
+		&user.CreatedAt,
+		&cantonPartyIDNull,
+		&cantonPrivateKeyEncrypted,
+		&cantonKeyCreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if mappingCID.Valid {
+		user.MappingCID = mappingCID.String
+	}
+	if promptBalance.Valid {
+		user.PromptBalance = promptBalance.String
+	} else {
+		user.PromptBalance = "0"
+	}
+	if demoBalance.Valid {
+		user.DemoBalance = demoBalance.String
+	} else {
+		user.DemoBalance = "0"
+	}
+	if balanceUpdatedAt.Valid {
+		user.BalanceUpdatedAt = &balanceUpdatedAt.Time
+	}
+	if cantonPartyIDNull.Valid {
+		user.CantonPartyID = cantonPartyIDNull.String
+	}
+	if cantonPrivateKeyEncrypted.Valid {
+		user.CantonPrivateKeyEncrypted = cantonPrivateKeyEncrypted.String
+	}
+	if cantonKeyCreatedAt.Valid {
+		user.CantonKeyCreatedAt = &cantonKeyCreatedAt.Time
+	}
+	return user, nil
+}
+
 // =============================================================================
 // Generic Token Balance Cache Methods
 // =============================================================================
@@ -330,6 +394,29 @@ func (s *Store) UpdateBalanceByFingerprint(fingerprint, newBalance string, token
 	}
 	if rows == 0 {
 		return fmt.Errorf("user not found for fingerprint: %s", fingerprint)
+	}
+	return nil
+}
+
+// UpdateBalanceByCantonPartyID sets the balance for a user by their Canton party ID
+func (s *Store) UpdateBalanceByCantonPartyID(cantonPartyID, newBalance string, token TokenType) error {
+	col := tokenColumn(token)
+	query := fmt.Sprintf(`
+		UPDATE users
+		SET %s = $1, balance_updated_at = NOW()
+		WHERE canton_party_id = $2
+	`, col)
+	result, err := s.db.Exec(query, newBalance, cantonPartyID)
+	if err != nil {
+		return fmt.Errorf("failed to update %s balance: %w", token, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		// Not an error - user may not be registered
+		return nil
 	}
 	return nil
 }
@@ -431,7 +518,7 @@ func (s *Store) DecrementBalanceByFingerprint(fingerprint, amount string, token 
 // GetAllUsers returns all registered users with their balances
 func (s *Store) GetAllUsers() ([]*User, error) {
 	query := `
-		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at
+		SELECT id, evm_address, canton_party, fingerprint, mapping_cid, prompt_balance, demo_balance, balance_updated_at, created_at, canton_party_id
 		FROM users
 		ORDER BY id
 	`
@@ -447,6 +534,7 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 		var promptBalance sql.NullString
 		var demoBalance sql.NullString
 		var balanceUpdatedAt sql.NullTime
+		var cantonPartyID sql.NullString
 		err := rows.Scan(
 			&user.ID,
 			&user.EVMAddress,
@@ -457,6 +545,7 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 			&demoBalance,
 			&balanceUpdatedAt,
 			&user.CreatedAt,
+			&cantonPartyID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
@@ -473,6 +562,9 @@ func (s *Store) GetAllUsers() ([]*User, error) {
 		}
 		if balanceUpdatedAt.Valid {
 			user.BalanceUpdatedAt = &balanceUpdatedAt.Time
+		}
+		if cantonPartyID.Valid {
+			user.CantonPartyID = cantonPartyID.String
 		}
 		users = append(users, user)
 	}

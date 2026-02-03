@@ -5,7 +5,7 @@
 # Prints the information needed to connect MetaMask to the local Canton bridge.
 # Run this after setup-local.sh has completed.
 #
-# Usage: ./scripts/metamask-info.sh
+# Usage: ./scripts/utils/metamask-info.sh
 # =============================================================================
 
 # Colors
@@ -74,7 +74,7 @@ if curl -s http://localhost:8081/health > /dev/null 2>&1; then
     echo "   User 1: ${USER1_PROMPT:-?} PROMPT, ${USER1_DEMO:-?} DEMO"
     echo "   User 2: ${USER2_PROMPT:-?} PROMPT, ${USER2_DEMO:-?} DEMO"
 else
-    echo -e "${YELLOW}⚠ Services not running. Run ./scripts/setup-local.sh first${NC}"
+    echo -e "${YELLOW}⚠ Services not running. Run ./scripts/setup/setup-local.sh first${NC}"
 fi
 
 echo ""

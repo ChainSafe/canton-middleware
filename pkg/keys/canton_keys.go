@@ -85,6 +85,11 @@ func (kp *CantonKeyPair) PublicKeyBase64() string {
 	return base64.StdEncoding.EncodeToString(kp.PublicKey)
 }
 
+// PrivateKeyHex returns the private key as a hex string with 0x prefix (for MetaMask import)
+func (kp *CantonKeyPair) PrivateKeyHex() string {
+	return fmt.Sprintf("0x%x", kp.PrivateKey)
+}
+
 // EncryptPrivateKey encrypts the private key using AES-256-GCM with the provided master key.
 // Returns the encrypted key as a base64-encoded string containing: nonce || ciphertext || tag
 func EncryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {

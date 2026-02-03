@@ -5,7 +5,7 @@
 # This script runs a complete E2E test using cast commands for ERC20 interactions.
 #
 # Usage:
-#   ./scripts/e2e-local.sh [--cleanup] [--skip-docker] [--verbose]
+#   ./scripts/testing/e2e-local.sh [--cleanup] [--skip-docker] [--verbose]
 #
 # Flags:
 #   --cleanup      Stop and remove Docker services after test

@@ -16,9 +16,9 @@
 #   User 2: 500 DEMO, 0 PROMPT
 #
 # Usage:
-#   ./scripts/bootstrap-all.sh                    # Full setup
-#   ./scripts/bootstrap-all.sh --skip-prompt      # Skip PROMPT deposit
-#   ./scripts/bootstrap-all.sh --demo-amount 1000 # Custom DEMO amount
+#   ./scripts/setup/bootstrap-all.sh                    # Full setup
+#   ./scripts/setup/bootstrap-all.sh --skip-prompt      # Skip PROMPT deposit
+#   ./scripts/setup/bootstrap-all.sh --demo-amount 1000 # Custom DEMO amount
 # =============================================================================
 
 set -e
@@ -128,7 +128,9 @@ echo "    PROMPT Amount: $PROMPT_AMOUNT per user (skip: $SKIP_PROMPT)"
 # Step 1: Generate master key
 print_header "Step 1: Generate Master Key"
 export CANTON_MASTER_KEY=$(openssl rand -base64 32)
+export SKIP_CANTON_SIG_VERIFY=true  # Enable for local testing of Canton native registration
 print_success "Master key generated"
+print_success "Canton signature verification skip enabled (local testing)"
 
 # Step 2: Shutdown existing services
 if [ "$SKIP_SHUTDOWN" = false ]; then
@@ -224,7 +226,7 @@ done
 
 # Step 8: Bootstrap DEMO tokens
 print_header "Step 8: Bootstrap DEMO Tokens"
-go run scripts/bootstrap-demo.go \
+go run scripts/setup/bootstrap-demo.go \
     -config "$CONFIG_FILE" \
     -native-package-id "$NATIVE_TOKEN_PACKAGE_ID" \
     -user1-fingerprint "$USER1_FINGERPRINT" \
