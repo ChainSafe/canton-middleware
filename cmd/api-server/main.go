@@ -14,6 +14,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 	"go.uber.org/zap"
@@ -87,6 +88,23 @@ func main() {
 	// Create shared token service
 	tokenService := service.NewTokenService(cfg, db, cantonClient, logger)
 
+	// Create key store for custodial Canton key management
+	masterKeyStr := os.Getenv(cfg.KeyManagement.MasterKeyEnv)
+	if masterKeyStr == "" {
+		logger.Fatal("Canton master key not set",
+			zap.String("env_var", cfg.KeyManagement.MasterKeyEnv),
+			zap.String("hint", "Generate with: openssl rand -base64 32"))
+	}
+	masterKey, err := keys.MasterKeyFromBase64(masterKeyStr)
+	if err != nil {
+		logger.Fatal("Invalid Canton master key", zap.Error(err))
+	}
+	keyStore, err := keys.NewPostgresKeyStore(db, masterKey)
+	if err != nil {
+		logger.Fatal("Failed to create key store", zap.Error(err))
+	}
+	logger.Info("Custodial key management initialized")
+
 	// Create HTTP mux for multiple endpoints
 	mux := http.NewServeMux()
 
@@ -96,8 +114,8 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
 
-	// Create registration handler
-	registrationHandler := registration.NewHandler(cfg, db, cantonClient, logger)
+	// Create registration handler with key store
+	registrationHandler := registration.NewHandler(cfg, db, cantonClient, keyStore, logger)
 	mux.Handle("/register", registrationHandler)
 	logger.Info("Registration endpoint enabled at /register")
 

@@ -14,11 +14,11 @@
 #   - Ethereum network (Sepolia testnet)
 #
 # Usage:
-#   ./scripts/setup-devnet.sh              # Full setup with users + tokens
-#   ./scripts/setup-devnet.sh --setup-only # Start services only
-#   ./scripts/setup-devnet.sh --clean      # Clean database and restart
-#   ./scripts/setup-devnet.sh --status     # Check service status
-#   ./scripts/setup-devnet.sh --stop       # Stop all services
+#   ./scripts/setup/setup-devnet.sh              # Full setup with users + tokens
+#   ./scripts/setup/setup-devnet.sh --setup-only # Start services only
+#   ./scripts/setup/setup-devnet.sh --clean      # Clean database and restart
+#   ./scripts/setup/setup-devnet.sh --status     # Check service status
+#   ./scripts/setup/setup-devnet.sh --stop       # Stop all services
 #
 # =============================================================================
 
@@ -402,13 +402,13 @@ setup_users_and_tokens() {
     
     # Register User 1 with their unique fingerprint
     print_info "Registering User 1: $USER1_ADDRESS"
-    go run scripts/register-user.go -config config.devnet.yaml \
+    go run scripts/testing/register-user.go -config config.devnet.yaml \
         -fingerprint "$USER1_FINGERPRINT" \
         -evm-address "$USER1_ADDRESS" 2>&1 | tail -5
     
     # Register User 2 with their unique fingerprint
     print_info "Registering User 2: $USER2_ADDRESS"
-    go run scripts/register-user.go -config config.devnet.yaml \
+    go run scripts/testing/register-user.go -config config.devnet.yaml \
         -fingerprint "$USER2_FINGERPRINT" \
         -evm-address "$USER2_ADDRESS" 2>&1 | tail -5
     
@@ -443,7 +443,7 @@ setup_users_and_tokens() {
         print_success "DEMO token already exists on DevNet"
     else
         print_info "Bootstrapping DEMO token with unique user fingerprints..."
-        go run scripts/bootstrap-demo.go -config config.devnet.yaml \
+        go run scripts/setup/bootstrap-demo.go -config config.devnet.yaml \
             -user1-fingerprint "$USER1_FINGERPRINT" \
             -user2-fingerprint "$USER2_FINGERPRINT" 2>&1 | tail -10
     fi
@@ -641,10 +641,10 @@ print_summary() {
     echo "    User 2: $USER2_PRIVATE_KEY"
     echo ""
     echo "  Commands:"
-    echo "    Check status:    ./scripts/setup-devnet.sh --status"
-    echo "    Stop services:   ./scripts/setup-devnet.sh --stop"
+    echo "    Check status:    ./scripts/setup/setup-devnet.sh --status"
+    echo "    Stop services:   ./scripts/setup/setup-devnet.sh --stop"
     echo "    View API logs:   tail -f logs/api-server.log"
-    echo "    MetaMask info:   ./scripts/metamask-info-devnet.sh"
+    echo "    MetaMask info:   ./scripts/utils/metamask-info-devnet.sh"
     echo ""
 }
 

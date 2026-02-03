@@ -32,7 +32,7 @@ func main() {
 	fmt.Println()
 
 	// Connect to database
-	dsn := "host=localhost port=5432 user=postgres password=p@ssw0rd dbname=erc20_api sslmode=disable"
+	dsn := "host=localhost port=5432 user=postgres password=postgres dbname=erc20_api sslmode=disable"
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)

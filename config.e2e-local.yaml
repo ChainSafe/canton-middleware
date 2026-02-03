@@ -67,13 +67,13 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: ""  # Auto-detected by bootstrap
+  domain_id: "local::1220d63b8871738c7b0ad4868d8de685b40bd3068d501f8070a4e10498c187197f12"  # Auto-detected by bootstrap
   application_id: "canton-middleware"
-  relayer_party: ""  # Auto-detected by bootstrap
+  relayer_party: "BridgeIssuer::122091de5cbe2ef3f4b2fdcf235d692cedd1168d2b38d76f1c1bb23a820944572a58"  # Auto-detected by bootstrap
   bridge_package_id: "2f7a146ffc5bdb1365c818c461ecfeafda78fc99e014fb793539aa1a87fe6c99"
   core_package_id: "32df30f15a3eed8c319d541e9f6332f173a7b738dd121cf666fc54185f4f05c0"
   cip56_package_id: "c649b42035710f991345b9f010f599870842a821d52c676cb235dcda419407df"
-  native_token_package_id: "6049c753273343a0d307ab7a94c5e4fbb0c26c097a3e02b2d121b15be83954cf"
+  native_token_package_id: "3cc8001e5d4814175003822af1efc5bcfb7826c00b1f764d9d17d4f4ca1f0809"
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "WayfinderBridgeConfig"
   tls:

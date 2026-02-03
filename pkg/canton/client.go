@@ -19,6 +19,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -42,9 +43,10 @@ type Client struct {
 	conn   *grpc.ClientConn
 	logger *zap.Logger
 
-	stateService   lapiv2.StateServiceClient
-	commandService lapiv2.CommandServiceClient
-	updateService  lapiv2.UpdateServiceClient
+	stateService           lapiv2.StateServiceClient
+	commandService         lapiv2.CommandServiceClient
+	updateService          lapiv2.UpdateServiceClient
+	partyManagementService adminv2.PartyManagementServiceClient
 
 	// OAuth token cache
 	tokenMu     sync.Mutex
@@ -86,12 +88,13 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		zap.String("ledger_id", config.LedgerID))
 
 	c := &Client{
-		config:         config,
-		conn:           conn,
-		logger:         logger,
-		stateService:   lapiv2.NewStateServiceClient(conn),
-		commandService: lapiv2.NewCommandServiceClient(conn),
-		updateService:  lapiv2.NewUpdateServiceClient(conn),
+		config:                 config,
+		conn:                   conn,
+		logger:                 logger,
+		stateService:           lapiv2.NewStateServiceClient(conn),
+		commandService:         lapiv2.NewCommandServiceClient(conn),
+		updateService:          lapiv2.NewUpdateServiceClient(conn),
+		partyManagementService: adminv2.NewPartyManagementServiceClient(conn),
 	}
 
 	// Extract JWT subject if token is configured
@@ -368,6 +371,62 @@ func (c *Client) GetLedgerEnd(ctx context.Context) (string, error) {
 }
 
 // =============================================================================
+// PARTY MANAGEMENT METHODS (for custodial key model)
+// =============================================================================
+
+// AllocatePartyResult contains the result of allocating a new Canton party
+type AllocatePartyResult struct {
+	PartyID string // The full party ID (e.g., "user_0x1234::participant123")
+	IsLocal bool   // Whether the party is local to this participant
+}
+
+// AllocateParty allocates a new Canton party for a user.
+// The hint is used to create a human-readable party ID prefix.
+// Returns the allocated party details.
+func (c *Client) AllocateParty(ctx context.Context, hint string) (*AllocatePartyResult, error) {
+	c.logger.Info("Allocating new Canton party",
+		zap.String("hint", hint),
+		zap.String("synchronizer_id", c.config.DomainID))
+
+	authCtx := c.GetAuthContext(ctx)
+
+	req := &adminv2.AllocatePartyRequest{
+		PartyIdHint:    hint,
+		SynchronizerId: c.config.DomainID,
+	}
+
+	resp, err := c.partyManagementService.AllocateParty(authCtx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate party: %w", err)
+	}
+
+	if resp.PartyDetails == nil {
+		return nil, fmt.Errorf("AllocateParty returned nil party details")
+	}
+
+	c.logger.Info("Allocated new Canton party",
+		zap.String("party_id", resp.PartyDetails.Party),
+		zap.Bool("is_local", resp.PartyDetails.IsLocal))
+
+	return &AllocatePartyResult{
+		PartyID: resp.PartyDetails.Party,
+		IsLocal: resp.PartyDetails.IsLocal,
+	}, nil
+}
+
+// GetParticipantID returns the participant ID of the connected Canton node
+func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	resp, err := c.partyManagementService.GetParticipantId(authCtx, &adminv2.GetParticipantIdRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get participant ID: %w", err)
+	}
+
+	return resp.ParticipantId, nil
+}
+
+// =============================================================================
 // ISSUER-CENTRIC MODEL METHODS
 // =============================================================================
 
@@ -449,26 +508,36 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	// Query for FingerprintMapping contracts using the configured common package ID
-	// This ensures we find contracts from the current package version, not old ones
+	// Build filter for FingerprintMapping contracts
+	// Use template filter if CommonPackageID is set, otherwise use wildcard and filter in code
+	var cumulativeFilter *lapiv2.CumulativeFilter
+	if c.config.CommonPackageID != "" {
+		cumulativeFilter = &lapiv2.CumulativeFilter{
+			IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+				TemplateFilter: &lapiv2.TemplateFilter{
+					TemplateId: &lapiv2.Identifier{
+						PackageId:  c.config.CommonPackageID,
+						ModuleName: "Common.FingerprintAuth",
+						EntityName: "FingerprintMapping",
+					},
+				},
+			},
+		}
+	} else {
+		// Fallback to wildcard filter when common_package_id not configured
+		cumulativeFilter = &lapiv2.CumulativeFilter{
+			IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+				WildcardFilter: &lapiv2.WildcardFilter{},
+			},
+		}
+	}
+
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  c.config.CommonPackageID,
-										ModuleName: "Common.FingerprintAuth",
-										EntityName: "FingerprintMapping",
-									},
-								},
-							},
-						},
-					},
+					Cumulative: []*lapiv2.CumulativeFilter{cumulativeFilter},
 				},
 			},
 			Verbose: true,
@@ -824,6 +893,7 @@ type CIP56Holding struct {
 	Owner      string
 	Amount     string
 	TokenID    string
+	Symbol     string // Token symbol from metadata ("DEMO" or "PROMPT")
 }
 
 // GetUserBalance gets the total CIP56Holding balance for a user by fingerprint
@@ -962,113 +1032,6 @@ func (c *Client) GetTotalSupply(ctx context.Context) (string, error) {
 	}
 
 	return totalSupply, nil
-}
-
-// TransferRequest represents a request to transfer tokens between users
-type TransferRequest struct {
-	FromFingerprint string
-	ToFingerprint   string
-	Amount          string
-}
-
-// Transfer performs a token transfer using Burn + Mint via CIP56Manager
-// Since CIP56Holding.Transfer requires the owner to be the controller,
-// and in our issuer-centric model users don't have Canton keys,
-// we use the issuer's CIP56Manager to burn from sender and mint to recipient.
-func (c *Client) Transfer(ctx context.Context, req *TransferRequest) error {
-	c.logger.Info("Executing transfer",
-		zap.String("from_fingerprint", req.FromFingerprint),
-		zap.String("to_fingerprint", req.ToFingerprint),
-		zap.String("amount", req.Amount))
-
-	// Get the sender's mapping
-	fromMapping, err := c.GetFingerprintMapping(ctx, req.FromFingerprint)
-	if err != nil {
-		return fmt.Errorf("sender not found: %w", err)
-	}
-
-	// Get the recipient's mapping
-	toMapping, err := c.GetFingerprintMapping(ctx, req.ToFingerprint)
-	if err != nil {
-		return fmt.Errorf("recipient not found: %w", err)
-	}
-
-	// Find the sender's holding with sufficient balance
-	holdingCid, err := c.findHoldingForTransfer(ctx, fromMapping.UserParty, req.Amount)
-	if err != nil {
-		return fmt.Errorf("insufficient balance: %w", err)
-	}
-
-	// Get the CIP56Manager from WayfinderBridgeConfig
-	tokenManagerCid, err := c.getTokenManagerCid(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get token manager: %w", err)
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	// Step 1: Burn tokens from sender's holding
-	burnCmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Manager",
-				},
-				ContractId: tokenManagerCid,
-				Choice:     "Burn",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
-					Fields: []*lapiv2.RecordField{
-						{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
-						{Label: "amount", Value: NumericValue(req.Amount)},
-					},
-				}}},
-			},
-		},
-	}
-
-	// Step 2: Mint tokens to recipient
-	mintCmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Manager",
-				},
-				ContractId: tokenManagerCid,
-				Choice:     "Mint",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
-					Fields: []*lapiv2.RecordField{
-						{Label: "to", Value: PartyValue(toMapping.UserParty)},
-						{Label: "amount", Value: NumericValue(req.Amount)},
-					},
-				}}},
-			},
-		},
-	}
-
-	// Submit both commands atomically
-	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{burnCmd, mintCmd},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to execute transfer: %w", err)
-	}
-
-	c.logger.Info("Transfer completed",
-		zap.String("from", fromMapping.UserParty),
-		zap.String("to", toMapping.UserParty),
-		zap.String("amount", req.Amount))
-
-	return nil
 }
 
 // getTokenManagerCid retrieves the CIP56Manager contract ID from WayfinderBridgeConfig
@@ -1257,11 +1220,26 @@ func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, erro
 			owner, _ := extractPartyV2(fields["owner"])
 			amount, _ := extractNumericV2(fields["amount"])
 
+			// Extract symbol from metadata
+			var symbol string
+			if metaVal, ok := fields["meta"]; ok {
+				if metaRecord := metaVal.GetRecord(); metaRecord != nil {
+					for _, metaField := range metaRecord.Fields {
+						if metaField.Label == "symbol" {
+							if s := metaField.Value.GetText(); s != "" {
+								symbol = s
+							}
+						}
+					}
+				}
+			}
+
 			holdings = append(holdings, &CIP56Holding{
 				ContractID: contract.CreatedEvent.ContractId,
 				Issuer:     issuer,
 				Owner:      owner,
 				Amount:     amount,
+				Symbol:     symbol,
 			})
 		}
 	}
@@ -1438,10 +1416,10 @@ func (c *Client) GetNativeTokenConfig(ctx context.Context) (string, error) {
 
 // NativeTokenMintRequest represents a request to mint native tokens
 type NativeTokenMintRequest struct {
-	RecipientParty    string // Canton party to mint to
-	Amount            string // Amount to mint (decimal string)
-	UserFingerprint   string // EVM fingerprint of the recipient
-	NativeConfigCid   string // NativeTokenConfig contract ID (optional, will be fetched if empty)
+	RecipientParty  string // Canton party to mint to
+	Amount          string // Amount to mint (decimal string)
+	UserFingerprint string // EVM fingerprint of the recipient
+	NativeConfigCid string // NativeTokenConfig contract ID (optional, will be fetched if empty)
 }
 
 // NativeTokenMint mints DEMO tokens to a user via NativeTokenConfig.IssuerMint
@@ -1622,98 +1600,6 @@ func (c *Client) GetDemoTokenBalance(ctx context.Context, userParty string) (str
 	return fmt.Sprintf("%.18f", totalBalance), nil
 }
 
-// TransferDemoRequest represents a request to transfer DEMO tokens between users
-type TransferDemoRequest struct {
-	FromFingerprint string
-	ToFingerprint   string
-	Amount          string
-}
-
-// TransferDemo performs a DEMO token transfer using NativeTokenConfig.IssuerTransfer
-// This creates a TransferEvent contract that can be used for reconciliation.
-func (c *Client) TransferDemo(ctx context.Context, req *TransferDemoRequest) error {
-	c.logger.Info("Executing DEMO transfer via IssuerTransfer",
-		zap.String("from_fingerprint", req.FromFingerprint),
-		zap.String("to_fingerprint", req.ToFingerprint),
-		zap.String("amount", req.Amount))
-
-	// Get the sender's mapping
-	fromMapping, err := c.GetFingerprintMapping(ctx, req.FromFingerprint)
-	if err != nil {
-		return fmt.Errorf("sender not found: %w", err)
-	}
-
-	// Get the recipient's mapping
-	toMapping, err := c.GetFingerprintMapping(ctx, req.ToFingerprint)
-	if err != nil {
-		return fmt.Errorf("recipient not found: %w", err)
-	}
-
-	// Find the sender's DEMO holding with sufficient balance
-	holdingCid, err := c.findDemoHoldingForTransfer(ctx, fromMapping.UserParty, req.Amount)
-	if err != nil {
-		return fmt.Errorf("insufficient DEMO balance: %w", err)
-	}
-
-	// Get the NativeTokenConfig contract ID
-	nativeConfigCid, err := c.GetNativeTokenConfig(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get NativeTokenConfig: %w", err)
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	// Build IssuerTransfer choice arguments
-	// IssuerTransfer creates a TransferEvent with fingerprints for reconciliation
-	transferArgs := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "senderHoldingCid", Value: ContractIdValue(holdingCid)},
-			{Label: "recipient", Value: PartyValue(toMapping.UserParty)},
-			{Label: "amount", Value: NumericValue(req.Amount)},
-			{Label: "eventTime", Value: TimestampValue(time.Now())},
-			{Label: "senderFingerprint", Value: TextValue(req.FromFingerprint)},
-			{Label: "recipientFingerprint", Value: TextValue(req.ToFingerprint)},
-		},
-	}
-
-	// Execute IssuerTransfer on NativeTokenConfig
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.NativeTokenPackageID,
-					ModuleName: "Native.Token",
-					EntityName: "NativeTokenConfig",
-				},
-				ContractId:     nativeConfigCid,
-				Choice:         "IssuerTransfer",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: transferArgs}},
-			},
-		},
-	}
-
-	// Submit the command
-	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("DEMO transfer failed: %w", err)
-	}
-
-	c.logger.Info("DEMO transfer completed (TransferEvent created)",
-		zap.String("from", req.FromFingerprint),
-		zap.String("to", req.ToFingerprint),
-		zap.String("amount", req.Amount))
-
-	return nil
-}
-
 // getDemoTokenManagerCid retrieves the DEMO CIP56Manager contract ID from NativeTokenConfig
 func (c *Client) getDemoTokenManagerCid(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
@@ -1877,4 +1763,131 @@ func (c *Client) findDemoHoldingForTransfer(ctx context.Context, ownerParty, req
 		return "", fmt.Errorf("%w: total DEMO balance %.2f, need %.2f", ErrInsufficientBalance, totalBalance, requiredAmountFloat)
 	}
 	return "", fmt.Errorf("%w: DEMO balance spread across %d holdings", ErrBalanceFragmented, holdingCount)
+}
+
+// =============================================================================
+// CUSTODIAL TRANSFER METHODS (for user-owned holdings)
+// =============================================================================
+
+// TransferAsUserRequest represents a request to transfer tokens using the owner-controlled Transfer choice
+type TransferAsUserRequest struct {
+	FromPartyID     string // User's Canton party ID (must be the holding owner)
+	ToPartyID       string // Recipient's Canton party ID
+	HoldingCID      string // The CIP56Holding contract ID to transfer from
+	Amount          string // Amount to transfer
+	TokenSymbol     string // "PROMPT" or "DEMO" (for logging)
+	FromFingerprint string // For logging/audit
+	ToFingerprint   string // For logging/audit
+}
+
+// TransferAsUser performs a token transfer using the CIP56Holding.Transfer choice.
+// This is the owner-controlled transfer for user-owned holdings (custodial mode).
+// The API server signs as the user's Canton party using the custodially-held key.
+//
+// Note: This requires the API server's OAuth token to have permission to act as
+// the user's party (typically via ParticipantAdmin rights).
+func (c *Client) TransferAsUser(ctx context.Context, req *TransferAsUserRequest) error {
+	c.logger.Info("Executing transfer as user (owner-controlled)",
+		zap.String("from_party", req.FromPartyID),
+		zap.String("to_party", req.ToPartyID),
+		zap.String("holding_cid", req.HoldingCID),
+		zap.String("amount", req.Amount),
+		zap.String("token", req.TokenSymbol))
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Build Transfer choice arguments
+	// CIP56Holding.Transfer takes: to, value, complianceRulesCid, complianceProofCid
+	transferArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "to", Value: PartyValue(req.ToPartyID)},
+			{Label: "value", Value: NumericValue(req.Amount)},
+			{Label: "complianceRulesCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+			{Label: "complianceProofCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+		},
+	}
+
+	// Execute Transfer choice on CIP56Holding
+	// Controller is 'owner', so we must ActAs the owner (FromPartyID)
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Holding",
+				},
+				ContractId:     req.HoldingCID,
+				Choice:         "Transfer",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: transferArgs}},
+			},
+		},
+	}
+
+	// Submit the command as the USER's party (not the relayer)
+	// This is the key difference from issuer-centric transfers
+	_, err := c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{req.FromPartyID}, // Act as user, not relayer
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("transfer failed: %w", err)
+	}
+
+	c.logger.Info("Transfer completed (user-owned)",
+		zap.String("from", req.FromFingerprint),
+		zap.String("to", req.ToFingerprint),
+		zap.String("amount", req.Amount),
+		zap.String("token", req.TokenSymbol))
+
+	return nil
+}
+
+// TransferAsUserByFingerprint performs a token transfer looking up users by fingerprint.
+// This is a convenience method that resolves fingerprints to party IDs and finds the holding.
+func (c *Client) TransferAsUserByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
+	c.logger.Info("Executing transfer by fingerprint",
+		zap.String("from_fingerprint", fromFingerprint),
+		zap.String("to_fingerprint", toFingerprint),
+		zap.String("amount", amount),
+		zap.String("token", tokenSymbol))
+
+	// Resolve sender's fingerprint to party
+	fromMapping, err := c.GetFingerprintMapping(ctx, fromFingerprint)
+	if err != nil {
+		return fmt.Errorf("sender not found: %w", err)
+	}
+
+	// Resolve recipient's fingerprint to party
+	toMapping, err := c.GetFingerprintMapping(ctx, toFingerprint)
+	if err != nil {
+		return fmt.Errorf("recipient not found: %w", err)
+	}
+
+	// Find sender's holding with sufficient balance
+	var holdingCID string
+	if tokenSymbol == "DEMO" {
+		holdingCID, err = c.findDemoHoldingForTransfer(ctx, fromMapping.UserParty, amount)
+	} else {
+		holdingCID, err = c.findHoldingForTransfer(ctx, fromMapping.UserParty, amount)
+	}
+	if err != nil {
+		return fmt.Errorf("insufficient balance: %w", err)
+	}
+
+	// Execute the transfer
+	return c.TransferAsUser(ctx, &TransferAsUserRequest{
+		FromPartyID:     fromMapping.UserParty,
+		ToPartyID:       toMapping.UserParty,
+		HoldingCID:      holdingCID,
+		Amount:          amount,
+		TokenSymbol:     tokenSymbol,
+		FromFingerprint: fromFingerprint,
+		ToFingerprint:   toFingerprint,
+	})
 }

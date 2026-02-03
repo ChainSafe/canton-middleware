@@ -2,11 +2,13 @@
 
 ## API Endpoints
 
-**Ethereum JSON-RPC (MetaMask Compatible):** `https://middleware-api-prod1.02.chainsafe.dev/eth`
-**User Registration:** `https://middleware-api-prod1.02.chainsafe.dev/register`
-**Health Check:** `GET /health`
+| Endpoint | Local | Production |
+|----------|-------|------------|
+| **Ethereum JSON-RPC** | `http://localhost:8081/eth` | `https://<your-deployment>/eth` |
+| **User Registration** | `http://localhost:8081/register` | `https://<your-deployment>/register` |
+| **Health Check** | `http://localhost:8081/health` | `https://<your-deployment>/health` |
 
-*(Replace with actual mainnet URL when available)*
+For local development, use `http://localhost:8081`. For production, replace with your deployed API server URL.
 
 ---
 
@@ -82,27 +84,29 @@ When transaction submission fails due to whitelist restrictions:
 ### MetaMask Configuration
 
 ```javascript
-// Add network to MetaMask
+// Add network to MetaMask (local development)
 await window.ethereum.request({
   method: 'wallet_addEthereumChain',
   params: [{
-    chainId: '0x7A69', // 31337 in hex (or your configured chain ID)
-    chainName: 'Canton Bridge Network',
-    rpcUrls: ['https://middleware-api-prod1.02.chainsafe.dev/eth'],
+    chainId: '0x7A69', // 31337 in hex
+    chainName: 'Canton Local',
+    rpcUrls: ['http://localhost:8081/eth'],
     nativeCurrency: {
-      name: 'Synthetic ETH',
-      symbol: 'sETH',
+      name: 'Ether',
+      symbol: 'ETH',
       decimals: 18
     }
   }]
 });
 ```
 
+For production, replace `http://localhost:8081/eth` with your deployed API server URL.
+
 ### Supported Methods
 
 The following standard Ethereum JSON-RPC methods are supported:
 
-#### Read Methods
+#### Read Methods - eth_*
 - `eth_chainId` - Returns the chain ID
 - `eth_blockNumber` - Returns the latest block number
 - `eth_gasPrice` - Returns the current gas price
@@ -117,8 +121,14 @@ The following standard Ethereum JSON-RPC methods are supported:
 - `eth_getTransactionReceipt` - Returns a transaction receipt
 - `eth_getLogs` - Returns logs matching filter criteria
 - `eth_getBlockByNumber` - Returns a block by number
+- `eth_getBlockByHash` - Returns a block by hash
+
+#### Read Methods - net_* and web3_*
 - `net_version` - Returns the network ID
-- `web3_clientVersion` - Returns the client version
+- `net_listening` - Returns true (always listening)
+- `net_peerCount` - Returns 0 (no P2P network)
+- `web3_clientVersion` - Returns the client version string
+- `web3_sha3` - Returns Keccak-256 hash of input
 
 #### Write Methods
 - `eth_sendRawTransaction` - Submits a signed transaction
@@ -225,14 +235,31 @@ Example: `registration:1234567890`
 
 ### Response
 
-**Success (200 OK):**
+**Success (200 OK) - Standard EVM Registration:**
 ```json
 {
-  "party": "relay::1220...",
+  "party": "user_f39Fd6e5::1220...",
   "fingerprint": "0x...",
-  "mapping_cid": "0x..."
+  "mapping_cid": "0x...",
+  "evm_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }
 ```
+
+**Success (200 OK) - Canton Native User Registration:**
+
+For native Canton users (registered via party ID instead of EVM signature), the response includes credentials for MetaMask import:
+
+```json
+{
+  "party": "native_alice::1220...",
+  "fingerprint": "0x...",
+  "mapping_cid": "0x...",
+  "evm_address": "0x2a1f1b7334144A1d706ca901f4cC496f012b74F7",
+  "private_key": "0x..."
+}
+```
+
+> **Note:** The `private_key` field is only returned for Canton native user registrations, allowing the user to import their generated EVM identity into MetaMask.
 
 **Errors:**
 - `401 Unauthorized` - Invalid signature or missing authentication
@@ -276,11 +303,14 @@ Here's a complete example using ethers.js v6:
 ```javascript
 import { ethers } from 'ethers';
 
-// Configuration
-const RPC_URL = 'https://middleware-api-prod1.02.chainsafe.dev/eth';
-const REGISTER_URL = 'https://middleware-api-prod1.02.chainsafe.dev/register';
-const TOKEN_ADDRESS = '0x...'; // Your token address
+// Configuration (local development)
+const RPC_URL = 'http://localhost:8081/eth';
+const REGISTER_URL = 'http://localhost:8081/register';
 const CHAIN_ID = 31337;
+
+// Token addresses (local Anvil deployment)
+const PROMPT_TOKEN = '0x5FbDB2315678afecb367f032d93F642f64180aa3'; // Bridged ERC-20
+const DEMO_TOKEN = '0xDE30000000000000000000000000000000000001';   // Native Canton token
 
 // ERC20 ABI (minimal)
 const ERC20_ABI = [
@@ -324,8 +354,8 @@ async function main() {
   const registration = await registerResponse.json();
   console.log('Registered! Fingerprint:', registration.fingerprint);
 
-  // Step 2: Get token contract
-  const token = new ethers.Contract(TOKEN_ADDRESS, ERC20_ABI, wallet);
+  // Step 2: Get token contract (use DEMO_TOKEN or PROMPT_TOKEN)
+  const token = new ethers.Contract(DEMO_TOKEN, ERC20_ABI, wallet);
 
   // Step 3: Read token info
   const [name, symbol, decimals, balance] = await Promise.all([

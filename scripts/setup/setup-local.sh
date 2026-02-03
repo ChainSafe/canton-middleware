@@ -12,10 +12,10 @@
 # - Running e2e tests
 #
 # Usage:
-#   ./scripts/setup-local.sh              # Full setup + e2e test
-#   ./scripts/setup-local.sh --setup-only # Setup without running tests
-#   ./scripts/setup-local.sh --skip-build # Skip DAR building
-#   ./scripts/setup-local.sh --clean      # Clean and rebuild everything
+#   ./scripts/setup/setup-local.sh              # Full setup + e2e test
+#   ./scripts/setup/setup-local.sh --setup-only # Setup without running tests
+#   ./scripts/setup/setup-local.sh --skip-build # Skip DAR building
+#   ./scripts/setup/setup-local.sh --clean      # Clean and rebuild everything
 #
 # Prerequisites:
 #   - Docker and Docker Compose
@@ -404,7 +404,7 @@ run_e2e_test() {
     
     cd "$PROJECT_ROOT"
     
-    ./scripts/e2e-local.sh --skip-docker
+    ./scripts/testing/e2e-local.sh --skip-docker
 }
 
 # =============================================================================
@@ -432,7 +432,7 @@ print_summary() {
     echo "    DEMO:   0xDE30000000000000000000000000000000000001"
     echo ""
     echo "  Next steps:"
-    echo "    1. Test with MetaMask: ./scripts/metamask-info.sh"
+    echo "    1. Test with MetaMask: ./scripts/utils/metamask-info.sh"
     echo "    2. View logs:          docker compose logs -f"
     echo "    3. Stop services:      docker compose down"
     echo ""

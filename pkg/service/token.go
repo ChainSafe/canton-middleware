@@ -56,7 +56,7 @@ type TransferResult struct {
 	ToFingerprint   string
 }
 
-// Transfer executes a token transfer from one user to another
+// Transfer executes a token transfer from one user to another using user-owned holdings
 func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*TransferResult, error) {
 	fromAddress := auth.NormalizeAddress(req.FromEVMAddress)
 	toAddress := auth.NormalizeAddress(req.ToEVMAddress)
@@ -83,11 +83,12 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, ErrRecipientNotFound
 	}
 
-	err = s.cantonClient.Transfer(ctx, &canton.TransferRequest{
-		FromFingerprint: fromUser.Fingerprint,
-		ToFingerprint:   toUser.Fingerprint,
-		Amount:          req.Amount,
-	})
+	// Use user-owned Transfer choice (CIP56Holding.Transfer)
+	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+		fromUser.Fingerprint,
+		toUser.Fingerprint,
+		req.Amount,
+		"PROMPT")
 	if err != nil {
 		s.logger.Error("Transfer failed",
 			zap.String("from", fromAddress),
@@ -101,8 +102,8 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, fmt.Errorf("canton transfer failed: %w", err)
 	}
 
-	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update balance cache",
+	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, apidb.TokenPrompt); err != nil {
+		s.logger.Warn("Failed to update prompt balance cache",
 			zap.String("from_fingerprint", fromUser.Fingerprint),
 			zap.String("to_fingerprint", toUser.Fingerprint),
 			zap.String("amount", req.Amount),
@@ -133,9 +134,9 @@ func (s *TokenService) GetBalance(ctx context.Context, evmAddress string) (strin
 		return "0", nil
 	}
 
-	balance, err := s.db.GetUserBalanceByFingerprint(user.Fingerprint)
+	balance, err := s.db.GetBalanceByFingerprint(user.Fingerprint, apidb.TokenPrompt)
 	if err != nil {
-		s.logger.Warn("Failed to get balance from cache, returning 0",
+		s.logger.Warn("Failed to get prompt balance from cache, returning 0",
 			zap.String("fingerprint", user.Fingerprint),
 			zap.Error(err))
 		return "0", nil
@@ -197,8 +198,7 @@ type TransferDemoRequest struct {
 	Amount         string
 }
 
-// TransferDemo executes a DEMO token transfer from one user to another via Canton
-// This works identically to PROMPT transfers, using Burn + Mint via CIP56Manager
+// TransferDemo executes a DEMO token transfer from one user to another using user-owned holdings
 func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoRequest) (*TransferResult, error) {
 	fromAddress := auth.NormalizeAddress(req.FromEVMAddress)
 	toAddress := auth.NormalizeAddress(req.ToEVMAddress)
@@ -225,12 +225,12 @@ func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoReques
 		return nil, ErrRecipientNotFound
 	}
 
-	// Transfer via Canton (Burn + Mint)
-	err = s.cantonClient.TransferDemo(ctx, &canton.TransferDemoRequest{
-		FromFingerprint: fromUser.Fingerprint,
-		ToFingerprint:   toUser.Fingerprint,
-		Amount:          req.Amount,
-	})
+	// Use user-owned Transfer choice (CIP56Holding.Transfer)
+	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+		fromUser.Fingerprint,
+		toUser.Fingerprint,
+		req.Amount,
+		"DEMO")
 	if err != nil {
 		s.logger.Error("DEMO transfer failed",
 			zap.String("from", fromAddress),
@@ -244,17 +244,11 @@ func (s *TokenService) TransferDemo(ctx context.Context, req *TransferDemoReques
 		return nil, fmt.Errorf("canton DEMO transfer failed: %w", err)
 	}
 
-	// Update database balance cache
-	// Note: We use a simple approach here - decrement sender, increment recipient
-	// The reconciliation process will correct any discrepancies
-	if err := s.db.DecrementDemoBalanceByFingerprint(fromUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update sender DEMO balance cache",
-			zap.String("fingerprint", fromUser.Fingerprint),
-			zap.Error(err))
-	}
-	if err := s.db.IncrementDemoBalanceByFingerprint(toUser.Fingerprint, req.Amount); err != nil {
-		s.logger.Warn("Failed to update recipient DEMO balance cache",
-			zap.String("fingerprint", toUser.Fingerprint),
+	// Update database balance cache atomically
+	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, apidb.TokenDemo); err != nil {
+		s.logger.Warn("Failed to update DEMO balance cache",
+			zap.String("from_fingerprint", fromUser.Fingerprint),
+			zap.String("to_fingerprint", toUser.Fingerprint),
 			zap.Error(err))
 	}
 
@@ -283,7 +277,7 @@ func (s *TokenService) GetDemoBalance(ctx context.Context, evmAddress string) (s
 	}
 
 	// Get balance from database cache
-	balance, err := s.db.GetDemoBalanceByFingerprint(user.Fingerprint)
+	balance, err := s.db.GetBalanceByFingerprint(user.Fingerprint, apidb.TokenDemo)
 	if err != nil {
 		s.logger.Warn("Failed to get DEMO balance from cache, returning 0",
 			zap.String("fingerprint", user.Fingerprint),
@@ -292,4 +286,98 @@ func (s *TokenService) GetDemoBalance(ctx context.Context, evmAddress string) (s
 	}
 
 	return balance, nil
+}
+
+// CantonTransferRequest represents a Canton-native token transfer request using party IDs
+type CantonTransferRequest struct {
+	FromPartyID string // Sender's Canton party ID
+	ToPartyID   string // Recipient's Canton party ID
+	Amount      string // Amount in token units (e.g., "50.5")
+	Token       string // "DEMO" or "PROMPT"
+}
+
+// TransferByPartyID executes a CIP56 token transfer using Canton party IDs directly
+// This is the native Canton way to transfer tokens, without going through the EVM facade
+func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransferRequest) (*TransferResult, error) {
+	// Validate party ID format
+	if err := auth.ValidateCantonPartyID(req.FromPartyID); err != nil {
+		return nil, fmt.Errorf("invalid sender party ID: %w", err)
+	}
+	if err := auth.ValidateCantonPartyID(req.ToPartyID); err != nil {
+		return nil, fmt.Errorf("invalid recipient party ID: %w", err)
+	}
+
+	// Get sender user by party ID
+	fromUser, err := s.db.GetUserByCantonPartyID(req.FromPartyID)
+	if err != nil {
+		s.logger.Error("Failed to get sender by party ID", zap.Error(err))
+		return nil, fmt.Errorf("failed to get sender: %w", err)
+	}
+	if fromUser == nil {
+		return nil, ErrUserNotRegistered
+	}
+
+	// Get recipient user by party ID
+	toUser, err := s.db.GetUserByCantonPartyID(req.ToPartyID)
+	if err != nil {
+		s.logger.Error("Failed to get recipient by party ID", zap.Error(err))
+		return nil, fmt.Errorf("failed to get recipient: %w", err)
+	}
+	if toUser == nil {
+		return nil, ErrRecipientNotFound
+	}
+
+	// Determine token type for database
+	tokenType := apidb.TokenDemo
+	tokenSymbol := "DEMO"
+	if req.Token == "PROMPT" {
+		tokenType = apidb.TokenPrompt
+		tokenSymbol = "PROMPT"
+	}
+
+	// Execute transfer on Canton using CIP56
+	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+		fromUser.Fingerprint,
+		toUser.Fingerprint,
+		req.Amount,
+		tokenSymbol)
+	if err != nil {
+		s.logger.Error("Canton transfer failed",
+			zap.String("from_party", req.FromPartyID),
+			zap.String("to_party", req.ToPartyID),
+			zap.String("amount", req.Amount),
+			zap.String("token", tokenSymbol),
+			zap.Error(err))
+
+		if isInsufficientFunds(err) {
+			return nil, ErrInsufficientFunds
+		}
+		return nil, fmt.Errorf("canton transfer failed: %w", err)
+	}
+
+	// Update database balance cache atomically
+	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, tokenType); err != nil {
+		s.logger.Warn("Failed to update balance cache",
+			zap.String("from_fingerprint", fromUser.Fingerprint),
+			zap.String("to_fingerprint", toUser.Fingerprint),
+			zap.String("token", tokenSymbol),
+			zap.Error(err))
+	}
+
+	s.logger.Info("Canton native transfer completed",
+		zap.String("from_party", req.FromPartyID),
+		zap.String("to_party", req.ToPartyID),
+		zap.String("amount", req.Amount),
+		zap.String("token", tokenSymbol))
+
+	return &TransferResult{
+		Success:         true,
+		FromFingerprint: fromUser.Fingerprint,
+		ToFingerprint:   toUser.Fingerprint,
+	}, nil
+}
+
+// GetUserByPartyID retrieves user info by Canton party ID
+func (s *TokenService) GetUserByPartyID(partyID string) (*apidb.User, error) {
+	return s.db.GetUserByCantonPartyID(partyID)
 }

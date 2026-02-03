@@ -85,3 +85,16 @@ config.e2e-test.yaml
 # Local devnet configs (contain OAuth secrets)
 config.local-devnet.yaml
 config.api-server.local-devnet.yaml
+
+# Demo documentation (internal presentation materials)
+docs/demo/
+
+# Runtime files
+.pids/
+native-user-info.json
+native-wallet-demo
+register-native-user
+1go
+
+# Local config variants
+config.docker-local.yaml

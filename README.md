@@ -1,186 +1,260 @@
-# Canton-Ethereum Token Bridge
+# Canton Middleware
 
-A token bridge connecting CIP-56 tokens on Canton Network with ERC-20 tokens on Ethereum.
-
-## Quick Start (Local Testing)
-
-```bash
-# Clone with submodules
-git clone --recursive https://github.com/ChainSafe/canton-middleware.git
-cd canton-middleware
-
-# Run the setup script (handles everything automatically)
-./scripts/setup-local.sh
-```
-
-This will:
-1. Check prerequisites (Docker, Go)
-2. Initialize git submodules (canton-erc20 contracts)
-3. Build DAML DARs (if DAML SDK is installed)
-4. Start all Docker services
-5. Run the end-to-end test
-
-### Prerequisites
-
-- **Docker** and **Docker Compose** (required)
-- **Go 1.23+** (required)
-- **DAML SDK** (optional - only needed to rebuild DARs)
-- **Foundry** (optional - for direct Ethereum interactions)
-
-### Test with MetaMask
-
-After setup, you can test transfers using MetaMask:
-
-```bash
-./scripts/metamask-test.sh
-```
-
-This walks you through:
-- Adding the local Canton network to MetaMask
-- Importing test accounts
-- Transferring PROMPT and DEMO tokens
-
-### Service Endpoints (Local)
-
-| Service | URL |
-|---------|-----|
-| Anvil (Ethereum) | http://localhost:8545 |
-| API Server | http://localhost:8081 |
-| Relayer | http://localhost:8080 |
-| Canton HTTP | http://localhost:5013 |
-| Canton gRPC | localhost:5011 |
-
-### Test Accounts
-
-Using Anvil's default mnemonic (`test test test test test test test test test test test junk`):
-
-| Account | Address | Private Key |
-|---------|---------|-------------|
-| User 1 | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` | `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` |
-| User 2 | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | `59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d` |
-
-### Token Addresses
-
-| Token | Address | Description |
-|-------|---------|-------------|
-| PROMPT | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | Bridged ERC-20 token |
-| DEMO | `0xDE30000000000000000000000000000000000001` | Native Canton token |
-
----
+MetaMask-compatible middleware for Canton Network, enabling ERC-20 style interactions with CIP-56 tokens.
 
 ## Overview
 
-This bridge enables bidirectional token transfers between Canton Network and Ethereum through a relayer node that runs as a sidecar to a Canton Network Partner Node.
+This project provides:
+- **API Server**: Ethereum JSON-RPC facade that translates MetaMask transactions to Canton CIP-56 operations
+- **Relayer**: Bridges PROMPT tokens between Ethereum and Canton
+- **Interoperability**: Native Canton users and MetaMask users can seamlessly transfer tokens to each other
+
+## Quick Start (Local Development)
+
+```bash
+# Clone the repository
+git clone https://github.com/ChainSafe/canton-middleware.git
+cd canton-middleware
+
+# Run the bootstrap script (handles everything)
+./scripts/setup/bootstrap-all.sh
+```
+
+This will:
+1. Generate encryption keys (`CANTON_MASTER_KEY`)
+2. Start Docker services (Canton, Anvil, PostgreSQL, API Server, Relayer)
+3. Wait for healthy status
+4. Register test users
+5. Mint DEMO tokens (500 each) and deposit PROMPT tokens
+
+### Prerequisites
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Go | 1.23+ | https://go.dev/dl/ |
+| Docker | Latest | https://docs.docker.com/get-docker/ |
+| Docker Compose | v2+ | (included with Docker Desktop) |
+| Foundry | Latest | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` |
+
+### MetaMask Configuration
+
+After bootstrap completes, configure MetaMask:
+
+| Setting | Value |
+|---------|-------|
+| Network Name | Canton Local |
+| RPC URL | `http://localhost:8081/eth` |
+| Chain ID | 31337 |
+| Currency Symbol | ETH |
+
+**Test Accounts (Anvil defaults):**
+
+| User | Address | Private Key |
+|------|---------|-------------|
+| User 1 | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` | `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` |
+| User 2 | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | `59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d` |
+
+**Token Addresses:**
+
+| Token | Address | Type |
+|-------|---------|------|
+| DEMO | `0xDE30000000000000000000000000000000000001` | Native Canton token |
+| PROMPT | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | Bridged ERC-20 |
+
+### Service Endpoints
+
+| Service | URL |
+|---------|-----|
+| API Server (MetaMask RPC) | http://localhost:8081/eth |
+| API Server Health | http://localhost:8081/health |
+| Canton gRPC | localhost:5011 |
+| Canton HTTP | http://localhost:5013 |
+| Anvil (Ethereum) | http://localhost:8545 |
+| PostgreSQL | localhost:5432 |
+
+---
 
 ## Architecture
 
-- **Canton Bridge Contract**: Manages CIP-56 token locks/unlocks and wrapped token minting/burning
-- **Ethereum Bridge Contract**: Manages ERC-20 token locks/unlocks and wrapped token minting/burning  
-- **Relayer Node**: Go-based service that monitors both chains and orchestrates cross-chain transfers
-- **API Server**: EVM JSON-RPC facade for MetaMask compatibility
+```
+┌─────────────────┐                    ┌─────────────────┐
+│    MetaMask     │                    │  Native Canton  │
+│   (EVM Wallet)  │                    │   User / CLI    │
+└────────┬────────┘                    └────────┬────────┘
+         │ JSON-RPC                             │ gRPC
+         ▼                                      │
+┌─────────────────────────────────────────────────────────┐
+│                    API SERVER                            │
+│  • /eth - JSON-RPC facade (eth_call, eth_sendRawTx)     │
+│  • /register - User registration                         │
+│  • Custodial Canton key management                       │
+│  • Balance reconciliation with Canton                    │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+         ┌────────────────┼────────────────┐
+         │                │                │
+         ▼                ▼                ▼
+┌─────────────┐   ┌─────────────┐   ┌─────────────┐
+│  PostgreSQL │   │   Canton    │   │   Relayer   │
+│  (Cache)    │   │  (CIP-56)   │   │  (Bridge)   │
+└─────────────┘   └─────────────┘   └──────┬──────┘
+                                           │
+                                    ┌──────▼──────┐
+                                    │  Ethereum   │
+                                    │  (ERC-20)   │
+                                    └─────────────┘
+```
+
+**Key Components:**
+- **API Server** - Translates ERC-20 calls to CIP-56 DAML operations
+- **Relayer** - Bridges PROMPT token between Ethereum ↔ Canton
+- **PostgreSQL** - Caches user data and balances for fast queries
+- **Canton Ledger** - Source of truth for all token balances
+
+---
 
 ## Project Structure
 
 ```
 canton-middleware/
 ├── cmd/
-│   └── relayer/              # Main relayer application
-├── contracts/
-│   ├── ethereum/             # Solidity contracts
-│   └── canton-erc20/         # Canton DAML contracts
+│   ├── api-server/           # API server entry point
+│   └── relayer/              # Relayer entry point
 ├── pkg/
-│   ├── canton/               # Canton client and utilities
-│   │   └── lapi/             # Generated Ledger API protobufs (v2)
-│   ├── ethereum/             # Ethereum client and utilities
-│   ├── relayer/              # Core relayer logic
-│   ├── db/                   # Database models and queries
-│   └── config/               # Configuration handling
+│   ├── apidb/                # Database operations
+│   ├── auth/                 # JWT and EVM authentication
+│   ├── canton/               # Canton client (gRPC)
+│   │   └── lapi/v2/          # Generated Ledger API protobufs
+│   ├── config/               # Configuration handling
+│   ├── db/                   # Database schema
+│   ├── ethereum/             # Ethereum client
+│   ├── ethrpc/               # JSON-RPC server
+│   ├── keys/                 # Key management (secp256k1)
+│   ├── registration/         # User registration
+│   └── service/              # Token service
 ├── scripts/
-│   ├── test-bridge.sh        # Automated end-to-end testing
-│   ├── bootstrap-bridge.go   # Bootstrap Canton contracts
-│   ├── register-user.go      # Register user fingerprint mapping
-│   ├── query-holdings.go     # Query Canton holdings
-│   └── initiate-withdrawal.go # Initiate Canton→EVM withdrawal
-├── internal/
-│   └── metrics/              # Prometheus metrics
-└── deployments/              # Docker, k8s configs
+│   ├── setup/                # Bootstrap and setup scripts
+│   ├── testing/              # Test and demo scripts
+│   ├── bridge/               # Bridge operation scripts
+│   ├── utils/                # Diagnostic utilities
+│   ├── lib/                  # Shared bash functions
+│   └── archive/              # Migration scripts (reference)
+├── contracts/
+│   ├── canton-erc20/         # DAML contracts (CIP-56)
+│   └── ethereum-wayfinder/   # Solidity contracts
+├── docs/                     # Documentation
+└── deployments/              # Docker, deployment configs
 ```
 
-## Development
+---
 
-### Prerequisites
+## Scripts
 
-- Go 1.23+
-- Docker & Docker Compose
-- DAML SDK (optional, for rebuilding contracts)
-- Foundry (optional, for direct Ethereum interactions)
-
-### Setup
-
-```bash
-# Clone with submodules
-git clone --recursive https://github.com/ChainSafe/canton-middleware.git
-cd canton-middleware
-
-# Install Go dependencies
-go mod download
-
-# Run unit tests
-go test ./...
-
-# Build binaries
-go build -o bin/relayer ./cmd/relayer
-go build -o bin/api-server ./cmd/api-server
-```
-
-### Configuration
-
-See `config.example.yaml` for detailed configuration options.
-
-## Local Testing
-
-### Quick Start
-
-```bash
-# Full automated setup and test
-./scripts/setup-local.sh
-
-# Or setup only (no tests)
-./scripts/setup-local.sh --setup-only
-
-# Clean and rebuild everything
-./scripts/setup-local.sh --clean
-```
-
-### Manual Testing
-
-```bash
-# Start services
-docker compose up -d --build
-
-# Run E2E test
-./scripts/e2e-local.sh
-
-# Test with MetaMask
-./scripts/metamask-test.sh
-```
-
-### Available Scripts
+### Setup (`scripts/setup/`)
 
 | Script | Description |
 |--------|-------------|
-| `scripts/setup-local.sh` | Full automated setup (submodules, DARs, Docker, tests) |
-| `scripts/e2e-local.sh` | End-to-end test (deposit, transfer, DEMO token) |
-| `scripts/metamask-test.sh` | Interactive MetaMask testing guide |
-| `scripts/test-bridge.sh` | Interactive bridge testing menu |
+| `bootstrap-all.sh` | Full automated setup (recommended) |
+| `bootstrap-bridge.go` | Bootstrap bridge contracts on Canton |
+| `bootstrap-demo.go` | Mint DEMO tokens to users |
+| `setup-local.sh` | Alternative local setup |
+| `setup-devnet.sh` | DevNet setup |
 
-For detailed instructions, see [Local Testing Guide](docs/LOCAL_TESTING_GUIDE.md).
+### Testing (`scripts/testing/`)
+
+| Script | Description |
+|--------|-------------|
+| `canton-transfer-demo.go` | Demo transfers and reconciliation |
+| `register-native-user.go` | Register native Canton user |
+| `register-user.go` | Register EVM user |
+| `e2e-local.go` | End-to-end local tests |
+
+### Utilities (`scripts/utils/`)
+
+| Script | Description |
+|--------|-------------|
+| `query-canton-holdings.sh` | Query Canton holdings |
+| `verify-canton-holdings.go` | Verify/compare holdings |
+| `metamask-info.sh` | Show MetaMask config |
+| `check-mappings.go` | Check fingerprint mappings |
+
+---
+
+## Development
+
+### Build
+
+```bash
+# Install dependencies
+go mod download
+
+# Build binaries
+make build
+
+# Run tests
+make test
+```
+
+### Manual Setup
+
+```bash
+# Set environment variables
+export CANTON_MASTER_KEY=$(openssl rand -base64 32)
+export SKIP_CANTON_SIG_VERIFY=true
+
+# Start services
+docker compose up -d
+
+# Wait for healthy status
+docker compose ps
+
+# Run bootstrap scripts
+go run scripts/setup/bootstrap-bridge.go -config config.e2e-local.yaml
+go run scripts/setup/bootstrap-demo.go -config config.e2e-local.yaml
+```
+
+### Verify Setup
+
+```bash
+# Health checks
+curl http://localhost:8081/health
+curl http://localhost:5013/v2/version
+
+# Check balances
+./scripts/utils/query-canton-holdings.sh
+
+# Compare DB vs Canton
+go run scripts/utils/verify-canton-holdings.go -config config.e2e-local.yaml -compare
+```
+
+---
 
 ## Documentation
 
-See the [docs](docs/) directory for detailed documentation:
-- [Bridge Testing Guide](docs/BRIDGE_TESTING_GUIDE.md) - Local testing with Docker
-- [Testnet Migration Guide](docs/TESTNET_MIGRATION_GUIDE.md) - Moving to Canton Network testnet
-- [Architecture Design](docs/architecture_design.md)
-- [Relayer Logic](docs/relayer-logic.md)
-- [Canton Integration](docs/canton-integration.md)
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/ARCHITECTURE.md) | System design and data flows |
+| [Setup & Testing](docs/SETUP_AND_TESTING.md) | Local setup and environment configuration |
+| [API Documentation](docs/API_DOCUMENTATION.md) | Endpoint reference |
+| [CIP-0086 Overview](docs/CIP-0086-OVERVIEW.md) | CIP-0086 compliance |
+| [Deployment Requirements](docs/WAYFINDER_DEPLOYMENT_REQUIREMENTS.md) | Production deployment checklist |
+
+---
+
+## Configuration
+
+Configuration files:
+
+| Environment | Config File |
+|-------------|-------------|
+| Local | `config.e2e-local.yaml` |
+| Docker | `config.docker.yaml` |
+| Example | `config.example.yaml` |
+
+See [Setup & Testing Guide](docs/SETUP_AND_TESTING.md) for DevNet/Production configuration.
+
+---
+
+## License
+
+[License details here]

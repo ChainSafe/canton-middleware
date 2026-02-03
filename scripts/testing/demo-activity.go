@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,7 +117,7 @@ func main() {
 		fmt.Println("Error: cip56_package_id and native_token_package_id are required in config")
 		os.Exit(1)
 	}
-	
+
 	if corePkg == "" {
 		fmt.Println("Warning: core_package_id not set, PROMPT events won't be shown")
 	}
@@ -175,7 +176,7 @@ func main() {
 	mintEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "MintEvent", ledgerEnd)
 	burnEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "BurnEvent", ledgerEnd)
 	transferEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "TransferEvent", ledgerEnd)
-	
+
 	// Query PROMPT events (bridged token) - bridge events are in core package
 	var bridgeMintEvents, bridgeBurnEvents []Event
 	if corePkg != "" {
@@ -200,9 +201,61 @@ func main() {
 		}
 	}
 
-	// Note: Holdings are queried but events are the source of truth for supply totals
-	// User balances from database (shown at end) are what MetaMask displays
-	_ = holdings
+	// Print Active Holdings (on-chain state)
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Println("  Active CIP56Holdings (On-Chain State)")
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Println()
+
+	// Group holdings by owner
+	holdingsByOwner := make(map[string][]Holding)
+	for _, h := range holdings {
+		holdingsByOwner[h.Owner] = append(holdingsByOwner[h.Owner], h)
+	}
+
+	if len(holdings) > 0 {
+		fmt.Printf("  Total Holdings: %d contracts\n\n", len(holdings))
+		for owner, ownerHoldings := range holdingsByOwner {
+			ownerHint := extractPartyHint(owner)
+			var totalAmount float64
+			for _, h := range ownerHoldings {
+				totalAmount += parseAmount(h.Amount)
+			}
+			fmt.Printf("  %s (%s...):\n", ownerHint, truncateParty(owner))
+			// Group holdings by token symbol
+			tokenAmounts := make(map[string]float64)
+			tokenHoldings := make(map[string][]Holding)
+			for _, h := range ownerHoldings {
+				symbol := h.TokenSymbol
+				if symbol == "" {
+					symbol = "UNKNOWN"
+				}
+				tokenAmounts[symbol] += parseAmount(h.Amount)
+				tokenHoldings[symbol] = append(tokenHoldings[symbol], h)
+			}
+			fmt.Printf("    Holdings: %d contract(s)\n", len(ownerHoldings))
+			for symbol, total := range tokenAmounts {
+				fmt.Printf("      %s: %.2f\n", symbol, total)
+			}
+			// Show first 3 holdings per owner
+			shown := 0
+			for symbol, hList := range tokenHoldings {
+				for _, h := range hList {
+					if shown < 3 {
+						fmt.Printf("      - %.2f %s (cid: %s...)\n", parseAmount(h.Amount), symbol, h.ContractID[:20])
+						shown++
+					}
+				}
+			}
+			if len(ownerHoldings) > 3 {
+				fmt.Printf("      ... and %d more\n", len(ownerHoldings)-3)
+			}
+		}
+		fmt.Println()
+	} else {
+		fmt.Println("  No active holdings found")
+		fmt.Println()
+	}
 
 	// Print DEMO Events Summary
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -225,12 +278,30 @@ func main() {
 	}
 
 	if len(transferEvents) > 0 {
-		fmt.Println("  Transfer Events:")
+		fmt.Println("  Transfer Events (Custodial Key Transfers):")
 		fmt.Println("  ─────────────────────────────────────────────────────────────────")
 		for _, e := range transferEvents {
-			fmt.Printf("    %s: %.2f DEMO transferred\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
+			// Extract user-friendly party hints from the full party IDs
+			fromHint := extractPartyHint(e.From)
+			toHint := extractPartyHint(e.To)
+			fmt.Printf("    %s: %.2f DEMO\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
+			fmt.Printf("      From: %s (Canton party: %s...)\n", fromHint, truncateParty(e.From))
+			fmt.Printf("      To:   %s (Canton party: %s...)\n", toHint, truncateParty(e.To))
+			fmt.Printf("      Flow: EVM sig → API Server → Custodial Key → CIP56Holding.Transfer\n")
 		}
-		fmt.Println("    (+ 100.00 DEMO transferred before receipts implemented)")
+		fmt.Println()
+
+		// Show custodial key flow explanation
+		fmt.Println("  Custodial Transfer Flow:")
+		fmt.Println("  ─────────────────────────────────────────────────────────────────")
+		fmt.Println("    1. User signs ERC-20 transfer with EVM private key (MetaMask)")
+		fmt.Println("    2. API Server receives eth_sendRawTransaction")
+		fmt.Println("    3. Server verifies EVM signature → identifies user")
+		fmt.Println("    4. Server retrieves user's encrypted Canton private key from DB")
+		fmt.Println("    5. Server decrypts key with master key (AES-256-GCM)")
+		fmt.Println("    6. Server signs Canton command as user's party")
+		fmt.Println("    7. CIP56Holding.Transfer choice exercised (owner-controlled)")
+		fmt.Println("    8. New holding created for recipient, sender's holding updated")
 		fmt.Println()
 	}
 
@@ -327,7 +398,7 @@ func main() {
 
 	// Get user fingerprints from database to distinguish user vs issuer holdings
 	userFingerprints := getUserFingerprints(cfg)
-	
+
 	// Calculate DEMO breakdown by user vs issuer
 	var demoUserMinted, demoIssuerMinted float64
 	for _, e := range mintEvents {
@@ -338,7 +409,7 @@ func main() {
 			demoIssuerMinted += amt
 		}
 	}
-	
+
 	// Calculate PROMPT breakdown (all should be user since bridge requires EVM address)
 	var promptUserBridged float64
 	for _, e := range bridgeMintEvents {
@@ -384,7 +455,7 @@ func printUserBalances(cfg *config.Config) {
 	defer db.Close()
 
 	rows, err := db.Query(`
-		SELECT evm_address, balance::text, demo_balance::text 
+		SELECT evm_address, prompt_balance::text, demo_balance::text 
 		FROM users 
 		ORDER BY evm_address
 	`)
@@ -408,10 +479,10 @@ func printUserBalances(cfg *config.Config) {
 			fmt.Printf("  Scan error: %v\n", err)
 			continue
 		}
-		
+
 		prompt := parseAmount(promptStr)
 		demo := parseAmount(demoStr)
-		
+
 		userCount++
 		totalPrompt += prompt
 		totalDemo += demo
@@ -551,6 +622,26 @@ func parseAmount(s string) float64 {
 	var f float64
 	fmt.Sscanf(s, "%f", &f)
 	return f
+}
+
+// extractPartyHint extracts the hint prefix from a Canton party ID (e.g., "user_FCAd0B19" from "user_FCAd0B19::1220...")
+func extractPartyHint(partyID string) string {
+	if partyID == "" {
+		return "unknown"
+	}
+	parts := strings.Split(partyID, "::")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return partyID
+}
+
+// truncateParty returns a truncated version of the party ID for display
+func truncateParty(partyID string) string {
+	if len(partyID) > 20 {
+		return partyID[:20]
+	}
+	return partyID
 }
 
 func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
@@ -855,8 +946,8 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 				case "TransferEvent":
 					// TransferEvent: issuer(0), sender(1), recipient(2), amount(3), ...
 					if len(fields) >= 4 {
-						e.From = fields[1].GetValue().GetParty()  // sender
-						e.To = fields[2].GetValue().GetParty()    // recipient
+						e.From = fields[1].GetValue().GetParty()     // sender
+						e.To = fields[2].GetValue().GetParty()       // recipient
 						e.Amount = fields[3].GetValue().GetNumeric() // amount
 					}
 				case "BridgeMintEvent":

@@ -226,6 +226,8 @@ services:
     command: ["-config", "/app/state/api-server-config.yaml"]
     environment:
       LOG_LEVEL: debug
+      CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32
+      SKIP_CANTON_SIG_VERIFY: "${SKIP_CANTON_SIG_VERIFY:-false}"  # Set to "true" for local testing
     depends_on:
       bootstrap:
         condition: service_completed_successfully

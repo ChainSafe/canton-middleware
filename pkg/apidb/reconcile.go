@@ -31,13 +31,15 @@ func NewReconciler(db *Store, cantonClient *canton.Client, logger *zap.Logger) *
 	}
 }
 
-// ReconcileAll synchronizes total supply from Canton.
-// NOTE: User balances are NOT reconciled from Canton because in the issuer-centric model,
-// all holdings are owned by the same party (issuer) and individual user balances cannot
-// be determined from on-chain data. User balances are tracked via transaction history
-// (deposits, withdrawals, transfers) which is the source of truth.
+// ReconcileAll synchronizes total supply and user balances from Canton.
+// This method:
+// 1. Calculates total supply from all CIP56Holding contracts
+// 2. Updates registered users' balances based on their Canton party holdings
+//
+// User balances are reconciled from Canton holdings, which catches ALL balance changes
+// including transfers made directly on the Canton ledger (e.g., by native Canton users).
 func (r *Reconciler) ReconcileAll(ctx context.Context) error {
-	r.logger.Info("Starting total supply reconciliation")
+	r.logger.Info("Starting full reconciliation (supply + user balances)")
 	start := time.Now()
 
 	// Get all holdings from Canton to calculate total supply
@@ -75,6 +77,12 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 		zap.String("total_supply", totalSupply.String()),
 		zap.Duration("duration", time.Since(start)))
 
+	// Also reconcile user balances from holdings
+	if err := r.ReconcileUserBalancesFromHoldings(ctx); err != nil {
+		r.logger.Error("Failed to reconcile user balances from holdings", zap.Error(err))
+		// Don't return error - total supply reconciliation succeeded
+	}
+
 	return nil
 }
 
@@ -109,6 +117,115 @@ func (r *Reconciler) StartPeriodicReconciliation(interval time.Duration) {
 func (r *Reconciler) Stop() {
 	close(r.stopCh)
 	r.wg.Wait()
+}
+
+// =============================================================================
+// Holdings-Based Balance Reconciliation
+// =============================================================================
+
+// ReconcileUserBalancesFromHoldings queries all CIP56Holding contracts from Canton
+// and updates registered users' balances in the database. This catches ALL balance
+// changes including transfers made directly on the Canton ledger.
+func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) error {
+	r.logger.Info("Starting holdings-based balance reconciliation")
+	start := time.Now()
+
+	// Get all holdings from Canton
+	holdings, err := r.cantonClient.GetAllCIP56Holdings(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get holdings from Canton: %w", err)
+	}
+
+	// Build a map of party -> token -> total balance
+	// Structure: map[partyID]map[tokenSymbol]decimal.Decimal
+	partyBalances := make(map[string]map[string]decimal.Decimal)
+
+	for _, holding := range holdings {
+		if holding.Owner == "" || holding.Amount == "" {
+			continue
+		}
+
+		amount, err := decimal.NewFromString(holding.Amount)
+		if err != nil {
+			r.logger.Warn("Failed to parse holding amount",
+				zap.String("owner", holding.Owner),
+				zap.String("amount", holding.Amount),
+				zap.Error(err))
+			continue
+		}
+
+		// Determine token type from symbol (default to PROMPT if unknown)
+		symbol := holding.Symbol
+		if symbol == "" {
+			symbol = "PROMPT" // Default for backward compatibility
+		}
+
+		// Initialize party's balance map if needed
+		if _, ok := partyBalances[holding.Owner]; !ok {
+			partyBalances[holding.Owner] = make(map[string]decimal.Decimal)
+		}
+
+		// Add to existing balance for this party and token
+		current := partyBalances[holding.Owner][symbol]
+		partyBalances[holding.Owner][symbol] = current.Add(amount)
+	}
+
+	// Get all registered users to update their balances
+	users, err := r.db.GetAllUsers()
+	if err != nil {
+		return fmt.Errorf("failed to get users: %w", err)
+	}
+
+	var updatedCount int
+	for _, user := range users {
+		// Skip users without a Canton party ID
+		if user.CantonPartyID == "" {
+			continue
+		}
+
+		// Get this user's holdings
+		userHoldings, hasHoldings := partyBalances[user.CantonPartyID]
+
+		// Update DEMO balance
+		demoBalance := decimal.Zero
+		if hasHoldings {
+			if bal, ok := userHoldings["DEMO"]; ok {
+				demoBalance = bal
+			}
+		}
+		if err := r.db.UpdateBalanceByCantonPartyID(user.CantonPartyID, demoBalance.String(), TokenDemo); err != nil {
+			r.logger.Warn("Failed to update DEMO balance",
+				zap.String("party_id", user.CantonPartyID),
+				zap.Error(err))
+		}
+
+		// Update PROMPT balance
+		promptBalance := decimal.Zero
+		if hasHoldings {
+			if bal, ok := userHoldings["PROMPT"]; ok {
+				promptBalance = bal
+			}
+		}
+		if err := r.db.UpdateBalanceByCantonPartyID(user.CantonPartyID, promptBalance.String(), TokenPrompt); err != nil {
+			r.logger.Warn("Failed to update PROMPT balance",
+				zap.String("party_id", user.CantonPartyID),
+				zap.Error(err))
+		}
+
+		updatedCount++
+		r.logger.Debug("Updated user balances from holdings",
+			zap.String("party_id", user.CantonPartyID),
+			zap.String("demo_balance", demoBalance.String()),
+			zap.String("prompt_balance", promptBalance.String()))
+	}
+
+	r.logger.Info("Holdings-based balance reconciliation completed",
+		zap.Int("holdings_processed", len(holdings)),
+		zap.Int("parties_with_holdings", len(partyBalances)),
+		zap.Int("users_updated", updatedCount),
+		zap.Duration("duration", time.Since(start)))
+
+	return nil
 }
 
 // =============================================================================
@@ -215,7 +332,7 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 	start := time.Now()
 
 	// Step 1: Reset all user balances to 0
-	if err := r.db.ResetUserBalances(); err != nil {
+	if err := r.db.ResetBalances(TokenPrompt); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
 	r.logger.Debug("Reset all user balances to 0")

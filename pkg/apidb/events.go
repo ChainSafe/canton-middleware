@@ -79,7 +79,7 @@ func (s *Store) storeBridgeEvent(params bridgeEventParams) error {
 		return fmt.Errorf("failed to store %s event: %w", params.eventType, err)
 	}
 
-	// Update user balance
+	// Update user PROMPT balance
 	withPrefix, withoutPrefix := normalizeFingerprint(params.fingerprint)
 	balanceOp := "-"
 	if params.isCredit {
@@ -87,11 +87,11 @@ func (s *Store) storeBridgeEvent(params bridgeEventParams) error {
 	}
 	_, err = tx.Exec(fmt.Sprintf(`
 		UPDATE users
-		SET balance = COALESCE(balance, 0) %s $1::DECIMAL, balance_updated_at = NOW()
+		SET prompt_balance = COALESCE(prompt_balance, 0) %s $1::DECIMAL, balance_updated_at = NOW()
 		WHERE fingerprint = $2 OR fingerprint = $3
 	`, balanceOp), params.amount, withPrefix, withoutPrefix)
 	if err != nil {
-		return fmt.Errorf("failed to update user balance: %w", err)
+		return fmt.Errorf("failed to update user prompt balance: %w", err)
 	}
 
 	// Increment events processed counter
@@ -298,10 +298,4 @@ func (s *Store) GetEventCountByType() (map[string]int, error) {
 	}
 
 	return counts, nil
-}
-
-// ResetUserBalances resets all user balances to 0 (used before full reconciliation)
-func (s *Store) ResetUserBalances() error {
-	_, err := s.db.Exec(`UPDATE users SET balance = 0, balance_updated_at = NOW()`)
-	return err
 }

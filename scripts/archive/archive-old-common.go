@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -25,15 +26,15 @@ import (
 const (
 	// Old common package ID that needs to be archived
 	oldCommonPackageID = "03f7efaff2e596920c58be98cc60514ee108fcb5c2985f37c83380be9c7c7da2"
-	
+
 	// Canton connection
 	cantonRPC = "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
 	party     = "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
-	
+
 	// OAuth
 	tokenURL     = "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
 	clientID     = "nKMdSdj49c2BoPDynr6kf3pkLsTghePa"
-	clientSecret = "_gzyiazk2xfDNceW8Qf109uMkO4jA8lzpGIsCQMm5p0o4_HHkEe9t-tuf7yFldcm"
+	clientSecret = os.Getenv("CANTON_AUTH_CLIENT_SECRET") // Set via environment variable
 	audience     = "https://canton-ledger-api-dev1.01.chainsafe.dev"
 )
 
@@ -58,7 +59,7 @@ func main() {
 	// Get ledger end
 	ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	
+
 	endResp, err := stateClient.GetLedgerEnd(ctx2, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		panic(fmt.Errorf("failed to get ledger end: %v", err))
@@ -77,7 +78,7 @@ func main() {
 
 	ctx3, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	
+
 	resp, err := stateClient.GetActiveContracts(ctx3, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: endResp.Offset,
 		EventFormat: &lapiv2.EventFormat{
@@ -94,7 +95,7 @@ func main() {
 			},
 		},
 	})
-	
+
 	if err != nil {
 		panic(fmt.Errorf("error querying contracts: %v", err))
 	}
@@ -107,7 +108,7 @@ func main() {
 		if contract := msg.GetActiveContract(); contract != nil {
 			c := contract.CreatedEvent
 			// Only collect contracts from the old package that are FingerprintAuth templates
-			if c.TemplateId.PackageId == oldCommonPackageID && 
+			if c.TemplateId.PackageId == oldCommonPackageID &&
 				strings.Contains(c.TemplateId.ModuleName, "FingerprintAuth") {
 				contractsToArchive = append(contractsToArchive, contractInfo{
 					ID:     c.ContractId,
@@ -117,7 +118,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	fmt.Printf("Found %d contracts from old package to archive\n", len(contractsToArchive))
 
 	if len(contractsToArchive) == 0 {
@@ -134,7 +135,7 @@ func main() {
 	// Archive each contract
 	for i, c := range contractsToArchive {
 		archiveArg := &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{}}}
-		
+
 		cmd := &lapiv2.Command{
 			Command: &lapiv2.Command_Exercise{
 				Exercise: &lapiv2.ExerciseCommand{

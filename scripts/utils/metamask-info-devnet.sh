@@ -7,7 +7,7 @@
 #
 # Run this after setup-devnet.sh has completed.
 #
-# Usage: ./scripts/metamask-info-devnet.sh
+# Usage: ./scripts/utils/metamask-info-devnet.sh
 # =============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -72,7 +72,7 @@ echo ""
 echo -e "${YELLOW}User Registration:${NC}"
 echo "   Before you can receive Canton balances, register your EVM address:"
 echo ""
-echo -e "   ${GREEN}go run scripts/register-user.go -config config.devnet.yaml -evm-address YOUR_ADDRESS${NC}"
+echo -e "   ${GREEN}go run scripts/testing/register-user.go -config config.devnet.yaml -evm-address YOUR_ADDRESS${NC}"
 echo ""
 
 # Check if services are running
@@ -102,7 +102,7 @@ fi
 
 echo ""
 echo -e "${YELLOW}Useful Commands:${NC}"
-echo "   Check services:   ./scripts/setup-devnet.sh --status"
+echo "   Check services:   ./scripts/setup/setup-devnet.sh --status"
 echo "   View logs:        docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml logs -f"
-echo "   Register user:    go run scripts/register-user.go -config config.devnet.yaml -evm-address 0x..."
+echo "   Register user:    go run scripts/testing/register-user.go -config config.devnet.yaml -evm-address 0x..."
 echo ""

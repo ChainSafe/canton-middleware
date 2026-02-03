@@ -5,7 +5,7 @@
 # This script builds all Daml packages required for the bridge.
 #
 # Usage:
-#   ./scripts/build-dars.sh
+#   ./scripts/setup/build-dars.sh
 #
 # Requirements:
 #   - Daml SDK installed (https://get.daml.com/)
@@ -32,6 +32,7 @@ echo ""
 PACKAGES=(
     "common"
     "cip56-token"
+    "native-token"
     "bridge-core"
     "bridge-wayfinder"
 )
