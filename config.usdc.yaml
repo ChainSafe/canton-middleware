@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────
+# csUSDC Bridge Relayer Configuration
+# Bridges USDC on Sepolia ↔ csUSDC on Canton (cn-quickstart)
+# ─────────────────────────────────────────────────────────────
+
+server:
+  host: "0.0.0.0"
+  port: 8082
+
+database:
+  host: "localhost"
+  port: 15432
+  user: "bridge"
+  password: "bridge_secret"
+  database: "canton_bridge_usdc"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "${SEPOLIA_RPC_URL}"
+  ws_url: "${SEPOLIA_WS_URL}"
+  chain_id: 11155111
+  bridge_contract: "${USDC_BRIDGE_CONTRACT_ADDRESS}"
+  token_contract: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+  relayer_private_key: "${RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 2
+  polling_interval: "12s"
+  gas_limit_multiplier: 1.2
+  max_gas_price: "50000000000"
+
+canton:
+  # cn-quickstart exposes gRPC Ledger API on port 3901 (app_provider)
+  rpc_url: "localhost:3901"
+  ledger_id: ""
+  domain_id: ""
+  relayer_party: ""
+  application_id: "usdc-bridge-relayer"
+  auth:
+    type: "shared-secret"
+    secret: "unsafe"
+    user_id: "app_provider"
+  tls:
+    enabled: false
+  package_ids:
+    common: ""
+    cip56_token: ""
+    bridge_core: ""
+
+bridge:
+  max_transfer_amount: "10000000000"
+  min_transfer_amount: "1000000"
+  rate_limit:
+    max_requests_per_minute: 60
+    max_volume_per_hour: "100000000000"
+  retry:
+    max_attempts: 3
+    initial_delay: "5s"
+    max_delay: "60s"
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9092
+  health_check:
+    port: 8083
+
+logging:
+  level: "info"
+  format: "console"
