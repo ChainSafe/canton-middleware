@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
@@ -93,7 +94,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine registration type and route accordingly
-	if req.CantonPartyID != "" && req.CantonSignature != "" {
+	// Canton native registration is identified by presence of canton_party_id
+	// (signature can be empty if SKIP_CANTON_SIG_VERIFY=true)
+	if req.CantonPartyID != "" {
 		// Canton native user registration
 		h.handleCantonNativeRegistration(w, r, &req)
 	} else {
@@ -167,32 +170,103 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 	// Allocate a unique Canton party for this user
 	partyHint := fmt.Sprintf("user_%s", evmAddress[2:10]) // e.g., "user_f39Fd6e5"
 	partyResult, err := h.cantonClient.AllocateParty(ctx, partyHint)
+	var cantonPartyID string
 	if err != nil {
-		h.logger.Error("Failed to allocate Canton party",
-			zap.String("hint", partyHint),
-			zap.Error(err))
-		h.writeError(w, http.StatusInternalServerError, "party allocation failed")
-		return
+		// Check if party already exists (from previous registration)
+		errStr := err.Error()
+		if strings.Contains(errStr, "already allocated") || strings.Contains(errStr, "Party already exists") {
+			// Party exists - must use ListParties to get the full (non-truncated) party ID
+			h.logger.Info("Party already exists, looking up full party ID",
+				zap.String("hint", partyHint))
+
+			existingParties, listErr := h.cantonClient.ListParties(ctx)
+			if listErr != nil {
+				h.logger.Error("Failed to list parties to find existing",
+					zap.String("hint", partyHint),
+					zap.Error(listErr))
+				h.writeError(w, http.StatusInternalServerError, "party lookup failed")
+				return
+			}
+
+			h.logger.Info("Searching parties list",
+				zap.Int("party_count", len(existingParties)))
+			for _, p := range existingParties {
+				if strings.HasPrefix(p.PartyID, partyHint+"::") {
+					cantonPartyID = p.PartyID
+					h.logger.Info("Found existing party in list",
+						zap.String("party_id", cantonPartyID))
+					break
+				}
+			}
+
+			if cantonPartyID == "" {
+				h.logger.Error("Could not find existing party in list",
+					zap.String("hint", partyHint))
+				h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+				return
+			}
+		} else {
+			h.logger.Error("Failed to allocate Canton party",
+				zap.String("hint", partyHint),
+				zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+			return
+		}
+	} else {
+		cantonPartyID = partyResult.PartyID
 	}
-	cantonPartyID := partyResult.PartyID
 
 	h.logger.Info("Allocated Canton party for user",
 		zap.String("evm_address", evmAddress),
 		zap.String("party_id", cantonPartyID),
 		zap.String("public_key", cantonKeyPair.PublicKeyHex()[:32]+"..."))
 
-	// Register fingerprint mapping
-	mappingCID, err := h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
+	// Grant CanActAs rights to the OAuth client for this party
+	// This enables the custodial model: users own their holdings, API server acts on their behalf
+	if err := h.cantonClient.GrantCanActAs(ctx, cantonPartyID); err != nil {
+		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
+			zap.String("party_id", cantonPartyID),
+			zap.Error(err))
+		// Continue anyway - the right might already exist or can be granted manually
+	}
+
+	// Register fingerprint mapping on Canton
+	var mappingCID string
+	mappingCID, err = h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
 		UserParty:   cantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
 	})
 	if err != nil {
-		h.logger.Error("Failed to register user on Canton",
-			zap.String("party", cantonPartyID),
-			zap.Error(err))
-		h.writeError(w, http.StatusInternalServerError, "registration failed")
-		return
+		// Check if this is a DEMO-only setup (no WayfinderBridgeConfig)
+		if strings.Contains(err.Error(), "no active WayfinderBridgeConfig") ||
+			strings.Contains(err.Error(), "WayfinderBridgeConfig") {
+			h.logger.Info("No WayfinderBridgeConfig, trying direct FingerprintMapping creation (DEMO-only mode)",
+				zap.String("party", cantonPartyID))
+
+			// Try creating FingerprintMapping directly (DEMO-only mode)
+			mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
+				UserParty:   cantonPartyID,
+				Fingerprint: fingerprint,
+				EvmAddress:  evmAddress,
+			})
+			if err != nil {
+				h.logger.Error("Failed to create FingerprintMapping directly",
+					zap.String("party", cantonPartyID),
+					zap.Error(err))
+				h.writeError(w, http.StatusInternalServerError, "registration failed")
+				return
+			}
+			h.logger.Info("Created FingerprintMapping directly",
+				zap.String("party", cantonPartyID),
+				zap.String("mapping_cid", mappingCID))
+		} else {
+			h.logger.Error("Failed to register user on Canton",
+				zap.String("party", cantonPartyID),
+				zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "registration failed")
+			return
+		}
 	}
 
 	// Save user to database
@@ -312,19 +386,53 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		zap.String("canton_party", req.CantonPartyID),
 		zap.String("evm_address", evmAddress))
 
-	// Register fingerprint mapping on Canton (if not already mapped)
+	// Grant CanActAs rights to the OAuth client for this party
+	// This enables the custodial model: native users can also use MetaMask via the API server
+	if err := h.cantonClient.GrantCanActAs(ctx, req.CantonPartyID); err != nil {
+		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
+			zap.String("party_id", req.CantonPartyID),
+			zap.Error(err))
+		// Continue anyway - the right might already exist or can be granted manually
+	}
+
+	// Register fingerprint mapping on Canton
 	// For Canton native users, the party already exists, we just create the mapping
-	mappingCID, err := h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
+	var mappingCID string
+	mappingCID, err = h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
 		UserParty:   req.CantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
 	})
 	if err != nil {
-		h.logger.Error("Failed to register fingerprint mapping on Canton",
-			zap.String("party", req.CantonPartyID),
-			zap.Error(err))
-		h.writeError(w, http.StatusInternalServerError, "registration failed")
-		return
+		// Check if this is a DEMO-only setup (no WayfinderBridgeConfig)
+		if strings.Contains(err.Error(), "no active WayfinderBridgeConfig") ||
+			strings.Contains(err.Error(), "WayfinderBridgeConfig") {
+			h.logger.Info("No WayfinderBridgeConfig, trying direct FingerprintMapping creation (DEMO-only mode)",
+				zap.String("party", req.CantonPartyID))
+
+			// Try creating FingerprintMapping directly (DEMO-only mode)
+			mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
+				UserParty:   req.CantonPartyID,
+				Fingerprint: fingerprint,
+				EvmAddress:  evmAddress,
+			})
+			if err != nil {
+				h.logger.Error("Failed to create FingerprintMapping directly",
+					zap.String("party", req.CantonPartyID),
+					zap.Error(err))
+				h.writeError(w, http.StatusInternalServerError, "registration failed")
+				return
+			}
+			h.logger.Info("Created FingerprintMapping directly",
+				zap.String("party", req.CantonPartyID),
+				zap.String("mapping_cid", mappingCID))
+		} else {
+			h.logger.Error("Failed to register fingerprint mapping on Canton",
+				zap.String("party", req.CantonPartyID),
+				zap.Error(err))
+			h.writeError(w, http.StatusInternalServerError, "registration failed")
+			return
+		}
 	}
 
 	// Save user to database

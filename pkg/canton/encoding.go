@@ -36,6 +36,31 @@ func EncodeRegisterUserArgs(req *RegisterUserRequest) *lapiv2.Record {
 	return &lapiv2.Record{Fields: fields}
 }
 
+// EncodeFingerprintMappingCreate encodes arguments for creating a FingerprintMapping directly
+// Used in DEMO-only mode when there's no WayfinderBridgeConfig
+func EncodeFingerprintMappingCreate(issuer, userParty, fingerprint, evmAddress string) *lapiv2.Record {
+	fields := []*lapiv2.RecordField{
+		{Label: "issuer", Value: PartyValue(issuer)},
+		{Label: "userParty", Value: PartyValue(userParty)},
+		{Label: "fingerprint", Value: TextValue(fingerprint)},
+	}
+
+	// Optional EVM address
+	if evmAddress != "" {
+		fields = append(fields, &lapiv2.RecordField{
+			Label: "evmAddress",
+			Value: OptionalValue(RecordValue("EvmAddress", TextValue(evmAddress))),
+		})
+	} else {
+		fields = append(fields, &lapiv2.RecordField{
+			Label: "evmAddress",
+			Value: NoneValue(),
+		})
+	}
+
+	return &lapiv2.Record{Fields: fields}
+}
+
 // EncodeCreatePendingDepositArgs encodes arguments for WayfinderBridgeConfig.CreatePendingDeposit
 func EncodeCreatePendingDepositArgs(req *CreatePendingDepositRequest) *lapiv2.Record {
 	return &lapiv2.Record{

@@ -70,6 +70,8 @@ func main() {
 	domainFlag := flag.String("domain", "", "Domain/synchronizer ID (optional, uses config if not specified)")
 	user1Fingerprint := flag.String("user1-fingerprint", "", "User 1 EVM fingerprint (required)")
 	user2Fingerprint := flag.String("user2-fingerprint", "", "User 2 EVM fingerprint (required)")
+	user1PartyFlag := flag.String("user1-party", "", "User 1 Canton party ID (optional, skips FingerprintMapping lookup for DEMO-only mode)")
+	user2PartyFlag := flag.String("user2-party", "", "User 2 Canton party ID (optional, skips FingerprintMapping lookup for DEMO-only mode)")
 	mintAmount := flag.String("mint-amount", "500.0", "Amount to mint to each user")
 	flag.Parse()
 
@@ -161,10 +163,10 @@ func main() {
 		fmt.Printf("    [EXISTS] NativeTokenConfig: %s\n", existingConfig)
 		fmt.Println()
 		fmt.Println("    Skipping DEMO CIP56Manager creation...")
-		
+
 		// Still mint to users if they don't have tokens
-		mintToUsers(ctx, stateService, commandService, cfg, *nativePackageID, existingConfig, 
-			*user1Fingerprint, *user2Fingerprint, *mintAmount, issuer, domainID)
+		mintToUsers(ctx, stateService, commandService, cfg, *nativePackageID, existingConfig,
+			*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
 		return
 	}
 	fmt.Println("    No existing NativeTokenConfig found, creating new one...")
@@ -190,7 +192,7 @@ func main() {
 
 	// Step 4-5: Mint to users
 	mintToUsers(ctx, stateService, commandService, cfg, *nativePackageID, nativeConfigCid,
-		*user1Fingerprint, *user2Fingerprint, *mintAmount, issuer, domainID)
+		*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
 
 	// Step 6: Update database with DEMO balances
 	fmt.Println(">>> Step 6: Updating database with DEMO balances...")
@@ -213,25 +215,38 @@ func main() {
 }
 
 func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, commandService lapiv2.CommandServiceClient, cfg *config.Config,
-	nativePackageID, nativeConfigCid, user1Fingerprint, user2Fingerprint, mintAmount, issuer, domainID string) {
+	nativePackageID, nativeConfigCid, user1Fingerprint, user2Fingerprint, user1PartyOpt, user2PartyOpt, mintAmount, issuer, domainID string) {
 
-	// Get user parties from fingerprint mappings
-	user1Party, err := getUserParty(ctx, stateService, 
-		cfg.Canton.BridgePackageID, issuer, user1Fingerprint)
-	if err != nil {
-		log.Fatalf("Failed to get User 1 party: %v (make sure user is registered)", err)
+	var user1Party, user2Party string
+	var err error
+
+	// Use provided party IDs or look up via FingerprintMapping
+	if user1PartyOpt != "" {
+		user1Party = user1PartyOpt
+		fmt.Println("    Using provided User 1 party ID (DEMO-only mode)")
+	} else {
+		user1Party, err = getUserParty(ctx, stateService,
+			cfg.Canton.BridgePackageID, issuer, user1Fingerprint)
+		if err != nil {
+			log.Fatalf("Failed to get User 1 party: %v (make sure user is registered or provide -user1-party flag for DEMO-only mode)", err)
+		}
 	}
 
-	user2Party, err := getUserParty(ctx, stateService,
-		cfg.Canton.BridgePackageID, issuer, user2Fingerprint)
-	if err != nil {
-		log.Fatalf("Failed to get User 2 party: %v (make sure user is registered)", err)
+	if user2PartyOpt != "" {
+		user2Party = user2PartyOpt
+		fmt.Println("    Using provided User 2 party ID (DEMO-only mode)")
+	} else {
+		user2Party, err = getUserParty(ctx, stateService,
+			cfg.Canton.BridgePackageID, issuer, user2Fingerprint)
+		if err != nil {
+			log.Fatalf("Failed to get User 2 party: %v (make sure user is registered or provide -user2-party flag for DEMO-only mode)", err)
+		}
 	}
 
 	// Step 4: Mint to User 1
 	fmt.Println(">>> Step 4: Minting DEMO to User 1...")
 	fmt.Printf("    Party: %s\n", user1Party)
-	holding1, err := mintDemoTokens(ctx, commandService, nativePackageID, nativeConfigCid, 
+	holding1, err := mintDemoTokens(ctx, commandService, nativePackageID, nativeConfigCid,
 		user1Party, mintAmount, user1Fingerprint, issuer, domainID)
 	if err != nil {
 		log.Fatalf("Failed to mint to User 1: %v", err)
@@ -652,7 +667,7 @@ func updateDemoBalancesInDB(cfg *config.Config, user1Fingerprint, user2Fingerpri
 	if dbHost == "postgres" {
 		dbHost = "localhost" // Convert docker service name to localhost
 	}
-	
+
 	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		dbHost,
 		cfg.Database.Port,

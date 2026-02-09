@@ -98,3 +98,16 @@ register-native-user
 
 # Local config variants
 config.docker-local.yaml
+config.api-server.devnet.local.yaml
+config.api-server.mainnet.docker.yaml
+config.api-server.mainnet.local.yaml
+config.archive-old.yaml
+config.archive-v100.yaml
+config.remote.yaml
+docker-compose.remote.yaml
+
+# Environment files with secrets
+.env.devnet
+
+# Binary output from demo
+interop-demo

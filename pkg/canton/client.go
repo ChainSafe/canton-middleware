@@ -47,6 +47,7 @@ type Client struct {
 	commandService         lapiv2.CommandServiceClient
 	updateService          lapiv2.UpdateServiceClient
 	partyManagementService adminv2.PartyManagementServiceClient
+	userManagementService  adminv2.UserManagementServiceClient
 
 	// OAuth token cache
 	tokenMu     sync.Mutex
@@ -95,6 +96,7 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		commandService:         lapiv2.NewCommandServiceClient(conn),
 		updateService:          lapiv2.NewUpdateServiceClient(conn),
 		partyManagementService: adminv2.NewPartyManagementServiceClient(conn),
+		userManagementService:  adminv2.NewUserManagementServiceClient(conn),
 	}
 
 	// Extract JWT subject if token is configured
@@ -414,6 +416,38 @@ func (c *Client) AllocateParty(ctx context.Context, hint string) (*AllocateParty
 	}, nil
 }
 
+// ListParties returns all parties known to this participant (paginates through all results)
+func (c *Client) ListParties(ctx context.Context) ([]*AllocatePartyResult, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	var results []*AllocatePartyResult
+	pageToken := ""
+
+	for {
+		resp, err := c.partyManagementService.ListKnownParties(authCtx, &adminv2.ListKnownPartiesRequest{
+			PageSize:  1000,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to list parties: %w", err)
+		}
+
+		for _, p := range resp.PartyDetails {
+			results = append(results, &AllocatePartyResult{
+				PartyID: p.Party,
+				IsLocal: p.IsLocal,
+			})
+		}
+
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
+	}
+
+	return results, nil
+}
+
 // GetParticipantID returns the participant ID of the connected Canton node
 func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
@@ -478,6 +512,75 @@ func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (st
 			if created := event.GetCreated(); created != nil {
 				templateId := created.TemplateId
 				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("FingerprintMapping contract not found in response")
+}
+
+// CreateFingerprintMappingDirect creates a FingerprintMapping using direct Create command
+// This is used in DEMO-only mode when there's no WayfinderBridgeConfig
+func (c *Client) CreateFingerprintMappingDirect(ctx context.Context, req *RegisterUserRequest) (string, error) {
+	c.logger.Info("Creating FingerprintMapping directly (DEMO-only mode)",
+		zap.String("user_party", req.UserParty),
+		zap.String("fingerprint", req.Fingerprint))
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Determine the package ID for Common.FingerprintAuth
+	// Try CommonPackageID first, fall back to BridgePackageID
+	packageID := c.config.CommonPackageID
+	if packageID == "" {
+		packageID = c.config.BridgePackageID
+	}
+	if packageID == "" {
+		return "", fmt.Errorf("no package ID configured for FingerprintMapping (set common_package_id or bridge_package_id)")
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Create{
+			Create: &lapiv2.CreateCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  packageID,
+					ModuleName: "Common.FingerprintAuth",
+					EntityName: "FingerprintMapping",
+				},
+				CreateArguments: EncodeFingerprintMappingCreate(
+					c.config.RelayerParty,
+					req.UserParty,
+					req.Fingerprint,
+					req.EvmAddress,
+				),
+			},
+		},
+	}
+
+	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			ReadAs:         []string{req.UserParty}, // userParty is observer
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create FingerprintMapping: %w", err)
+	}
+
+	// Extract the created FingerprintMapping contract ID from response
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
+					c.logger.Info("FingerprintMapping created successfully",
+						zap.String("contract_id", created.ContractId),
+						zap.String("user_party", req.UserParty))
 					return created.ContractId, nil
 				}
 			}
@@ -1498,6 +1601,64 @@ func (c *Client) NativeTokenMint(ctx context.Context, req *NativeTokenMintReques
 	return "", fmt.Errorf("CIP56Holding contract not found in mint response")
 }
 
+// BurnDemoHolding burns (archives) a DEMO CIP56Holding via CIP56Manager.Burn
+// This is used for cleanup/reset operations
+func (c *Client) BurnDemoHolding(ctx context.Context, holdingCid, amount string) error {
+	c.logger.Info("Burning DEMO holding",
+		zap.String("holding_cid", holdingCid),
+		zap.String("amount", amount))
+
+	// Get the DEMO token manager
+	managerCid, err := c.getDemoTokenManagerCid(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get DEMO token manager: %w", err)
+	}
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Build Burn choice arguments
+	burnArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
+			{Label: "amount", Value: NumericValue(amount)},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Token",
+					EntityName: "CIP56Manager",
+				},
+				ContractId:     managerCid,
+				Choice:         "Burn",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: burnArgs}},
+			},
+		},
+	}
+
+	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to burn holding: %w", err)
+	}
+
+	c.logger.Info("DEMO holding burned successfully",
+		zap.String("holding_cid", holdingCid),
+		zap.String("amount", amount))
+
+	return nil
+}
+
 // GetDemoTokenBalance gets the DEMO token balance for a user by party
 // This queries CIP56Holding contracts and filters by the DEMO token symbol in metadata
 func (c *Client) GetDemoTokenBalance(ctx context.Context, userParty string) (string, error) {
@@ -1890,4 +2051,98 @@ func (c *Client) TransferAsUserByFingerprint(ctx context.Context, fromFingerprin
 		FromFingerprint: fromFingerprint,
 		ToFingerprint:   toFingerprint,
 	})
+}
+
+// TransferByPartyID performs a token transfer using party IDs directly.
+// This is useful for native Canton users who don't have FingerprintMapping contracts.
+// It finds the sender's holding with sufficient balance and executes the transfer.
+func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error {
+	c.logger.Info("Executing transfer by party ID",
+		zap.String("from_party", fromParty),
+		zap.String("to_party", toParty),
+		zap.String("amount", amount),
+		zap.String("token", tokenSymbol))
+
+	// Find sender's holding with sufficient balance
+	var holdingCID string
+	var err error
+	if tokenSymbol == "DEMO" {
+		holdingCID, err = c.findDemoHoldingForTransfer(ctx, fromParty, amount)
+	} else {
+		holdingCID, err = c.findHoldingForTransfer(ctx, fromParty, amount)
+	}
+	if err != nil {
+		return fmt.Errorf("insufficient balance or holding not found: %w", err)
+	}
+
+	// Execute the transfer
+	return c.TransferAsUser(ctx, &TransferAsUserRequest{
+		FromPartyID:     fromParty,
+		ToPartyID:       toParty,
+		HoldingCID:      holdingCID,
+		Amount:          amount,
+		TokenSymbol:     tokenSymbol,
+		FromFingerprint: "", // Not available for native users
+		ToFingerprint:   "", // Not available for native users
+	})
+}
+
+// GrantCanActAs grants the OAuth client (this API server) CanActAs rights for the given party.
+// This is called during user registration to enable the custodial model where the API server
+// can submit transactions on behalf of the user's party.
+// This maintains user ownership (the user's party owns the holdings) while allowing the
+// API server to act as a trusted intermediary after the user authorizes via MetaMask signature.
+func (c *Client) GrantCanActAs(ctx context.Context, partyID string) error {
+	if c.jwtSubject == "" {
+		return fmt.Errorf("JWT subject not available - cannot determine user ID for rights grant")
+	}
+
+	c.logger.Info("Granting CanActAs rights to OAuth client",
+		zap.String("party_id", partyID),
+		zap.String("oauth_user", c.jwtSubject))
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Create the CanActAs right for this party
+	right := &adminv2.Right{
+		Kind: &adminv2.Right_CanActAs_{
+			CanActAs: &adminv2.Right_CanActAs{
+				Party: partyID,
+			},
+		},
+	}
+
+	// Grant the right to the OAuth client user
+	resp, err := c.userManagementService.GrantUserRights(authCtx, &adminv2.GrantUserRightsRequest{
+		UserId: c.jwtSubject,
+		Rights: []*adminv2.Right{right},
+	})
+	if err != nil {
+		// Check if it's because the right already exists (not an error)
+		if strings.Contains(err.Error(), "already") {
+			c.logger.Info("CanActAs right already exists",
+				zap.String("party_id", partyID),
+				zap.String("oauth_user", c.jwtSubject))
+			return nil
+		}
+		return fmt.Errorf("failed to grant CanActAs rights: %w", err)
+	}
+
+	if len(resp.NewlyGrantedRights) > 0 {
+		c.logger.Info("CanActAs rights granted successfully",
+			zap.String("party_id", partyID),
+			zap.String("oauth_user", c.jwtSubject),
+			zap.Int("newly_granted", len(resp.NewlyGrantedRights)))
+	} else {
+		c.logger.Info("CanActAs right already existed",
+			zap.String("party_id", partyID),
+			zap.String("oauth_user", c.jwtSubject))
+	}
+
+	return nil
+}
+
+// GetJWTSubject returns the OAuth client's user ID (JWT subject claim)
+func (c *Client) GetJWTSubject() string {
+	return c.jwtSubject
 }
