@@ -121,8 +121,8 @@ func TestIntegration_CantonGetBridgeConfig(t *testing.T) {
 	t.Logf("✅ Found WayfinderBridgeConfig: %s", configCid)
 }
 
-// TestIntegration_RegisterUserFlow tests the user registration flow
-func TestIntegration_RegisterUserFlow(t *testing.T) {
+// TestIntegration_CreateFingerprintMapping tests the direct fingerprint mapping creation
+func TestIntegration_CreateFingerprintMapping(t *testing.T) {
 	if os.Getenv("INTEGRATION_TEST") != "true" {
 		t.Skip("Skipping integration test (set INTEGRATION_TEST=true to run)")
 	}
@@ -138,7 +138,7 @@ func TestIntegration_RegisterUserFlow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Register a test user
+	// Create a fingerprint mapping directly (no bridge config needed)
 	testFingerprint := "1220abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
 	testUserParty := "TestUser::1220abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
 
@@ -148,14 +148,13 @@ func TestIntegration_RegisterUserFlow(t *testing.T) {
 		EvmAddress:  "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
 	}
 
-	mappingCid, err := client.RegisterUser(ctx, req)
+	mappingCid, err := client.CreateFingerprintMappingDirect(ctx, req)
 	if err != nil {
-		// Expected to fail if bridge config doesn't exist
-		t.Logf("⚠️  RegisterUser failed (expected if bridge config not created): %v", err)
-		t.Skip("Need WayfinderBridgeConfig to test user registration")
+		t.Logf("CreateFingerprintMapping failed (expected if ledger not bootstrapped): %v", err)
+		t.Skip("Ledger not bootstrapped for fingerprint mapping test")
 	}
 
-	t.Logf("✅ User registered with FingerprintMapping CID: %s", mappingCid)
+	t.Logf("FingerprintMapping created: %s", mappingCid)
 
 	// Verify we can look up the mapping
 	mapping, err := client.GetFingerprintMapping(ctx, testFingerprint)

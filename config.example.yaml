@@ -31,7 +31,6 @@ canton:
   relayer_party: "" # Set via environment variable CANTON_RELAYER_PARTY or after allocating party
   bridge_package_id: "" # Set after DAR upload - will be the package ID hash
   cip56_package_id: "" # Set after DAR upload - cip56-token package ID
-  native_token_package_id: "" # Set after DAR upload - native-token package ID for DEMO token
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "WayfinderBridgeConfig"
   tls:

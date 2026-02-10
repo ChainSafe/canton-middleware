@@ -73,8 +73,8 @@ USER2_ADDRESS="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 TOKEN_ADDRESS="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 BRIDGE_ADDRESS="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 
-# Config
-NATIVE_TOKEN_PACKAGE_ID="3cc8001e5d4814175003822af1efc5bcfb7826c00b1f764d9d17d4f4ca1f0809"
+# Config - CIP56 package ID (TokenConfig is in cip56-token package, v1.5.0)
+CIP56_PACKAGE_ID="7be0822fb54b081934f6f27accd79888f4542d1f729f9c1e52eea43cf2e81262"
 CONFIG_FILE="config.e2e-local.yaml"
 
 print_header() {
@@ -154,7 +154,7 @@ wait_for_service "API Server" "http://localhost:8081/health"
 # Wait for Canton (check via bootstrap logs)
 print_step "Waiting for Canton bootstrap..."
 for i in $(seq 1 60); do
-    if docker compose logs bootstrap 2>&1 | grep -q "Bootstrap complete"; then
+    if docker compose logs bootstrap 2>&1 | grep -qi "Bootstrap complete"; then
         print_success "Canton bootstrap complete"
         break
     fi
@@ -166,8 +166,8 @@ done
 
 # Step 5: Extract domain ID and relayer party
 print_header "Step 5: Extracting Canton Configuration"
-DOMAIN_ID=$(docker compose logs bootstrap 2>&1 | grep "domain_id:" | tail -1 | sed 's/.*domain_id: "\(.*\)"/\1/')
-RELAYER_PARTY=$(docker compose logs bootstrap 2>&1 | grep "relayer_party:" | tail -1 | sed 's/.*relayer_party: "\(.*\)"/\1/')
+DOMAIN_ID=$(docker compose logs bootstrap 2>&1 | grep "^bootstrap.*Domain ID:" | tail -1 | sed 's/.*Domain ID:[[:space:]]*//')
+RELAYER_PARTY=$(docker compose logs bootstrap 2>&1 | grep "^bootstrap.*Party ID:" | tail -1 | sed 's/.*Party ID:[[:space:]]*//')
 
 if [ -z "$DOMAIN_ID" ]; then
     print_error "Failed to extract domain ID"
@@ -228,7 +228,7 @@ done
 print_header "Step 8: Bootstrap DEMO Tokens"
 go run scripts/setup/bootstrap-demo.go \
     -config "$CONFIG_FILE" \
-    -native-package-id "$NATIVE_TOKEN_PACKAGE_ID" \
+    -cip56-package-id "$CIP56_PACKAGE_ID" \
     -user1-fingerprint "$USER1_FINGERPRINT" \
     -user2-fingerprint "$USER2_FINGERPRINT" \
     -mint-amount "$DEMO_AMOUNT" 2>&1 | grep -E "^(>>>|✓|DEMO|User)"

@@ -35,7 +35,6 @@ canton:
   bridge_package_id: "2f7a146ffc5bdb1365c818c461ecfeafda78fc99e014fb793539aa1a87fe6c99"
   core_package_id: "32df30f15a3eed8c319d541e9f6332f173a7b738dd121cf666fc54185f4f05c0"
   cip56_package_id: "c649b42035710f991345b9f010f599870842a821d52c676cb235dcda419407df"
-  native_token_package_id: "3cc8001e5d4814175003822af1efc5bcfb7826c00b1f764d9d17d4f4ca1f0809"
   common_package_id: "d36f79e9e092169c097cfff43f6e45a5b96594e7445d4cedf5602f838a4d3651"
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"

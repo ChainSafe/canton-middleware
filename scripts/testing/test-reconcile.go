@@ -2,8 +2,8 @@
 
 // test-reconcile.go - Test event-based reconciliation using bridge audit events
 //
-// This script tests the new reconciliation functionality that uses BridgeMintEvent
-// and BridgeBurnEvent contracts from Canton to reconcile user balances in PostgreSQL.
+// This script tests the reconciliation functionality that uses MintEvent
+// and BurnEvent contracts (CIP56.Events) from Canton to reconcile user balances in PostgreSQL.
 // Note: Transfers are internal Canton operations and don't create bridge events.
 //
 // Prerequisites:
@@ -193,29 +193,29 @@ func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 	printStep("Fetching bridge events from Canton...")
 
 	// Get mint events
-	mintEvents, err := client.GetBridgeMintEvents(ctx)
+	mintEvents, err := client.GetMintEvents(ctx)
 	if err != nil {
 		printWarning("Failed to get mint events: %v", err)
 	} else {
-		printInfo("Found %d BridgeMintEvent contracts:", len(mintEvents))
+		printInfo("Found %d MintEvent contracts:", len(mintEvents))
 		for i, e := range mintEvents {
 			if *verbose {
 				printInfo("  [%d] Amount: %s, Fingerprint: %s, EvmTx: %s",
-					i+1, e.Amount, truncate(e.Fingerprint, 20), truncate(e.EvmTxHash, 20))
+					i+1, e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmTxHash, 20))
 			}
 		}
 	}
 
 	// Get burn events
-	burnEvents, err := client.GetBridgeBurnEvents(ctx)
+	burnEvents, err := client.GetBurnEvents(ctx)
 	if err != nil {
 		printWarning("Failed to get burn events: %v", err)
 	} else {
-		printInfo("Found %d BridgeBurnEvent contracts:", len(burnEvents))
+		printInfo("Found %d BurnEvent contracts:", len(burnEvents))
 		for i, e := range burnEvents {
 			if *verbose {
 				printInfo("  [%d] Amount: %s, Fingerprint: %s, Destination: %s",
-					i+1, e.Amount, truncate(e.Fingerprint, 20), truncate(e.EvmDestination, 20))
+					i+1, e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmDestination, 20))
 			}
 		}
 	}

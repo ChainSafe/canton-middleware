@@ -75,8 +75,7 @@ var templatesByPackageType = map[string][]TemplateInfo{
 		{ModuleName: "Bridge.Contracts", EntityName: "MintCommand"},
 		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalRequest"},
 		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalEvent"},
-		{ModuleName: "Bridge.Events", EntityName: "BridgeMintEvent"},
-		{ModuleName: "Bridge.Events", EntityName: "BridgeBurnEvent"},
+		// Note: MintEvent/BurnEvent are now in CIP56.Events (cip56 package)
 		// common module templates are compiled into bridge-core
 		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
 		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingDeposit"},
@@ -89,13 +88,9 @@ var templatesByPackageType = map[string][]TemplateInfo{
 		{ModuleName: "CIP56.Token", EntityName: "LockedAsset"},
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceRules"},
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceProof"},
-	},
-	// native-token (config: native_token_package_id)
-	"native": {
-		{ModuleName: "Native.Token", EntityName: "NativeTokenConfig"},
-		{ModuleName: "Native.Events", EntityName: "MintEvent"},
-		{ModuleName: "Native.Events", EntityName: "BurnEvent"},
-		{ModuleName: "Native.Events", EntityName: "TransferEvent"},
+		{ModuleName: "CIP56.Config", EntityName: "TokenConfig"},
+		{ModuleName: "CIP56.Events", EntityName: "MintEvent"},
+		{ModuleName: "CIP56.Events", EntityName: "BurnEvent"},
 	},
 }
 
@@ -116,11 +111,6 @@ func buildPackagesFromConfig(cfg *config.Config) map[string][]TemplateInfo {
 	// CIP56 package
 	if cfg.Canton.CIP56PackageID != "" {
 		packages[cfg.Canton.CIP56PackageID] = templatesByPackageType["cip56"]
-	}
-
-	// Native token package
-	if cfg.Canton.NativeTokenPackageID != "" {
-		packages[cfg.Canton.NativeTokenPackageID] = templatesByPackageType["native"]
 	}
 
 	return packages
@@ -197,9 +187,6 @@ func main() {
 	if cfg.Canton.CIP56PackageID != "" {
 		fmt.Printf("  - cip56:        %s\n", cfg.Canton.CIP56PackageID[:16]+"...")
 	}
-	if cfg.Canton.NativeTokenPackageID != "" {
-		fmt.Printf("  - native-token: %s\n", cfg.Canton.NativeTokenPackageID[:16]+"...")
-	}
 	if len(oldPackages) == 0 {
 		printWarning("No package IDs configured - nothing to archive")
 		return
@@ -261,10 +248,8 @@ func main() {
 
 	// Archive in reverse dependency order (holdings/events before managers/configs)
 	archiveOrder := []string{
-		// Native token events first
-		"MintEvent", "BurnEvent", "TransferEvent",
-		// Bridge events
-		"BridgeMintEvent", "BridgeBurnEvent",
+		// Audit events first (CIP56.Events)
+		"MintEvent", "BurnEvent",
 		// Holdings and locked assets (before managers)
 		"CIP56Holding", "LockedAsset",
 		// Compliance
@@ -276,7 +261,7 @@ func main() {
 		"FingerprintMapping",
 		// Managers/configs last (they are referenced by other contracts)
 		"CIP56Manager",
-		"NativeTokenConfig",
+		"TokenConfig",
 		"WayfinderBridgeConfig",
 	}
 

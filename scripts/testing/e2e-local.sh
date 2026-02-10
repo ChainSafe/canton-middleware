@@ -100,10 +100,10 @@ main() {
     # ==========================================================================
     print_header "Step 3.5: Bootstrap DEMO Token"
     
-    # Get the native token package ID from config or DAR
-    NATIVE_PKG_ID=$(get_native_token_package_id)
+    # Get the CIP56 package ID from config or DAR (TokenConfig is now in cip56 package)
+    CIP56_PKG_ID=$(get_cip56_package_id)
     
-    if [ -n "$NATIVE_PKG_ID" ]; then
+    if [ -n "$CIP56_PKG_ID" ]; then
         # Extract relayer_party and domain_id from bootstrap container logs
         RELAYER_PARTY=$(docker logs bootstrap 2>&1 | grep -o 'relayer_party: "[^"]*"' | head -1 | sed 's/relayer_party: "//;s/"$//')
         DOMAIN_ID=$(docker logs bootstrap 2>&1 | grep -o 'domain_id: "[^"]*"' | head -1 | sed 's/domain_id: "//;s/"$//')
@@ -111,13 +111,13 @@ main() {
         if [ -z "$RELAYER_PARTY" ] || [ -z "$DOMAIN_ID" ]; then
             print_warning "Could not extract relayer_party or domain_id from bootstrap logs, skipping DEMO token"
         else
-            print_step "Bootstrapping DEMO token with native-package-id: ${NATIVE_PKG_ID:0:16}..."
+            print_step "Bootstrapping DEMO token with cip56-package-id: ${CIP56_PKG_ID:0:16}..."
             print_info "Issuer: ${RELAYER_PARTY:0:40}..."
             print_info "Domain: ${DOMAIN_ID:0:40}..."
             
-            go run "$SCRIPT_DIR/bootstrap-demo.go" \
+            go run "$SCRIPT_DIR/../setup/bootstrap-demo.go" \
                 -config config.e2e-local.yaml \
-                -native-package-id "$NATIVE_PKG_ID" \
+                -cip56-package-id "$CIP56_PKG_ID" \
                 -issuer "$RELAYER_PARTY" \
                 -domain "$DOMAIN_ID" \
                 -user1-fingerprint "$USER1_FINGERPRINT" \
@@ -131,7 +131,7 @@ main() {
             fi
         fi
     else
-        print_warning "native_token_package_id not configured, skipping DEMO token"
+        print_warning "cip56_package_id not configured, skipping DEMO token"
     fi
 
     # ==========================================================================

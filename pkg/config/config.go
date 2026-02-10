@@ -64,7 +64,6 @@ type CantonConfig struct {
 	BridgePackageID      string        `yaml:"bridge_package_id"`
 	CorePackageID        string        `yaml:"core_package_id"`
 	CIP56PackageID       string        `yaml:"cip56_package_id"`
-	NativeTokenPackageID string        `yaml:"native_token_package_id"` // Package ID for native-token DAR
 	CommonPackageID      string        `yaml:"common_package_id"`       // Package ID for common DAR (FingerprintMapping)
 	BridgeModule         string        `yaml:"bridge_module"`
 	RelayerPrivateKey    string        `yaml:"relayer_private_key"`
@@ -130,7 +129,7 @@ type APIServerConfig struct {
 	Database       DatabaseConfig       `yaml:"database"`
 	Canton         CantonConfig         `yaml:"canton"`
 	Token          TokenConfig          `yaml:"token"`
-	DemoToken      DemoTokenConfig      `yaml:"demo_token"` // DEMO token metadata (native)
+	DemoToken      TokenConfig          `yaml:"demo_token"` // DEMO token metadata (native)
 	EthRPC         EthRPCConfig         `yaml:"eth_rpc"`
 	JWKS           JWKSConfig           `yaml:"jwks"`
 	Logging        LoggingConfig        `yaml:"logging"`
@@ -149,13 +148,6 @@ type EthRPCConfig struct {
 	GasLimit         uint64        `yaml:"gas_limit"`
 	NativeBalanceWei string        `yaml:"native_balance_wei"`
 	RequestTimeout   time.Duration `yaml:"request_timeout"`
-}
-
-// DemoTokenConfig contains DEMO token metadata for native token issuance
-type DemoTokenConfig struct {
-	Name     string `yaml:"name"`
-	Symbol   string `yaml:"symbol"`
-	Decimals int    `yaml:"decimals"`
 }
 
 // TokenConfig contains ERC-20 token metadata
@@ -188,6 +180,16 @@ type KeyManagementConfig struct {
 	MasterKeyEnv string `yaml:"master_key_env"`
 	// KeyDerivation specifies how to generate Canton keys: "generate" (random) or "derive" (from EVM + seed)
 	KeyDerivation string `yaml:"key_derivation"`
+}
+
+// GetTokenConfig returns the TokenConfig for a given token symbol
+func (c *APIServerConfig) GetTokenConfig(symbol string) *TokenConfig {
+	switch symbol {
+	case "DEMO":
+		return &c.DemoToken
+	default:
+		return &c.Token
+	}
 }
 
 // LoadAPIServer loads API server configuration from file
