@@ -32,7 +32,6 @@ echo ""
 PACKAGES=(
     "common"
     "cip56-token"
-    "native-token"
     "bridge-core"
     "bridge-wayfinder"
 )
