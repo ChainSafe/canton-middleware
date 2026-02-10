@@ -19,7 +19,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 DAML_DIR="$PROJECT_DIR/contracts/canton-erc20/daml"
 
 # Suppress Daml Assistant deprecation warning (DPM migration planned for SDK 3.5)

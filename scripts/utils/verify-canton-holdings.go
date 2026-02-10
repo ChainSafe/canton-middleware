@@ -43,17 +43,25 @@ var (
 func main() {
 	flag.Parse()
 
-	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  Canton Holdings Verification (gRPC)")
-	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println()
-
-	// Load config
+	// Load config first to determine network
 	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Determine network from config
+	networkName := detectNetwork(cfg.Canton.RPCURL)
+
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Printf("  Canton Holdings Verification - %s\n", networkName)
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Println()
+	fmt.Printf("  Config:    %s\n", *configPath)
+	fmt.Printf("  Network:   %s\n", networkName)
+	fmt.Printf("  Endpoint:  %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Domain:    %s\n", truncateDomain(cfg.Canton.DomainID))
+	fmt.Println()
 
 	// Create logger (quiet mode)
 	logConfig := zap.NewProductionConfig()
@@ -68,7 +76,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer cantonClient.Close()
-	fmt.Printf("    Connected to %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("    ✓ Connected to %s\n", networkName)
 	fmt.Println()
 
 	ctx := context.Background()
@@ -101,12 +109,51 @@ func main() {
 		return
 	}
 
-	// Group holdings by owner and symbol
+	// Separate DEMO holdings from others
+	var demoHoldings []*canton.CIP56Holding
+	var otherHoldings []*canton.CIP56Holding
+	for _, h := range holdings {
+		if h.Symbol == "DEMO" {
+			demoHoldings = append(demoHoldings, h)
+		} else {
+			otherHoldings = append(otherHoldings, h)
+		}
+	}
+
+	// Show raw DEMO contracts first
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Println("  DEMO Token Holdings (Raw Contracts)")
+	fmt.Println("══════════════════════════════════════════════════════════════════════")
+	fmt.Println()
+
+	if len(demoHoldings) == 0 {
+		fmt.Println("  No DEMO holdings found.")
+	} else {
+		fmt.Printf("  Found %d DEMO CIP56Holding contract(s):\n", len(demoHoldings))
+		fmt.Println()
+		for i, h := range demoHoldings {
+			ownerDisplay := h.Owner
+			if len(ownerDisplay) > 60 {
+				ownerDisplay = ownerDisplay[:57] + "..."
+			}
+			contractDisplay := h.ContractID
+			if len(contractDisplay) > 40 {
+				contractDisplay = contractDisplay[:37] + "..."
+			}
+			fmt.Printf("  [%d] %s DEMO\n", i+1, formatBalance(h.Amount))
+			fmt.Printf("      Owner:    %s\n", ownerDisplay)
+			fmt.Printf("      Contract: %s\n", contractDisplay)
+			fmt.Println()
+		}
+	}
+
+	// Group holdings by owner and symbol for summary
 	type BalanceKey struct {
 		Owner  string
 		Symbol string
 	}
 	balances := make(map[BalanceKey]decimal.Decimal)
+	holdingCounts := make(map[BalanceKey]int)
 
 	for _, h := range holdings {
 		key := BalanceKey{Owner: h.Owner, Symbol: h.Symbol}
@@ -115,32 +162,49 @@ func main() {
 		}
 		amount, _ := decimal.NewFromString(h.Amount)
 		balances[key] = balances[key].Add(amount)
+		holdingCounts[key]++
 	}
 
-	// Display holdings
+	// Display summary
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  Canton Ledger Holdings")
+	fmt.Println("  Summary (Aggregated by Owner)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	fmt.Println("Owner                                              | Symbol  | Balance")
-	fmt.Println("---------------------------------------------------|---------|------------------")
+	fmt.Println("Owner                                              | Symbol  | Balance    | Holdings")
+	fmt.Println("---------------------------------------------------|---------|------------|----------")
 
+	// Show DEMO balances first
 	for key, balance := range balances {
+		if key.Symbol != "DEMO" {
+			continue
+		}
 		ownerDisplay := key.Owner
 		if len(ownerDisplay) > 50 {
 			ownerDisplay = ownerDisplay[:47] + "..."
 		}
-		fmt.Printf("%-50s | %-7s | %s\n", ownerDisplay, key.Symbol, formatBalance(balance.String()))
+		fmt.Printf("%-50s | %-7s | %10s | %d\n", ownerDisplay, key.Symbol, formatBalance(balance.String()), holdingCounts[key])
+	}
+
+	// Show other tokens
+	for key, balance := range balances {
+		if key.Symbol == "DEMO" {
+			continue
+		}
+		ownerDisplay := key.Owner
+		if len(ownerDisplay) > 50 {
+			ownerDisplay = ownerDisplay[:47] + "..."
+		}
+		fmt.Printf("%-50s | %-7s | %10s | %d\n", ownerDisplay, key.Symbol, formatBalance(balance.String()), holdingCounts[key])
 	}
 	fmt.Println()
 
-	// Show verbose details if requested
-	if *verbose {
+	// Show verbose details for non-DEMO if requested
+	if *verbose && len(otherHoldings) > 0 {
 		fmt.Println("══════════════════════════════════════════════════════════════════════")
-		fmt.Println("  Detailed Contracts")
+		fmt.Println("  Other Token Contracts (Verbose)")
 		fmt.Println("══════════════════════════════════════════════════════════════════════")
 		fmt.Println()
-		for _, h := range holdings {
+		for _, h := range otherHoldings {
 			fmt.Printf("Contract ID: %s\n", h.ContractID[:40]+"...")
 			fmt.Printf("  Owner:  %s\n", h.Owner)
 			fmt.Printf("  Symbol: %s\n", h.Symbol)
@@ -253,4 +317,24 @@ func formatBalance(bal string) string {
 		return bal[:end]
 	}
 	return bal
+}
+
+func detectNetwork(rpcURL string) string {
+	switch {
+	case strings.Contains(rpcURL, "prod1"):
+		return "MAINNET (ChainSafe Production)"
+	case strings.Contains(rpcURL, "staging"):
+		return "DEVNET (ChainSafe Staging)"
+	case strings.Contains(rpcURL, "localhost") || strings.Contains(rpcURL, "127.0.0.1"):
+		return "LOCAL (Docker)"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func truncateDomain(domain string) string {
+	if len(domain) > 50 {
+		return domain[:47] + "..."
+	}
+	return domain
 }

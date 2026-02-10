@@ -18,9 +18,9 @@ COPY . .
 # CGO_ENABLED=0 creates static binaries compatible with alpine
 RUN CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
-    CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/bootstrap-bridge.go && \
-    CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/register-user.go && \
-    CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/mock-oauth2-server.go
+    CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/setup/bootstrap-bridge.go && \
+    CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/testing/register-user.go && \
+    CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/utils/mock-oauth2-server.go
 
 # Runtime stage for relayer
 FROM alpine:latest AS relayer
@@ -50,7 +50,7 @@ COPY --from=builder /app/bin/bootstrap-bridge /app/bootstrap-bridge
 COPY --from=builder /app/bin/register-user /app/register-user
 
 # Copy the bootstrap script
-COPY scripts/docker-bootstrap.sh /app/docker-bootstrap.sh
+COPY scripts/setup/docker-bootstrap.sh /app/docker-bootstrap.sh
 RUN chmod +x /app/docker-bootstrap.sh
 
 ENTRYPOINT ["/app/docker-bootstrap.sh"]
