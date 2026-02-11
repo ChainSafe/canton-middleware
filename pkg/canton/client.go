@@ -89,15 +89,16 @@ func NewClient(config *config.CantonConfig, logger *zap.Logger) (*Client, error)
 		zap.String("ledger_id", config.LedgerID))
 
 	// Validate required package IDs for server-side TemplateFilter queries
-	if config.CIP56PackageID == "" {
-		return nil, fmt.Errorf("canton.cip56_package_id is required")
+requiredPackages := map[string]string{
+	"canton.cip56_package_id": config.CIP56PackageID,
+	"canton.common_package_id": config.CommonPackageID,
+	"canton.bridge_package_id": config.BridgePackageID,
+}
+for name, id := range requiredPackages {
+	if id == "" {
+		return nil, fmt.Errorf("%s is required", name)
 	}
-	if config.CommonPackageID == "" {
-		return nil, fmt.Errorf("canton.common_package_id is required")
-	}
-	if config.BridgePackageID == "" {
-		return nil, fmt.Errorf("canton.bridge_package_id is required")
-	}
+}
 
 	c := &Client{
 		config:                 config,
