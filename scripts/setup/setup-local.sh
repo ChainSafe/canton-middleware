@@ -207,7 +207,7 @@ build_dars() {
         print_info "Found $dar_count existing DAR files"
         
         # Check if key DARs exist
-        local required_dars=("cip56-token" "bridge-wayfinder" "bridge-core" "native-token" "common")
+        local required_dars=("cip56-token" "bridge-wayfinder" "bridge-core" "common")
         local all_present=true
         
         for dar in "${required_dars[@]}"; do
@@ -242,7 +242,7 @@ build_dars() {
         daml build --all
     else
         # Build each package individually
-        for pkg in common cip56-token bridge-core bridge-wayfinder native-token; do
+        for pkg in common cip56-token bridge-core bridge-wayfinder; do
             if [ -d "$pkg" ]; then
                 print_info "Building $pkg..."
                 cd "$pkg"

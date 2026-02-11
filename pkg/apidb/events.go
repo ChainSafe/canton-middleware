@@ -115,12 +115,12 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-// StoreBridgeMintEvent stores a mint event and updates user balance
-func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
+// StoreMintEvent stores a mint event and updates user balance
+func (s *Store) StoreMintEvent(event *canton.MintEvent) error {
 	return s.storeBridgeEvent(bridgeEventParams{
 		eventType:   "mint",
 		contractID:  event.ContractID,
-		fingerprint: event.Fingerprint,
+		fingerprint: event.UserFingerprint,
 		amount:      event.Amount,
 		tokenSymbol: event.TokenSymbol,
 		timestamp:   event.Timestamp,
@@ -129,12 +129,12 @@ func (s *Store) StoreBridgeMintEvent(event *canton.BridgeMintEvent) error {
 	})
 }
 
-// StoreBridgeBurnEvent stores a burn event and updates user balance
-func (s *Store) StoreBridgeBurnEvent(event *canton.BridgeBurnEvent) error {
+// StoreBurnEvent stores a burn event and updates user balance
+func (s *Store) StoreBurnEvent(event *canton.BurnEvent) error {
 	return s.storeBridgeEvent(bridgeEventParams{
 		eventType:      "burn",
 		contractID:     event.ContractID,
-		fingerprint:    event.Fingerprint,
+		fingerprint:    event.UserFingerprint,
 		amount:         event.Amount,
 		tokenSymbol:    event.TokenSymbol,
 		timestamp:      event.Timestamp,

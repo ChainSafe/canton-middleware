@@ -412,13 +412,13 @@ setup_users_and_tokens() {
         -fingerprint "$USER2_FINGERPRINT" \
         -evm-address "$USER2_ADDRESS" 2>&1 | tail -5
     
-    # Check if NativeTokenConfig exists (DEMO token)
+    # Check if TokenConfig exists (DEMO token - now unified in CIP56.Config)
     print_info "Checking for existing DEMO token..."
     local token=$(get_oauth_token)
     local offset=$(grpcurl -H "Authorization: Bearer $token" -plaintext "$CANTON_GRPC" \
         com.daml.ledger.api.v2.StateService/GetLedgerEnd 2>/dev/null | jq -r '.offset // "0"')
     
-    local native_pkg=$(grep "native_token_package_id:" config.devnet.yaml | awk '{print $2}' | tr -d '"')
+    local cip56_pkg=$(grep "cip56_package_id:" config.devnet.yaml | awk '{print $2}' | tr -d '"')
     local demo_exists=$(grpcurl -H "Authorization: Bearer $token" -plaintext "$CANTON_GRPC" \
         -d "{
             \"active_at_offset\": $offset,
@@ -428,9 +428,9 @@ setup_users_and_tokens() {
                         \"cumulative\": [{
                             \"template_filter\": {
                                 \"template_id\": {
-                                    \"package_id\": \"$native_pkg\",
-                                    \"module_name\": \"Native.Token\",
-                                    \"entity_name\": \"NativeTokenConfig\"
+                                    \"package_id\": \"$cip56_pkg\",
+                                    \"module_name\": \"CIP56.Config\",
+                                    \"entity_name\": \"TokenConfig\"
                                 }
                             }
                         }]

@@ -52,7 +52,6 @@ var (
 var darFiles = []string{
 	"common",
 	"cip56-token",
-	"native-token",
 	"bridge-core",
 	"bridge-wayfinder",
 }
@@ -215,12 +214,11 @@ func main() {
 		log.Fatalf("Failed to list packages: %v", err)
 	}
 
-	// Find the target version (1.3.0) of each package we care about
-	targetVersion := "1.3.0"
+	// Find the target version (1.4.0) of each package we care about
+	targetVersion := "1.4.0"
 	targetPackages := map[string]string{
 		"common":           "COMMON_PACKAGE_ID",
 		"cip56-token":      "CIP56_PACKAGE_ID",
-		"native-token":     "NATIVE_TOKEN_PACKAGE_ID",
 		"bridge-core":      "BRIDGE_CORE_PACKAGE_ID",
 		"bridge-wayfinder": "BRIDGE_WAYFINDER_PACKAGE_ID",
 	}
@@ -237,11 +235,11 @@ func main() {
 		}
 	}
 
-	// Now vet the v1.3.0 packages with force flag
+	// Now vet the v1.4.0 packages with force flag
 	fmt.Println(">>> Vetting new packages with force flag...")
 	var packagesToVet []*admin.VettedPackagesRef
 	for envName, pkgId := range newPackages {
-		if packageVersions[envName] == "1.3.0" {
+		if packageVersions[envName] == "1.4.0" {
 			packagesToVet = append(packagesToVet, &admin.VettedPackagesRef{
 				PackageId: pkgId,
 			})
@@ -283,10 +281,9 @@ func main() {
 	fmt.Println("canton:")
 
 	// Print in a specific order
-	order := []string{"CIP56_PACKAGE_ID", "NATIVE_TOKEN_PACKAGE_ID", "COMMON_PACKAGE_ID", "BRIDGE_CORE_PACKAGE_ID", "BRIDGE_WAYFINDER_PACKAGE_ID"}
+	order := []string{"CIP56_PACKAGE_ID", "COMMON_PACKAGE_ID", "BRIDGE_CORE_PACKAGE_ID", "BRIDGE_WAYFINDER_PACKAGE_ID"}
 	configKeys := map[string]string{
 		"CIP56_PACKAGE_ID":            "cip56_package_id",
-		"NATIVE_TOKEN_PACKAGE_ID":     "native_token_package_id",
 		"COMMON_PACKAGE_ID":           "common_package_id",
 		"BRIDGE_CORE_PACKAGE_ID":      "core_package_id",
 		"BRIDGE_WAYFINDER_PACKAGE_ID": "bridge_package_id",

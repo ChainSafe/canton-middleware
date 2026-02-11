@@ -9,10 +9,9 @@
 //
 // This script shows:
 //   - Active CIP56Holdings grouped by token (DEMO, PROMPT) and user
-//   - MintEvents (token minting history)
-//   - BurnEvents (token burning history)
-//   - TransferEvents (token transfer history)
-//   - NativeTokenConfig (token configuration)
+//   - MintEvents (token minting history, unified CIP56.Events)
+//   - BurnEvents (token burning history, unified CIP56.Events)
+//   - TokenConfig (unified token configuration from CIP56.Config)
 
 package main
 
@@ -70,20 +69,22 @@ type Holding struct {
 	Offset      int64
 }
 
-// Event represents a token event
+// Event represents a token event (unified CIP56.Events)
 type Event struct {
-	Type        string // MintEvent, BurnEvent, TransferEvent
-	ContractID  string
-	Owner       string
-	From        string
-	To          string
-	Amount      string
-	Fingerprint string // User fingerprint (for tracking user vs issuer holdings)
-	CreatedAt   time.Time
-	Offset      int64
+	Type           string // MintEvent, BurnEvent
+	ContractID     string
+	Owner          string
+	From           string
+	To             string
+	Amount         string
+	Fingerprint    string // User fingerprint (for tracking user vs issuer holdings)
+	EvmTxHash      string // Optional: set for bridge deposits
+	EvmDestination string // Optional: set for bridge withdrawals
+	CreatedAt      time.Time
+	Offset         int64
 }
 
-// TokenConfig represents NativeTokenConfig
+// TokenConfig represents CIP56.Config.TokenConfig
 type TokenConfig struct {
 	ContractID string
 	Issuer     string
@@ -110,16 +111,10 @@ func main() {
 	}
 
 	cip56Pkg := cfg.Canton.CIP56PackageID
-	nativePkg := cfg.Canton.NativeTokenPackageID
-	corePkg := cfg.Canton.CorePackageID // Bridge events are in core package
 
-	if cip56Pkg == "" || nativePkg == "" {
-		fmt.Println("Error: cip56_package_id and native_token_package_id are required in config")
+	if cip56Pkg == "" {
+		fmt.Println("Error: cip56_package_id is required in config")
 		os.Exit(1)
-	}
-
-	if corePkg == "" {
-		fmt.Println("Warning: core_package_id not set, PROMPT events won't be shown")
 	}
 
 	// Connect to Canton
@@ -160,37 +155,25 @@ func main() {
 	fmt.Printf("  Party:          %s...\n", partyID[:50])
 	fmt.Printf("  Ledger Offset:  %d\n", ledgerEnd)
 	fmt.Printf("  CIP56 Package:  %s...\n", cip56Pkg[:16])
-	fmt.Printf("  Native Package: %s...\n", nativePkg[:16])
-	if corePkg != "" {
-		fmt.Printf("  Core Package:   %s...\n", corePkg[:16])
-	}
 	fmt.Println()
 
 	// Query holdings
 	holdings := queryHoldings(ctx, stateClient, partyID, cip56Pkg, ledgerEnd)
 
-	// Query token config
-	tokenConfigs := queryTokenConfigs(ctx, stateClient, partyID, nativePkg, ledgerEnd)
+	// Query token configs (unified CIP56.Config.TokenConfig)
+	tokenConfigs := queryTokenConfigs(ctx, stateClient, partyID, cip56Pkg, ledgerEnd)
 
-	// Query DEMO events (native token)
-	mintEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "MintEvent", ledgerEnd)
-	burnEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "BurnEvent", ledgerEnd)
-	transferEvents := queryEvents(ctx, stateClient, partyID, nativePkg, "Native.Events", "TransferEvent", ledgerEnd)
-
-	// Query PROMPT events (bridged token) - bridge events are in core package
-	var bridgeMintEvents, bridgeBurnEvents []Event
-	if corePkg != "" {
-		bridgeMintEvents = queryEvents(ctx, stateClient, partyID, corePkg, "Bridge.Events", "BridgeMintEvent", ledgerEnd)
-		bridgeBurnEvents = queryEvents(ctx, stateClient, partyID, corePkg, "Bridge.Events", "BridgeBurnEvent", ledgerEnd)
-	}
+	// Query unified events (all tokens use CIP56.Events)
+	mintEvents := queryEvents(ctx, stateClient, partyID, cip56Pkg, "CIP56.Events", "MintEvent", ledgerEnd)
+	burnEvents := queryEvents(ctx, stateClient, partyID, cip56Pkg, "CIP56.Events", "BurnEvent", ledgerEnd)
 
 	// Print Token Config
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  Native Token Configuration")
+	fmt.Println("  Token Configuration (CIP56.Config.TokenConfig)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	if len(tokenConfigs) == 0 {
-		fmt.Println("  No NativeTokenConfig found")
+		fmt.Println("  No TokenConfig found")
 	} else {
 		for _, tc := range tokenConfigs {
 			fmt.Printf("  Token:      %s (%s)\n", tc.Name, tc.Symbol)
@@ -257,97 +240,45 @@ func main() {
 		fmt.Println()
 	}
 
-	// Print DEMO Events Summary
+	// Print Unified Events Summary
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  DEMO Token Events (Native)")
+	fmt.Println("  Token Events (Unified CIP56.Events)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  Mint Events:     %d\n", len(mintEvents))
 	fmt.Printf("  Burn Events:     %d\n", len(burnEvents))
-	fmt.Printf("  Transfer Events: %d\n", len(transferEvents))
 	fmt.Println()
 
-	// Print all DEMO events
+	// Print all mint events (both native and bridged use the same MintEvent)
 	if len(mintEvents) > 0 {
 		fmt.Println("  Mint Events:")
 		fmt.Println("  ─────────────────────────────────────────────────────────────────")
 		for _, e := range mintEvents {
-			fmt.Printf("    %s: %.2f DEMO minted\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
+			evmNote := ""
+			if e.EvmTxHash != "" {
+				evmNote = fmt.Sprintf(" (bridge deposit, evmTx: %s...)", e.EvmTxHash[:16])
+			}
+			fmt.Printf("    %s: %.4f minted to %s%s\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount), extractPartyHint(e.Owner), evmNote)
 		}
 		fmt.Println()
 	}
 
-	if len(transferEvents) > 0 {
-		fmt.Println("  Transfer Events (Custodial Key Transfers):")
+	// Print all burn events (both native and bridged use the same BurnEvent)
+	if len(burnEvents) > 0 {
+		fmt.Println("  Burn Events:")
 		fmt.Println("  ─────────────────────────────────────────────────────────────────")
-		for _, e := range transferEvents {
-			// Extract user-friendly party hints from the full party IDs
-			fromHint := extractPartyHint(e.From)
-			toHint := extractPartyHint(e.To)
-			fmt.Printf("    %s: %.2f DEMO\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
-			fmt.Printf("      From: %s (Canton party: %s...)\n", fromHint, truncateParty(e.From))
-			fmt.Printf("      To:   %s (Canton party: %s...)\n", toHint, truncateParty(e.To))
-			fmt.Printf("      Flow: EVM sig → API Server → Custodial Key → CIP56Holding.Transfer\n")
+		for _, e := range burnEvents {
+			evmNote := ""
+			if e.EvmDestination != "" {
+				evmNote = fmt.Sprintf(" (bridge withdrawal to %s)", e.EvmDestination)
+			}
+			fmt.Printf("    %s: %.4f burned from %s%s\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount), extractPartyHint(e.Owner), evmNote)
 		}
-		fmt.Println()
-
-		// Show custodial key flow explanation
-		fmt.Println("  Custodial Transfer Flow:")
-		fmt.Println("  ─────────────────────────────────────────────────────────────────")
-		fmt.Println("    1. User signs ERC-20 transfer with EVM private key (MetaMask)")
-		fmt.Println("    2. API Server receives eth_sendRawTransaction")
-		fmt.Println("    3. Server verifies EVM signature → identifies user")
-		fmt.Println("    4. Server retrieves user's encrypted Canton private key from DB")
-		fmt.Println("    5. Server decrypts key with master key (AES-256-GCM)")
-		fmt.Println("    6. Server signs Canton command as user's party")
-		fmt.Println("    7. CIP56Holding.Transfer choice exercised (owner-controlled)")
-		fmt.Println("    8. New holding created for recipient, sender's holding updated")
 		fmt.Println()
 	}
 
-	// Print PROMPT Events Summary (bridged token)
-	if corePkg != "" {
-		fmt.Println("══════════════════════════════════════════════════════════════════════")
-		fmt.Println("  PROMPT Token Events (Bridged)")
-		fmt.Println("══════════════════════════════════════════════════════════════════════")
-		fmt.Println()
-		fmt.Printf("  Bridge Mint Events: %d\n", len(bridgeMintEvents))
-		fmt.Printf("  Bridge Burn Events: %d\n", len(bridgeBurnEvents))
-		fmt.Println()
-
-		// Print recent bridge mint events
-		if len(bridgeMintEvents) > 0 {
-			fmt.Println("  Recent Bridge Deposits (Ethereum → Canton):")
-			fmt.Println("  ─────────────────────────────────────────────────────────────────")
-			limit := 5
-			if len(bridgeMintEvents) < limit {
-				limit = len(bridgeMintEvents)
-			}
-			for i := 0; i < limit; i++ {
-				e := bridgeMintEvents[i]
-				fmt.Printf("    %s: %.4f PROMPT bridged in\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
-			}
-			fmt.Println()
-		}
-
-		// Print recent bridge burn events
-		if len(bridgeBurnEvents) > 0 {
-			fmt.Println("  Recent Bridge Withdrawals (Canton → Ethereum):")
-			fmt.Println("  ─────────────────────────────────────────────────────────────────")
-			limit := 5
-			if len(bridgeBurnEvents) < limit {
-				limit = len(bridgeBurnEvents)
-			}
-			for i := 0; i < limit; i++ {
-				e := bridgeBurnEvents[i]
-				fmt.Printf("    %s: %.4f PROMPT withdrawn\n", e.CreatedAt.Format("2006-01-02 15:04:05"), parseAmount(e.Amount))
-			}
-			fmt.Println()
-		}
-
-		// Print PROMPT transfers from database (MetaMask transactions)
-		printPromptTransfers(cfg)
-	}
+	// Print PROMPT transfers from database (MetaMask transactions)
+	printPromptTransfers(cfg)
 
 	// Print summary
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -365,43 +296,43 @@ func main() {
 		tokenTotals[symbol] += parseAmount(h.Amount)
 	}
 
-	var totalMinted float64
+	// Group events by whether they have evmTxHash (bridge) or not (native)
+	var totalNativeMinted, totalBridgeMinted float64
+	var totalNativeBurned, totalBridgeBurned float64
 	for _, e := range mintEvents {
-		totalMinted += parseAmount(e.Amount)
+		amt := parseAmount(e.Amount)
+		if e.EvmTxHash != "" {
+			totalBridgeMinted += amt
+		} else {
+			totalNativeMinted += amt
+		}
 	}
-
-	var totalBurned float64
 	for _, e := range burnEvents {
-		totalBurned += parseAmount(e.Amount)
-	}
-
-	// Calculate PROMPT totals from bridge events
-	var totalBridged float64
-	var totalWithdrawn float64
-	if corePkg != "" {
-		for _, e := range bridgeMintEvents {
-			totalBridged += parseAmount(e.Amount)
-		}
-		for _, e := range bridgeBurnEvents {
-			totalWithdrawn += parseAmount(e.Amount)
+		amt := parseAmount(e.Amount)
+		if e.EvmDestination != "" {
+			totalBridgeBurned += amt
+		} else {
+			totalNativeBurned += amt
 		}
 	}
 
-	// Display reconciled totals based on events (source of truth)
-	demoSupply := totalMinted - totalBurned
-	promptSupply := totalBridged - totalWithdrawn
+	demoSupply := totalNativeMinted - totalNativeBurned
+	promptSupply := totalBridgeMinted - totalBridgeBurned
 
-	fmt.Println("  Token Supply (from events):")
-	fmt.Printf("    DEMO:       %12.2f  (minted: %.0f, burned: %.0f)\n", demoSupply, totalMinted, totalBurned)
-	fmt.Printf("    PROMPT:     %12.2f  (bridged: %.0f, withdrawn: %.0f)\n", promptSupply, totalBridged, totalWithdrawn)
+	fmt.Println("  Token Supply (from unified events):")
+	fmt.Printf("    DEMO:       %12.2f  (minted: %.0f, burned: %.0f)\n", demoSupply, totalNativeMinted, totalNativeBurned)
+	fmt.Printf("    PROMPT:     %12.2f  (bridged: %.0f, withdrawn: %.0f)\n", promptSupply, totalBridgeMinted, totalBridgeBurned)
 	fmt.Println()
 
 	// Get user fingerprints from database to distinguish user vs issuer holdings
 	userFingerprints := getUserFingerprints(cfg)
 
-	// Calculate DEMO breakdown by user vs issuer
+	// Calculate breakdown by user vs issuer
 	var demoUserMinted, demoIssuerMinted float64
 	for _, e := range mintEvents {
+		if e.EvmTxHash != "" {
+			continue // skip bridge events for DEMO breakdown
+		}
 		amt := parseAmount(e.Amount)
 		if _, isUser := userFingerprints[e.Fingerprint]; isUser {
 			demoUserMinted += amt
@@ -410,18 +341,12 @@ func main() {
 		}
 	}
 
-	// Calculate PROMPT breakdown (all should be user since bridge requires EVM address)
-	var promptUserBridged float64
-	for _, e := range bridgeMintEvents {
-		promptUserBridged += parseAmount(e.Amount)
-	}
-
 	fmt.Println("  Supply Breakdown:")
 	fmt.Println("    DEMO:")
 	fmt.Printf("      User Holdings:    %8.2f  (minted to registered EVM wallets)\n", demoUserMinted)
 	fmt.Printf("      Issuer Reserve:   %8.2f  (treasury, not mapped to EVM wallets)\n", demoIssuerMinted)
 	fmt.Println("    PROMPT:")
-	fmt.Printf("      User Holdings:    %8.2f  (bridged from Ethereum)\n", promptUserBridged)
+	fmt.Printf("      User Holdings:    %8.2f  (bridged from Ethereum)\n", totalBridgeMinted)
 	fmt.Println()
 
 	// Query database for user-facing balances (what MetaMask shows)
@@ -806,8 +731,8 @@ func queryTokenConfigs(ctx context.Context, client lapiv2.StateServiceClient, pa
 							TemplateFilter: &lapiv2.TemplateFilter{
 								TemplateId: &lapiv2.Identifier{
 									PackageId:  packageID,
-									ModuleName: "Native.Token",
-									EntityName: "NativeTokenConfig",
+									ModuleName: "CIP56.Config",
+									EntityName: "TokenConfig",
 								},
 							},
 						},
@@ -919,52 +844,37 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 				fields := created.GetCreateArguments().GetFields()
 
 				// Parse based on event type
-				// Native.Events:
-				//   MintEvent: issuer, recipient, amount, holdingCid, tokenSymbol, timestamp, auditObservers, userFingerprint
-				//   BurnEvent: issuer, owner, amount, holdingCid, tokenSymbol, timestamp, auditObservers, userFingerprint
-				//   TransferEvent: issuer, sender, recipient, amount, senderRemainderCid, recipientHoldingCid, tokenSymbol, timestamp, auditObservers, senderFingerprint, recipientFingerprint
-				// Bridge.Events:
-				//   BridgeMintEvent: issuer, recipient, amount, holdingCid, tokenSymbol, evmTxHash, fingerprint, timestamp, auditObservers
-				//   BridgeBurnEvent: issuer, burnedFrom, amount, remainderCid, evmDestination, tokenSymbol, fingerprint, timestamp, auditObservers
+				// CIP56.Events (unified):
+				//   MintEvent: issuer, recipient, amount, holdingCid, tokenSymbol, evmTxHash (Optional), userFingerprint, eventTime, auditObservers
+				//   BurnEvent: issuer, burnedFrom, amount, remainderCid, tokenSymbol, evmDestination (Optional), userFingerprint, eventTime, auditObservers
 				switch eventType {
 				case "MintEvent":
 					if len(fields) >= 3 {
 						e.Owner = fields[1].GetValue().GetParty() // recipient
 						e.Amount = fields[2].GetValue().GetNumeric()
 					}
-					if len(fields) >= 8 {
-						e.Fingerprint = fields[7].GetValue().GetText() // userFingerprint
-					}
-				case "BurnEvent":
-					if len(fields) >= 3 {
-						e.Owner = fields[1].GetValue().GetParty() // owner
-						e.Amount = fields[2].GetValue().GetNumeric()
-					}
-					if len(fields) >= 8 {
-						e.Fingerprint = fields[7].GetValue().GetText() // userFingerprint
-					}
-				case "TransferEvent":
-					// TransferEvent: issuer(0), sender(1), recipient(2), amount(3), ...
-					if len(fields) >= 4 {
-						e.From = fields[1].GetValue().GetParty()     // sender
-						e.To = fields[2].GetValue().GetParty()       // recipient
-						e.Amount = fields[3].GetValue().GetNumeric() // amount
-					}
-				case "BridgeMintEvent":
-					if len(fields) >= 3 {
-						e.Owner = fields[1].GetValue().GetParty() // recipient
-						e.Amount = fields[2].GetValue().GetNumeric()
+					if len(fields) >= 6 {
+						// evmTxHash is Optional Text at index 5
+						if opt := fields[5].GetValue().GetOptional(); opt != nil && opt.Value != nil {
+							e.EvmTxHash = opt.Value.GetText()
+						}
 					}
 					if len(fields) >= 7 {
-						e.Fingerprint = fields[6].GetValue().GetText() // fingerprint
+						e.Fingerprint = fields[6].GetValue().GetText() // userFingerprint
 					}
-				case "BridgeBurnEvent":
+				case "BurnEvent":
 					if len(fields) >= 3 {
 						e.Owner = fields[1].GetValue().GetParty() // burnedFrom
 						e.Amount = fields[2].GetValue().GetNumeric()
 					}
+					if len(fields) >= 6 {
+						// evmDestination is Optional Text at index 5
+						if opt := fields[5].GetValue().GetOptional(); opt != nil && opt.Value != nil {
+							e.EvmDestination = opt.Value.GetText()
+						}
+					}
 					if len(fields) >= 7 {
-						e.Fingerprint = fields[6].GetValue().GetText() // fingerprint
+						e.Fingerprint = fields[6].GetValue().GetText() // userFingerprint
 					}
 				}
 

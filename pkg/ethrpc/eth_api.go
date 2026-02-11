@@ -186,17 +186,18 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	}
 
 	// Get decimals for the appropriate token
-	var decimals int
+	tokenSymbol := "PROMPT"
 	var tokenAddress common.Address
 	if isDemoToken {
-		decimals = api.server.cfg.DemoToken.Decimals
-		if decimals == 0 {
-			decimals = 18
-		}
+		tokenSymbol = "DEMO"
 		tokenAddress = api.server.demoTokenAddress
 	} else {
-		decimals = api.server.tokenService.GetTokenDecimals()
 		tokenAddress = api.server.tokenAddress
+	}
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	decimals := tokenCfg.Decimals
+	if decimals == 0 {
+		decimals = 18
 	}
 
 	// Convert Wei amount to human-readable decimal format
@@ -205,18 +206,13 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	timeoutCtx, cancel := context.WithTimeout(ctx, api.server.cfg.EthRPC.RequestTimeout)
 	defer cancel()
 
-	// Route transfer to appropriate handler
-	if isDemoToken {
-		// DEMO token: update database balances directly
-		err = api.transferDemoToken(timeoutCtx, from, toAddr, humanReadableAmount)
-	} else {
-		// PROMPT token: transfer via Canton
-		_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
-			FromEVMAddress: from.Hex(),
-			ToEVMAddress:   toAddr.Hex(),
-			Amount:         humanReadableAmount,
-		})
-	}
+	// Route transfer - unified path for all tokens
+	_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
+		FromEVMAddress: from.Hex(),
+		ToEVMAddress:   toAddr.Hex(),
+		Amount:         humanReadableAmount,
+		TokenSymbol:    tokenSymbol,
+	})
 
 	if err != nil {
 		api.server.logger.Error("Transfer failed",
@@ -284,17 +280,6 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 		zap.String("amount", amount.String()))
 
 	return txHash, nil
-}
-
-// transferDemoToken handles DEMO token transfers via Canton (same as PROMPT)
-func (api *EthAPI) transferDemoToken(ctx context.Context, from, to common.Address, amount string) error {
-	// Use TokenService.TransferDemo which handles Canton Burn + Mint
-	_, err := api.server.tokenService.TransferDemo(ctx, &service.TransferDemoRequest{
-		FromEVMAddress: from.Hex(),
-		ToEVMAddress:   to.Hex(),
-		Amount:         amount,
-	})
-	return err
 }
 
 // GetTransactionReceipt returns the receipt for a transaction
@@ -421,23 +406,23 @@ func (api *EthAPI) Call(ctx context.Context, args CallArgs, blockNrOrHash BlockN
 		return nil, fmt.Errorf("unknown method")
 	}
 
-	// Route to appropriate handler based on token
+	// Determine token symbol for unified routing
+	tokenSymbol := "PROMPT"
 	if isDemoToken {
-		return api.callDemoToken(ctx, method.Name, input[4:])
+		tokenSymbol = "DEMO"
 	}
 
-	// Default: PROMPT token
 	switch method.Name {
 	case "balanceOf":
-		return api.callBalanceOf(ctx, input[4:])
+		return api.callBalanceOf(ctx, input[4:], tokenSymbol)
 	case "decimals":
-		return api.callDecimals()
+		return api.callDecimals(tokenSymbol)
 	case "symbol":
-		return api.callSymbol()
+		return api.callSymbol(tokenSymbol)
 	case "name":
-		return api.callName()
+		return api.callName(tokenSymbol)
 	case "totalSupply":
-		return api.callTotalSupply(ctx)
+		return api.callTotalSupply(ctx, tokenSymbol)
 	case "allowance":
 		return api.callAllowance()
 	default:
@@ -445,7 +430,7 @@ func (api *EthAPI) Call(ctx context.Context, args CallArgs, blockNrOrHash BlockN
 	}
 }
 
-func (api *EthAPI) callBalanceOf(ctx context.Context, data []byte) (hexutil.Bytes, error) {
+func (api *EthAPI) callBalanceOf(ctx context.Context, data []byte, tokenSymbol string) (hexutil.Bytes, error) {
 	method := api.server.erc20ABI.Methods["balanceOf"]
 	args := make(map[string]interface{})
 	if err := method.Inputs.UnpackIntoMap(args, data); err != nil {
@@ -457,90 +442,10 @@ func (api *EthAPI) callBalanceOf(ctx context.Context, data []byte) (hexutil.Byte
 		return nil, fmt.Errorf("invalid account address")
 	}
 
-	balStr, err := api.server.tokenService.GetBalance(ctx, addr.Hex())
+	balStr, err := api.server.tokenService.GetBalance(ctx, addr.Hex(), tokenSymbol)
 	if err != nil {
-		return nil, err
-	}
-
-	// Convert human-readable balance to Wei for ERC20 compatibility
-	decimals := api.server.tokenService.GetTokenDecimals()
-	bal, err := canton.DecimalToBigInt(balStr, decimals)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert balance: %w", err)
-	}
-	return api.encodeUint256(bal)
-}
-
-func (api *EthAPI) callDecimals() (hexutil.Bytes, error) {
-	return api.encodeUint8(uint8(api.server.tokenService.GetTokenDecimals()))
-}
-
-func (api *EthAPI) callSymbol() (hexutil.Bytes, error) {
-	return api.encodeString(api.server.tokenService.GetTokenSymbol())
-}
-
-func (api *EthAPI) callName() (hexutil.Bytes, error) {
-	return api.encodeString(api.server.tokenService.GetTokenName())
-}
-
-func (api *EthAPI) callTotalSupply(ctx context.Context) (hexutil.Bytes, error) {
-	supplyStr, err := api.server.tokenService.GetTotalSupply(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// Convert human-readable supply to Wei for ERC20 compatibility
-	decimals := api.server.tokenService.GetTokenDecimals()
-	supply, err := canton.DecimalToBigInt(supplyStr, decimals)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert total supply: %w", err)
-	}
-	return api.encodeUint256(supply)
-}
-
-func (api *EthAPI) callAllowance() (hexutil.Bytes, error) {
-	return api.encodeUint256(big.NewInt(0))
-}
-
-// =============================================================================
-// DEMO TOKEN (Native Canton Token) Methods
-// =============================================================================
-
-// callDemoToken handles ERC20 calls for the DEMO token
-func (api *EthAPI) callDemoToken(ctx context.Context, methodName string, data []byte) (hexutil.Bytes, error) {
-	switch methodName {
-	case "balanceOf":
-		return api.callDemoBalanceOf(ctx, data)
-	case "decimals":
-		return api.callDemoDecimals()
-	case "symbol":
-		return api.callDemoSymbol()
-	case "name":
-		return api.callDemoName()
-	case "totalSupply":
-		return api.callDemoTotalSupply()
-	case "allowance":
-		return api.callAllowance() // Same as PROMPT
-	default:
-		return nil, fmt.Errorf("unsupported method for DEMO token: %s", methodName)
-	}
-}
-
-func (api *EthAPI) callDemoBalanceOf(ctx context.Context, data []byte) (hexutil.Bytes, error) {
-	method := api.server.erc20ABI.Methods["balanceOf"]
-	args := make(map[string]interface{})
-	if err := method.Inputs.UnpackIntoMap(args, data); err != nil {
-		return nil, err
-	}
-
-	addr, ok := args["account"].(common.Address)
-	if !ok {
-		return nil, fmt.Errorf("invalid account address")
-	}
-
-	// Get DEMO balance via TokenService (same pattern as PROMPT)
-	balStr, err := api.server.tokenService.GetDemoBalance(ctx, addr.Hex())
-	if err != nil {
-		api.server.logger.Warn("Failed to get DEMO balance",
+		api.server.logger.Warn("Failed to get balance",
+			zap.String("token", tokenSymbol),
 			zap.String("address", addr.Hex()),
 			zap.Error(err))
 		return api.encodeUint256(big.NewInt(0))
@@ -550,14 +455,15 @@ func (api *EthAPI) callDemoBalanceOf(ctx context.Context, data []byte) (hexutil.
 		return api.encodeUint256(big.NewInt(0))
 	}
 
-	// Convert to Wei (balStr is in token units)
-	decimals := api.server.cfg.DemoToken.Decimals
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	decimals := tokenCfg.Decimals
 	if decimals == 0 {
 		decimals = 18
 	}
 	bal, err := canton.DecimalToBigInt(balStr, decimals)
 	if err != nil {
-		api.server.logger.Warn("Failed to convert DEMO balance",
+		api.server.logger.Warn("Failed to convert balance",
+			zap.String("token", tokenSymbol),
 			zap.String("balance", balStr),
 			zap.Error(err))
 		return api.encodeUint256(big.NewInt(0))
@@ -565,36 +471,52 @@ func (api *EthAPI) callDemoBalanceOf(ctx context.Context, data []byte) (hexutil.
 	return api.encodeUint256(bal)
 }
 
-func (api *EthAPI) callDemoDecimals() (hexutil.Bytes, error) {
-	decimals := api.server.cfg.DemoToken.Decimals
+func (api *EthAPI) callDecimals(tokenSymbol string) (hexutil.Bytes, error) {
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	decimals := tokenCfg.Decimals
 	if decimals == 0 {
 		decimals = 18
 	}
 	return api.encodeUint8(uint8(decimals))
 }
 
-func (api *EthAPI) callDemoSymbol() (hexutil.Bytes, error) {
-	symbol := api.server.cfg.DemoToken.Symbol
+func (api *EthAPI) callSymbol(tokenSymbol string) (hexutil.Bytes, error) {
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	symbol := tokenCfg.Symbol
 	if symbol == "" {
-		symbol = "DEMO"
+		symbol = tokenSymbol
 	}
 	return api.encodeString(symbol)
 }
 
-func (api *EthAPI) callDemoName() (hexutil.Bytes, error) {
-	name := api.server.cfg.DemoToken.Name
+func (api *EthAPI) callName(tokenSymbol string) (hexutil.Bytes, error) {
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	name := tokenCfg.Name
 	if name == "" {
-		name = "Demo Token"
+		name = tokenSymbol
 	}
 	return api.encodeString(name)
 }
 
-func (api *EthAPI) callDemoTotalSupply() (hexutil.Bytes, error) {
-	// For DEMO token, return a fixed total supply (1 million tokens)
-	// In a production system, this would query all DEMO holdings from Canton
-	supply := new(big.Int)
-	supply.SetString("1000000000000000000000000", 10) // 1 million with 18 decimals
+func (api *EthAPI) callTotalSupply(ctx context.Context, tokenSymbol string) (hexutil.Bytes, error) {
+	supplyStr, err := api.server.tokenService.GetTotalSupply(ctx, tokenSymbol)
+	if err != nil {
+		return nil, err
+	}
+	tokenCfg := api.server.cfg.GetTokenConfig(tokenSymbol)
+	decimals := tokenCfg.Decimals
+	if decimals == 0 {
+		decimals = 18
+	}
+	supply, err := canton.DecimalToBigInt(supplyStr, decimals)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert total supply: %w", err)
+	}
 	return api.encodeUint256(supply)
+}
+
+func (api *EthAPI) callAllowance() (hexutil.Bytes, error) {
+	return api.encodeUint256(big.NewInt(0))
 }
 
 func (api *EthAPI) encodeUint256(v *big.Int) (hexutil.Bytes, error) {

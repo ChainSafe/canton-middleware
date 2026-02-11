@@ -2,17 +2,15 @@
 
 // bootstrap-demo.go - Bootstrap DEMO token (native Canton token) for testing
 //
-// This script creates a NativeTokenConfig with its own CIP56Manager (DEMO metadata)
+// This script creates a TokenConfig (CIP56.Config) with its own CIP56Manager (DEMO metadata)
 // and mints initial tokens to test users.
 //
 // Prerequisites:
-// 1. Canton is running with DARs uploaded (bridge-wayfinder + native-token)
-// 2. WayfinderBridgeConfig exists (run bootstrap-bridge.go first)
-// 3. Users are registered (have FingerprintMapping contracts)
+// 1. Canton is running with DARs uploaded (cip56-token)
+// 2. Users are registered (have FingerprintMapping contracts)
 //
 // Usage:
 //   go run scripts/bootstrap-demo.go -config config.yaml \
-//     -native-package-id "<native-token-package-id>" \
 //     -user1-fingerprint "0x..." \
 //     -user2-fingerprint "0x..."
 //
@@ -65,7 +63,7 @@ var demoMetadata = map[string]interface{}{
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
-	nativePackageID := flag.String("native-package-id", "", "Native token package ID (required)")
+	cip56PackageID := flag.String("cip56-package-id", "", "CIP56 package ID (uses config.canton.cip56_package_id if not set)")
 	issuerFlag := flag.String("issuer", "", "Issuer party ID (optional, uses config if not specified)")
 	domainFlag := flag.String("domain", "", "Domain/synchronizer ID (optional, uses config if not specified)")
 	user1Fingerprint := flag.String("user1-fingerprint", "", "User 1 EVM fingerprint (required)")
@@ -81,17 +79,12 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Get package IDs
-	if *nativePackageID == "" {
-		*nativePackageID = cfg.Canton.NativeTokenPackageID
+	// Get package IDs - TokenConfig is now in cip56-token package
+	if *cip56PackageID == "" {
+		*cip56PackageID = cfg.Canton.CIP56PackageID
 	}
-	if *nativePackageID == "" {
-		log.Fatal("native-package-id is required (set via flag or config.canton.native_token_package_id)")
-	}
-
-	cip56PackageID := cfg.Canton.CIP56PackageID
-	if cip56PackageID == "" {
-		log.Fatal("cip56_package_id not set in config")
+	if *cip56PackageID == "" {
+		log.Fatal("cip56_package_id is required in config or via -cip56-package-id flag")
 	}
 
 	// Get issuer party (prefer flag over config)
@@ -149,49 +142,49 @@ func main() {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
 	fmt.Printf("Issuer:     %s\n", issuer)
-	fmt.Printf("Native Package: %s\n", *nativePackageID)
+	fmt.Printf("CIP56 Package:  %s\n", *cip56PackageID)
 	fmt.Printf("Mint Amount: %s DEMO per user\n", *mintAmount)
 	fmt.Println()
 
 	stateService := lapiv2.NewStateServiceClient(conn)
 	commandService := lapiv2.NewCommandServiceClient(conn)
 
-	// Step 1: Check if NativeTokenConfig already exists
-	fmt.Println(">>> Step 1: Checking for existing NativeTokenConfig...")
-	existingConfig, err := findNativeTokenConfig(ctx, stateService, issuer, *nativePackageID)
+	// Step 1: Check if TokenConfig (DEMO) already exists
+	fmt.Println(">>> Step 1: Checking for existing TokenConfig (DEMO)...")
+	existingConfig, err := findTokenConfig(ctx, stateService, issuer, *cip56PackageID)
 	if err == nil && existingConfig != "" {
-		fmt.Printf("    [EXISTS] NativeTokenConfig: %s\n", existingConfig)
+		fmt.Printf("    [EXISTS] TokenConfig: %s\n", existingConfig)
 		fmt.Println()
 		fmt.Println("    Skipping DEMO CIP56Manager creation...")
 
 		// Still mint to users if they don't have tokens
-		mintToUsers(ctx, stateService, commandService, cfg, *nativePackageID, existingConfig,
+		mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, existingConfig,
 			*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
 		return
 	}
-	fmt.Println("    No existing NativeTokenConfig found, creating new one...")
+	fmt.Println("    No existing TokenConfig (DEMO) found, creating new one...")
 	fmt.Println()
 
 	// Step 2: Create DEMO CIP56Manager
 	fmt.Println(">>> Step 2: Creating DEMO CIP56Manager...")
-	demoManagerCid, err := createDemoTokenManager(ctx, commandService, issuer, cip56PackageID, domainID)
+	demoManagerCid, err := createDemoTokenManager(ctx, commandService, issuer, *cip56PackageID, domainID)
 	if err != nil {
 		log.Fatalf("Failed to create DEMO CIP56Manager: %v", err)
 	}
 	fmt.Printf("    DEMO CIP56Manager: %s\n", demoManagerCid)
 	fmt.Println()
 
-	// Step 3: Create NativeTokenConfig
-	fmt.Println(">>> Step 3: Creating NativeTokenConfig...")
-	nativeConfigCid, err := createNativeTokenConfig(ctx, commandService, issuer, *nativePackageID, domainID, demoManagerCid)
+	// Step 3: Create TokenConfig (DEMO)
+	fmt.Println(">>> Step 3: Creating TokenConfig (DEMO)...")
+	nativeConfigCid, err := createTokenConfig(ctx, commandService, issuer, *cip56PackageID, domainID, demoManagerCid)
 	if err != nil {
-		log.Fatalf("Failed to create NativeTokenConfig: %v", err)
+		log.Fatalf("Failed to create TokenConfig: %v", err)
 	}
-	fmt.Printf("    NativeTokenConfig: %s\n", nativeConfigCid)
+	fmt.Printf("    TokenConfig (DEMO): %s\n", nativeConfigCid)
 	fmt.Println()
 
 	// Step 4-5: Mint to users
-	mintToUsers(ctx, stateService, commandService, cfg, *nativePackageID, nativeConfigCid,
+	mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, nativeConfigCid,
 		*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
 
 	// Step 6: Update database with DEMO balances
@@ -209,13 +202,13 @@ func main() {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println()
 	fmt.Printf("DEMO CIP56Manager:    %s\n", demoManagerCid)
-	fmt.Printf("NativeTokenConfig:    %s\n", nativeConfigCid)
+	fmt.Printf("TokenConfig (DEMO):   %s\n", nativeConfigCid)
 	fmt.Printf("User 1 (%s): %s DEMO\n", *user1Fingerprint, *mintAmount)
 	fmt.Printf("User 2 (%s): %s DEMO\n", *user2Fingerprint, *mintAmount)
 }
 
 func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, commandService lapiv2.CommandServiceClient, cfg *config.Config,
-	nativePackageID, nativeConfigCid, user1Fingerprint, user2Fingerprint, user1PartyOpt, user2PartyOpt, mintAmount, issuer, domainID string) {
+	cip56PackageID, nativeConfigCid, user1Fingerprint, user2Fingerprint, user1PartyOpt, user2PartyOpt, mintAmount, issuer, domainID string) {
 
 	var user1Party, user2Party string
 	var err error
@@ -246,7 +239,7 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 	// Step 4: Mint to User 1
 	fmt.Println(">>> Step 4: Minting DEMO to User 1...")
 	fmt.Printf("    Party: %s\n", user1Party)
-	holding1, err := mintDemoTokens(ctx, commandService, nativePackageID, nativeConfigCid,
+	holding1, err := mintDemoTokens(ctx, commandService, cip56PackageID, nativeConfigCid,
 		user1Party, mintAmount, user1Fingerprint, issuer, domainID)
 	if err != nil {
 		log.Fatalf("Failed to mint to User 1: %v", err)
@@ -257,7 +250,7 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 	// Step 5: Mint to User 2
 	fmt.Println(">>> Step 5: Minting DEMO to User 2...")
 	fmt.Printf("    Party: %s\n", user2Party)
-	holding2, err := mintDemoTokens(ctx, commandService, nativePackageID, nativeConfigCid,
+	holding2, err := mintDemoTokens(ctx, commandService, cip56PackageID, nativeConfigCid,
 		user2Party, mintAmount, user2Fingerprint, issuer, domainID)
 	if err != nil {
 		log.Fatalf("Failed to mint to User 2: %v", err)
@@ -361,7 +354,7 @@ func extractJWTSubject(tokenString string) (string, error) {
 	return sub, nil
 }
 
-func findNativeTokenConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string) (string, error) {
+func findTokenConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string) (string, error) {
 	ledgerEndResp, err := client.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		return "", err
@@ -381,8 +374,8 @@ func findNativeTokenConfig(ctx context.Context, client lapiv2.StateServiceClient
 								TemplateFilter: &lapiv2.TemplateFilter{
 									TemplateId: &lapiv2.Identifier{
 										PackageId:  packageID,
-										ModuleName: "Native.Token",
-										EntityName: "NativeTokenConfig",
+										ModuleName: "CIP56.Config",
+										EntityName: "TokenConfig",
 									},
 								},
 							},
@@ -403,7 +396,19 @@ func findNativeTokenConfig(ctx context.Context, client lapiv2.StateServiceClient
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			return contract.CreatedEvent.ContractId, nil
+			event := contract.CreatedEvent
+			// Check that this is the DEMO TokenConfig by inspecting the meta.symbol field
+			// TokenConfig fields: issuer(0), tokenManagerCid(1), meta(2), auditObservers(3)
+			fields := event.GetCreateArguments().GetFields()
+			if len(fields) >= 3 {
+				metaFields := fields[2].GetValue().GetRecord().GetFields()
+				if len(metaFields) >= 2 {
+					symbol := metaFields[1].GetValue().GetText()
+					if symbol == "DEMO" {
+						return event.ContractId, nil
+					}
+				}
+			}
 		}
 	}
 
@@ -470,7 +475,7 @@ func createDemoTokenManager(ctx context.Context, client lapiv2.CommandServiceCli
 	return "", fmt.Errorf("CIP56Manager not found in response")
 }
 
-func createNativeTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, nativePackageID, domainID, tokenManagerCid string) (string, error) {
+func createTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID, tokenManagerCid string) (string, error) {
 	cmdID := fmt.Sprintf("create-native-config-%d", time.Now().UnixNano())
 
 	metaRecord := &lapiv2.Record{
@@ -497,9 +502,9 @@ func createNativeTokenConfig(ctx context.Context, client lapiv2.CommandServiceCl
 		Command: &lapiv2.Command_Create{
 			Create: &lapiv2.CreateCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  nativePackageID,
-					ModuleName: "Native.Token",
-					EntityName: "NativeTokenConfig",
+					PackageId:  cip56PackageID,
+					ModuleName: "CIP56.Config",
+					EntityName: "TokenConfig",
 				},
 				CreateArguments: createArgs,
 			},
@@ -522,17 +527,17 @@ func createNativeTokenConfig(ctx context.Context, client lapiv2.CommandServiceCl
 	if resp.Transaction != nil {
 		for _, event := range resp.Transaction.Events {
 			if created := event.GetCreated(); created != nil {
-				if created.TemplateId.EntityName == "NativeTokenConfig" {
+				if created.TemplateId.EntityName == "TokenConfig" {
 					return created.ContractId, nil
 				}
 			}
 		}
 	}
 
-	return "", fmt.Errorf("NativeTokenConfig not found in response")
+	return "", fmt.Errorf("TokenConfig not found in response")
 }
 
-func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, nativePackageID, nativeConfigCid, recipientParty, amount, fingerprint, issuer, domainID string) (string, error) {
+func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, cip56PackageID, nativeConfigCid, recipientParty, amount, fingerprint, issuer, domainID string) (string, error) {
 	cmdID := fmt.Sprintf("mint-demo-%d", time.Now().UnixNano())
 
 	mintArgs := &lapiv2.Record{
@@ -541,6 +546,7 @@ func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, nat
 			{Label: "amount", Value: &lapiv2.Value{Sum: &lapiv2.Value_Numeric{Numeric: amount}}},
 			{Label: "eventTime", Value: &lapiv2.Value{Sum: &lapiv2.Value_Timestamp{Timestamp: time.Now().UnixMicro()}}},
 			{Label: "userFingerprint", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: fingerprint}}},
+			{Label: "evmTxHash", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
 		},
 	}
 
@@ -548,9 +554,9 @@ func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, nat
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  nativePackageID,
-					ModuleName: "Native.Token",
-					EntityName: "NativeTokenConfig",
+					PackageId:  cip56PackageID,
+					ModuleName: "CIP56.Config",
+					EntityName: "TokenConfig",
 				},
 				ContractId:     nativeConfigCid,
 				Choice:         "IssuerMint",

@@ -48,8 +48,8 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 		return fmt.Errorf("failed to get holdings from Canton: %w", err)
 	}
 
-	// Calculate total supply from all holdings
-	totalSupply := decimal.Zero
+	// Calculate total supply per token symbol
+	supplyByToken := make(map[string]decimal.Decimal)
 	for _, holding := range holdings {
 		amount, err := decimal.NewFromString(holding.Amount)
 		if err != nil {
@@ -59,22 +59,27 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 				zap.Error(err))
 			continue
 		}
-		totalSupply = totalSupply.Add(amount)
+		symbol := holding.Symbol
+		if symbol == "" {
+			symbol = "UNKNOWN"
+		}
+		supplyByToken[symbol] = supplyByToken[symbol].Add(amount)
 	}
 
-	// Update total supply from Canton (this is authoritative)
-	if err := r.db.SetTotalSupply(totalSupply.String()); err != nil {
-		return fmt.Errorf("failed to update total supply: %w", err)
-	}
-
-	// Update reconciliation timestamp
-	if err := r.db.UpdateLastReconciled(); err != nil {
-		r.logger.Warn("Failed to update last reconciled timestamp", zap.Error(err))
+	// Update per-token total supply from Canton (this is authoritative)
+	for symbol, supply := range supplyByToken {
+		if err := r.db.SetTotalSupply(symbol, supply.String()); err != nil {
+			return fmt.Errorf("failed to update total supply for %s: %w", symbol, err)
+		}
+		if err := r.db.UpdateLastReconciled(symbol); err != nil {
+			r.logger.Warn("Failed to update last reconciled timestamp",
+				zap.String("token", symbol), zap.Error(err))
+		}
 	}
 
 	r.logger.Info("Total supply reconciliation completed",
 		zap.Int("holdings_processed", len(holdings)),
-		zap.String("total_supply", totalSupply.String()),
+		zap.Int("tokens_reconciled", len(supplyByToken)),
 		zap.Duration("duration", time.Since(start)))
 
 	// Also reconcile user balances from holdings
@@ -242,8 +247,8 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 
 	var mintCount, burnCount int
 
-	// Get all bridge mint events
-	mintEvents, err := r.cantonClient.GetBridgeMintEvents(ctx)
+	// Get all mint events (CIP56.Events.MintEvent)
+	mintEvents, err := r.cantonClient.GetMintEvents(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get mint events: %w", err)
 	}
@@ -260,22 +265,22 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.db.StoreBridgeMintEvent(event); err != nil {
+		if err := r.db.StoreMintEvent(event); err != nil {
 			r.logger.Warn("Failed to store mint event",
 				zap.String("contract_id", event.ContractID),
-				zap.String("fingerprint", event.Fingerprint),
+				zap.String("fingerprint", event.UserFingerprint),
 				zap.Error(err))
 			continue
 		}
 		mintCount++
 		r.logger.Debug("Processed mint event",
-			zap.String("fingerprint", event.Fingerprint),
+			zap.String("fingerprint", event.UserFingerprint),
 			zap.String("amount", event.Amount),
 			zap.String("evm_tx_hash", event.EvmTxHash))
 	}
 
-	// Get all bridge burn events
-	burnEvents, err := r.cantonClient.GetBridgeBurnEvents(ctx)
+	// Get all burn events (CIP56.Events.BurnEvent)
+	burnEvents, err := r.cantonClient.GetBurnEvents(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get burn events: %w", err)
 	}
@@ -291,16 +296,16 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.db.StoreBridgeBurnEvent(event); err != nil {
+		if err := r.db.StoreBurnEvent(event); err != nil {
 			r.logger.Warn("Failed to store burn event",
 				zap.String("contract_id", event.ContractID),
-				zap.String("fingerprint", event.Fingerprint),
+				zap.String("fingerprint", event.UserFingerprint),
 				zap.Error(err))
 			continue
 		}
 		burnCount++
 		r.logger.Debug("Processed burn event",
-			zap.String("fingerprint", event.Fingerprint),
+			zap.String("fingerprint", event.UserFingerprint),
 			zap.String("amount", event.Amount))
 	}
 

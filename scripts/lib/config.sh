@@ -59,24 +59,22 @@ print_config() {
     print_info "Chain ID: $CHAIN_ID"
 }
 
-# Get native token package ID from DAR or config
-get_native_token_package_id() {
-    local DAR_PATH="contracts/canton-erc20/daml/native-token/.daml/dist/native-token-1.1.0.dar"
-    
-    # First check if DAR exists and extract package ID
-    if [ -f "$DAR_PATH" ]; then
-        # Extract package ID from DAR filename pattern
-        local PKG_ID=$(daml damlc inspect-dar "$DAR_PATH" 2>/dev/null | grep "native-token-1.1.0-" | head -1 | sed 's/.*native-token-1.1.0-\([a-f0-9]*\).*/\1/' | head -1)
-        if [ -n "$PKG_ID" ]; then
+# Get CIP56 package ID from config (used for TokenConfig, events, and holdings)
+get_cip56_package_id() {
+    # Try to get from config.yaml
+    if [ -f "config.yaml" ]; then
+        local PKG_ID=$(grep "cip56_package_id:" config.yaml 2>/dev/null | awk '{print $2}' | tr -d '"')
+        if [ -n "$PKG_ID" ] && [ "$PKG_ID" != "" ]; then
             echo "$PKG_ID"
             return 0
         fi
     fi
     
-    # Fallback: try to get from config.yaml
-    if [ -f "config.yaml" ]; then
-        local PKG_ID=$(grep "native_token_package_id:" config.yaml 2>/dev/null | awk '{print $2}' | tr -d '"')
-        if [ -n "$PKG_ID" ] && [ "$PKG_ID" != "" ]; then
+    # Try DAR
+    local DAR_PATH="contracts/canton-erc20/daml/cip56-token/.daml/dist/cip56-token-1.4.0.dar"
+    if [ -f "$DAR_PATH" ]; then
+        local PKG_ID=$(daml damlc inspect-dar "$DAR_PATH" 2>/dev/null | grep "cip56-token-1.4.0-" | head -1 | sed 's/.*cip56-token-1.4.0-\([a-f0-9]*\).*/\1/' | head -1)
+        if [ -n "$PKG_ID" ]; then
             echo "$PKG_ID"
             return 0
         fi

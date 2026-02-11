@@ -145,7 +145,7 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
-			err := cantonClient.BurnDemoHolding(ctx, h.ContractID, h.Amount)
+			err := cantonClient.TokenBurn(ctx, h.ContractID, h.Amount, "DEMO", "", "")
 			if err != nil {
 				fmt.Printf("    ERROR: %v\n", err)
 			} else {
@@ -185,10 +185,11 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 1 (%s)...\n", *mintAmount, truncateParty(user1Party))
 	if !*dryRun && user1Party != "" {
-		_, err := cantonClient.NativeTokenMint(ctx, &canton.NativeTokenMintRequest{
+		_, err := cantonClient.TokenMint(ctx, &canton.TokenMintRequest{
 			RecipientParty:  user1Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user1Fingerprint,
+			TokenSymbol:     "DEMO",
 		})
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
@@ -201,10 +202,11 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 2 (%s)...\n", *mintAmount, truncateParty(user2Party))
 	if !*dryRun && user2Party != "" {
-		_, err := cantonClient.NativeTokenMint(ctx, &canton.NativeTokenMintRequest{
+		_, err := cantonClient.TokenMint(ctx, &canton.TokenMintRequest{
 			RecipientParty:  user2Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user2Fingerprint,
+			TokenSymbol:     "DEMO",
 		})
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)

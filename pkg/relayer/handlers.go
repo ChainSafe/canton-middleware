@@ -233,8 +233,8 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 			// Log but don't fail - the deposit succeeded on Canton
 			fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", fingerprint, err)
 		}
-		// Increment total supply
-		if err := d.apiDB.IncrementTotalSupply(amountStr); err != nil {
+		// Increment total supply for PROMPT
+		if err := d.apiDB.IncrementTotalSupply("PROMPT", amountStr); err != nil {
 			fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
 		}
 	}
@@ -330,8 +330,8 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 				// Log but don't fail - the withdrawal succeeded
 				fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", withdrawal.EvmDestination, err)
 			}
-			// Decrement total supply (tokens leaving Canton system)
-			if err := d.apiDB.DecrementTotalSupply(event.Amount); err != nil {
+			// Decrement total supply for PROMPT (tokens leaving Canton system)
+			if err := d.apiDB.DecrementTotalSupply("PROMPT", event.Amount); err != nil {
 				fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
 			}
 		}

@@ -464,67 +464,10 @@ func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
 // ISSUER-CENTRIC MODEL METHODS
 // =============================================================================
 
-// RegisterUser creates a FingerprintMapping for a new user
-// Called after allocating a party via AllocateParty API
-func (c *Client) RegisterUser(ctx context.Context, req *RegisterUserRequest) (string, error) {
-	c.logger.Info("Registering user fingerprint mapping",
-		zap.String("user_party", req.UserParty),
-		zap.String("fingerprint", req.Fingerprint))
-
-	configCid, err := c.GetWayfinderBridgeConfig(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to get WayfinderBridgeConfig: %w", err)
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.BridgePackageID,
-					ModuleName: "Wayfinder.Bridge",
-					EntityName: "WayfinderBridgeConfig",
-				},
-				ContractId:     configCid,
-				Choice:         "RegisterUser",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: EncodeRegisterUserArgs(req)}},
-			},
-		},
-	}
-
-	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to register user: %w", err)
-	}
-
-	// Extract the created FingerprintMapping contract ID from response
-	if resp.Transaction != nil {
-		for _, event := range resp.Transaction.Events {
-			if created := event.GetCreated(); created != nil {
-				templateId := created.TemplateId
-				if templateId.ModuleName == "Common.FingerprintAuth" && templateId.EntityName == "FingerprintMapping" {
-					return created.ContractId, nil
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("FingerprintMapping contract not found in response")
-}
-
 // CreateFingerprintMappingDirect creates a FingerprintMapping using direct Create command
-// This is used in DEMO-only mode when there's no WayfinderBridgeConfig
+// The issuer has signatory rights on FingerprintMapping, so no bridge config is needed.
 func (c *Client) CreateFingerprintMappingDirect(ctx context.Context, req *RegisterUserRequest) (string, error) {
-	c.logger.Info("Creating FingerprintMapping directly (DEMO-only mode)",
+	c.logger.Info("Creating FingerprintMapping directly",
 		zap.String("user_party", req.UserParty),
 		zap.String("fingerprint", req.Fingerprint))
 
@@ -1137,8 +1080,8 @@ func (c *Client) GetTotalSupply(ctx context.Context) (string, error) {
 	return totalSupply, nil
 }
 
-// getTokenManagerCid retrieves the CIP56Manager contract ID from WayfinderBridgeConfig
-func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
+// getTokenConfigCidFromBridge retrieves the TokenConfig contract ID from WayfinderBridgeConfig
+func (c *Client) getTokenConfigCidFromBridge(ctx context.Context) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
 	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
@@ -1176,8 +1119,8 @@ func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
 			templateId := contract.CreatedEvent.TemplateId
 			if templateId.ModuleName == "Wayfinder.Bridge" && templateId.EntityName == "WayfinderBridgeConfig" {
 				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
-				if tokenManagerCid, ok := extractContractIdV2(fields["tokenManagerCid"]); ok {
-					return tokenManagerCid, nil
+				if tokenConfigCid, ok := extractContractIdV2(fields["tokenConfigCid"]); ok {
+					return tokenConfigCid, nil
 				}
 			}
 		}
@@ -1186,10 +1129,11 @@ func (c *Client) getTokenManagerCid(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("no WayfinderBridgeConfig found")
 }
 
-// findHoldingForTransfer finds a CIP56Holding contract with sufficient balance.
+// findHoldingForTransfer finds a CIP56Holding contract with sufficient balance for a given token.
+// Filters by owner party and token symbol from metadata.
 // Returns structured errors to distinguish between insufficient total balance
 // and fragmented balance across multiple holdings.
-func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount string) (string, error) {
+func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount, tokenSymbol string) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
 	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
@@ -1222,11 +1166,9 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 		return "", fmt.Errorf("failed to query holdings: %w", err)
 	}
 
-	// Track total balance and individual holdings to provide better error messages
 	var totalBalance string = "0"
 	var holdingCount int
 
-	// Find a holding with sufficient balance
 	for {
 		msg, err := resp.Recv()
 		if err != nil {
@@ -1244,32 +1186,108 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 				continue
 			}
 
+			// Filter by token symbol from metadata
+			symbol := extractHoldingSymbol(fields)
+			if symbol != tokenSymbol {
+				continue
+			}
+
 			amount, _ := extractNumericV2(fields["amount"])
 			holdingCount++
 			totalBalance, _ = addDecimalStrings(totalBalance, amount)
 
-			// Check if this single holding has enough
 			if compareDecimalStrings(amount, requiredAmount) >= 0 {
 				return contract.CreatedEvent.ContractId, nil
 			}
 		}
 	}
 
-	// No single holding was sufficient - determine why
 	if holdingCount == 0 {
-		return "", fmt.Errorf("%w: no holdings found for owner", ErrInsufficientBalance)
+		return "", fmt.Errorf("%w: no %s holdings found for owner", ErrInsufficientBalance, tokenSymbol)
 	}
 
-	// Check if total balance across all holdings is sufficient
 	if compareDecimalStrings(totalBalance, requiredAmount) >= 0 {
-		// User has enough total balance but it's fragmented
-		return "", fmt.Errorf("%w: total balance %s across %d holdings, need %s in single holding",
-			ErrBalanceFragmented, totalBalance, holdingCount, requiredAmount)
+		return "", fmt.Errorf("%w: total %s balance %s across %d holdings, need %s in single holding",
+			ErrBalanceFragmented, tokenSymbol, totalBalance, holdingCount, requiredAmount)
 	}
 
-	// Total balance is genuinely insufficient
-	return "", fmt.Errorf("%w: total balance %s, need %s",
-		ErrInsufficientBalance, totalBalance, requiredAmount)
+	return "", fmt.Errorf("%w: total %s balance %s, need %s",
+		ErrInsufficientBalance, tokenSymbol, totalBalance, requiredAmount)
+}
+
+// findRecipientHolding finds an existing CIP56Holding for the recipient party and token symbol.
+// Returns the contract ID if found, empty string if none exists.
+func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, tokenSymbol string) (string, error) {
+	authCtx := c.GetAuthContext(ctx)
+
+	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get ledger end: %w", err)
+	}
+	if ledgerEndResp.Offset == 0 {
+		return "", nil
+	}
+
+	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: ledgerEndResp.Offset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				c.config.RelayerParty: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+								WildcardFilter: &lapiv2.WildcardFilter{},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to query holdings: %w", err)
+	}
+
+	for {
+		msg, err := resp.Recv()
+		if err != nil {
+			break
+		}
+		if contract := msg.GetActiveContract(); contract != nil {
+			templateId := contract.CreatedEvent.TemplateId
+			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
+				continue
+			}
+			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+			owner, _ := extractPartyV2(fields["owner"])
+			if owner != recipientParty {
+				continue
+			}
+			symbol := extractHoldingSymbol(fields)
+			if symbol == tokenSymbol {
+				return contract.CreatedEvent.ContractId, nil
+			}
+		}
+	}
+
+	return "", nil // No existing holding found
+}
+
+// extractHoldingSymbol extracts the token symbol from a CIP56Holding's metadata
+func extractHoldingSymbol(fields map[string]*lapiv2.Value) string {
+	if metaVal, ok := fields["meta"]; ok {
+		if metaRecord := metaVal.GetRecord(); metaRecord != nil {
+			for _, metaField := range metaRecord.Fields {
+				if metaField.Label == "symbol" {
+					if s := metaField.Value.GetText(); s != "" {
+						return s
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // GetAllCIP56Holdings retrieves all CIP56Holding contracts from Canton
@@ -1441,333 +1459,33 @@ func getActiveContractsByTemplate[T any](
 	return results, nil
 }
 
-// GetBridgeMintEvents retrieves all BridgeMintEvent contracts from Canton
-// These are created when deposits are processed and tokens are minted
-func (c *Client) GetBridgeMintEvents(ctx context.Context) ([]*BridgeMintEvent, error) {
-	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeMintEvent", DecodeBridgeMintEvent)
+// GetMintEvents retrieves all MintEvent contracts from Canton (CIP56.Events.MintEvent)
+// These are created when tokens are minted (native or bridge deposits)
+func (c *Client) GetMintEvents(ctx context.Context) ([]*MintEvent, error) {
+	return getActiveContractsByTemplate(c, ctx, "CIP56.Events", "MintEvent", DecodeMintEvent)
 }
 
-// GetBridgeBurnEvents retrieves all BridgeBurnEvent contracts from Canton
-// These are created when withdrawals are initiated and tokens are burned
-func (c *Client) GetBridgeBurnEvents(ctx context.Context) ([]*BridgeBurnEvent, error) {
-	return getActiveContractsByTemplate(c, ctx, "Bridge.Events", "BridgeBurnEvent", DecodeBridgeBurnEvent)
+// GetBurnEvents retrieves all BurnEvent contracts from Canton (CIP56.Events.BurnEvent)
+// These are created when tokens are burned (native or bridge withdrawals)
+func (c *Client) GetBurnEvents(ctx context.Context) ([]*BurnEvent, error) {
+	return getActiveContractsByTemplate(c, ctx, "CIP56.Events", "BurnEvent", DecodeBurnEvent)
 }
 
 // =============================================================================
-// NATIVE TOKEN (DEMO) METHODS
+// UNIFIED TOKEN METHODS (via CIP56.Config.TokenConfig)
 // =============================================================================
 
-// GetNativeTokenConfig finds the active NativeTokenConfig contract
-func (c *Client) GetNativeTokenConfig(ctx context.Context) (string, error) {
-	if c.config.NativeTokenPackageID == "" {
-		return "", fmt.Errorf("native_token_package_id not configured")
-	}
-
+// GetTokenConfig finds an active TokenConfig contract by matching token symbol in metadata.
+// Returns the contract ID of the matching TokenConfig.
+func (c *Client) GetTokenConfig(ctx context.Context, tokenSymbol string) (string, error) {
 	authCtx := c.GetAuthContext(ctx)
 
-	// Get current ledger end
 	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get ledger end: %w", err)
 	}
-	activeAtOffset := ledgerEndResp.Offset
-	if activeAtOffset == 0 {
+	if ledgerEndResp.Offset == 0 {
 		return "", fmt.Errorf("ledger is empty, no contracts exist")
-	}
-
-	// Query for NativeTokenConfig contracts
-	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: activeAtOffset,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  c.config.NativeTokenPackageID,
-										ModuleName: "Native.Token",
-										EntityName: "NativeTokenConfig",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			Verbose: true,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to search for NativeTokenConfig: %w", err)
-	}
-
-	// Read the stream
-	for {
-		msg, err := resp.Recv()
-		if err != nil {
-			break // EOF or error
-		}
-		if contract := msg.GetActiveContract(); contract != nil {
-			return contract.CreatedEvent.ContractId, nil
-		}
-	}
-
-	return "", fmt.Errorf("no active NativeTokenConfig found")
-}
-
-// NativeTokenMintRequest represents a request to mint native tokens
-type NativeTokenMintRequest struct {
-	RecipientParty  string // Canton party to mint to
-	Amount          string // Amount to mint (decimal string)
-	UserFingerprint string // EVM fingerprint of the recipient
-	NativeConfigCid string // NativeTokenConfig contract ID (optional, will be fetched if empty)
-}
-
-// NativeTokenMint mints DEMO tokens to a user via NativeTokenConfig.IssuerMint
-func (c *Client) NativeTokenMint(ctx context.Context, req *NativeTokenMintRequest) (string, error) {
-	c.logger.Info("Minting native tokens",
-		zap.String("recipient", req.RecipientParty),
-		zap.String("amount", req.Amount),
-		zap.String("fingerprint", req.UserFingerprint))
-
-	// Get NativeTokenConfig contract ID if not provided
-	configCid := req.NativeConfigCid
-	if configCid == "" {
-		var err error
-		configCid, err = c.GetNativeTokenConfig(ctx)
-		if err != nil {
-			return "", fmt.Errorf("failed to get NativeTokenConfig: %w", err)
-		}
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	// Build IssuerMint choice arguments
-	mintArgs := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "recipient", Value: PartyValue(req.RecipientParty)},
-			{Label: "amount", Value: NumericValue(req.Amount)},
-			{Label: "eventTime", Value: TimestampValue(time.Now())},
-			{Label: "userFingerprint", Value: TextValue(req.UserFingerprint)},
-		},
-	}
-
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.NativeTokenPackageID,
-					ModuleName: "Native.Token",
-					EntityName: "NativeTokenConfig",
-				},
-				ContractId:     configCid,
-				Choice:         "IssuerMint",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: mintArgs}},
-			},
-		},
-	}
-
-	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to mint native tokens: %w", err)
-	}
-
-	// Extract the created CIP56Holding contract ID from the response
-	if resp.Transaction != nil {
-		for _, event := range resp.Transaction.Events {
-			if created := event.GetCreated(); created != nil {
-				templateId := created.TemplateId
-				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Holding" {
-					c.logger.Info("Native tokens minted successfully",
-						zap.String("holding_cid", created.ContractId),
-						zap.String("recipient", req.RecipientParty),
-						zap.String("amount", req.Amount))
-					return created.ContractId, nil
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("CIP56Holding contract not found in mint response")
-}
-
-// BurnDemoHolding burns (archives) a DEMO CIP56Holding via CIP56Manager.Burn
-// This is used for cleanup/reset operations
-func (c *Client) BurnDemoHolding(ctx context.Context, holdingCid, amount string) error {
-	c.logger.Info("Burning DEMO holding",
-		zap.String("holding_cid", holdingCid),
-		zap.String("amount", amount))
-
-	// Get the DEMO token manager
-	managerCid, err := c.getDemoTokenManagerCid(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get DEMO token manager: %w", err)
-	}
-
-	authCtx := c.GetAuthContext(ctx)
-
-	// Build Burn choice arguments
-	burnArgs := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
-			{Label: "amount", Value: NumericValue(amount)},
-		},
-	}
-
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.config.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Manager",
-				},
-				ContractId:     managerCid,
-				Choice:         "Burn",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: burnArgs}},
-			},
-		},
-	}
-
-	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.config.DomainID,
-			CommandId:      generateUUID(),
-			UserId:         c.jwtSubject,
-			ActAs:          []string{c.config.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to burn holding: %w", err)
-	}
-
-	c.logger.Info("DEMO holding burned successfully",
-		zap.String("holding_cid", holdingCid),
-		zap.String("amount", amount))
-
-	return nil
-}
-
-// GetDemoTokenBalance gets the DEMO token balance for a user by party
-// This queries CIP56Holding contracts and filters by the DEMO token symbol in metadata
-func (c *Client) GetDemoTokenBalance(ctx context.Context, userParty string) (string, error) {
-	authCtx := c.GetAuthContext(ctx)
-
-	// Get current ledger end
-	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
-	if err != nil {
-		return "0", fmt.Errorf("failed to get ledger end: %w", err)
-	}
-	activeAtOffset := ledgerEndResp.Offset
-	if activeAtOffset == 0 {
-		return "0", nil // Empty ledger, no balance
-	}
-
-	// Query for CIP56Holding contracts owned by this party
-	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: activeAtOffset,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				userParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  c.config.CIP56PackageID,
-										ModuleName: "CIP56.Token",
-										EntityName: "CIP56Holding",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			Verbose: true,
-		},
-	})
-	if err != nil {
-		return "0", fmt.Errorf("failed to query CIP56Holding contracts: %w", err)
-	}
-
-	// Sum up balances from DEMO holdings (filter by symbol in metadata)
-	totalBalance := 0.0
-	for {
-		msg, err := resp.Recv()
-		if err != nil {
-			break
-		}
-		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
-			// Decode the holding to check metadata symbol
-			args := contract.CreatedEvent.CreateArguments
-			if args == nil {
-				continue
-			}
-
-			// Check owner matches
-			owner := ""
-			amount := 0.0
-			symbol := ""
-
-			for _, field := range args.Fields {
-				switch field.Label {
-				case "owner":
-					if p := field.Value.GetParty(); p != "" {
-						owner = p
-					}
-				case "amount":
-					if n := field.Value.GetNumeric(); n != "" {
-						if v, err := strconv.ParseFloat(n, 64); err == nil {
-							amount = v
-						}
-					}
-				case "meta":
-					if metaRecord := field.Value.GetRecord(); metaRecord != nil {
-						for _, metaField := range metaRecord.Fields {
-							if metaField.Label == "symbol" {
-								if s := metaField.Value.GetText(); s != "" {
-									symbol = s
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Only count DEMO tokens owned by the requested party
-			if owner == userParty && symbol == "DEMO" {
-				totalBalance += amount
-			}
-		}
-	}
-
-	return fmt.Sprintf("%.18f", totalBalance), nil
-}
-
-// getDemoTokenManagerCid retrieves the DEMO CIP56Manager contract ID from NativeTokenConfig
-func (c *Client) getDemoTokenManagerCid(ctx context.Context) (string, error) {
-	authCtx := c.GetAuthContext(ctx)
-
-	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get ledger end: %w", err)
 	}
 
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
@@ -1788,7 +1506,7 @@ func (c *Client) getDemoTokenManagerCid(ctx context.Context) (string, error) {
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to query contracts: %w", err)
+		return "", fmt.Errorf("failed to search for TokenConfig: %w", err)
 	}
 
 	for {
@@ -1798,132 +1516,183 @@ func (c *Client) getDemoTokenManagerCid(ctx context.Context) (string, error) {
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
 			templateId := contract.CreatedEvent.TemplateId
-			// NativeTokenConfig stores the DEMO CIP56Manager
-			if templateId.ModuleName == "Native.Token" && templateId.EntityName == "NativeTokenConfig" {
+			if templateId.ModuleName == "CIP56.Config" && templateId.EntityName == "TokenConfig" {
+				// Check if meta.symbol matches
 				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
-				if tokenManagerCid, ok := extractContractIdV2(fields["tokenManagerCid"]); ok {
-					return tokenManagerCid, nil
-				}
-			}
-		}
-	}
-
-	return "", fmt.Errorf("no NativeTokenConfig found - DEMO token not bootstrapped")
-}
-
-// findDemoHoldingForTransfer finds a DEMO CIP56Holding contract with sufficient balance.
-func (c *Client) findDemoHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount string) (string, error) {
-	authCtx := c.GetAuthContext(ctx)
-
-	ledgerEndResp, err := c.stateService.GetLedgerEnd(authCtx, &lapiv2.GetLedgerEndRequest{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get ledger end: %w", err)
-	}
-	activeAtOffset := ledgerEndResp.Offset
-	if activeAtOffset == 0 {
-		return "", fmt.Errorf("%w: no holdings exist", ErrInsufficientBalance)
-	}
-
-	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: activeAtOffset,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
-				},
-			},
-			Verbose: true,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to query holdings: %w", err)
-	}
-
-	// Parse required amount
-	requiredAmountFloat, err := strconv.ParseFloat(requiredAmount, 64)
-	if err != nil {
-		return "", fmt.Errorf("invalid amount: %w", err)
-	}
-
-	// Track total DEMO balance and individual holdings
-	var totalBalance float64 = 0
-	var holdingCount int
-
-	// Find a DEMO holding with sufficient balance
-	for {
-		msg, err := resp.Recv()
-		if err != nil {
-			break
-		}
-		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
-			args := contract.CreatedEvent.CreateArguments
-			if args == nil {
-				continue
-			}
-
-			var owner string
-			var amount float64
-			var symbol string
-
-			for _, field := range args.Fields {
-				switch field.Label {
-				case "owner":
-					if p := field.Value.GetParty(); p != "" {
-						owner = p
-					}
-				case "amount":
-					if n := field.Value.GetNumeric(); n != "" {
-						if v, err := strconv.ParseFloat(n, 64); err == nil {
-							amount = v
-						}
-					}
-				case "meta":
-					if metaRecord := field.Value.GetRecord(); metaRecord != nil {
+				if metaVal, ok := fields["meta"]; ok {
+					if metaRecord := metaVal.GetRecord(); metaRecord != nil {
 						for _, metaField := range metaRecord.Fields {
 							if metaField.Label == "symbol" {
-								if s := metaField.Value.GetText(); s != "" {
-									symbol = s
+								if s := metaField.Value.GetText(); s == tokenSymbol {
+									return contract.CreatedEvent.ContractId, nil
 								}
 							}
 						}
 					}
 				}
 			}
+		}
+	}
 
-			// Only consider DEMO holdings owned by the sender
-			if owner != ownerParty || symbol != "DEMO" {
-				continue
-			}
+	return "", fmt.Errorf("no active TokenConfig found for symbol %s", tokenSymbol)
+}
 
-			holdingCount++
-			totalBalance += amount
+// TokenMintRequest represents a request to mint tokens via TokenConfig.IssuerMint
+type TokenMintRequest struct {
+	RecipientParty  string // Canton party to mint to
+	Amount          string // Amount to mint (decimal string)
+	UserFingerprint string // EVM fingerprint of the recipient
+	TokenSymbol     string // Token symbol (e.g., "DEMO", "PROMPT")
+	ConfigCid       string // TokenConfig contract ID (optional, will be fetched if empty)
+	EvmTxHash       string // Optional: set for bridge deposits, empty for native mints
+}
 
-			// If this holding has enough, return it
-			if amount >= requiredAmountFloat {
-				return contract.CreatedEvent.ContractId, nil
+// TokenMint mints tokens to a user via TokenConfig.IssuerMint
+func (c *Client) TokenMint(ctx context.Context, req *TokenMintRequest) (string, error) {
+	c.logger.Info("Minting tokens via TokenConfig",
+		zap.String("recipient", req.RecipientParty),
+		zap.String("amount", req.Amount),
+		zap.String("symbol", req.TokenSymbol),
+		zap.String("fingerprint", req.UserFingerprint))
+
+	configCid := req.ConfigCid
+	if configCid == "" {
+		var err error
+		configCid, err = c.GetTokenConfig(ctx, req.TokenSymbol)
+		if err != nil {
+			return "", fmt.Errorf("failed to get TokenConfig for %s: %w", req.TokenSymbol, err)
+		}
+	}
+
+	authCtx := c.GetAuthContext(ctx)
+
+	// Build IssuerMint choice arguments (includes optional evmTxHash)
+	evmTxHashValue := NoneValue()
+	if req.EvmTxHash != "" {
+		evmTxHashValue = OptionalValue(TextValue(req.EvmTxHash))
+	}
+
+	mintArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "recipient", Value: PartyValue(req.RecipientParty)},
+			{Label: "amount", Value: NumericValue(req.Amount)},
+			{Label: "eventTime", Value: TimestampValue(time.Now())},
+			{Label: "userFingerprint", Value: TextValue(req.UserFingerprint)},
+			{Label: "evmTxHash", Value: evmTxHashValue},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Config",
+					EntityName: "TokenConfig",
+				},
+				ContractId:     configCid,
+				Choice:         "IssuerMint",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: mintArgs}},
+			},
+		},
+	}
+
+	resp, err := c.commandService.SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to mint %s tokens: %w", req.TokenSymbol, err)
+	}
+
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				templateId := created.TemplateId
+				if templateId.ModuleName == "CIP56.Token" && templateId.EntityName == "CIP56Holding" {
+					c.logger.Info("Tokens minted successfully",
+						zap.String("holding_cid", created.ContractId),
+						zap.String("recipient", req.RecipientParty),
+						zap.String("amount", req.Amount),
+						zap.String("symbol", req.TokenSymbol))
+					return created.ContractId, nil
+				}
 			}
 		}
 	}
 
-	// No single holding had enough
-	if holdingCount == 0 {
-		return "", fmt.Errorf("%w: no DEMO holdings found", ErrInsufficientBalance)
+	return "", fmt.Errorf("CIP56Holding contract not found in mint response")
+}
+
+// TokenBurn burns tokens via TokenConfig.IssuerBurn
+// Used for cleanup/reset operations and bridge withdrawals
+func (c *Client) TokenBurn(ctx context.Context, holdingCid, amount, tokenSymbol, userFingerprint, evmDestination string) error {
+	c.logger.Info("Burning tokens via TokenConfig",
+		zap.String("holding_cid", holdingCid),
+		zap.String("amount", amount),
+		zap.String("symbol", tokenSymbol))
+
+	configCid, err := c.GetTokenConfig(ctx, tokenSymbol)
+	if err != nil {
+		return fmt.Errorf("failed to get TokenConfig for %s: %w", tokenSymbol, err)
 	}
-	if totalBalance < requiredAmountFloat {
-		return "", fmt.Errorf("%w: total DEMO balance %.2f, need %.2f", ErrInsufficientBalance, totalBalance, requiredAmountFloat)
+
+	authCtx := c.GetAuthContext(ctx)
+
+	evmDestValue := NoneValue()
+	if evmDestination != "" {
+		evmDestValue = OptionalValue(TextValue(evmDestination))
 	}
-	return "", fmt.Errorf("%w: DEMO balance spread across %d holdings", ErrBalanceFragmented, holdingCount)
+
+	burnArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "holdingCid", Value: ContractIdValue(holdingCid)},
+			{Label: "amount", Value: NumericValue(amount)},
+			{Label: "eventTime", Value: TimestampValue(time.Now())},
+			{Label: "userFingerprint", Value: TextValue(userFingerprint)},
+			{Label: "evmDestination", Value: evmDestValue},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.config.CIP56PackageID,
+					ModuleName: "CIP56.Config",
+					EntityName: "TokenConfig",
+				},
+				ContractId:     configCid,
+				Choice:         "IssuerBurn",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: burnArgs}},
+			},
+		},
+	}
+
+	_, err = c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.config.DomainID,
+			CommandId:      generateUUID(),
+			UserId:         c.jwtSubject,
+			ActAs:          []string{c.config.RelayerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to burn %s holding: %w", tokenSymbol, err)
+	}
+
+	c.logger.Info("Tokens burned successfully",
+		zap.String("holding_cid", holdingCid),
+		zap.String("amount", amount),
+		zap.String("symbol", tokenSymbol))
+
+	return nil
 }
 
 // =============================================================================
@@ -1932,44 +1701,47 @@ func (c *Client) findDemoHoldingForTransfer(ctx context.Context, ownerParty, req
 
 // TransferAsUserRequest represents a request to transfer tokens using the owner-controlled Transfer choice
 type TransferAsUserRequest struct {
-	FromPartyID     string // User's Canton party ID (must be the holding owner)
-	ToPartyID       string // Recipient's Canton party ID
-	HoldingCID      string // The CIP56Holding contract ID to transfer from
-	Amount          string // Amount to transfer
-	TokenSymbol     string // "PROMPT" or "DEMO" (for logging)
-	FromFingerprint string // For logging/audit
-	ToFingerprint   string // For logging/audit
+	FromPartyID            string // User's Canton party ID (must be the holding owner)
+	ToPartyID              string // Recipient's Canton party ID
+	HoldingCID             string // The CIP56Holding contract ID to transfer from
+	Amount                 string // Amount to transfer
+	TokenSymbol            string // "PROMPT" or "DEMO"
+	FromFingerprint        string // For logging/audit
+	ToFingerprint          string // For logging/audit
+	ExistingRecipientHolding string // Existing recipient CIP56Holding CID (for merge), empty if none
 }
 
 // TransferAsUser performs a token transfer using the CIP56Holding.Transfer choice.
 // This is the owner-controlled transfer for user-owned holdings (custodial mode).
-// The API server signs as the user's Canton party using the custodially-held key.
-//
-// Note: This requires the API server's OAuth token to have permission to act as
-// the user's party (typically via ParticipantAdmin rights).
+// Passes existingRecipientHolding to prevent fragmentation.
 func (c *Client) TransferAsUser(ctx context.Context, req *TransferAsUserRequest) error {
 	c.logger.Info("Executing transfer as user (owner-controlled)",
 		zap.String("from_party", req.FromPartyID),
 		zap.String("to_party", req.ToPartyID),
 		zap.String("holding_cid", req.HoldingCID),
 		zap.String("amount", req.Amount),
-		zap.String("token", req.TokenSymbol))
+		zap.String("token", req.TokenSymbol),
+		zap.String("existing_recipient_holding", req.ExistingRecipientHolding))
 
 	authCtx := c.GetAuthContext(ctx)
 
-	// Build Transfer choice arguments
-	// CIP56Holding.Transfer takes: to, value, complianceRulesCid, complianceProofCid
+	// Build existingRecipientHolding as Optional (ContractId CIP56Holding)
+	existingHoldingValue := NoneValue()
+	if req.ExistingRecipientHolding != "" {
+		existingHoldingValue = OptionalValue(ContractIdValue(req.ExistingRecipientHolding))
+	}
+
+	// CIP56Holding.Transfer takes: to, value, existingRecipientHolding, complianceRulesCid, complianceProofCid
 	transferArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "to", Value: PartyValue(req.ToPartyID)},
 			{Label: "value", Value: NumericValue(req.Amount)},
-			{Label: "complianceRulesCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "complianceProofCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+			{Label: "existingRecipientHolding", Value: existingHoldingValue},
+			{Label: "complianceRulesCid", Value: NoneValue()},
+			{Label: "complianceProofCid", Value: NoneValue()},
 		},
 	}
 
-	// Execute Transfer choice on CIP56Holding
-	// Controller is 'owner', so we must ActAs the owner (FromPartyID)
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
@@ -1985,14 +1757,14 @@ func (c *Client) TransferAsUser(ctx context.Context, req *TransferAsUserRequest)
 		},
 	}
 
-	// Submit the command as the USER's party (not the relayer)
-	// This is the key difference from issuer-centric transfers
+	// Act as the user's party (custodial) with readAs relayer (to see recipient holdings)
 	_, err := c.commandService.SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.config.DomainID,
 			CommandId:      generateUUID(),
 			UserId:         c.jwtSubject,
-			ActAs:          []string{req.FromPartyID}, // Act as user, not relayer
+			ActAs:          []string{req.FromPartyID},
+			ReadAs:         []string{c.config.RelayerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
 	})
@@ -2010,7 +1782,7 @@ func (c *Client) TransferAsUser(ctx context.Context, req *TransferAsUserRequest)
 }
 
 // TransferAsUserByFingerprint performs a token transfer looking up users by fingerprint.
-// This is a convenience method that resolves fingerprints to party IDs and finds the holding.
+// Resolves fingerprints to party IDs, finds the holding, looks up recipient holding for merge.
 func (c *Client) TransferAsUserByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
 	c.logger.Info("Executing transfer by fingerprint",
 		zap.String("from_fingerprint", fromFingerprint),
@@ -2018,44 +1790,42 @@ func (c *Client) TransferAsUserByFingerprint(ctx context.Context, fromFingerprin
 		zap.String("amount", amount),
 		zap.String("token", tokenSymbol))
 
-	// Resolve sender's fingerprint to party
 	fromMapping, err := c.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
 	}
 
-	// Resolve recipient's fingerprint to party
 	toMapping, err := c.GetFingerprintMapping(ctx, toFingerprint)
 	if err != nil {
 		return fmt.Errorf("recipient not found: %w", err)
 	}
 
-	// Find sender's holding with sufficient balance
-	var holdingCID string
-	if tokenSymbol == "DEMO" {
-		holdingCID, err = c.findDemoHoldingForTransfer(ctx, fromMapping.UserParty, amount)
-	} else {
-		holdingCID, err = c.findHoldingForTransfer(ctx, fromMapping.UserParty, amount)
-	}
+	// Find sender's holding with sufficient balance (unified, symbol-aware)
+	holdingCID, err := c.findHoldingForTransfer(ctx, fromMapping.UserParty, amount, tokenSymbol)
 	if err != nil {
 		return fmt.Errorf("insufficient balance: %w", err)
 	}
 
-	// Execute the transfer
+	// Find recipient's existing holding for merge (prevents fragmentation)
+	recipientHolding, err := c.findRecipientHolding(ctx, toMapping.UserParty, tokenSymbol)
+	if err != nil {
+		c.logger.Warn("Failed to find recipient holding for merge, proceeding without", zap.Error(err))
+	}
+
 	return c.TransferAsUser(ctx, &TransferAsUserRequest{
-		FromPartyID:     fromMapping.UserParty,
-		ToPartyID:       toMapping.UserParty,
-		HoldingCID:      holdingCID,
-		Amount:          amount,
-		TokenSymbol:     tokenSymbol,
-		FromFingerprint: fromFingerprint,
-		ToFingerprint:   toFingerprint,
+		FromPartyID:              fromMapping.UserParty,
+		ToPartyID:                toMapping.UserParty,
+		HoldingCID:               holdingCID,
+		Amount:                   amount,
+		TokenSymbol:              tokenSymbol,
+		FromFingerprint:          fromFingerprint,
+		ToFingerprint:            toFingerprint,
+		ExistingRecipientHolding: recipientHolding,
 	})
 }
 
 // TransferByPartyID performs a token transfer using party IDs directly.
-// This is useful for native Canton users who don't have FingerprintMapping contracts.
-// It finds the sender's holding with sufficient balance and executes the transfer.
+// Finds the sender's holding and recipient's existing holding for merge.
 func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error {
 	c.logger.Info("Executing transfer by party ID",
 		zap.String("from_party", fromParty),
@@ -2063,27 +1833,25 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 		zap.String("amount", amount),
 		zap.String("token", tokenSymbol))
 
-	// Find sender's holding with sufficient balance
-	var holdingCID string
-	var err error
-	if tokenSymbol == "DEMO" {
-		holdingCID, err = c.findDemoHoldingForTransfer(ctx, fromParty, amount)
-	} else {
-		holdingCID, err = c.findHoldingForTransfer(ctx, fromParty, amount)
-	}
+	holdingCID, err := c.findHoldingForTransfer(ctx, fromParty, amount, tokenSymbol)
 	if err != nil {
 		return fmt.Errorf("insufficient balance or holding not found: %w", err)
 	}
 
-	// Execute the transfer
+	recipientHolding, err := c.findRecipientHolding(ctx, toParty, tokenSymbol)
+	if err != nil {
+		c.logger.Warn("Failed to find recipient holding for merge, proceeding without", zap.Error(err))
+	}
+
 	return c.TransferAsUser(ctx, &TransferAsUserRequest{
-		FromPartyID:     fromParty,
-		ToPartyID:       toParty,
-		HoldingCID:      holdingCID,
-		Amount:          amount,
-		TokenSymbol:     tokenSymbol,
-		FromFingerprint: "", // Not available for native users
-		ToFingerprint:   "", // Not available for native users
+		FromPartyID:              fromParty,
+		ToPartyID:                toParty,
+		HoldingCID:               holdingCID,
+		Amount:                   amount,
+		TokenSymbol:              tokenSymbol,
+		FromFingerprint:          "",
+		ToFingerprint:            "",
+		ExistingRecipientHolding: recipientHolding,
 	})
 }
 

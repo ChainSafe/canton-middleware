@@ -13,31 +13,8 @@ import (
 // ISSUER-CENTRIC MODEL ENCODING
 // =============================================================================
 
-// EncodeRegisterUserArgs encodes arguments for WayfinderBridgeConfig.RegisterUser
-func EncodeRegisterUserArgs(req *RegisterUserRequest) *lapiv2.Record {
-	fields := []*lapiv2.RecordField{
-		{Label: "userParty", Value: PartyValue(req.UserParty)},
-		{Label: "fingerprint", Value: TextValue(req.Fingerprint)},
-	}
-
-	// Optional EVM address
-	if req.EvmAddress != "" {
-		fields = append(fields, &lapiv2.RecordField{
-			Label: "evmAddress",
-			Value: OptionalValue(RecordValue("EvmAddress", TextValue(req.EvmAddress))),
-		})
-	} else {
-		fields = append(fields, &lapiv2.RecordField{
-			Label: "evmAddress",
-			Value: NoneValue(),
-		})
-	}
-
-	return &lapiv2.Record{Fields: fields}
-}
-
 // EncodeFingerprintMappingCreate encodes arguments for creating a FingerprintMapping directly
-// Used in DEMO-only mode when there's no WayfinderBridgeConfig
+// The issuer has signatory rights on FingerprintMapping, so no bridge config is needed.
 func EncodeFingerprintMappingCreate(issuer, userParty, fingerprint, evmAddress string) *lapiv2.Record {
 	fields := []*lapiv2.RecordField{
 		{Label: "issuer", Value: PartyValue(issuer)},
@@ -543,6 +520,20 @@ func extractWithdrawalStatusV2(v *lapiv2.Value) WithdrawalStatus {
 	return WithdrawalStatusPending
 }
 
+func extractOptionalTextV2(v *lapiv2.Value) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	if opt, ok := v.Sum.(*lapiv2.Value_Optional); ok {
+		if opt.Optional.Value == nil {
+			return "", nil // None
+		}
+		return extractTextV2(opt.Optional.Value)
+	}
+	// Backward compat: try plain text
+	return extractTextV2(v)
+}
+
 func extractContractIdV2(v *lapiv2.Value) (string, bool) {
 	if v == nil {
 		return "", false
@@ -599,8 +590,8 @@ func extractOptionalContractIdV2(v *lapiv2.Value) (string, error) {
 // BRIDGE EVENT DECODING
 // =============================================================================
 
-// DecodeBridgeMintEvent decodes a BridgeMintEvent contract
-func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMintEvent, error) {
+// DecodeMintEvent decodes a CIP56.Events.MintEvent contract
+func DecodeMintEvent(contractID string, record *lapiv2.Record) (*MintEvent, error) {
 	fields := recordToMapV2(record)
 
 	issuer, err := extractPartyV2(fields["issuer"])
@@ -623,14 +614,12 @@ func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMin
 		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
 	}
 
-	evmTxHash, err := extractTextV2(fields["evmTxHash"])
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract evmTxHash: %w", err)
-	}
+	// evmTxHash is Optional Text in unified events
+	evmTxHash, _ := extractOptionalTextV2(fields["evmTxHash"])
 
-	fingerprint, err := extractTextV2(fields["fingerprint"])
+	userFingerprint, err := extractTextV2(fields["userFingerprint"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
+		return nil, fmt.Errorf("failed to extract userFingerprint: %w", err)
 	}
 
 	holdingCid, ok := extractContractIdV2(fields["holdingCid"])
@@ -648,22 +637,22 @@ func DecodeBridgeMintEvent(contractID string, record *lapiv2.Record) (*BridgeMin
 		return nil, fmt.Errorf("failed to extract auditObservers: %w", err)
 	}
 
-	return &BridgeMintEvent{
-		ContractID:     contractID,
-		Issuer:         issuer,
-		Recipient:      recipient,
-		Amount:         amount,
-		HoldingCid:     holdingCid,
-		TokenSymbol:    tokenSymbol,
-		EvmTxHash:      evmTxHash,
-		Fingerprint:    fingerprint,
-		Timestamp:      timestamp,
-		AuditObservers: auditObservers,
+	return &MintEvent{
+		ContractID:      contractID,
+		Issuer:          issuer,
+		Recipient:       recipient,
+		Amount:          amount,
+		HoldingCid:      holdingCid,
+		TokenSymbol:     tokenSymbol,
+		EvmTxHash:       evmTxHash,
+		UserFingerprint: userFingerprint,
+		Timestamp:       timestamp,
+		AuditObservers:  auditObservers,
 	}, nil
 }
 
-// DecodeBridgeBurnEvent decodes a BridgeBurnEvent contract
-func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBurnEvent, error) {
+// DecodeBurnEvent decodes a CIP56.Events.BurnEvent contract
+func DecodeBurnEvent(contractID string, record *lapiv2.Record) (*BurnEvent, error) {
 	fields := recordToMapV2(record)
 
 	issuer, err := extractPartyV2(fields["issuer"])
@@ -681,19 +670,17 @@ func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBur
 		return nil, fmt.Errorf("failed to extract amount: %w", err)
 	}
 
-	evmDestination, err := extractEvmAddressV2(fields["evmDestination"])
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract evmDestination: %w", err)
-	}
+	// evmDestination is Optional Text in unified events (not EvmAddress record)
+	evmDestination, _ := extractOptionalTextV2(fields["evmDestination"])
 
 	tokenSymbol, err := extractTextV2(fields["tokenSymbol"])
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract tokenSymbol: %w", err)
 	}
 
-	fingerprint, err := extractTextV2(fields["fingerprint"])
+	userFingerprint, err := extractTextV2(fields["userFingerprint"])
 	if err != nil {
-		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
+		return nil, fmt.Errorf("failed to extract userFingerprint: %w", err)
 	}
 
 	timestamp, err := extractTimestampV2(fields["timestamp"])
@@ -706,15 +693,15 @@ func DecodeBridgeBurnEvent(contractID string, record *lapiv2.Record) (*BridgeBur
 		return nil, fmt.Errorf("failed to extract auditObservers: %w", err)
 	}
 
-	return &BridgeBurnEvent{
-		ContractID:     contractID,
-		Issuer:         issuer,
-		BurnedFrom:     burnedFrom,
-		Amount:         amount,
-		EvmDestination: evmDestination,
-		TokenSymbol:    tokenSymbol,
-		Fingerprint:    fingerprint,
-		Timestamp:      timestamp,
-		AuditObservers: auditObservers,
+	return &BurnEvent{
+		ContractID:      contractID,
+		Issuer:          issuer,
+		BurnedFrom:      burnedFrom,
+		Amount:          amount,
+		EvmDestination:  evmDestination,
+		TokenSymbol:     tokenSymbol,
+		UserFingerprint: userFingerprint,
+		Timestamp:       timestamp,
+		AuditObservers:  auditObservers,
 	}, nil
 }

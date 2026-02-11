@@ -158,38 +158,40 @@ type ProcessedEvent struct {
 }
 
 // =============================================================================
-// BRIDGE AUDIT EVENTS (for reconciliation)
+// AUDIT EVENTS (for reconciliation)
 // =============================================================================
 
-// BridgeMintEvent represents a mint operation on Canton (from deposits)
-type BridgeMintEvent struct {
-	ContractID     string
-	EventID        string
-	TransactionID  string
-	Offset         int64
-	Issuer         string
-	Recipient      string
-	Amount         string
-	HoldingCid     string
-	TokenSymbol    string
-	EvmTxHash      string
-	Fingerprint    string
-	Timestamp      time.Time
-	AuditObservers []string
+// MintEvent represents a mint operation on Canton (native or bridge deposit)
+// Maps to CIP56.Events.MintEvent in DAML
+type MintEvent struct {
+	ContractID      string
+	EventID         string
+	TransactionID   string
+	Offset          int64
+	Issuer          string
+	Recipient       string
+	Amount          string
+	HoldingCid      string
+	TokenSymbol     string
+	EvmTxHash       string // Optional: set for bridge deposits, empty for native mints
+	UserFingerprint string
+	Timestamp       time.Time
+	AuditObservers  []string
 }
 
-// BridgeBurnEvent represents a burn operation on Canton (from withdrawals)
-type BridgeBurnEvent struct {
-	ContractID     string
-	EventID        string
-	TransactionID  string
-	Offset         int64
-	Issuer         string
-	BurnedFrom     string
-	Amount         string
-	EvmDestination string
-	TokenSymbol    string
-	Fingerprint    string
-	Timestamp      time.Time
-	AuditObservers []string
+// BurnEvent represents a burn operation on Canton (native or bridge withdrawal)
+// Maps to CIP56.Events.BurnEvent in DAML
+type BurnEvent struct {
+	ContractID      string
+	EventID         string
+	TransactionID   string
+	Offset          int64
+	Issuer          string
+	BurnedFrom      string
+	Amount          string
+	EvmDestination  string // Optional: set for bridge withdrawals, empty for native burns
+	TokenSymbol     string
+	UserFingerprint string
+	Timestamp       time.Time
+	AuditObservers  []string
 }

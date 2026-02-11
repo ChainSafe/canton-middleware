@@ -137,17 +137,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println(">>> Finding WayfinderBridgeConfig...")
-	configCid, err := ruFindBridgeConfig(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset)
-	if err != nil {
-		fmt.Printf("Failed to find WayfinderBridgeConfig: %v\n", err)
-		fmt.Println("Run: go run scripts/bootstrap-bridge.go first")
-		os.Exit(1)
-	}
-	fmt.Printf("    Config CID: %s\n\n", configCid)
-
 	fmt.Println(">>> Checking for existing FingerprintMapping...")
-	existingCid, err := ruFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset, fingerprint)
+	// Use common_package_id with fallback to bridge_package_id for FingerprintMapping
+	commonPkgID := cfg.Canton.CommonPackageID
+	if commonPkgID == "" {
+		commonPkgID = cfg.Canton.BridgePackageID
+	}
+	existingCid, err := ruFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, commonPkgID, ledgerEndResp.Offset, fingerprint)
 	if err == nil && existingCid != "" {
 		fmt.Printf("    [EXISTS] FingerprintMapping already exists: %s\n", existingCid)
 		fmt.Println("\n✓ User is already registered!")
@@ -172,8 +168,8 @@ func main() {
 	}
 	fmt.Printf("    Domain ID: %s\n\n", domainID)
 
-	fmt.Println(">>> Registering user...")
-	mappingCid, err := ruRegisterUser(ctx, cmdClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, domainID, configCid, partyID, fingerprint, *ruEvmAddress)
+	fmt.Println(">>> Creating FingerprintMapping directly...")
+	mappingCid, err := ruCreateFingerprintMapping(ctx, cmdClient, cfg.Canton.RelayerParty, commonPkgID, domainID, partyID, fingerprint, *ruEvmAddress)
 	if err != nil {
 		fmt.Printf("Failed to register user: %v\n", err)
 		os.Exit(1)
@@ -293,46 +289,6 @@ func ruExtractJWTSubject(tokenString string) (string, error) {
 	return sub, nil
 }
 
-func ruFindBridgeConfig(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64) (string, error) {
-	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: offset,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				party: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-								TemplateFilter: &lapiv2.TemplateFilter{
-									TemplateId: &lapiv2.Identifier{
-										PackageId:  packageID,
-										ModuleName: "Wayfinder.Bridge",
-										EntityName: "WayfinderBridgeConfig",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			Verbose: true,
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	for {
-		msg, err := resp.Recv()
-		if err != nil {
-			break
-		}
-		if contract := msg.GetActiveContract(); contract != nil {
-			return contract.CreatedEvent.ContractId, nil
-		}
-	}
-	return "", fmt.Errorf("no WayfinderBridgeConfig found")
-}
-
 func ruFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceClient, party, packageID string, offset int64, targetFingerprint string) (string, error) {
 	resp, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: offset,
@@ -379,10 +335,13 @@ func ruFindFingerprintMapping(ctx context.Context, client lapiv2.StateServiceCli
 	return "", fmt.Errorf("no FingerprintMapping found for fingerprint: %s", targetFingerprint)
 }
 
-func ruRegisterUser(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, configCid, userParty, fingerprint, evmAddress string) (string, error) {
+// ruCreateFingerprintMapping creates a FingerprintMapping contract directly via CreateCommand.
+// The issuer has signatory rights on FingerprintMapping, so no bridge config is needed.
+func ruCreateFingerprintMapping(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, userParty, fingerprint, evmAddress string) (string, error) {
 	cmdID := fmt.Sprintf("register-user-%s", uuid.New().String())
 
 	fields := []*lapiv2.RecordField{
+		{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 		{Label: "userParty", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: userParty}}},
 		{Label: "fingerprint", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: fingerprint}}},
 	}
@@ -414,20 +373,14 @@ func ruRegisterUser(ctx context.Context, client lapiv2.CommandServiceClient, iss
 	}
 
 	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
+		Command: &lapiv2.Command_Create{
+			Create: &lapiv2.CreateCommand{
 				TemplateId: &lapiv2.Identifier{
 					PackageId:  packageID,
-					ModuleName: "Wayfinder.Bridge",
-					EntityName: "WayfinderBridgeConfig",
+					ModuleName: "Common.FingerprintAuth",
+					EntityName: "FingerprintMapping",
 				},
-				ContractId: configCid,
-				Choice:     "RegisterUser",
-				ChoiceArgument: &lapiv2.Value{
-					Sum: &lapiv2.Value_Record{
-						Record: &lapiv2.Record{Fields: fields},
-					},
-				},
+				CreateArguments: &lapiv2.Record{Fields: fields},
 			},
 		},
 	}

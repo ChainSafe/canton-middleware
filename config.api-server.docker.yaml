@@ -22,10 +22,10 @@ canton:
   domain_id: ""
   application_id: "erc20-api"
   relayer_party: ""
-  bridge_package_id: "2f7a146ffc5bdb1365c818c461ecfeafda78fc99e014fb793539aa1a87fe6c99"
-  core_package_id: "32df30f15a3eed8c319d541e9f6332f173a7b738dd121cf666fc54185f4f05c0"
-  cip56_package_id: "c649b42035710f991345b9f010f599870842a821d52c676cb235dcda419407df"
-  native_token_package_id: "3cc8001e5d4814175003822af1efc5bcfb7826c00b1f764d9d17d4f4ca1f0809"
+  bridge_package_id: "aa807d8ebeb267eb2f032730113ab03a925585312ec745f63066a6ba77dd9a31"
+  common_package_id: "5de6731c1a7487543d61ffe2bf847abbdf8694c4561c580986d8f4c2049745ea"
+  core_package_id: "2c7cb8d93550b815307a7139d687c8e1a5f4b2e93b822d92ebe414fec8d843ed"
+  cip56_package_id: "7be0822fb54b081934f6f27accd79888f4542d1f729f9c1e52eea43cf2e81262"
   bridge_module: "Wayfinder.Bridge"
   tls:
     enabled: false

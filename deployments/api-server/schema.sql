@@ -35,18 +35,19 @@ CREATE TABLE IF NOT EXISTS whitelist (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Token metrics table: stores total supply and reconciliation info
+-- Token metrics table: stores per-token total supply and reconciliation info
 CREATE TABLE IF NOT EXISTS token_metrics (
-    id INT PRIMARY KEY DEFAULT 1,
-    total_supply DECIMAL(38,18) DEFAULT 0,
+    token_symbol VARCHAR(20) PRIMARY KEY,
+    total_supply DECIMAL(38,18) DEFAULT 0 CHECK (total_supply >= 0),
     last_reconciled_at TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT NOW(),
-    CONSTRAINT single_row CHECK (id = 1)
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Initialize token metrics row
-INSERT INTO token_metrics (id, total_supply) VALUES (1, 0)
-ON CONFLICT (id) DO NOTHING;
+-- Initialize token metrics rows for known tokens
+INSERT INTO token_metrics (token_symbol, total_supply) VALUES ('PROMPT', 0)
+ON CONFLICT (token_symbol) DO NOTHING;
+INSERT INTO token_metrics (token_symbol, total_supply) VALUES ('DEMO', 0)
+ON CONFLICT (token_symbol) DO NOTHING;
 
 -- Bridge events table: tracks processed bridge events for reconciliation
 CREATE TABLE IF NOT EXISTS bridge_events (

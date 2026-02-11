@@ -230,43 +230,19 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 		// Continue anyway - the right might already exist or can be granted manually
 	}
 
-	// Register fingerprint mapping on Canton
+	// Create fingerprint mapping on Canton (direct creation by issuer)
 	var mappingCID string
-	mappingCID, err = h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
+	mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
 		UserParty:   cantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
 	})
 	if err != nil {
-		// Check if this is a DEMO-only setup (no WayfinderBridgeConfig)
-		if strings.Contains(err.Error(), "no active WayfinderBridgeConfig") ||
-			strings.Contains(err.Error(), "WayfinderBridgeConfig") {
-			h.logger.Info("No WayfinderBridgeConfig, trying direct FingerprintMapping creation (DEMO-only mode)",
-				zap.String("party", cantonPartyID))
-
-			// Try creating FingerprintMapping directly (DEMO-only mode)
-			mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
-				UserParty:   cantonPartyID,
-				Fingerprint: fingerprint,
-				EvmAddress:  evmAddress,
-			})
-			if err != nil {
-				h.logger.Error("Failed to create FingerprintMapping directly",
-					zap.String("party", cantonPartyID),
-					zap.Error(err))
-				h.writeError(w, http.StatusInternalServerError, "registration failed")
-				return
-			}
-			h.logger.Info("Created FingerprintMapping directly",
-				zap.String("party", cantonPartyID),
-				zap.String("mapping_cid", mappingCID))
-		} else {
-			h.logger.Error("Failed to register user on Canton",
-				zap.String("party", cantonPartyID),
-				zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "registration failed")
-			return
-		}
+		h.logger.Error("Failed to create FingerprintMapping on Canton",
+			zap.String("party", cantonPartyID),
+			zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "registration failed")
+		return
 	}
 
 	// Save user to database
@@ -395,44 +371,20 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		// Continue anyway - the right might already exist or can be granted manually
 	}
 
-	// Register fingerprint mapping on Canton
+	// Create fingerprint mapping on Canton (direct creation by issuer)
 	// For Canton native users, the party already exists, we just create the mapping
 	var mappingCID string
-	mappingCID, err = h.cantonClient.RegisterUser(ctx, &canton.RegisterUserRequest{
+	mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
 		UserParty:   req.CantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
 	})
 	if err != nil {
-		// Check if this is a DEMO-only setup (no WayfinderBridgeConfig)
-		if strings.Contains(err.Error(), "no active WayfinderBridgeConfig") ||
-			strings.Contains(err.Error(), "WayfinderBridgeConfig") {
-			h.logger.Info("No WayfinderBridgeConfig, trying direct FingerprintMapping creation (DEMO-only mode)",
-				zap.String("party", req.CantonPartyID))
-
-			// Try creating FingerprintMapping directly (DEMO-only mode)
-			mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
-				UserParty:   req.CantonPartyID,
-				Fingerprint: fingerprint,
-				EvmAddress:  evmAddress,
-			})
-			if err != nil {
-				h.logger.Error("Failed to create FingerprintMapping directly",
-					zap.String("party", req.CantonPartyID),
-					zap.Error(err))
-				h.writeError(w, http.StatusInternalServerError, "registration failed")
-				return
-			}
-			h.logger.Info("Created FingerprintMapping directly",
-				zap.String("party", req.CantonPartyID),
-				zap.String("mapping_cid", mappingCID))
-		} else {
-			h.logger.Error("Failed to register fingerprint mapping on Canton",
-				zap.String("party", req.CantonPartyID),
-				zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "registration failed")
-			return
-		}
+		h.logger.Error("Failed to create FingerprintMapping on Canton",
+			zap.String("party", req.CantonPartyID),
+			zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "registration failed")
+		return
 	}
 
 	// Save user to database

@@ -201,9 +201,18 @@ func main() {
 	fmt.Printf("    CIP56Manager Contract ID: %s\n", tokenManagerCid)
 	fmt.Println()
 
-	// Step 5: Create WayfinderBridgeConfig
-	fmt.Println(">>> Step 5: Creating WayfinderBridgeConfig...")
-	configCid, err := createBridgeConfig(ctx, commandService, *issuerParty, pkgID, domainID, cfg.Canton.ApplicationID, tokenManagerCid)
+	// Step 5: Create TokenConfig for PROMPT
+	fmt.Println(">>> Step 5: Creating TokenConfig for PROMPT token...")
+	tokenConfigCid, err := createPromptTokenConfig(ctx, commandService, *issuerParty, cip56PackageID, domainID, tokenManagerCid)
+	if err != nil {
+		log.Fatalf("Failed to create TokenConfig for PROMPT: %v", err)
+	}
+	fmt.Printf("    TokenConfig Contract ID: %s\n", tokenConfigCid)
+	fmt.Println()
+
+	// Step 6: Create WayfinderBridgeConfig
+	fmt.Println(">>> Step 6: Creating WayfinderBridgeConfig...")
+	configCid, err := createBridgeConfig(ctx, commandService, *issuerParty, pkgID, domainID, cfg.Canton.ApplicationID, tokenConfigCid)
 	if err != nil {
 		log.Fatalf("Failed to create WayfinderBridgeConfig: %v", err)
 	}
@@ -487,13 +496,77 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 	return "", fmt.Errorf("CIP56Manager contract ID not found in response")
 }
 
-func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, _, tokenManagerCid string) (string, error) {
-	cmdID := fmt.Sprintf("bootstrap-bridge-config-%d", time.Now().UnixNano())
+func createPromptTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID, tokenManagerCid string) (string, error) {
+	cmdID := fmt.Sprintf("create-prompt-config-%d", time.Now().UnixNano())
+
+	metaRecord := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Wayfinder PROMPT"}}},
+			{Label: "symbol", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "PROMPT"}}},
+			{Label: "decimals", Value: &lapiv2.Value{Sum: &lapiv2.Value_Int64{Int64: 18}}},
+			{Label: "isin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+			{Label: "dtiCode", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+			{Label: "regulatoryInfo", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{
+				Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "ERC20: 0x28d38df637db75533bd3f71426f3410a82041544"}},
+			}}}},
+		},
+	}
 
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 			{Label: "tokenManagerCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenManagerCid}}},
+			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
+			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Create{
+			Create: &lapiv2.CreateCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  cip56PackageID,
+					ModuleName: "CIP56.Config",
+					EntityName: "TokenConfig",
+				},
+				CreateArguments: createArgs,
+			},
+		},
+	}
+
+	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: domainID,
+			CommandId:      cmdID,
+			UserId:         jwtSubject,
+			ActAs:          []string{issuer},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("submit create TokenConfig failed: %w", err)
+	}
+
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				if created.TemplateId.EntityName == "TokenConfig" {
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("TokenConfig not found in response")
+}
+
+func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, packageID, domainID, _, tokenConfigCid string) (string, error) {
+	cmdID := fmt.Sprintf("bootstrap-bridge-config-%d", time.Now().UnixNano())
+
+	createArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
+			{Label: "tokenConfigCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenConfigCid}}},
 			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
