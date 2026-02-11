@@ -554,36 +554,15 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	// Build filter for FingerprintMapping contracts
-	// Use template filter if CommonPackageID is set, otherwise use wildcard and filter in code
-	var cumulativeFilter *lapiv2.CumulativeFilter
-	if c.config.CommonPackageID != "" {
-		cumulativeFilter = &lapiv2.CumulativeFilter{
-			IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-				TemplateFilter: &lapiv2.TemplateFilter{
-					TemplateId: &lapiv2.Identifier{
-						PackageId:  c.config.CommonPackageID,
-						ModuleName: "Common.FingerprintAuth",
-						EntityName: "FingerprintMapping",
-					},
-				},
-			},
-		}
-	} else {
-		// Fallback to wildcard filter when common_package_id not configured
-		cumulativeFilter = &lapiv2.CumulativeFilter{
-			IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-				WildcardFilter: &lapiv2.WildcardFilter{},
-			},
-		}
-	}
-
+	// Build filter for FingerprintMapping contracts using TemplateFilter
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{cumulativeFilter},
+					Cumulative: []*lapiv2.CumulativeFilter{
+						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "FingerprintMapping"),
+					},
 				},
 			},
 			Verbose: true,
@@ -600,11 +579,6 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			// Double-check template (should match since we filtered)
-			if templateId.ModuleName != "Common.FingerprintAuth" || templateId.EntityName != "FingerprintMapping" {
-				continue
-			}
 			mapping, err := DecodeFingerprintMapping(
 				contract.CreatedEvent.ContractId,
 				contract.CreatedEvent.CreateArguments,
@@ -642,18 +616,15 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 		return false, nil // Empty ledger, no deposits exist
 	}
 
-	// Query for active contracts
+	// Query for PendingDeposit and DepositReceipt contracts using TemplateFilter
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
+						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "PendingDeposit"),
+						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "DepositReceipt"),
 					},
 				},
 			},
@@ -671,25 +642,16 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			// Check for PendingDeposit or DepositReceipt contracts
-			if templateId.ModuleName != "Common.FingerprintAuth" {
-				continue
-			}
-			if templateId.EntityName != "PendingDeposit" && templateId.EntityName != "DepositReceipt" {
-				continue
-			}
-
 			// Extract evmTxHash from contract arguments
 			if contract.CreatedEvent.CreateArguments != nil {
 				for _, field := range contract.CreatedEvent.CreateArguments.Fields {
 					if field.Label == "evmTxHash" {
 						if textVal, ok := field.Value.Sum.(*lapiv2.Value_Text); ok {
 							if textVal.Text == evmTxHash {
-								c.logger.Debug("Found existing deposit contract",
-									zap.String("evm_tx_hash", evmTxHash),
-									zap.String("contract_type", templateId.EntityName),
-									zap.String("contract_id", contract.CreatedEvent.ContractId))
+							c.logger.Debug("Found existing deposit contract",
+								zap.String("evm_tx_hash", evmTxHash),
+								zap.String("contract_type", contract.CreatedEvent.TemplateId.EntityName),
+								zap.String("contract_id", contract.CreatedEvent.ContractId))
 								return true, nil
 							}
 						}
@@ -921,16 +883,32 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 // =============================================================================
 // ERC-20 API SERVER METHODS
 // =============================================================================
-//
-// NOTE: The functions below (GetUserBalance, GetTotalSupply, findHoldingForTransfer,
-// GetAllCIP56Holdings) use GetActiveContracts with wildcard filters. Canton Ledger
-// API v2 does not support server-side template filtering, so we fetch all contracts
-// visible to the relayer party and filter client-side by template ID. This approach
-// may not scale well for large contract volumes. The PostgreSQL balance cache in
-// the API server mitigates this for read-heavy workloads. For large-scale deployments,
-// consider implementing a Canton-side indexer or upgrading when template filtering
-// becomes available in the API.
-// =============================================================================
+
+// cip56HoldingFilter returns a TemplateFilter for CIP56.Token.CIP56Holding contracts.
+func (c *Client) cip56HoldingFilter() []*lapiv2.CumulativeFilter {
+	return []*lapiv2.CumulativeFilter{templateFilter(c.config.CIP56PackageID, "CIP56.Token", "CIP56Holding")}
+}
+
+// tokenConfigFilter returns a TemplateFilter for CIP56.Config.TokenConfig contracts.
+func (c *Client) tokenConfigFilter() []*lapiv2.CumulativeFilter {
+	return []*lapiv2.CumulativeFilter{templateFilter(c.config.CIP56PackageID, "CIP56.Config", "TokenConfig")}
+}
+
+// templateFilter builds a CumulativeFilter with a TemplateFilter for server-side contract filtering.
+func templateFilter(packageID, moduleName, entityName string) *lapiv2.CumulativeFilter {
+	return &lapiv2.CumulativeFilter{
+		IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+			TemplateFilter: &lapiv2.TemplateFilter{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  packageID,
+					ModuleName: moduleName,
+					EntityName: entityName,
+				},
+			},
+		},
+	}
+}
+
 
 // CIP56Holding represents a token holding contract
 type CIP56Holding struct {
@@ -964,19 +942,13 @@ func (c *Client) GetUserBalance(ctx context.Context, fingerprint string) (string
 		return "0", nil
 	}
 
-	// Query for CIP56Holding contracts
+	// Query for CIP56Holding contracts using TemplateFilter
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.cip56HoldingFilter(),
 				},
 			},
 			Verbose: true,
@@ -994,11 +966,6 @@ func (c *Client) GetUserBalance(ctx context.Context, fingerprint string) (string
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
 			// Check if this holding belongs to our user
 			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
 			owner, _ := extractPartyV2(fields["owner"])
@@ -1033,19 +1000,13 @@ func (c *Client) GetTotalSupply(ctx context.Context) (string, error) {
 		return "0", nil
 	}
 
-	// Query for all CIP56Holding contracts
+	// Query for all CIP56Holding contracts using TemplateFilter
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.cip56HoldingFilter(),
 				},
 			},
 			Verbose: true,
@@ -1063,11 +1024,6 @@ func (c *Client) GetTotalSupply(ctx context.Context) (string, error) {
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
 			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
 			amount, _ := extractNumericV2(fields["amount"])
 			if amount != "" {
@@ -1095,11 +1051,7 @@ func (c *Client) getTokenConfigCidFromBridge(ctx context.Context) (string, error
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
+						templateFilter(c.config.BridgePackageID, "Wayfinder.Bridge", "WayfinderBridgeConfig"),
 					},
 				},
 			},
@@ -1116,12 +1068,9 @@ func (c *Client) getTokenConfigCidFromBridge(ctx context.Context) (string, error
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName == "Wayfinder.Bridge" && templateId.EntityName == "WayfinderBridgeConfig" {
-				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
-				if tokenConfigCid, ok := extractContractIdV2(fields["tokenConfigCid"]); ok {
-					return tokenConfigCid, nil
-				}
+			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+			if tokenConfigCid, ok := extractContractIdV2(fields["tokenConfigCid"]); ok {
+				return tokenConfigCid, nil
 			}
 		}
 	}
@@ -1150,13 +1099,7 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.cip56HoldingFilter(),
 				},
 			},
 			Verbose: true,
@@ -1175,11 +1118,6 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
 			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
 			owner, _ := extractPartyV2(fields["owner"])
 			if owner != ownerParty {
@@ -1233,13 +1171,7 @@ func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, token
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.cip56HoldingFilter(),
 				},
 			},
 			Verbose: true,
@@ -1255,10 +1187,6 @@ func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, token
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
 			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
 			owner, _ := extractPartyV2(fields["owner"])
 			if owner != recipientParty {
@@ -1308,13 +1236,7 @@ func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, erro
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.cip56HoldingFilter(),
 				},
 			},
 			Verbose: true,
@@ -1331,11 +1253,6 @@ func (c *Client) GetAllCIP56Holdings(ctx context.Context) ([]*CIP56Holding, erro
 			break // EOF or error
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName != "CIP56.Token" || templateId.EntityName != "CIP56Holding" {
-				continue
-			}
-
 			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
 			issuer, _ := extractPartyV2(fields["issuer"])
 			owner, _ := extractPartyV2(fields["owner"])
@@ -1395,6 +1312,9 @@ func getActiveContractsByTemplate[T any](
 		return []*T{}, nil
 	}
 
+	// NOTE: This generic helper uses WildcardFilter because it doesn't know
+	// which package the module/entity belongs to. Client-side filtering is
+	// applied below. Consider adding a packageID parameter if performance matters.
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
@@ -1493,13 +1413,7 @@ func (c *Client) GetTokenConfig(ctx context.Context, tokenSymbol string) (string
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						{
-							IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-								WildcardFilter: &lapiv2.WildcardFilter{},
-							},
-						},
-					},
+					Cumulative: c.tokenConfigFilter(),
 				},
 			},
 			Verbose: true,
@@ -1515,17 +1429,14 @@ func (c *Client) GetTokenConfig(ctx context.Context, tokenSymbol string) (string
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
-			templateId := contract.CreatedEvent.TemplateId
-			if templateId.ModuleName == "CIP56.Config" && templateId.EntityName == "TokenConfig" {
-				// Check if meta.symbol matches
-				fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
-				if metaVal, ok := fields["meta"]; ok {
-					if metaRecord := metaVal.GetRecord(); metaRecord != nil {
-						for _, metaField := range metaRecord.Fields {
-							if metaField.Label == "symbol" {
-								if s := metaField.Value.GetText(); s == tokenSymbol {
-									return contract.CreatedEvent.ContractId, nil
-								}
+			// Check if meta.symbol matches
+			fields := recordToMapV2(contract.CreatedEvent.CreateArguments)
+			if metaVal, ok := fields["meta"]; ok {
+				if metaRecord := metaVal.GetRecord(); metaRecord != nil {
+					for _, metaField := range metaRecord.Fields {
+						if metaField.Label == "symbol" {
+							if s := metaField.Value.GetText(); s == tokenSymbol {
+								return contract.CreatedEvent.ContractId, nil
 							}
 						}
 					}
