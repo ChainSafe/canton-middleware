@@ -560,9 +560,7 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "FingerprintMapping"),
-					},
+					Cumulative: templateFilterWithFallback(c.config.CommonPackageID, "Common.FingerprintAuth", "FingerprintMapping"),
 				},
 			},
 			Verbose: true,
@@ -617,15 +615,23 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 	}
 
 	// Query for PendingDeposit and DepositReceipt contracts using TemplateFilter
+	var depositFilters []*lapiv2.CumulativeFilter
+	if c.config.CommonPackageID != "" {
+		depositFilters = []*lapiv2.CumulativeFilter{
+			templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "PendingDeposit"),
+			templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "DepositReceipt"),
+		}
+	} else {
+		depositFilters = []*lapiv2.CumulativeFilter{
+			{IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{WildcardFilter: &lapiv2.WildcardFilter{}}},
+		}
+	}
 	resp, err := c.stateService.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: activeAtOffset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "PendingDeposit"),
-						templateFilter(c.config.CommonPackageID, "Common.FingerprintAuth", "DepositReceipt"),
-					},
+					Cumulative: depositFilters,
 				},
 			},
 			Verbose: true,
@@ -885,13 +891,32 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req *CompleteWithdrawal
 // =============================================================================
 
 // cip56HoldingFilter returns a TemplateFilter for CIP56.Token.CIP56Holding contracts.
+// Falls back to WildcardFilter if cip56_package_id is not configured.
 func (c *Client) cip56HoldingFilter() []*lapiv2.CumulativeFilter {
-	return []*lapiv2.CumulativeFilter{templateFilter(c.config.CIP56PackageID, "CIP56.Token", "CIP56Holding")}
+	return templateFilterWithFallback(c.config.CIP56PackageID, "CIP56.Token", "CIP56Holding")
 }
 
 // tokenConfigFilter returns a TemplateFilter for CIP56.Config.TokenConfig contracts.
+// Falls back to WildcardFilter if cip56_package_id is not configured.
 func (c *Client) tokenConfigFilter() []*lapiv2.CumulativeFilter {
-	return []*lapiv2.CumulativeFilter{templateFilter(c.config.CIP56PackageID, "CIP56.Config", "TokenConfig")}
+	return templateFilterWithFallback(c.config.CIP56PackageID, "CIP56.Config", "TokenConfig")
+}
+
+// templateFilterWithFallback returns a TemplateFilter if packageID is set,
+// or a WildcardFilter as fallback. This prevents silent failures when a
+// package ID is not configured -- the wildcard will still return results
+// (albeit less efficiently) rather than matching nothing.
+func templateFilterWithFallback(packageID, moduleName, entityName string) []*lapiv2.CumulativeFilter {
+	if packageID == "" {
+		return []*lapiv2.CumulativeFilter{
+			{
+				IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
+					WildcardFilter: &lapiv2.WildcardFilter{},
+				},
+			},
+		}
+	}
+	return []*lapiv2.CumulativeFilter{templateFilter(packageID, moduleName, entityName)}
 }
 
 // templateFilter builds a CumulativeFilter with a TemplateFilter for server-side contract filtering.
@@ -1050,9 +1075,7 @@ func (c *Client) getTokenConfigCidFromBridge(ctx context.Context) (string, error
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
 				c.config.RelayerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{
-						templateFilter(c.config.BridgePackageID, "Wayfinder.Bridge", "WayfinderBridgeConfig"),
-					},
+					Cumulative: templateFilterWithFallback(c.config.BridgePackageID, "Wayfinder.Bridge", "WayfinderBridgeConfig"),
 				},
 			},
 			Verbose: true,
