@@ -173,7 +173,7 @@ formatters:
           replacement: "any"
     goimports:
       local-prefixes:
-        - github.com/your-org/your-repo
+        - github.com/chainsafe/canton-middleware
 
   exclusions:
     # NOTE: these are REGEX patterns (not globs)
