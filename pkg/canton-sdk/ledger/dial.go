@@ -34,7 +34,7 @@ func dialOptions(cfg Config, extra []grpc.DialOption) ([]grpc.DialOption, error)
 
 func loadTLSConfig(c TLSConfig) (*tls.Config, error) {
 	tlsCfg := &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: c.InsecureSkipVerify,
 		NextProtos:         []string{"h2"},
 	}
 

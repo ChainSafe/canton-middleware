@@ -41,6 +41,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Client, error) {
 // NewFromAppConfig is a convenience adapter for existing config.CantonConfig.
 // This keeps SDK clean but makes migration easy.
 func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Option) (*Client, error) {
+	_ = ctx // reserved for future (e.g. eager connectivity check)
 	if cfg == nil {
 		return nil, fmt.Errorf("nil canton config")
 	}
