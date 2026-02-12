@@ -15,10 +15,11 @@ type Config struct {
 
 // TLSConfig defines transport security settings for the gRPC connection.
 type TLSConfig struct {
-	Enabled  bool
-	CertFile string
-	KeyFile  string
-	CAFile   string
+	Enabled            bool
+	CertFile           string
+	KeyFile            string
+	CAFile             string
+	InsecureSkipVerify bool
 }
 
 // AuthConfig defines OAuth2 client credentials settings

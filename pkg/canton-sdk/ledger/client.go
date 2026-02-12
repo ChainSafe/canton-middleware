@@ -232,7 +232,7 @@ func (c *Client) GetActiveContractsByTemplate(
 			if err == io.EOF {
 				break
 			}
-			break
+			return nil, fmt.Errorf("failed to receive active contract: %w", err)
 		}
 		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
 			out = append(out, ac.CreatedEvent)
