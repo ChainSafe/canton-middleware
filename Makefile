@@ -27,9 +27,14 @@ deps:
 	go mod download
 	go mod tidy
 
+get_lint:
+	if [ ! -f ./bin/golangci-lint ]; then \
+		curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v2.9.0; \
+	fi;
+
 # Run linter
-lint:
-	golangci-lint run
+lint: get_lint
+	./bin/golangci-lint run
 
 # Format code
 fmt:
