@@ -188,7 +188,7 @@ func (c *Client) GetActiveContractsByTemplate(
 	templateID *lapiv2.Identifier,
 ) ([]*lapiv2.CreatedEvent, error) {
 	if activeAtOffset == 0 {
-		return nil, fmt.Errorf("ledger is empty, no contracts exist")
+		return []*lapiv2.CreatedEvent{}, nil
 	}
 	if len(parties) == 0 {
 		return nil, fmt.Errorf("at least one party is required")
