@@ -1,5 +1,7 @@
 package identity
 
+import "errors"
+
 // Party contains the result of allocating a new Canton party.
 type Party struct {
 	PartyID string
@@ -22,4 +24,12 @@ type CreateFingerprintMappingRequest struct {
 	EvmAddress  string
 }
 
-// todo: add validation
+func (c CreateFingerprintMappingRequest) validate() error {
+	if c.UserParty == "" {
+		return errors.New("user_party ID is required")
+	}
+	if c.Fingerprint == "" {
+		return errors.New("fingerprint ID is required")
+	}
+	return nil
+}

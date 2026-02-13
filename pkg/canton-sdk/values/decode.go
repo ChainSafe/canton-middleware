@@ -47,12 +47,3 @@ func ContractID(v *lapiv2.Value) string {
 	}
 	return ""
 }
-
-// Optional unwraps an optional value.
-func Optional(v *lapiv2.Value) *lapiv2.Value {
-	return &lapiv2.Value{
-		Sum: &lapiv2.Value_Optional{
-			Optional: &lapiv2.Optional{Value: v},
-		},
-	}
-}

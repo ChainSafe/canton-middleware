@@ -110,6 +110,10 @@ func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
 }
 
 func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (*FingerprintMapping, error) {
+	if err := req.validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
 	authCtx := c.ledger.AuthContext(ctx)
 	packageID := c.cfg.GetPackageID()
 	module := "Common.FingerprintAuth"

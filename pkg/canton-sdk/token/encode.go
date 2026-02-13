@@ -10,7 +10,7 @@ import (
 func encodeIssuerMintArgs(req MintRequest) *lapiv2.Record {
 	evmTx := values.None()
 	if req.EvmTxHash != "" {
-		evmTx = values.Some(values.TextValue(req.EvmTxHash))
+		evmTx = values.Optional(values.TextValue(req.EvmTxHash))
 	}
 
 	return &lapiv2.Record{
@@ -27,7 +27,7 @@ func encodeIssuerMintArgs(req MintRequest) *lapiv2.Record {
 func encodeIssuerBurnArgs(req BurnRequest) *lapiv2.Record {
 	evmDest := values.None()
 	if req.EvmDestination != "" {
-		evmDest = values.Some(values.TextValue(req.EvmDestination))
+		evmDest = values.Optional(values.TextValue(req.EvmDestination))
 	}
 
 	return &lapiv2.Record{
@@ -44,7 +44,7 @@ func encodeIssuerBurnArgs(req BurnRequest) *lapiv2.Record {
 func encodeHoldingTransferArgs(toParty, amount, existingRecipientHolding string) *lapiv2.Record {
 	existing := values.None()
 	if existingRecipientHolding != "" {
-		existing = values.Some(values.ContractIDValue(existingRecipientHolding))
+		existing = values.Optional(values.ContractIDValue(existingRecipientHolding))
 	}
 
 	return &lapiv2.Record{

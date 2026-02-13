@@ -60,15 +60,11 @@ func None() *lapiv2.Value {
 	}
 }
 
-// Some wraps a value into an optional.
-//func Some(v *lapiv2.Value) *lapiv2.Value {
-//	return &lapiv2.Value{
-//		Sum: &lapiv2.Value_Optional{
-//			Optional: &lapiv2.Optional{
-//				Value: &lapiv2.Optional_Value{
-//					Value: v,
-//				},
-//			},
-//		},
-//	}
-//}
+// Optional wraps an optional value.
+func Optional(v *lapiv2.Value) *lapiv2.Value {
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Optional{
+			Optional: &lapiv2.Optional{Value: v},
+		},
+	}
+}

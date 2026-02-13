@@ -367,7 +367,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 		return err
 	}
 
-	return c.transferHolding(ctx, TransferRequest{
+	return c.transferHolding(ctx, transferAsUserRequest{
 		FromPartyID:              fromParty,
 		ToPartyID:                toParty,
 		HoldingCID:               holdingCID,
@@ -377,14 +377,17 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 	})
 }
 
-func (c *Client) transferHolding(ctx context.Context, req TransferRequest) error {
-	if c.cfg.UserID == "" {
-		return fmt.Errorf("user id is required for command submission")
-	}
-	if req.HoldingCID == "" {
-		return fmt.Errorf("holding cid is required")
-	}
+type transferAsUserRequest struct {
+	FromPartyID string
+	ToPartyID   string
+	HoldingCID  string
+	Amount      string
+	TokenSymbol string
+	// Existing recipient CIP56Holding CID (for merge), empty if none
+	ExistingRecipientHolding string
+}
 
+func (c *Client) transferHolding(ctx context.Context, req transferAsUserRequest) error {
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
@@ -393,9 +396,13 @@ func (c *Client) transferHolding(ctx context.Context, req TransferRequest) error
 					ModuleName: "CIP56.Token",
 					EntityName: "CIP56Holding",
 				},
-				ContractId:     req.HoldingCID,
-				Choice:         "Transfer",
-				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: encodeHoldingTransferArgs(req.ToPartyID, req.Amount, req.ExistingRecipientHolding)}},
+				ContractId: req.HoldingCID,
+				Choice:     "Transfer",
+				ChoiceArgument: &lapiv2.Value{
+					Sum: &lapiv2.Value_Record{
+						Record: encodeHoldingTransferArgs(req.ToPartyID, req.Amount, req.ExistingRecipientHolding),
+					},
+				},
 			},
 		},
 	}
@@ -403,7 +410,7 @@ func (c *Client) transferHolding(ctx context.Context, req TransferRequest) error
 	_, err := c.ledger.Command().SubmitAndWait(c.ledger.AuthContext(ctx), &lapiv2.SubmitAndWaitRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.cfg.DomainID,
-			CommandId:      values.UUID(),
+			CommandId:      uuid.NewString(),
 			UserId:         c.cfg.UserID,
 			ActAs:          []string{req.FromPartyID},
 			ReadAs:         []string{c.cfg.RelayerParty},

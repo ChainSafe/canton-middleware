@@ -61,14 +61,3 @@ func (b BurnRequest) validate() error {
 	}
 	return nil
 }
-
-// TransferRequest represents a holding transfer request.
-type TransferRequest struct {
-	FromPartyID              string
-	ToPartyID                string
-	Amount                   string
-	TokenSymbol              string
-	FromFingerprint          string
-	ToFingerprint            string
-	ExistingRecipientHolding string
-}
