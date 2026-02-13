@@ -31,7 +31,7 @@ func (m MintRequest) validate() error {
 	if m.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
 	}
-	if m.UserFingerprint == "" { // todo: check
+	if m.UserFingerprint == "" {
 		return fmt.Errorf("user_fingerprint is required")
 	}
 	return nil
@@ -56,7 +56,7 @@ func (b BurnRequest) validate() error {
 	if b.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
 	}
-	if b.UserFingerprint == "" { // todo: check
+	if b.UserFingerprint == "" {
 		return fmt.Errorf("user_fingerprint is required")
 	}
 	return nil

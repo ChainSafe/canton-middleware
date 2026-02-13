@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const listKnownPartiesPageSize = 1000
+
 // Identity defines identity and party management operations.
 type Identity interface {
 	AllocateParty(ctx context.Context, hint string) (*Party, error)
@@ -78,7 +80,7 @@ func (c *Client) ListParties(ctx context.Context) ([]*Party, error) {
 
 	for {
 		resp, err := c.ledger.PartyAdmin().ListKnownParties(authCtx, &adminv2.ListKnownPartiesRequest{
-			PageSize:  1000,
+			PageSize:  listKnownPartiesPageSize,
 			PageToken: pageToken,
 		})
 		if err != nil {
@@ -148,7 +150,7 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("errror creating fingerprint mapping: %w", err)
+		return nil, fmt.Errorf("error creating fingerprint mapping: %w", err)
 	}
 
 	if resp.Transaction != nil {
