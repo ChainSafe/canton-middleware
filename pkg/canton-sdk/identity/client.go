@@ -5,67 +5,50 @@ package identity
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Identity defines identity and party management operations.
 type Identity interface {
-	AllocateParty(ctx context.Context, hint string) (*AllocatePartyResult, error)
-	ListParties(ctx context.Context) ([]*AllocatePartyResult, error)
+	AllocateParty(ctx context.Context, hint string) (*Party, error)
+	ListParties(ctx context.Context) ([]*Party, error) // TODO: add iterator
 	GetParticipantID(ctx context.Context) (string, error)
 
-	CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (string, error)
+	CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (*FingerprintMapping, error)
 	GetFingerprintMapping(ctx context.Context, fingerprint string) (*FingerprintMapping, error)
 
-	GrantCanActAs(ctx context.Context, partyID string) error
-}
-
-type settings struct {
-	logger *zap.Logger
-}
-
-// Option configures the identity client.
-type Option func(*settings)
-
-// WithLogger sets a custom logger for the identity client.
-func WithLogger(l *zap.Logger) Option {
-	return func(s *settings) { s.logger = l }
-}
-
-func applyOptions(opts []Option) settings {
-	s := settings{logger: zap.NewNop()}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&s)
-		}
-	}
-	return s
+	GrantActAsParty(ctx context.Context, partyID string) error
 }
 
 // Client implements the Identity interface.
 type Client struct {
-	cfg    Config
+	cfg    *Config
 	ledger ledger.Ledger
 	logger *zap.Logger
 }
 
 // New creates a new identity client.
 func New(cfg Config, l ledger.Ledger, opts ...Option) (*Client, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
 	if l == nil {
 		return nil, fmt.Errorf("nil ledger client")
 	}
 	s := applyOptions(opts)
-	return &Client{cfg: cfg, ledger: l, logger: s.logger}, nil
+	return &Client{cfg: &cfg, ledger: l, logger: s.logger}, nil
 }
 
-func (c *Client) AllocateParty(ctx context.Context, hint string) (*AllocatePartyResult, error) {
+func (c *Client) AllocateParty(ctx context.Context, hint string) (*Party, error) {
 	authCtx := c.ledger.AuthContext(ctx)
 
 	req := &adminv2.AllocatePartyRequest{
@@ -75,22 +58,22 @@ func (c *Client) AllocateParty(ctx context.Context, hint string) (*AllocateParty
 
 	resp, err := c.ledger.PartyAdmin().AllocateParty(authCtx, req)
 	if err != nil {
-		return nil, fmt.Errorf("allocate party: %w", err)
+		return nil, fmt.Errorf("error allocating party: %w", err)
 	}
 	if resp.PartyDetails == nil {
 		return nil, fmt.Errorf("allocate party returned nil party details")
 	}
 
-	return &AllocatePartyResult{
+	return &Party{
 		PartyID: resp.PartyDetails.Party,
 		IsLocal: resp.PartyDetails.IsLocal,
 	}, nil
 }
 
-func (c *Client) ListParties(ctx context.Context) ([]*AllocatePartyResult, error) {
+func (c *Client) ListParties(ctx context.Context) ([]*Party, error) {
 	authCtx := c.ledger.AuthContext(ctx)
 
-	var out []*AllocatePartyResult
+	var out []*Party
 	pageToken := ""
 
 	for {
@@ -99,11 +82,11 @@ func (c *Client) ListParties(ctx context.Context) ([]*AllocatePartyResult, error
 			PageToken: pageToken,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("list parties: %w", err)
+			return nil, fmt.Errorf("error listing parties: %w", err)
 		}
 
 		for _, p := range resp.PartyDetails {
-			out = append(out, &AllocatePartyResult{PartyID: p.Party, IsLocal: p.IsLocal})
+			out = append(out, &Party{PartyID: p.Party, IsLocal: p.IsLocal})
 		}
 
 		if resp.NextPageToken == "" {
@@ -120,34 +103,25 @@ func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
 
 	resp, err := c.ledger.PartyAdmin().GetParticipantId(authCtx, &adminv2.GetParticipantIdRequest{})
 	if err != nil {
-		return "", fmt.Errorf("get participant id: %w", err)
+		return "", fmt.Errorf("error getting participant id: %w", err)
 	}
 
 	return resp.ParticipantId, nil
 }
 
-func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (string, error) {
-	if c.cfg.UserID == "" {
-		return "", fmt.Errorf("user id is required for command submission")
-	}
-
-	packageID := c.cfg.CommonPackageID
-	if packageID == "" {
-		packageID = c.cfg.BridgePackageID
-	}
-	if packageID == "" {
-		return "", fmt.Errorf("package id is required for FingerprintMapping")
-	}
-
+func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (*FingerprintMapping, error) {
 	authCtx := c.ledger.AuthContext(ctx)
+	packageID := c.cfg.GetPackageID()
+	module := "Common.FingerprintAuth"
+	entity := "FingerprintMapping"
 
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Create{
 			Create: &lapiv2.CreateCommand{
 				TemplateId: &lapiv2.Identifier{
 					PackageId:  packageID,
-					ModuleName: "Common.FingerprintAuth",
-					EntityName: "FingerprintMapping",
+					ModuleName: module,
+					EntityName: entity,
 				},
 				CreateArguments: encodeFingerprintMappingCreate(
 					c.cfg.RelayerParty,
@@ -162,7 +136,7 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 	resp, err := c.ledger.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: c.cfg.DomainID,
-			CommandId:      values.UUID(),
+			CommandId:      uuid.NewString(),
 			UserId:         c.cfg.UserID,
 			ActAs:          []string{c.cfg.RelayerParty},
 			ReadAs:         []string{req.UserParty},
@@ -170,31 +144,26 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("create fingerprint mapping: %w", err)
+		return nil, fmt.Errorf("errror creating fingerprint mapping: %w", err)
 	}
 
 	if resp.Transaction != nil {
 		for _, e := range resp.Transaction.Events {
 			if created := e.GetCreated(); created != nil {
-				if created.TemplateId.ModuleName == "Common.FingerprintAuth" && created.TemplateId.EntityName == "FingerprintMapping" {
-					return created.ContractId, nil
+				if created.TemplateId.ModuleName == module && created.TemplateId.EntityName == entity {
+					return fingerprintMappingFromCreateEvent(created), nil
 				}
 			}
 		}
 	}
 
-	return "", fmt.Errorf("fingerprint mapping contract not found in response")
+	return nil, fmt.Errorf("fingerprint mapping contract not found in response")
 }
 
 func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) (*FingerprintMapping, error) {
-	fp := fingerprint
-	if !strings.HasPrefix(fp, "0x") {
-		fp = "0x" + fp
-	}
+	fp := normalizeFingerprint(fingerprint)
 
-	authCtx := c.ledger.AuthContext(ctx)
-
-	end, err := c.ledger.GetLedgerEnd(authCtx)
+	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -202,86 +171,41 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	var filter *lapiv2.CumulativeFilter
-	if c.cfg.CommonPackageID != "" {
-		filter = &lapiv2.CumulativeFilter{
-			IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-				TemplateFilter: &lapiv2.TemplateFilter{
-					TemplateId: &lapiv2.Identifier{
-						PackageId:  c.cfg.CommonPackageID,
-						ModuleName: "Common.FingerprintAuth",
-						EntityName: "FingerprintMapping",
-					},
-				},
-			},
-		}
-	} else {
-		filter = &lapiv2.CumulativeFilter{
-			IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
-				WildcardFilter: &lapiv2.WildcardFilter{},
-			},
-		}
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.GetPackageID(),
+		ModuleName: "Common.FingerprintAuth",
+		EntityName: "FingerprintMapping",
 	}
 
-	stream, err := c.ledger.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: end,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				c.cfg.RelayerParty: {Cumulative: []*lapiv2.CumulativeFilter{filter}},
-			},
-			Verbose: true,
-		},
-	})
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
 	if err != nil {
-		return nil, fmt.Errorf("query fingerprint mappings: %w", err)
+		return nil, err
 	}
 
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			break
+	for _, ce := range events {
+		m := fingerprintMappingFromCreateEvent(ce)
+		if m != nil && m.Fingerprint == fp {
+			return m, nil
 		}
-
-		ac := msg.GetActiveContract()
-		if ac == nil || ac.CreatedEvent == nil {
-			continue
-		}
-
-		tid := ac.CreatedEvent.TemplateId
-		if tid.ModuleName != "Common.FingerprintAuth" || tid.EntityName != "FingerprintMapping" {
-			continue
-		}
-
-		fields := values.RecordToMap(ac.CreatedEvent.CreateArguments)
-
-		mfp := values.Text(fields["fingerprint"])
-		if !strings.HasPrefix(mfp, "0x") {
-			mfp = "0x" + mfp
-		}
-		if mfp != fp {
-			continue
-		}
-
-		return &FingerprintMapping{
-			ContractID:  ac.CreatedEvent.ContractId,
-			Issuer:      values.Party(fields["issuer"]),
-			UserParty:   values.Party(fields["userParty"]),
-			Fingerprint: mfp,
-			EvmAddress:  values.Text(fields["evmAddress"]),
-		}, nil
 	}
 
 	return nil, fmt.Errorf("no FingerprintMapping found for fingerprint: %s", fp)
 }
 
-func (c *Client) GrantCanActAs(ctx context.Context, partyID string) error {
-	if c.cfg.UserID == "" {
-		return fmt.Errorf("user id is required for rights management")
-	}
+func fingerprintMappingFromCreateEvent(event *lapiv2.CreatedEvent) *FingerprintMapping {
+	fields := values.RecordToMap(event.CreateArguments)
+	mfp := normalizeFingerprint(values.Text(fields["fingerprint"]))
 
+	return &FingerprintMapping{
+		ContractID:  event.ContractId,
+		Issuer:      values.Party(fields["issuer"]),
+		UserParty:   values.Party(fields["userParty"]),
+		Fingerprint: mfp,
+		EvmAddress:  values.Text(fields["evmAddress"]),
+	}
+}
+
+func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 	authCtx := c.ledger.AuthContext(ctx)
 
 	right := &adminv2.Right{
@@ -295,11 +219,26 @@ func (c *Client) GrantCanActAs(ctx context.Context, partyID string) error {
 		Rights: []*adminv2.Right{right},
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "already") {
+		if isAlreadyExistsError(err) { // TODO: need to verify this works
 			return nil
 		}
 		return fmt.Errorf("grant can act as: %w", err)
 	}
 
 	return nil
+}
+
+func isAlreadyExistsError(err error) bool {
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.AlreadyExists
+	}
+
+	return false
+}
+
+func normalizeFingerprint(fingerprint string) string {
+	if !strings.HasPrefix(fingerprint, "0x") {
+		fingerprint = "0x" + fingerprint
+	}
+	return fingerprint
 }

@@ -1,7 +1,7 @@
 package identity
 
-// AllocatePartyResult contains the result of allocating a new Canton party.
-type AllocatePartyResult struct {
+// Party contains the result of allocating a new Canton party.
+type Party struct {
 	PartyID string
 	IsLocal bool
 }
@@ -21,3 +21,5 @@ type CreateFingerprintMappingRequest struct {
 	Fingerprint string
 	EvmAddress  string
 }
+
+// todo: add validation

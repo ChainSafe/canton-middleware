@@ -5,7 +5,6 @@ import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
-// todo: remove and make a method of fingerprint instead
 func encodeFingerprintMappingCreate(issuer, userParty, fingerprint, evmAddress string) *lapiv2.Record {
 	return &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
