@@ -149,11 +149,13 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 			zap.Error(err))
 
 		// Update status to failed
+		// todo: log error if update fails on db.
 		p.store.UpdateTransferStatus(event.ID, db.TransferStatusFailed, nil)
 		return fmt.Errorf("submission failed: %w", err)
 	}
 
 	// Update status to completed
+	// todo: handle error
 	p.store.UpdateTransferStatus(event.ID, db.TransferStatusCompleted, &destTxHash)
 
 	// Persist offset after successful processing

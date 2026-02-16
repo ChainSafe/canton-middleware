@@ -1,8 +1,8 @@
 package identity
 
 import (
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
 func encodeFingerprintMappingCreate(issuer, userParty, fingerprint, evmAddress string) *lapiv2.Record {

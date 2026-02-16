@@ -7,7 +7,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 )
@@ -23,7 +23,7 @@ var (
 type TokenService struct {
 	config       *config.APIServerConfig
 	db           *apidb.Store
-	cantonClient *canton.Client
+	cantonClient canton.Token
 	logger       *zap.Logger
 }
 
@@ -31,7 +31,7 @@ type TokenService struct {
 func NewTokenService(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
-	cantonClient *canton.Client,
+	cantonClient canton.Token,
 	logger *zap.Logger,
 ) *TokenService {
 	return &TokenService{
@@ -90,7 +90,7 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, ErrRecipientNotFound
 	}
 
-	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+	err = s.cantonClient.TransferByFingerprint(ctx,
 		fromUser.Fingerprint,
 		toUser.Fingerprint,
 		req.Amount,
@@ -211,11 +211,6 @@ func isInsufficientFunds(err error) bool {
 	return false
 }
 
-// GetCantonClient returns the underlying Canton client for direct access
-func (s *TokenService) GetCantonClient() *canton.Client {
-	return s.cantonClient
-}
-
 // CantonTransferRequest represents a Canton-native token transfer request using party IDs
 type CantonTransferRequest struct {
 	FromPartyID string // Sender's Canton party ID
@@ -265,7 +260,7 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 		dbTokenType = apidb.TokenPrompt
 	}
 
-	err = s.cantonClient.TransferAsUserByFingerprint(ctx,
+	err = s.cantonClient.TransferByFingerprint(ctx,
 		fromUser.Fingerprint,
 		toUser.Fingerprint,
 		req.Amount,

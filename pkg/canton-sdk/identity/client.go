@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"

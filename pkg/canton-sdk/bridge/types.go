@@ -5,59 +5,12 @@ import (
 	"time"
 )
 
-// FingerprintMappingRef is a minimal reference required by bridge flows.
-type FingerprintMappingRef struct {
-	ContractID  string
-	UserParty   string
-	Fingerprint string
-	EvmAddress  string
-}
-
 // PendingDeposit describes a created pending deposit.
 type PendingDeposit struct {
 	ContractID  string
+	MappingCID  string
 	Fingerprint string
-	Amount      string
-	EvmTxHash   string
 	CreatedAt   time.Time
-}
-
-// WithdrawalRequest describes a created withdrawal request.
-type WithdrawalRequest struct {
-	ContractID      string
-	Amount          string
-	EvmDestination  string
-	UserFingerprint string
-	CreatedAt       time.Time
-}
-
-// MintEvent is a decoded representation of a CIP56.Events.MintEvent.
-// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L21C10-L21C19
-type MintEvent struct {
-	ContractID     string
-	Issuer         string
-	Recipient      string
-	Amount         string
-	HoldingCid     string
-	TokenSymbol    string
-	EvmTxHash      string
-	Fingerprint    string
-	Timestamp      time.Time
-	AuditObservers []string
-}
-
-// BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
-// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L45
-type BurnEvent struct {
-	ContractID     string
-	Issuer         string
-	BurnedFrom     string
-	Amount         string
-	EvmDestination string
-	TokenSymbol    string
-	Fingerprint    string
-	Timestamp      time.Time
-	AuditObservers []string
 }
 
 // CreatePendingDepositRequest contains inputs to create a PendingDeposit from an EVM deposit event.
@@ -80,6 +33,10 @@ func (c CreatePendingDepositRequest) validate() error {
 	return nil
 }
 
+type ProcessedDeposit struct {
+	ContractID string
+}
+
 // ProcessDepositRequest contains inputs to process a PendingDeposit and mint tokens.
 type ProcessDepositRequest struct {
 	DepositCID string
@@ -94,6 +51,15 @@ func (p ProcessDepositRequest) validate() error {
 		return errors.New("mapping_cid is required")
 	}
 	return nil
+}
+
+// WithdrawalRequest describes a created withdrawal request.
+type WithdrawalRequest struct {
+	ContractID      string
+	Amount          string
+	EvmDestination  string
+	UserFingerprint string
+	CreatedAt       time.Time
 }
 
 // InitiateWithdrawalRequest contains inputs to initiate a withdrawal.
@@ -135,3 +101,25 @@ func (c CompleteWithdrawalRequest) validate() error {
 	}
 	return nil
 }
+
+// WithdrawalEvent represents a withdrawal ready for EVM processing
+type WithdrawalEvent struct {
+	ContractID     string
+	EventID        string
+	TransactionID  string
+	Issuer         string
+	UserParty      string
+	EvmDestination string
+	Amount         string
+	Fingerprint    string
+	Status         WithdrawalStatus
+}
+
+// WithdrawalStatus represents the state of a withdrawal
+type WithdrawalStatus string
+
+const (
+	WithdrawalStatusPending   WithdrawalStatus = "Pending"
+	WithdrawalStatusCompleted WithdrawalStatus = "Completed"
+	WithdrawalStatusFailed    WithdrawalStatus = "Failed"
+)

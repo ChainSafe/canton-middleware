@@ -3,12 +3,12 @@ package ethrpc
 import (
 	"context"
 	"fmt"
+	"github.com/shopspring/decimal"
 	"math/big"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -46,7 +46,7 @@ func (api *EthAPI) BlockNumber() (hexutil.Uint64, error) {
 	// Simulates ~1 block per second since we don't have real block production
 	timeSinceStart := time.Since(api.server.startTime).Seconds()
 	timeBasedBlocks := uint64(timeSinceStart)
-	
+
 	// Return max of: (latest tx block + 12) or (time-based blocks)
 	// This ensures both old transactions and new ones appear confirmed
 	baseBlock := n + 12
@@ -151,7 +151,12 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 
 	if tx.To() == nil || (!isPromptToken && !isDemoToken) {
 		api.server.logger.Warn("Transaction rejected: unsupported contract",
-			zap.String("tx_to", func() string { if tx.To() == nil { return "<nil>" }; return tx.To().Hex() }()),
+			zap.String("tx_to", func() string {
+				if tx.To() == nil {
+					return "<nil>"
+				}
+				return tx.To().Hex()
+			}()),
 			zap.String("prompt_token", api.server.tokenAddress.Hex()),
 			zap.String("demo_token", api.server.demoTokenAddress.Hex()))
 		return common.Hash{}, fmt.Errorf("unsupported contract: only PROMPT and DEMO token transfers allowed")
@@ -201,7 +206,7 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	}
 
 	// Convert Wei amount to human-readable decimal format
-	humanReadableAmount := canton.BigIntToDecimal(amount, decimals)
+	humanReadableAmount := bigIntToDecimal(amount, decimals)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, api.server.cfg.EthRPC.RequestTimeout)
 	defer cancel()
@@ -216,7 +221,12 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 
 	if err != nil {
 		api.server.logger.Error("Transfer failed",
-			zap.String("token", func() string { if isDemoToken { return "DEMO" }; return "PROMPT" }()),
+			zap.String("token", func() string {
+				if isDemoToken {
+					return "DEMO"
+				}
+				return "PROMPT"
+			}()),
 			zap.String("from", from.Hex()),
 			zap.String("to", toAddr.Hex()),
 			zap.String("amount_wei", amount.String()),
@@ -273,7 +283,12 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	}
 
 	api.server.logger.Info("Transaction submitted",
-		zap.String("token", func() string { if isDemoToken { return "DEMO" }; return "PROMPT" }()),
+		zap.String("token", func() string {
+			if isDemoToken {
+				return "DEMO"
+			}
+			return "PROMPT"
+		}()),
 		zap.String("hash", txHash.Hex()),
 		zap.String("from", from.Hex()),
 		zap.String("to", toAddr.Hex()),
@@ -460,7 +475,7 @@ func (api *EthAPI) callBalanceOf(ctx context.Context, data []byte, tokenSymbol s
 	if decimals == 0 {
 		decimals = 18
 	}
-	bal, err := canton.DecimalToBigInt(balStr, decimals)
+	bal, err := decimalToBigInt(balStr, decimals)
 	if err != nil {
 		api.server.logger.Warn("Failed to convert balance",
 			zap.String("token", tokenSymbol),
@@ -508,7 +523,7 @@ func (api *EthAPI) callTotalSupply(ctx context.Context, tokenSymbol string) (hex
 	if decimals == 0 {
 		decimals = 18
 	}
-	supply, err := canton.DecimalToBigInt(supplyStr, decimals)
+	supply, err := decimalToBigInt(supplyStr, decimals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert total supply: %w", err)
 	}
@@ -646,11 +661,11 @@ func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHa
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Add time-based progression (same logic as BlockNumber())
 		timeSinceStart := time.Since(api.server.startTime).Seconds()
 		timeBasedBlocks := uint64(timeSinceStart)
-		
+
 		baseBlock := latestTxBlock + 12
 		if timeBasedBlocks > baseBlock {
 			blockNum = timeBasedBlocks
@@ -698,22 +713,38 @@ func (api *EthAPI) GetBlockByNumber(ctx context.Context, blockNr BlockNumberOrHa
 func (api *EthAPI) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*RPCBlock, error) {
 	// Try to find a transaction with this block hash
 	// If not found, we can still generate a synthetic block if it matches our hash pattern
-	
+
 	// Check if any stored transaction uses this block hash
 	blockNum, err := api.server.db.GetBlockNumberByHash(hash.Bytes())
 	if err != nil {
 		api.server.logger.Debug("GetBlockByHash: not found in DB, generating synthetic", zap.String("hash", hash.Hex()))
 	}
-	
+
 	if blockNum > 0 {
 		// Found in DB - generate block for this number
 		return api.GetBlockByNumber(ctx, BlockNumberOrHash{BlockNumber: (*hexutil.Uint64)(&blockNum)}, fullTx)
 	}
-	
+
 	// For any hash query, try to reverse-engineer the block number from our hash scheme
 	// Our hashes are computed as: keccak256(chainID || blockNumber)
 	// We can't easily reverse this, so just return the latest block for unknown hashes
 	// This is a workaround - MetaMask will at least get a valid block response
-	
+
 	return api.GetBlockByNumber(ctx, BlockNumberOrHash{}, fullTx)
+}
+
+// decimalToBigInt converts Daml decimal string to big.Int
+func decimalToBigInt(s string, decimals int) (*big.Int, error) {
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid decimal format: %w", err)
+	}
+	d = d.Mul(decimal.New(1, int32(decimals)))
+	return d.BigInt(), nil
+}
+
+// bigIntToDecimal converts big.Int to Daml decimal string
+func bigIntToDecimal(amount *big.Int, decimals int) string {
+	d := decimal.NewFromBigInt(amount, int32(-decimals))
+	return d.String()
 }

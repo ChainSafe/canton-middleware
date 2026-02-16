@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/token"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
@@ -14,7 +14,7 @@ import (
 // Reconciler handles synchronization between Canton ledger state and DB cache
 type Reconciler struct {
 	db           *Store
-	cantonClient *canton.Client
+	cantonClient canton.Token
 	logger       *zap.Logger
 
 	stopCh chan struct{}
@@ -22,7 +22,7 @@ type Reconciler struct {
 }
 
 // NewReconciler creates a new reconciler
-func NewReconciler(db *Store, cantonClient *canton.Client, logger *zap.Logger) *Reconciler {
+func NewReconciler(db *Store, cantonClient canton.Token, logger *zap.Logger) *Reconciler {
 	return &Reconciler{
 		db:           db,
 		cantonClient: cantonClient,
@@ -43,7 +43,7 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 	start := time.Now()
 
 	// Get all holdings from Canton to calculate total supply
-	holdings, err := r.cantonClient.GetAllCIP56Holdings(ctx)
+	holdings, err := r.cantonClient.GetAllHoldings(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get holdings from Canton: %w", err)
 	}
@@ -136,7 +136,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 	start := time.Now()
 
 	// Get all holdings from Canton
-	holdings, err := r.cantonClient.GetAllCIP56Holdings(ctx)
+	holdings, err := r.cantonClient.GetAllHoldings(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get holdings from Canton: %w", err)
 	}

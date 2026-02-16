@@ -8,9 +8,9 @@ import (
 	"fmt"
 
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -39,6 +39,9 @@ type Token interface {
 	// GetHoldings returns all CIP56Holding contracts for the owner and token symbol.
 	GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*Holding, error)
 
+	// GetAllHoldings GetHoldings returns all CIP56Holding contracts.
+	GetAllHoldings(ctx context.Context) ([]*Holding, error) // TODO: use pagination
+
 	// GetBalanceByFingerprint returns the owner's total balance (sum of holdings) for the token symbol.
 	GetBalanceByFingerprint(ctx context.Context, fingerprint string, tokenSymbol string) (string, error)
 
@@ -50,6 +53,12 @@ type Token interface {
 
 	// TransferByPartyID transfers tokens by party IDs.
 	TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error
+
+	// GetMintEvents returns all active CIP56.Events.MintEvent contracts visible to relayerParty.
+	GetMintEvents(ctx context.Context) ([]*MintEvent, error)
+
+	// GetBurnEvents returns all active CIP56.Events.BurnEvent contracts visible to relayerParty.
+	GetBurnEvents(ctx context.Context) ([]*BurnEvent, error)
 }
 
 // Client implements CIP-56 token operations.
@@ -220,7 +229,25 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 	if tokenSymbol == "" {
 		return nil, fmt.Errorf("token symbol is required")
 	}
+	// TODO: check if it supports filtering on request
 
+	allHoldings, err := c.GetAllHoldings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	validHoldings := make([]*Holding, 0)
+	for _, h := range allHoldings {
+		if h.Owner != ownerParty || h.Symbol != tokenSymbol {
+			continue
+		}
+		validHoldings = append(validHoldings, h)
+	}
+
+	return validHoldings, nil
+}
+
+func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
 	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
@@ -243,26 +270,14 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 	out := make([]*Holding, 0)
 	for _, ce := range events {
 		fields := values.RecordToMap(ce.CreateArguments)
-		// TODO: check if it supports filtering on request
-		owner := values.Party(fields["owner"])
-		if owner != ownerParty {
-			continue
-		}
-
-		symbol := values.MetaSymbol(fields["meta"])
-		if symbol != tokenSymbol {
-			continue
-		}
-
 		out = append(out, &Holding{
 			ContractID: ce.ContractId,
 			Issuer:     values.Party(fields["issuer"]),
-			Owner:      owner,
+			Owner:      values.Party(fields["owner"]),
 			Amount:     values.Numeric(fields["amount"]),
-			Symbol:     symbol,
+			Symbol:     values.MetaSymbol(fields["meta"]),
 		})
 	}
-
 	return out, nil
 }
 
@@ -472,4 +487,58 @@ func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, token
 		return "", nil
 	}
 	return holdings[0].ContractID, nil
+}
+
+func (c *Client) GetMintEvents(ctx context.Context) ([]*MintEvent, error) {
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if end == 0 {
+		return []*MintEvent{}, nil
+	}
+
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.CIP56PackageID,
+		ModuleName: "CIP56.Events",
+		EntityName: "MintEvent",
+	}
+
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	if err != nil {
+		return nil, fmt.Errorf("query MintEvent: %w", err)
+	}
+
+	out := make([]*MintEvent, 0, len(events))
+	for _, ce := range events {
+		out = append(out, decodeMintEvent(ce))
+	}
+	return out, nil
+}
+
+func (c *Client) GetBurnEvents(ctx context.Context) ([]*BurnEvent, error) {
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if end == 0 {
+		return []*BurnEvent{}, nil
+	}
+
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.CIP56PackageID,
+		ModuleName: "CIP56.Events",
+		EntityName: "BurnEvent",
+	}
+
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	if err != nil {
+		return nil, fmt.Errorf("query BurnEvent: %w", err)
+	}
+
+	out := make([]*BurnEvent, 0, len(events))
+	for _, ce := range events {
+		out = append(out, decodeBurnEvent(ce))
+	}
+	return out, nil
 }

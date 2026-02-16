@@ -1,6 +1,9 @@
 package token
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Holding represents a CIP56Holding contract.
 type Holding struct {
@@ -60,4 +63,33 @@ func (b BurnRequest) validate() error {
 		return fmt.Errorf("user_fingerprint is required")
 	}
 	return nil
+}
+
+// MintEvent is a decoded representation of a CIP56.Events.MintEvent.
+// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L21C10-L21C19
+type MintEvent struct {
+	ContractID      string
+	Issuer          string
+	Recipient       string
+	Amount          string
+	HoldingCid      string
+	TokenSymbol     string
+	EvmTxHash       string
+	UserFingerprint string
+	Timestamp       time.Time
+	AuditObservers  []string
+}
+
+// BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
+// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L45
+type BurnEvent struct {
+	ContractID      string
+	Issuer          string
+	BurnedFrom      string
+	Amount          string
+	EvmDestination  string
+	TokenSymbol     string
+	UserFingerprint string
+	Timestamp       time.Time
+	AuditObservers  []string
 }

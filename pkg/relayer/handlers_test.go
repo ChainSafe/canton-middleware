@@ -2,43 +2,33 @@ package relayer
 
 import (
 	"context"
-	"testing"
-
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"testing"
 )
 
 func TestCantonDestination_SubmitTransfer(t *testing.T) {
 	// Setup mock client with issuer-centric flow methods
 	mockClient := &MockCantonClient{
-		CreatePendingDepositFunc: func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error) {
+		CreatePendingDepositFunc: func(ctx context.Context, req canton.CreatePendingDepositRequest) (*canton.PendingDeposit, error) {
 			if req.Fingerprint != "BobFingerprint" {
 				t.Errorf("Expected Fingerprint BobFingerprint, got %s", req.Fingerprint)
 			}
 			if req.EvmTxHash != "0xsrc-tx-hash" {
 				t.Errorf("Expected EvmTxHash 0xsrc-tx-hash, got %s", req.EvmTxHash)
 			}
-			return "deposit-cid-123", nil
-		},
-		GetFingerprintMappingFunc: func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error) {
-			if fingerprint != "BobFingerprint" {
-				t.Errorf("Expected fingerprint BobFingerprint, got %s", fingerprint)
-			}
-			return &canton.FingerprintMapping{
-				ContractID:  "mapping-cid-123",
-				Issuer:      "Issuer",
-				UserParty:   "Bob",
-				Fingerprint: fingerprint,
+			return &canton.PendingDeposit{
+				ContractID: "deposit-cid-123",
 			}, nil
 		},
-		ProcessDepositFunc: func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error) {
-			if req.DepositCid != "deposit-cid-123" {
-				t.Errorf("Expected DepositCid deposit-cid-123, got %s", req.DepositCid)
+		ProcessDepositAndMintFunc: func(ctx context.Context, req canton.ProcessDepositRequest) (*canton.ProcessedDeposit, error) {
+			if req.DepositCID != "deposit-cid-123" {
+				t.Errorf("Expected DepositCid deposit-cid-123, got %s", req.DepositCID)
 			}
-			if req.MappingCid != "mapping-cid-123" {
-				t.Errorf("Expected MappingCid mapping-cid-123, got %s", req.MappingCid)
+			if req.MappingCID != "mapping-cid-123" {
+				t.Errorf("Expected MappingCid mapping-cid-123, got %s", req.MappingCID)
 			}
-			return "holding-cid-123", nil
+			return &canton.ProcessedDeposit{ContractID: "holding-cid-123"}, nil
 		},
 	}
 

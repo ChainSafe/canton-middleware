@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
@@ -58,7 +58,7 @@ func main() {
 		zap.String("database", cfg.Database.Database))
 
 	// Create Canton client
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		logger.Fatal("Failed to create Canton client", zap.Error(err))
 	}
@@ -67,7 +67,7 @@ func main() {
 		zap.String("rpc_url", cfg.Canton.RPCURL))
 
 	// Create and start reconciler for balance cache
-	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 
 	// Run initial reconciliation on startup
 	logger.Info("Running initial balance reconciliation...",
@@ -86,7 +86,7 @@ func main() {
 	defer reconciler.Stop()
 
 	// Create shared token service
-	tokenService := service.NewTokenService(cfg, db, cantonClient, logger)
+	tokenService := service.NewTokenService(cfg, db, cantonClient.Token, logger)
 
 	// Create key store for custodial Canton key management
 	masterKeyStr := os.Getenv(cfg.KeyManagement.MasterKeyEnv)
@@ -115,7 +115,7 @@ func main() {
 	}))
 
 	// Create registration handler with key store
-	registrationHandler := registration.NewHandler(cfg, db, cantonClient, keyStore, logger)
+	registrationHandler := registration.NewHandler(cfg, db, cantonClient.Identity, keyStore, logger)
 	mux.Handle("/register", registrationHandler)
 	logger.Info("Registration endpoint enabled at /register")
 

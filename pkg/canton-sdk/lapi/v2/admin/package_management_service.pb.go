@@ -10,7 +10,7 @@
 package admin
 
 import (
-	v2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	v2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"

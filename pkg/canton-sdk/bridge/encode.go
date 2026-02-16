@@ -3,8 +3,8 @@ package bridge
 import (
 	"time"
 
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
 )
 
 func encodeCreatePendingDepositArgs(req CreatePendingDepositRequest) *lapiv2.Record {

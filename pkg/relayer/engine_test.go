@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/ethereum/go-ethereum/common"
@@ -227,8 +227,8 @@ func TestEngine_LoadOffsets_NoState_WithLookback(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "10000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 10000, nil
 		},
 	}
 
@@ -292,8 +292,8 @@ func TestEngine_LoadOffsets_NoState_LookbackLargerThanChain(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "5000", nil // Less than lookback
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 5000, nil // Less than lookback
 		},
 	}
 
@@ -329,8 +329,8 @@ func TestEngine_LoadOffsets_NoState_LookbackDisabled(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "10000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 10000, nil
 		},
 	}
 
@@ -410,8 +410,8 @@ func TestEngine_CheckReadiness_EthereumCaughtUp(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "1000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 1000, nil
 		},
 	}
 
@@ -439,8 +439,8 @@ func TestEngine_CheckReadiness_EthereumBehind(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "1000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 1000, nil
 		},
 	}
 
@@ -468,8 +468,8 @@ func TestEngine_CheckReadiness_CantonCaughtUp(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "1000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 1000, nil
 		},
 	}
 
@@ -497,8 +497,8 @@ func TestEngine_CheckReadiness_CantonBehind(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "1000", nil
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 1000, nil
 		},
 	}
 
@@ -526,8 +526,8 @@ func TestEngine_CheckReadiness_SyncedStaysTrue(t *testing.T) {
 	}
 
 	mockCantonClient := &MockCantonClient{
-		GetLedgerEndFunc: func(ctx context.Context) (string, error) {
-			return "2000", nil // Head moved forward
+		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
+			return 2000, nil // Head moved forward
 		},
 	}
 

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
@@ -56,7 +56,7 @@ func main() {
 	logger.Info("Database connection established")
 
 	// Initialize Canton client
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		logger.Fatal("Failed to initialize Canton client", zap.Error(err))
 	}
@@ -85,7 +85,7 @@ func main() {
 
 	// Start relayer engine first so we can reference it in HTTP handlers
 	ctx := context.Background()
-	engine := relayer.NewEngine(cfg, cantonClient, ethClient, store, logger)
+	engine := relayer.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
 	if apiStore != nil {
 		engine.SetAPIDB(apiStore)
 	}

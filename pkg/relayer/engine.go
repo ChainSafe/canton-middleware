@@ -10,44 +10,14 @@ import (
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
+
 	"go.uber.org/zap"
 )
-
-// cantonChainKey returns the canonical chain key for Canton state storage
-func (e *Engine) cantonChainKey() string {
-	if e.config.Canton.ChainID != "" {
-		return e.config.Canton.ChainID
-	}
-	return "canton"
-}
-
-// ethereumChainKey returns the canonical chain key for Ethereum state storage
-func (e *Engine) ethereumChainKey() string {
-	if e.config.Ethereum.ChainID != 0 {
-		return strconv.FormatInt(e.config.Ethereum.ChainID, 10)
-	}
-	return "ethereum"
-}
-
-// CantonBridgeClient defines the interface for Canton interactions
-type CantonBridgeClient interface {
-	// Issuer-centric model methods
-	StreamWithdrawalEvents(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent
-	GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
-	CreatePendingDeposit(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
-	ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
-	IsDepositProcessed(ctx context.Context, evmTxHash string) (bool, error)
-	InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
-	CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
-
-	// Ledger state
-	GetLedgerEnd(ctx context.Context) (string, error)
-}
 
 // EthereumBridgeClient defines the interface for Ethereum interactions
 type EthereumBridgeClient interface {
@@ -73,7 +43,7 @@ type BridgeStore interface {
 // Engine orchestrates the bridge relayer operations
 type Engine struct {
 	config       *config.Config
-	cantonClient CantonBridgeClient
+	cantonClient canton.Bridge
 	ethClient    EthereumBridgeClient
 	store        BridgeStore
 	apiDB        *apidb.Store // Optional: API server database for balance cache
@@ -95,7 +65,7 @@ type Engine struct {
 // NewEngine creates a new relayer engine
 func NewEngine(
 	cfg *config.Config,
-	cantonClient CantonBridgeClient,
+	cantonClient canton.Bridge,
 	ethClient EthereumBridgeClient,
 	store BridgeStore,
 	logger *zap.Logger,
@@ -111,6 +81,7 @@ func NewEngine(
 }
 
 // SetAPIDB sets the API database store for balance cache updates
+// TODO: make it as option of NewEngine
 func (e *Engine) SetAPIDB(apiDB *apidb.Store) {
 	e.apiDB = apiDB
 }
@@ -200,6 +171,7 @@ func (e *Engine) Stop() {
 }
 
 // loadOffsets loads last processed offsets from database
+// TODO: refactor the method and simplify
 func (e *Engine) loadOffsets(ctx context.Context) error {
 	// Load Canton offset
 	cantonState, err := e.store.GetChainState(e.cantonChainKey())
@@ -209,7 +181,7 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 	if cantonState != nil {
 		storedOffset := cantonState.LastBlockHash
 		// Validate stored offset is not ahead of ledger end
-		ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+		ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
 		if err != nil {
 			e.logger.Warn("Failed to validate Canton offset against ledger end, using stored offset",
 				zap.String("stored_offset", storedOffset),
@@ -217,8 +189,8 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 			e.cantonOffset = storedOffset
 		} else {
 			storedNum, err1 := strconv.ParseInt(storedOffset, 10, 64)
-			endNum, err2 := strconv.ParseInt(ledgerEnd, 10, 64)
-			if err1 == nil && err2 == nil && storedNum > endNum {
+			endNum := ledgerEnd
+			if err1 == nil && storedNum > endNum {
 				lookback := e.config.Canton.LookbackBlocks
 				if lookback <= 0 {
 					lookback = 1
@@ -231,10 +203,10 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 				}
 				e.logger.Warn("Stored Canton offset is ahead of ledger end, resetting to safe offset",
 					zap.String("stored_offset", storedOffset),
-					zap.String("ledger_end", ledgerEnd),
+					zap.Int64("ledger_end", ledgerEnd),
 					zap.String("safe_offset", safeOffset))
 				e.cantonOffset = safeOffset
-				if err := e.store.SetChainState(e.cantonChainKey(), 0, safeOffset); err != nil {
+				if err = e.store.SetChainState(e.cantonChainKey(), 0, safeOffset); err != nil {
 					return fmt.Errorf("failed to persist corrected Canton offset: %w", err)
 				}
 			} else {
@@ -251,8 +223,8 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 				zap.String("offset", e.cantonOffset))
 		} else {
 			// 2) Use ledger end minus lookback_blocks
-			ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
-			if err != nil {
+			ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
+			if err != nil || ledgerEnd == 0 {
 				e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
 					zap.Error(err))
 				e.cantonOffset = "BEGIN"
@@ -260,28 +232,22 @@ func (e *Engine) loadOffsets(ctx context.Context) error {
 				lookback := e.config.Canton.LookbackBlocks
 				if lookback <= 0 {
 					// lookback <= 0: preserve old behavior (start at tip, no replay)
-					e.cantonOffset = ledgerEnd
+					e.cantonOffset = strconv.FormatInt(ledgerEnd, 10)
 					e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
-						zap.String("ledger_end", ledgerEnd))
+						zap.String("ledger_end", e.cantonOffset))
 				} else {
-					endOffset, err := strconv.ParseInt(ledgerEnd, 10, 64)
-					if err != nil {
-						e.logger.Warn("Invalid Canton ledger end value, falling back to BEGIN",
-							zap.String("ledger_end", ledgerEnd),
-							zap.Error(err))
+					endOffset := ledgerEnd
+					if endOffset <= lookback {
+						// Not enough history to look back fully; start from BEGIN
 						e.cantonOffset = "BEGIN"
 					} else {
-						if endOffset <= lookback {
-							// Not enough history to look back fully; start from BEGIN
-							e.cantonOffset = "BEGIN"
-						} else {
-							e.cantonOffset = strconv.FormatInt(endOffset-lookback, 10)
-						}
-						e.logger.Info("Starting Canton stream from ledger end with lookback",
-							zap.String("ledger_end", ledgerEnd),
-							zap.Int64("lookback_blocks", lookback),
-							zap.String("start_offset", e.cantonOffset))
+						e.cantonOffset = strconv.FormatInt(endOffset-lookback, 10)
 					}
+					e.logger.Info("Starting Canton stream from ledger end with lookback",
+						zap.Int64("ledger_end", ledgerEnd),
+						zap.Int64("lookback_blocks", lookback),
+						zap.String("start_offset", e.cantonOffset))
+
 				}
 			}
 		}
@@ -476,14 +442,15 @@ func (e *Engine) checkReadiness(ctx context.Context) {
 	}
 
 	// Check Canton readiness
-	ledgerEnd, err := e.cantonClient.GetLedgerEnd(ctx)
+	ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
 	if err != nil {
 		e.logger.Warn("Failed to get Canton ledger end for readiness check", zap.Error(err))
 	} else {
 		e.mu.Lock()
 		if !e.cantonSynced {
+			ledgerEndString := strconv.FormatInt(ledgerEnd, 10)
 			// If we started from ledger end or have no offset, consider synced
-			if e.cantonOffset == "" || e.cantonOffset == ledgerEnd {
+			if e.cantonOffset == "" || e.cantonOffset == ledgerEndString {
 				e.cantonSynced = true
 				e.logger.Info("Canton processor initial sync complete (at ledger end)",
 					zap.String("offset", e.cantonOffset))
@@ -492,17 +459,17 @@ func (e *Engine) checkReadiness(ctx context.Context) {
 				// (Canton streaming may fail due to protobuf issues, but we can still be ready)
 				e.cantonSynced = true
 				e.logger.Info("Canton processor initial sync complete (BEGIN offset, ledger reachable)",
-					zap.String("ledger_end", ledgerEnd))
+					zap.String("ledger_end", ledgerEndString))
 			} else {
 				// Try numeric comparison for Canton offsets
 				currentOffset, err1 := strconv.ParseInt(e.cantonOffset, 10, 64)
-				endOffset, err2 := strconv.ParseInt(ledgerEnd, 10, 64)
+				endOffset, err2 := strconv.ParseInt(ledgerEndString, 10, 64)
 				if err1 == nil && err2 == nil {
 					if currentOffset >= endOffset {
 						e.cantonSynced = true
 						e.logger.Info("Canton processor initial sync complete",
 							zap.String("offset", e.cantonOffset),
-							zap.String("ledger_end", ledgerEnd))
+							zap.String("ledger_end", ledgerEndString))
 					} else {
 						// Canton offset only advances when matching events are processed.
 						// If the stream has been running for 10+ seconds without errors,
@@ -512,11 +479,11 @@ func (e *Engine) checkReadiness(ctx context.Context) {
 							e.cantonSynced = true
 							e.logger.Info("Canton processor synced (stream healthy, no pending withdrawals)",
 								zap.String("offset", e.cantonOffset),
-								zap.String("ledger_end", ledgerEnd))
+								zap.String("ledger_end", ledgerEndString))
 						} else {
 							e.logger.Debug("Canton processor catching up",
 								zap.String("offset", e.cantonOffset),
-								zap.String("ledger_end", ledgerEnd),
+								zap.String("ledger_end", ledgerEndString),
 								zap.Int64("behind", endOffset-currentOffset))
 						}
 					}
@@ -525,4 +492,20 @@ func (e *Engine) checkReadiness(ctx context.Context) {
 		}
 		e.mu.Unlock()
 	}
+}
+
+// cantonChainKey returns the canonical chain key for Canton state storage
+func (e *Engine) cantonChainKey() string {
+	if e.config.Canton.ChainID != "" {
+		return e.config.Canton.ChainID
+	}
+	return "canton"
+}
+
+// ethereumChainKey returns the canonical chain key for Ethereum state storage
+func (e *Engine) ethereumChainKey() string {
+	if e.config.Ethereum.ChainID != 0 {
+		return strconv.FormatInt(e.config.Ethereum.ChainID, 10)
+	}
+	return "ethereum"
 }
