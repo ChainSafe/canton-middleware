@@ -141,19 +141,19 @@ linters:
     # NOTE: exclusions.paths are REGEX (not globs, not plain paths).
     # Anchor them so you only exclude those directories.
     paths:
-      - pkg/apidb
-      - pkg/auth
-      - pkg/canton
-      - pkg/config
-      - pkg/db
-      - pkg/ethereum
-      - pkg/ethrpc
-      - pkg/keys
-      - pkg/registration
-      - pkg/relayer
-      - pkg/service
-      - cmd
-      - internal
+      - ^pkg/apidb
+      - ^pkg/auth
+      - ^pkg/canton
+      - ^pkg/config
+      - ^pkg/db
+      - ^pkg/ethereum
+      - ^pkg/ethrpc
+      - ^pkg/keys
+      - ^pkg/registration
+      - ^pkg/relayer
+      - ^pkg/service
+      - ^cmd
+      - ^internal
 
     rules:
       - path: (.+)_test\.go$
@@ -178,16 +178,16 @@ formatters:
   exclusions:
     # NOTE: these are REGEX patterns (not globs)
     paths:
-      - pkg/apidb
-      - pkg/auth
-      - pkg/canton
-      - pkg/config
-      - pkg/db
-      - pkg/ethereum
-      - pkg/ethrpc
-      - pkg/keys
-      - pkg/registration
-      - pkg/relayer
-      - pkg/service
-      - cmd
-      - internal
+      - ^pkg/apidb
+      - ^pkg/auth
+      - ^pkg/canton
+      - ^pkg/config
+      - ^pkg/db
+      - ^pkg/ethereum
+      - ^pkg/ethrpc
+      - ^pkg/keys
+      - ^pkg/registration
+      - ^pkg/relayer
+      - ^pkg/service
+      - ^cmd
+      - ^internal
