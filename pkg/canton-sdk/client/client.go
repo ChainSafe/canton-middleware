@@ -43,6 +43,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Client, error) {
 			return nil, err
 		}
 		cfg.Identity.UserID = sub
+		cfg.Token.UserID = sub
 	}
 
 	id, err := identity.New(cfg.Identity, l, identity.WithLogger(s.logger))

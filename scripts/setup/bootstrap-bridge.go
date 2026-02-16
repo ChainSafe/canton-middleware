@@ -35,7 +35,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
 )
 
 var (
