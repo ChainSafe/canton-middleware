@@ -2,6 +2,7 @@ package values
 
 import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	"time"
 )
 
 // Text extracts a text value.
@@ -26,6 +27,23 @@ func Party(v *lapiv2.Value) string {
 	return ""
 }
 
+// PartyList extracts list of parties.
+func PartyList(v *lapiv2.Value) []string {
+	if v == nil {
+		return []string{}
+	}
+	pl := make([]string, 0)
+	if list, ok := v.Sum.(*lapiv2.Value_List); ok {
+		for _, element := range list.List.Elements {
+			party := Party(element)
+			if party != "" {
+				pl = append(pl, party)
+			}
+		}
+	}
+	return pl
+}
+
 // Numeric extracts a numeric value as string.
 func Numeric(v *lapiv2.Value) string {
 	if v == nil {
@@ -46,4 +64,15 @@ func ContractID(v *lapiv2.Value) string {
 		return c.ContractId
 	}
 	return ""
+}
+
+// Timestamp extracts timestamp.
+func Timestamp(v *lapiv2.Value) time.Time {
+	if v == nil {
+		return time.Time{}
+	}
+	if t, ok := v.Sum.(*lapiv2.Value_Timestamp); ok {
+		return time.UnixMicro(t.Timestamp)
+	}
+	return time.Time{}
 }
