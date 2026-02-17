@@ -17,11 +17,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
 	"os"
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -124,7 +125,7 @@ func main() {
 
 		// Connect to Canton
 		fmt.Println(">>> Connecting to Canton (this may take a while on mainnet)...")
-		cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+		cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 		if err != nil {
 			fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 			os.Exit(1)
@@ -132,13 +133,13 @@ func main() {
 		defer cantonClient.Close()
 
 		ctx := context.Background()
-		parties, err := cantonClient.ListParties(ctx)
+		parties, err := cantonClient.Identity.ListParties(ctx)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to list parties: %v\n", err)
 			os.Exit(1)
 		}
 
-		var matched []*canton.AllocatePartyResult
+		var matched []*identity.Party
 		for _, p := range parties {
 			if strings.Contains(strings.ToLower(p.PartyID), strings.ToLower(*search)) {
 				matched = append(matched, p)

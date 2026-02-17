@@ -38,7 +38,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -81,7 +81,7 @@ func main() {
 	fmt.Println("    Connected to PostgreSQL")
 
 	// Connect to Canton
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}
@@ -151,7 +151,7 @@ func main() {
 	fmt.Println()
 
 	fmt.Println(">>> Executing transfer via Canton Ledger API...")
-	err = cantonClient.TransferByPartyID(ctx, metamaskUser1.CantonPartyID, native1Party, *amount, "DEMO")
+	err = cantonClient.Token.TransferByPartyID(ctx, metamaskUser1.CantonPartyID, native1Party, *amount, "DEMO")
 	if err != nil {
 		if strings.Contains(err.Error(), "PermissionDenied") {
 			fmt.Println()
@@ -187,7 +187,7 @@ func main() {
 	fmt.Println()
 
 	fmt.Println(">>> Executing transfer via Canton Ledger API...")
-	err = cantonClient.TransferByPartyID(ctx, native1Party, native2Party, *amount, "DEMO")
+	err = cantonClient.Token.TransferByPartyID(ctx, native1Party, native2Party, *amount, "DEMO")
 	if err != nil {
 		fatalf("Transfer failed: %v", err)
 	}
@@ -208,7 +208,7 @@ func main() {
 	fmt.Println()
 
 	fmt.Println(">>> Executing transfer via Canton Ledger API...")
-	err = cantonClient.TransferByPartyID(ctx, native2Party, metamaskUser1.CantonPartyID, *amount, "DEMO")
+	err = cantonClient.Token.TransferByPartyID(ctx, native2Party, metamaskUser1.CantonPartyID, *amount, "DEMO")
 	if err != nil {
 		fatalf("Transfer failed: %v", err)
 	}
@@ -221,7 +221,7 @@ func main() {
 
 	// Run reconciliation to update MetaMask view
 	fmt.Println(">>> Running reconciliation to update MetaMask balances...")
-	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 	if err := reconciler.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 		fmt.Printf("    WARNING: Reconciliation failed: %v\n", err)
 	} else {
@@ -260,7 +260,7 @@ func main() {
 			fmt.Println()
 
 			fmt.Println(">>> Executing transfer...")
-			err = cantonClient.TransferByPartyID(ctx, metamaskUser1.CantonPartyID, native1Party, *amount, "DEMO")
+			err = cantonClient.Token.TransferByPartyID(ctx, metamaskUser1.CantonPartyID, native1Party, *amount, "DEMO")
 			if err != nil {
 				fmt.Printf("    WARNING: Transfer failed: %v\n", err)
 			} else {
@@ -298,12 +298,12 @@ func main() {
 func allocateNativeParty(ctx context.Context, client *canton.Client, hint string) (string, error) {
 	var partyID string
 
-	result, err := client.AllocateParty(ctx, hint)
+	result, err := client.Identity.AllocateParty(ctx, hint)
 	if err != nil {
 		// Check if party already exists
 		if strings.Contains(err.Error(), "already allocated") || strings.Contains(err.Error(), "already exists") {
 			// Try to find existing party by listing
-			parties, listErr := client.ListParties(ctx)
+			parties, listErr := client.Identity.ListParties(ctx)
 			if listErr != nil {
 				return "", fmt.Errorf("party exists but could not list: %w", listErr)
 			}
@@ -325,7 +325,7 @@ func allocateNativeParty(ctx context.Context, client *canton.Client, hint string
 
 	// Grant CanActAs rights to the OAuth client for this party
 	// This enables the custodial model for interop demo
-	if err := client.GrantCanActAs(ctx, partyID); err != nil {
+	if err = client.Identity.GrantActAsParty(ctx, partyID); err != nil {
 		// Log warning but continue - right might already exist
 		fmt.Printf("    Warning: Failed to grant CanActAs for %s: %v\n", truncateParty(partyID), err)
 	}
@@ -378,7 +378,7 @@ func registerNativeUserWithAPI(ctx context.Context, apiURL, cantonParty string) 
 }
 
 func showHoldings(ctx context.Context, client *canton.Client) {
-	holdings, err := client.GetAllCIP56Holdings(ctx)
+	holdings, err := client.Token.GetAllHoldings(ctx)
 	if err != nil {
 		fmt.Printf("    ERROR: Failed to get holdings: %v\n", err)
 		return

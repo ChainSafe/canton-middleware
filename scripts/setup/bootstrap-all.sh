@@ -226,12 +226,18 @@ done
 
 # Step 8: Bootstrap DEMO tokens
 print_header "Step 8: Bootstrap DEMO Tokens"
-go run scripts/setup/bootstrap-demo.go \
-    -config "$CONFIG_FILE" \
-    -cip56-package-id "$CIP56_PACKAGE_ID" \
-    -user1-fingerprint "$USER1_FINGERPRINT" \
-    -user2-fingerprint "$USER2_FINGERPRINT" \
-    -mint-amount "$DEMO_AMOUNT" 2>&1 | grep -E "^(>>>|✓|DEMO|User)"
+
+OUT="$(go run -tags=ignore scripts/setup/bootstrap-demo.go \
+  -config "$CONFIG_FILE" \
+  -cip56-package-id "$CIP56_PACKAGE_ID" \
+  -user1-fingerprint "$USER1_FINGERPRINT" \
+  -user2-fingerprint "$USER2_FINGERPRINT" \
+  -mint-amount "$DEMO_AMOUNT" 2>&1)" || {
+    echo "$OUT"
+    exit 1
+}
+echo "$OUT" | grep -E "^(>>>|✓|DEMO|User)"
+
 
 print_success "DEMO tokens minted: $DEMO_AMOUNT per user"
 

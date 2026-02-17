@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -80,7 +80,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -106,7 +106,7 @@ func main() {
 	fmt.Println()
 
 	// Create reconciler
-	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 
 	if *reconcileOnly {
 		// Just run reconciliation and show results
@@ -176,7 +176,7 @@ func main() {
 		}
 
 		fmt.Println(">>> Executing transfer via Canton Client...")
-		err = cantonClient.TransferAsUserByFingerprint(ctx, fromFingerprint, toFingerprint, *amount, *token)
+		err = cantonClient.Token.TransferByFingerprint(ctx, fromFingerprint, toFingerprint, *amount, *token)
 		if err != nil {
 			fmt.Printf("ERROR: Transfer failed: %v\n", err)
 			os.Exit(1)
@@ -257,7 +257,7 @@ func showAllHoldings(ctx context.Context, client *canton.Client) {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	holdings, err := client.GetAllCIP56Holdings(ctx)
+	holdings, err := client.Token.GetAllHoldings(ctx)
 	if err != nil {
 		fmt.Printf("    ERROR: Failed to get holdings: %v\n", err)
 		return
