@@ -2,7 +2,7 @@ package relayer
 
 import (
 	"context"
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"testing"
 )

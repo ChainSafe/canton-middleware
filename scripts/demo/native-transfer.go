@@ -27,7 +27,7 @@ import (
 	"os"
 	"strings"
 
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 )

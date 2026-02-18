@@ -3,7 +3,7 @@
 package values
 
 import (
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
 // RecordToMap converts a Ledger API record into a map keyed by field label.

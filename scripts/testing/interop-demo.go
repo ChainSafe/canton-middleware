@@ -48,7 +48,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -74,11 +74,11 @@ var (
 )
 
 var (
-	demoAmount   = flag.String("demo-amount", "100", "DEMO amount per transfer step")
+	demoAmount    = flag.String("demo-amount", "100", "DEMO amount per transfer step")
 	promptDeposit = flag.String("prompt-deposit", "100", "PROMPT deposit amount (whole tokens)")
-	promptXfer   = flag.String("prompt-transfer", "25", "PROMPT transfer amount (whole tokens)")
-	skipDemo     = flag.Bool("skip-demo", false, "Skip DEMO interop tests (Part A)")
-	skipPrompt   = flag.Bool("skip-prompt", false, "Skip PROMPT bridge tests (Part B)")
+	promptXfer    = flag.String("prompt-transfer", "25", "PROMPT transfer amount (whole tokens)")
+	skipDemo      = flag.Bool("skip-demo", false, "Skip DEMO interop tests (Part A)")
+	skipPrompt    = flag.Bool("skip-prompt", false, "Skip PROMPT bridge tests (Part B)")
 )
 
 // ─── Test state ─────────────────────────────────────────────────────────────

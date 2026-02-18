@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/client"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2/admin"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
@@ -113,7 +113,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		ap = NewOAuthClientCredentialsProvider(cfg.Auth, s.httpClient)
 	}
 
-	s.logger.Info("Connected to Canton Network (canton-sdk)",
+	s.logger.Info("Connected to Canton Network (cantonsdk)",
 		zap.String("rpc_url", cfg.RPCURL),
 		zap.String("ledger_id", cfg.LedgerID),
 	)

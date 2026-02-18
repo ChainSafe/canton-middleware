@@ -1,7 +1,7 @@
 package values
 
 import (
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"time"
 )
 

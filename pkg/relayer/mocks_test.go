@@ -6,7 +6,7 @@ import (
 	"context"
 	"math/big"
 
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"

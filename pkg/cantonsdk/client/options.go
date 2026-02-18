@@ -3,7 +3,7 @@ package client
 import (
 	"net/http"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"go.uber.org/zap"
 )
 

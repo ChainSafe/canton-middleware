@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/ethereum/go-ethereum/common"

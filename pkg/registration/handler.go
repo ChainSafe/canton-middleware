@@ -11,7 +11,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/ethereum/go-ethereum/crypto"

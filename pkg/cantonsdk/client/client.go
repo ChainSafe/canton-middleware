@@ -8,10 +8,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/bridge"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/ledger"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/token"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	appcfg "github.com/chainsafe/canton-middleware/pkg/config"
 )
 

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/token"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )

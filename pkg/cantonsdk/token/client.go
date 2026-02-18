@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/identity"
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/ledger"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )

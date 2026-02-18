@@ -3,8 +3,8 @@ package token
 import (
 	"time"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton-sdk/lapi/v2"
-	"github.com/chainsafe/canton-middleware/pkg/canton-sdk/values"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
 
 func encodeIssuerMintArgs(req MintRequest) *lapiv2.Record {

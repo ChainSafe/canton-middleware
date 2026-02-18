@@ -7,7 +7,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
-	canton "github.com/chainsafe/canton-middleware/pkg/canton-sdk/token"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 )
