@@ -121,7 +121,7 @@ wait_for_services() {
         [ $waited -gt $max_wait ] && { print_error "Bootstrap timeout"; exit 1; }
     done
     # Check exit code
-    local bs_exit=$(docker inspect bootstrap --format='{{.State.ExitCode}}' 2>/dev/null)
+    local bs_exit=$(docker inspect bootstrap --format='{{.State.ExitCode}}')
     if [ "$bs_exit" != "0" ]; then
         print_error "Bootstrap container failed (exit $bs_exit). Check: docker logs bootstrap"
         exit 1
@@ -225,7 +225,11 @@ register_users() {
 
     # User 1
     print_step "Registering User 1..."
-    local sig1=$(cast wallet sign --private-key "$USER1_KEY" "$message" 2>/dev/null)
+    local sig1=$(cast wallet sign --private-key "$USER1_KEY" "$message")
+    if [ -z "$sig1" ]; then
+        print_error "Failed to sign message for User 1. Is 'cast' (Foundry) installed?"
+        exit 1
+    fi
     local resp1=$(curl -s -X POST "$API_URL/register" \
         -H "Content-Type: application/json" \
         -d "{\"signature\":\"$sig1\",\"message\":\"$message\"}")
@@ -235,7 +239,7 @@ register_users() {
     if [ -z "$USER1_FINGERPRINT" ]; then
         if echo "$resp1" | grep -q "already registered"; then
             print_warning "User 1 already registered, fetching from database"
-            USER1_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER1_ADDR';" 2>/dev/null | tr -d '[:space:]')
+            USER1_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER1_ADDR';" | tr -d '[:space:]')
         fi
         if [ -z "$USER1_FINGERPRINT" ]; then
             print_error "User 1 registration failed: $resp1"
@@ -246,7 +250,11 @@ register_users() {
 
     # User 2
     print_step "Registering User 2..."
-    local sig2=$(cast wallet sign --private-key "$USER2_KEY" "$message" 2>/dev/null)
+    local sig2=$(cast wallet sign --private-key "$USER2_KEY" "$message")
+    if [ -z "$sig2" ]; then
+        print_error "Failed to sign message for User 2. Is 'cast' (Foundry) installed?"
+        exit 1
+    fi
     local resp2=$(curl -s -X POST "$API_URL/register" \
         -H "Content-Type: application/json" \
         -d "{\"signature\":\"$sig2\",\"message\":\"$message\"}")
@@ -256,7 +264,7 @@ register_users() {
     if [ -z "$USER2_FINGERPRINT" ]; then
         if echo "$resp2" | grep -q "already registered"; then
             print_warning "User 2 already registered, fetching from database"
-            USER2_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER2_ADDR';" 2>/dev/null | tr -d '[:space:]')
+            USER2_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER2_ADDR';" | tr -d '[:space:]')
         fi
         if [ -z "$USER2_FINGERPRINT" ]; then
             print_error "User 2 registration failed: $resp2"
@@ -271,7 +279,8 @@ bootstrap_demo_tokens() {
     print_header "Step 6: Bootstrap DEMO Tokens"
 
     # CIP56 package ID from config.e2e-local.yaml
-    local cip56_pkg=$(grep "cip56_package_id:" "$PROJECT_ROOT/config.e2e-local.yaml" 2>/dev/null | awk '{print $2}' | tr -d '"')
+    local cip56_pkg=$(grep "cip56_package_id:" "$PROJECT_ROOT/config.e2e-local.yaml" || true)
+    cip56_pkg=$(echo "$cip56_pkg" | awk '{print $2}' | tr -d '"')
 
     if [ -z "$cip56_pkg" ]; then
         print_warning "cip56_package_id not in config, skipping DEMO bootstrap"
@@ -282,7 +291,9 @@ bootstrap_demo_tokens() {
 
     cd "$PROJECT_ROOT"
     # Ensure Go modules are downloaded
-    go mod download 2>/dev/null || true
+    if ! go mod download; then
+        print_warning "go mod download had errors (may be okay if modules are cached)"
+    fi
     go run scripts/setup/bootstrap-demo.go \
         -config config.e2e-local.yaml \
         -cip56-package-id "$cip56_pkg" \
