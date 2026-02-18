@@ -11,7 +11,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -22,7 +22,7 @@ import (
 type Handler struct {
 	config       *config.APIServerConfig
 	db           *apidb.Store
-	cantonClient *canton.Client
+	cantonClient canton.Identity
 	keyStore     keys.KeyStore
 	logger       *zap.Logger
 }
@@ -31,7 +31,7 @@ type Handler struct {
 func NewHandler(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
-	cantonClient *canton.Client,
+	cantonClient canton.Identity,
 	keyStore keys.KeyStore,
 	logger *zap.Logger,
 ) *Handler {
@@ -223,7 +223,7 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 
 	// Grant CanActAs rights to the OAuth client for this party
 	// This enables the custodial model: users own their holdings, API server acts on their behalf
-	if err := h.cantonClient.GrantCanActAs(ctx, cantonPartyID); err != nil {
+	if err = h.cantonClient.GrantActAsParty(ctx, cantonPartyID); err != nil {
 		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
 			zap.String("party_id", cantonPartyID),
 			zap.Error(err))
@@ -231,8 +231,8 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Create fingerprint mapping on Canton (direct creation by issuer)
-	var mappingCID string
-	mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
+	var mapping *canton.FingerprintMapping
+	mapping, err = h.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
 		UserParty:   cantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
@@ -251,7 +251,7 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 		EVMAddress:         evmAddress,
 		CantonParty:        cantonPartyID,
 		Fingerprint:        fingerprint,
-		MappingCID:         mappingCID,
+		MappingCID:         mapping.ContractID,
 		CantonPartyID:      cantonPartyID,
 		CantonKeyCreatedAt: &now,
 	}
@@ -288,7 +288,7 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 	h.writeJSON(w, http.StatusOK, RegisterResponse{
 		Party:       cantonPartyID,
 		Fingerprint: fingerprint,
-		MappingCID:  mappingCID,
+		MappingCID:  mapping.ContractID,
 		EVMAddress:  evmAddress,
 	})
 }
@@ -364,7 +364,7 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 
 	// Grant CanActAs rights to the OAuth client for this party
 	// This enables the custodial model: native users can also use MetaMask via the API server
-	if err := h.cantonClient.GrantCanActAs(ctx, req.CantonPartyID); err != nil {
+	if err = h.cantonClient.GrantActAsParty(ctx, req.CantonPartyID); err != nil {
 		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
 			zap.String("party_id", req.CantonPartyID),
 			zap.Error(err))
@@ -373,8 +373,8 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 
 	// Create fingerprint mapping on Canton (direct creation by issuer)
 	// For Canton native users, the party already exists, we just create the mapping
-	var mappingCID string
-	mappingCID, err = h.cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
+	var mapping *canton.FingerprintMapping
+	mapping, err = h.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
 		UserParty:   req.CantonPartyID,
 		Fingerprint: fingerprint,
 		EvmAddress:  evmAddress,
@@ -393,7 +393,7 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		EVMAddress:         evmAddress,
 		CantonParty:        req.CantonPartyID,
 		Fingerprint:        fingerprint,
-		MappingCID:         mappingCID,
+		MappingCID:         mapping.ContractID,
 		CantonPartyID:      req.CantonPartyID,
 		CantonKeyCreatedAt: &now,
 	}
@@ -430,7 +430,7 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 	h.writeJSON(w, http.StatusOK, RegisterResponse{
 		Party:       req.CantonPartyID,
 		Fingerprint: fingerprint,
-		MappingCID:  mappingCID,
+		MappingCID:  mapping.ContractID,
 		EVMAddress:  evmAddress,
 		PrivateKey:  evmKeyPair.PrivateKeyHex(), // For MetaMask import
 	})

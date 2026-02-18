@@ -1,15 +1,38 @@
 # Local Interoperability Testing Guide
 
-This guide walks you through running the full Canton-EVM interoperability demo locally. It demonstrates bidirectional token transfers between MetaMask (EVM) users and native Canton Ledger API users.
+This guide walks you through running the full Canton-EVM interoperability test locally. It demonstrates:
+
+- **DEMO token interoperability** -- bidirectional transfers between MetaMask (EVM) users and native Canton Ledger API users
+- **PROMPT token bridging** -- depositing ERC-20 tokens from Ethereum into Canton and transferring them on-ledger
 
 ## Prerequisites
 
 - **Docker** with Docker Compose v2
-- **Go 1.22+** ([install guide](https://go.dev/doc/install))
+- **Go 1.23+** ([install guide](https://go.dev/doc/install))
+- **Foundry/Cast** ([install guide](https://book.getfoundry.sh/getting-started/installation)) -- used for EIP-191 signing and Ethereum interactions
 - **DAML SDK 3.4.8** (only needed to rebuild DARs; pre-built DARs are included)
-  ```bash
-  daml version  # Should show 3.4.8
-  ```
+
+## Quick Start (Two Commands)
+
+```bash
+# 1. Bootstrap: starts Docker, registers users, mints tokens
+./scripts/testing/bootstrap-local.sh --clean
+
+# 2. Test: runs all 10 interop + bridge test steps
+go run scripts/testing/interop-demo.go
+```
+
+That's it. Both scripts auto-detect all dynamic configuration (domain IDs, party IDs, contract addresses) from the running Docker containers.
+
+> **Go module cache note:** If `go run` fails with "no required module provides package" errors, your `GOMODCACHE` may be pointing to a sandboxed or empty cache directory. Fix by explicitly setting it before running:
+>
+> ```bash
+> export GOMODCACHE="$HOME/go/pkg/mod"
+> ./scripts/testing/bootstrap-local.sh --clean
+> go run scripts/testing/interop-demo.go
+> ```
+>
+> The bootstrap script sets this automatically, but external tools (e.g. Cursor IDE sandbox) can override it. If you hit this issue, export `GOMODCACHE` in your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
 ## Architecture Overview
 
@@ -38,99 +61,73 @@ The local stack consists of the following services:
 - **Native Canton users** interact directly via the Canton Ledger API (gRPC).
 - Both user types hold the same `CIP56Holding` contracts on Canton, enabling seamless interoperability.
 
-## Quick Start
-
-### 1. Clone the Repository
+## Step 1: Bootstrap
 
 ```bash
-git clone --recurse-submodules https://github.com/chainsafe/canton-middleware.git
-cd canton-middleware
+./scripts/testing/bootstrap-local.sh --clean
 ```
 
-If you already cloned without submodules:
-```bash
-git submodule update --init --recursive
-```
+This single command does everything from scratch:
 
-### 2. Build DAML Contracts (Optional)
-
-Pre-built DARs are included. If you need to rebuild:
-
-```bash
-./scripts/build-dars.sh
-```
-
-### 3. Run the Full Bootstrap
-
-This single command starts all services, deploys contracts, registers test users, and mints tokens:
-
-```bash
-./scripts/setup/bootstrap-all.sh
-```
-
-**What it does:**
-1. Generates a master key for Canton authentication
-2. Starts Docker services (Canton, Anvil, PostgreSQL, OAuth2 mock, API server, relayer)
-3. Waits for all services to be healthy
-4. Deploys DAML packages (DARs) to Canton
-5. Allocates a `BridgeIssuer` party
-6. Creates `TokenConfig` and `CIP56Manager` for DEMO and PROMPT tokens
-7. Creates `WayfinderBridgeConfig` for PROMPT bridging
-8. Registers two MetaMask test users
-9. Mints 500 DEMO to each user
-10. Deposits 100 PROMPT to User 1 via the Ethereum bridge
+1. Starts Docker services (Canton, Anvil, PostgreSQL, OAuth2 mock, API server, relayer)
+2. Waits for all services to be healthy
+3. Extracts dynamic config from the bootstrap container (domain ID, relayer party, contract addresses)
+4. Auto-updates `config.e2e-local.yaml` so subsequent scripts use the correct values
+5. Whitelists and registers two test users via the API server (EIP-191 signatures)
+6. Bootstraps 500 DEMO tokens to each user
 
 **Options:**
 ```bash
-./scripts/setup/bootstrap-all.sh --skip-prompt       # Skip PROMPT deposit
-./scripts/setup/bootstrap-all.sh --demo-amount 1000   # Custom DEMO amount per user
-./scripts/setup/bootstrap-all.sh --skip-shutdown       # Don't restart existing services
+./scripts/testing/bootstrap-local.sh --clean        # Full clean slate (removes volumes)
+./scripts/testing/bootstrap-local.sh --skip-docker   # Skip Docker start (services already running)
+./scripts/testing/bootstrap-local.sh --verbose       # Verbose Docker output
 ```
 
-**Expected final state:**
+**Expected state after bootstrap:**
 | User | DEMO | PROMPT |
 |------|------|--------|
-| User 1 (0xf39F...) | 500 | 100 |
-| User 2 (0x7099...) | 500 | 0 |
+| User 1 (`0xf39F...`) | 500 | 0 |
+| User 2 (`0x7099...`) | 500 | 0 |
 
-### 4. Verify the Setup
-
-```bash
-go run scripts/testing/demo-activity.go -config .test-config.yaml
-```
-
-This runs a quick smoke test: transfers between MetaMask users and verifies balances.
-
-### 5. Run the Interoperability Demo
+## Step 2: Run the Interop Test
 
 ```bash
-go run scripts/testing/interop-demo.go -config .test-config.yaml
+go run scripts/testing/interop-demo.go
 ```
 
-## Step-by-Step Walkthrough
+**Options:**
+```bash
+go run scripts/testing/interop-demo.go --skip-prompt   # Skip PROMPT bridge tests
+go run scripts/testing/interop-demo.go --skip-demo     # Skip DEMO interop tests
+```
 
-The interop demo executes the following steps:
+## What the Test Covers
 
-### Step 0: Verify Existing MetaMask Users
-Confirms the two bootstrap users exist with their DEMO balances.
+The interop demo runs 10 automated steps across two parts:
 
-### Step 1: Allocate Native Canton Parties
-Creates two new Canton parties (`native_interop_1`, `native_interop_2`) that are **not** registered with the API server. These represent users who interact with Canton directly via the Ledger API.
+### Part A: DEMO Token Interoperability (Steps 1--6)
 
-### Step 2: MetaMask User -> Native User
-Transfers 100 DEMO from MetaMask User 1 to Native User 1. This proves MetaMask users can send tokens to native Canton participants.
+Tests bidirectional transfers between MetaMask users and native Canton Ledger API users using the native DEMO token.
 
-### Step 3: Native User -> Native User
-Transfers 100 DEMO from Native User 1 to Native User 2. This transfer happens entirely via the Canton Ledger API, simulating direct Canton interactions.
+| Step | Description |
+|------|-------------|
+| 1 | **Allocate Native Parties** -- Creates `native_interop_1` and `native_interop_2` on Canton (not registered with API server) |
+| 2 | **MetaMask → Native** -- User 1 (MetaMask) sends 100 DEMO to Native User 1 |
+| 3 | **Native → Native** -- Native User 1 sends 100 DEMO to Native User 2 via Ledger API |
+| 4 | **Native → MetaMask** -- Native User 2 sends 100 DEMO back to User 1 |
+| 5 | **Register Native User** -- Registers Native User 1 with the API server, generating a MetaMask-compatible EVM keypair |
+| 6 | **MetaMask → Registered Native** -- User 1 sends 100 DEMO to the newly registered Native User 1 |
 
-### Step 4: Native User -> MetaMask User
-Transfers 100 DEMO from Native User 2 back to MetaMask User 1. This proves native Canton users can send tokens to MetaMask users. The transfer includes **holding merge** (combining the existing and new holdings into one).
+### Part B: PROMPT Token Bridge (Steps 7--10)
 
-### Step 5: Register Native User with API Server
-Registers Native User 1 with the API server, giving them a MetaMask-compatible EVM address and private key. After registration, they can import this key into MetaMask.
+Tests the full ERC-20 bridge lifecycle: Ethereum deposit → Canton balance → Canton transfer.
 
-### Step 6: Cross-Type Transfer
-Transfers 100 DEMO from MetaMask User 1 to the newly registered Native User 1 (now accessible via MetaMask). Runs reconciliation to update the API server database.
+| Step | Description |
+|------|-------------|
+| 7 | **Deposit PROMPT** -- Approves and deposits 100 PROMPT from Anvil (Ethereum) to Canton via the bridge contract |
+| 8 | **Verify Canton Balance** -- Polls until the relayer processes the deposit and PROMPT appears on Canton |
+| 9 | **Transfer on Canton** -- Sends 25 PROMPT from User 1 to User 2 via the API server's `eth_sendRawTransaction` |
+| 10 | **Verify Final Balances** -- Confirms User 1 has 75 PROMPT and User 2 has 25 PROMPT |
 
 ## Test Accounts
 
@@ -152,10 +149,12 @@ Transfers 100 DEMO from MetaMask User 1 to the newly registered Native User 1 (n
 
 ### Token Addresses (for MetaMask import)
 
-| Token | Address | Decimals |
-|-------|---------|----------|
-| PROMPT | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | 18 |
-| DEMO | `0xDE30000000000000000000000000000000000001` | 18 |
+| Token | Address | Decimals | Notes |
+|-------|---------|----------|-------|
+| PROMPT | Auto-detected from deployer | 18 | ERC-20 bridged from Ethereum |
+| DEMO | `0xDE30000000000000000000000000000000000001` | 18 | Synthetic address for native Canton token |
+
+> PROMPT and bridge contract addresses are deterministic on first deployment but change if Docker volumes are recreated. The bootstrap script and interop test auto-detect them from `docker logs deployer`.
 
 ## Troubleshooting
 
@@ -198,6 +197,24 @@ daml damlc inspect contracts/canton-erc20/daml/bridge-wayfinder/.daml/dist/bridg
 # bridge_package_id in: config.docker-local.yaml, .test-config.yaml, etc.
 ```
 
+### `no required module provides package` errors
+
+Go can't find downloaded dependencies. This typically happens when `GOMODCACHE` points to a sandboxed or empty directory (common in Cursor IDE or CI environments).
+
+```bash
+# Check where Go is looking for modules
+go env GOMODCACHE
+
+# If it points to a temp/sandbox path, override it:
+export GOMODCACHE="$HOME/go/pkg/mod"
+
+# Then re-download and retry
+go mod download
+./scripts/testing/bootstrap-local.sh --skip-docker
+```
+
+The bootstrap script exports `GOMODCACHE="$HOME/go/pkg/mod"` internally, but if the parent shell has already set it to something else, you may need to export it before invoking the script.
+
 ### `USER_NOT_FOUND` warnings during party allocation
 
 When the interop demo allocates native Canton parties, it attempts to call `GrantCanActAs` via Canton's **User Management Service** to register the OAuth client (`local-test-client`) as authorized to act as the new party. This call fails with `USER_NOT_FOUND` because the mock OAuth user is not registered in Canton's User Management Service.
@@ -209,11 +226,8 @@ These warnings are expected in local testing and can be safely ignored.
 ### Stale state from previous runs
 
 ```bash
-# Full cleanup
-docker compose down -v
-
-# Re-run bootstrap
-./scripts/setup/bootstrap-all.sh
+# Full cleanup and re-bootstrap
+./scripts/testing/bootstrap-local.sh --clean
 ```
 
 ### Port conflicts

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 )
 
 // BridgeEvent represents a stored bridge event for reconciliation

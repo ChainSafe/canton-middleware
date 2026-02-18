@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -67,7 +69,7 @@ func main() {
 	fmt.Println("    Connected to PostgreSQL")
 
 	// Connect to Canton
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}
@@ -83,14 +85,14 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	holdings, err := cantonClient.GetAllCIP56Holdings(ctx)
+	holdings, err := cantonClient.Token.GetAllHoldings(ctx)
 	if err != nil {
 		fatalf("Failed to get holdings: %v", err)
 	}
 
 	// Identify user parties and collect all holdings
 	var user1Party, user2Party string
-	var allDemoHoldings []*canton.CIP56Holding
+	var allDemoHoldings []*token.Holding
 	var nativeParties []string
 
 	for _, h := range holdings {
@@ -145,7 +147,13 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
-			err := cantonClient.TokenBurn(ctx, h.ContractID, h.Amount, "DEMO", "", "")
+			err = cantonClient.Token.Burn(ctx, &token.BurnRequest{
+				HoldingCID:      h.ContractID,
+				Amount:          h.Amount,
+				UserFingerprint: "",
+				TokenSymbol:     "DEMO",
+				EvmDestination:  "",
+			})
 			if err != nil {
 				fmt.Printf("    ERROR: %v\n", err)
 			} else {
@@ -185,7 +193,7 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 1 (%s)...\n", *mintAmount, truncateParty(user1Party))
 	if !*dryRun && user1Party != "" {
-		_, err := cantonClient.TokenMint(ctx, &canton.TokenMintRequest{
+		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
 			RecipientParty:  user1Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user1Fingerprint,
@@ -202,7 +210,7 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 2 (%s)...\n", *mintAmount, truncateParty(user2Party))
 	if !*dryRun && user2Party != "" {
-		_, err := cantonClient.TokenMint(ctx, &canton.TokenMintRequest{
+		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
 			RecipientParty:  user2Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user2Fingerprint,
@@ -236,7 +244,7 @@ func main() {
 
 		fmt.Printf("    Creating FingerprintMapping for %s...\n", u.EVMAddress)
 		if !*dryRun {
-			cid, err := cantonClient.CreateFingerprintMappingDirect(ctx, &canton.RegisterUserRequest{
+			m, err := cantonClient.Identity.CreateFingerprintMapping(ctx, identity.CreateFingerprintMappingRequest{
 				UserParty:   u.CantonPartyID,
 				Fingerprint: u.Fingerprint,
 				EvmAddress:  u.EVMAddress,
@@ -244,9 +252,9 @@ func main() {
 			if err != nil {
 				fmt.Printf("    ERROR: %v\n", err)
 			} else {
-				fmt.Printf("    Created! CID: %s...\n", cid[:40])
+				fmt.Printf("    Created! CID: %s...\n", m.ContractID[:40])
 				// Update database with mapping CID
-				if err := db.UpdateUserMappingCID(u.EVMAddress, cid); err != nil {
+				if err := db.UpdateUserMappingCID(u.EVMAddress, m.ContractID); err != nil {
 					fmt.Printf("    WARNING: Failed to update database: %v\n", err)
 				}
 			}
@@ -286,7 +294,7 @@ func main() {
 
 	if !*dryRun {
 		fmt.Println("    Running reconciliation...")
-		reconciler := apidb.NewReconciler(db, cantonClient, logger)
+		reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 		err = reconciler.ReconcileUserBalancesFromHoldings(ctx)
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
@@ -307,7 +315,7 @@ func main() {
 	if !*dryRun {
 		// Show Canton holdings
 		fmt.Println(">>> Canton Holdings:")
-		holdings, err = cantonClient.GetAllCIP56Holdings(ctx)
+		holdings, err = cantonClient.Token.GetAllHoldings(ctx)
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
 		} else {

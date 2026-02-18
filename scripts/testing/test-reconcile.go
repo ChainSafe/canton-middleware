@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -124,7 +124,7 @@ func main() {
 			localCantonCfg.DomainID = testCfg.Canton.DomainID
 			printInfo("Using relayer_party from .test-config.yaml: %s", truncate(localCantonCfg.RelayerParty, 40))
 		}
-		
+
 		if localCantonCfg.RelayerParty == "" {
 			printWarning("relayer_party not set - run e2e-local.go first to bootstrap Canton")
 		}
@@ -132,7 +132,7 @@ func main() {
 
 	// Connect to Canton
 	printStep("Connecting to Canton at %s...", localCantonCfg.RPCURL)
-	cantonClient, err := canton.NewClient(&localCantonCfg, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &localCantonCfg, canton.WithLogger(logger))
 	if err != nil {
 		printError("Failed to connect to Canton: %v", err)
 		os.Exit(1)
@@ -162,7 +162,7 @@ func main() {
 
 	// Create reconciler and run
 	printHeader("Running Reconciliation")
-	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 
 	if *fullReconcile {
 		printStep("Performing FULL balance reconciliation (resetting all balances)...")
@@ -193,7 +193,7 @@ func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 	printStep("Fetching bridge events from Canton...")
 
 	// Get mint events
-	mintEvents, err := client.GetMintEvents(ctx)
+	mintEvents, err := client.Token.GetMintEvents(ctx)
 	if err != nil {
 		printWarning("Failed to get mint events: %v", err)
 	} else {
@@ -207,7 +207,7 @@ func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 	}
 
 	// Get burn events
-	burnEvents, err := client.GetBurnEvents(ctx)
+	burnEvents, err := client.Token.GetBurnEvents(ctx)
 	if err != nil {
 		printWarning("Failed to get burn events: %v", err)
 	} else {
@@ -268,7 +268,7 @@ func showUserBalances(store *apidb.Store) {
 	printInfo("User balances:")
 	for _, u := range users {
 		printInfo("  %s: %s (fingerprint: %s)",
-			truncate(u.EVMAddress, 12), u.Balance, truncate(u.Fingerprint, 16))
+			truncate(u.EVMAddress, 12), u.PromptBalance, truncate(u.Fingerprint, 16))
 	}
 }
 
@@ -361,4 +361,3 @@ func truncate(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
-

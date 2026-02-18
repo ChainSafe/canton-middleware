@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
@@ -62,7 +62,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -98,7 +98,7 @@ func main() {
 	fmt.Println(">>> Querying Canton for current holdings...")
 	fmt.Println(">>> Updating database balances...")
 
-	reconciler := apidb.NewReconciler(db, cantonClient, logger)
+	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
 	if err := reconciler.FullBalanceReconciliation(ctx); err != nil {
 		fmt.Printf("ERROR: Reconciliation failed: %v\n", err)
 		os.Exit(1)

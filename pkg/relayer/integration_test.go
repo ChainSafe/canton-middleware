@@ -11,10 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
+
 	"go.uber.org/zap"
 )
 
@@ -49,7 +52,7 @@ func TestIntegration_CantonConnectivity(t *testing.T) {
 
 	logger, _ := zap.NewDevelopment()
 
-	client, err := canton.NewClient(&testConfig.Canton, logger)
+	client, err := canton.NewFromAppConfig(context.Background(), &testConfig.Canton, canton.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("Failed to create Canton client: %v", err)
 	}
@@ -59,7 +62,7 @@ func TestIntegration_CantonConnectivity(t *testing.T) {
 	defer cancel()
 
 	// Test GetLedgerEnd to verify connectivity
-	offset, err := client.GetLedgerEnd(ctx)
+	offset, err := client.Ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		t.Fatalf("Failed to get ledger end: %v", err)
 	}
@@ -101,7 +104,7 @@ func TestIntegration_CantonGetBridgeConfig(t *testing.T) {
 
 	logger, _ := zap.NewDevelopment()
 
-	client, err := canton.NewClient(&testConfig.Canton, logger)
+	client, err := canton.NewFromAppConfig(context.Background(), &testConfig.Canton, canton.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("Failed to create Canton client: %v", err)
 	}
@@ -111,7 +114,7 @@ func TestIntegration_CantonGetBridgeConfig(t *testing.T) {
 	defer cancel()
 
 	// Try to get WayfinderBridgeConfig
-	configCid, err := client.GetWayfinderBridgeConfig(ctx)
+	configCid, err := client.Bridge.GetWayfinderBridgeConfigCID(ctx)
 	if err != nil {
 		// This is expected to fail until we create the bridge config
 		t.Logf("⚠️  WayfinderBridgeConfig not found (expected if not yet created): %v", err)
@@ -129,7 +132,7 @@ func TestIntegration_CreateFingerprintMapping(t *testing.T) {
 
 	logger, _ := zap.NewDevelopment()
 
-	client, err := canton.NewClient(&testConfig.Canton, logger)
+	client, err := canton.NewFromAppConfig(context.Background(), &testConfig.Canton, canton.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("Failed to create Canton client: %v", err)
 	}
@@ -142,13 +145,13 @@ func TestIntegration_CreateFingerprintMapping(t *testing.T) {
 	testFingerprint := "1220abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
 	testUserParty := "TestUser::1220abcdef1234567890abcdef1234567890abcdef1234567890abcdef12345678"
 
-	req := &canton.RegisterUserRequest{
+	req := identity.CreateFingerprintMappingRequest{
 		UserParty:   testUserParty,
 		Fingerprint: testFingerprint,
 		EvmAddress:  "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
 	}
 
-	mappingCid, err := client.CreateFingerprintMappingDirect(ctx, req)
+	mappingCid, err := client.Identity.CreateFingerprintMapping(ctx, req)
 	if err != nil {
 		t.Logf("CreateFingerprintMapping failed (expected if ledger not bootstrapped): %v", err)
 		t.Skip("Ledger not bootstrapped for fingerprint mapping test")
@@ -157,7 +160,7 @@ func TestIntegration_CreateFingerprintMapping(t *testing.T) {
 	t.Logf("FingerprintMapping created: %s", mappingCid)
 
 	// Verify we can look up the mapping
-	mapping, err := client.GetFingerprintMapping(ctx, testFingerprint)
+	mapping, err := client.Identity.GetFingerprintMapping(ctx, testFingerprint)
 	if err != nil {
 		t.Fatalf("Failed to get fingerprint mapping: %v", err)
 	}
@@ -177,7 +180,7 @@ func TestIntegration_DepositFlow(t *testing.T) {
 
 	logger, _ := zap.NewDevelopment()
 
-	cantonClient, err := canton.NewClient(&testConfig.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &testConfig.Canton, canton.WithLogger(logger))
 	if err != nil {
 		t.Fatalf("Failed to create Canton client: %v", err)
 	}
@@ -189,14 +192,13 @@ func TestIntegration_DepositFlow(t *testing.T) {
 	// Test creating a pending deposit
 	testFingerprint := "1220test000000000000000000000000000000000000000000000000000000000"
 
-	depositReq := &canton.CreatePendingDepositRequest{
+	depositReq := bridge.CreatePendingDepositRequest{
 		Fingerprint: testFingerprint,
 		Amount:      "100.0",
 		EvmTxHash:   "0x" + fmt.Sprintf("%064x", time.Now().UnixNano()),
-		Timestamp:   time.Now(),
 	}
 
-	depositCid, err := cantonClient.CreatePendingDeposit(ctx, depositReq)
+	depositCid, err := cantonClient.Bridge.CreatePendingDeposit(ctx, depositReq)
 	if err != nil {
 		t.Logf("⚠️  CreatePendingDeposit failed (expected if bridge config not created): %v", err)
 		t.Skip("Need WayfinderBridgeConfig to test deposit flow")

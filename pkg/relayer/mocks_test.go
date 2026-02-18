@@ -1,10 +1,12 @@
 package relayer
 
+// TODO: remove the mock impl and use mockery to generate mock
+
 import (
 	"context"
 	"math/big"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,15 +16,12 @@ import (
 type MockCantonClient struct {
 	// Issuer-centric model methods
 	StreamWithdrawalEventsFunc func(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent
-	GetFingerprintMappingFunc  func(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error)
-	CreatePendingDepositFunc   func(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error)
-	ProcessDepositFunc         func(ctx context.Context, req *canton.ProcessDepositRequest) (string, error)
+	CreatePendingDepositFunc   func(ctx context.Context, req canton.CreatePendingDepositRequest) (*canton.PendingDeposit, error)
+	ProcessDepositAndMintFunc  func(ctx context.Context, req canton.ProcessDepositRequest) (*canton.ProcessedDeposit, error)
 	IsDepositProcessedFunc     func(ctx context.Context, evmTxHash string) (bool, error)
-	InitiateWithdrawalFunc     func(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error)
-	CompleteWithdrawalFunc     func(ctx context.Context, req *canton.CompleteWithdrawalRequest) error
-
-	// Ledger state
-	GetLedgerEndFunc func(ctx context.Context) (string, error)
+	InitiateWithdrawalFunc     func(ctx context.Context, req canton.InitiateWithdrawalRequest) (string, error)
+	CompleteWithdrawalFunc     func(ctx context.Context, req canton.CompleteWithdrawalRequest) error
+	GetLatestLedgerOffsetFunc  func(ctx context.Context) (int64, error)
 }
 
 func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset string) <-chan *canton.WithdrawalEvent {
@@ -32,25 +31,22 @@ func (m *MockCantonClient) StreamWithdrawalEvents(ctx context.Context, offset st
 	return nil
 }
 
-func (m *MockCantonClient) GetFingerprintMapping(ctx context.Context, fingerprint string) (*canton.FingerprintMapping, error) {
-	if m.GetFingerprintMappingFunc != nil {
-		return m.GetFingerprintMappingFunc(ctx, fingerprint)
+func (m *MockCantonClient) CreatePendingDeposit(
+	ctx context.Context,
+	req canton.CreatePendingDepositRequest) (*canton.PendingDeposit, error) {
+	if m.CreatePendingDepositFunc != nil {
+		return m.CreatePendingDepositFunc(ctx, req)
 	}
 	return nil, nil
 }
 
-func (m *MockCantonClient) CreatePendingDeposit(ctx context.Context, req *canton.CreatePendingDepositRequest) (string, error) {
-	if m.CreatePendingDepositFunc != nil {
-		return m.CreatePendingDepositFunc(ctx, req)
+func (m *MockCantonClient) ProcessDepositAndMint(
+	ctx context.Context,
+	req canton.ProcessDepositRequest) (*canton.ProcessedDeposit, error) {
+	if m.ProcessDepositAndMintFunc != nil {
+		return m.ProcessDepositAndMintFunc(ctx, req)
 	}
-	return "", nil
-}
-
-func (m *MockCantonClient) ProcessDeposit(ctx context.Context, req *canton.ProcessDepositRequest) (string, error) {
-	if m.ProcessDepositFunc != nil {
-		return m.ProcessDepositFunc(ctx, req)
-	}
-	return "", nil
+	return nil, nil
 }
 
 func (m *MockCantonClient) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool, error) {
@@ -60,25 +56,29 @@ func (m *MockCantonClient) IsDepositProcessed(ctx context.Context, evmTxHash str
 	return false, nil
 }
 
-func (m *MockCantonClient) InitiateWithdrawal(ctx context.Context, req *canton.InitiateWithdrawalRequest) (string, error) {
+func (m *MockCantonClient) InitiateWithdrawal(ctx context.Context, req canton.InitiateWithdrawalRequest) (string, error) {
 	if m.InitiateWithdrawalFunc != nil {
 		return m.InitiateWithdrawalFunc(ctx, req)
 	}
 	return "", nil
 }
 
-func (m *MockCantonClient) CompleteWithdrawal(ctx context.Context, req *canton.CompleteWithdrawalRequest) error {
+func (m *MockCantonClient) CompleteWithdrawal(ctx context.Context, req canton.CompleteWithdrawalRequest) error {
 	if m.CompleteWithdrawalFunc != nil {
 		return m.CompleteWithdrawalFunc(ctx, req)
 	}
 	return nil
 }
 
-func (m *MockCantonClient) GetLedgerEnd(ctx context.Context) (string, error) {
-	if m.GetLedgerEndFunc != nil {
-		return m.GetLedgerEndFunc(ctx)
+func (m *MockCantonClient) GetLatestLedgerOffset(ctx context.Context) (int64, error) {
+	if m.GetLatestLedgerOffsetFunc != nil {
+		return m.GetLatestLedgerOffsetFunc(ctx)
 	}
-	return "BEGIN", nil
+	return 0, nil
+}
+
+func (m *MockCantonClient) GetWayfinderBridgeConfigCID(ctx context.Context) (string, error) {
+	return m.GetWayfinderBridgeConfigCID(ctx)
 }
 
 // MockEthereumClient is a mock implementation of EthereumBridgeClient

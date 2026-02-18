@@ -27,7 +27,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
 )
@@ -89,7 +89,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -119,7 +119,7 @@ func main() {
 
 	// Execute transfer
 	fmt.Println(">>> Submitting command to Canton Ledger API...")
-	err = cantonClient.TransferByPartyID(ctx, *fromParty, *toParty, *amount, *token)
+	err = cantonClient.Token.TransferByPartyID(ctx, *fromParty, *toParty, *amount, *token)
 	if err != nil {
 		if strings.Contains(err.Error(), "PermissionDenied") {
 			fmt.Println()

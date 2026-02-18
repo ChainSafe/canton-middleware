@@ -46,7 +46,7 @@ echo ""
 
 for pkg in "${PACKAGES[@]}"; do
     echo ">>> Building $pkg..."
-    (cd "$DAML_DIR/$pkg" && daml build $DAML_BUILD_FLAGS)
+    (cd "$DAML_DIR/$pkg" && daml build)
     echo "    Done!"
 done
 

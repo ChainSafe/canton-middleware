@@ -29,7 +29,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -71,7 +71,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -91,7 +91,7 @@ func main() {
 	fmt.Println(">>> Allocating Canton party...")
 	fmt.Printf("    Party hint: %s\n", hint)
 
-	result, err := cantonClient.AllocateParty(ctx, hint)
+	result, err := cantonClient.Identity.AllocateParty(ctx, hint)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to allocate party: %v\n", err)
 		os.Exit(1)

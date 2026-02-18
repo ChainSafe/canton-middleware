@@ -22,11 +22,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"os"
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/canton"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	_ "github.com/lib/pq"
 	"github.com/shopspring/decimal"
@@ -70,7 +71,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewClient(&cfg.Canton, logger)
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -83,7 +84,7 @@ func main() {
 
 	// Query all holdings from Canton
 	fmt.Println(">>> Querying CIP56Holding contracts from Canton...")
-	holdings, err := cantonClient.GetAllCIP56Holdings(ctx)
+	holdings, err := cantonClient.Token.GetAllHoldings(ctx)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to query holdings: %v\n", err)
 		os.Exit(1)
@@ -93,7 +94,7 @@ func main() {
 
 	// Filter by party if specified
 	if *partyFilter != "" {
-		var filtered []*canton.CIP56Holding
+		var filtered []*token.Holding
 		for _, h := range holdings {
 			if strings.Contains(h.Owner, *partyFilter) {
 				filtered = append(filtered, h)
@@ -110,8 +111,8 @@ func main() {
 	}
 
 	// Separate DEMO holdings from others
-	var demoHoldings []*canton.CIP56Holding
-	var otherHoldings []*canton.CIP56Holding
+	var demoHoldings []*token.Holding
+	var otherHoldings []*token.Holding
 	for _, h := range holdings {
 		if h.Symbol == "DEMO" {
 			demoHoldings = append(demoHoldings, h)
