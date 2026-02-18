@@ -64,10 +64,7 @@ USER2_ADDR="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 API_URL="http://localhost:8081"
 ANVIL_URL="http://localhost:8545"
 RELAYER_URL="http://localhost:8080"
-DB_HOST="localhost"
-DB_PORT="5432"
 DB_USER="postgres"
-DB_PASS="p@ssw0rd"
 DB_NAME="erc20_api"
 
 # ─── Step 1: Docker ──────────────────────────────────────────────────────────
@@ -193,15 +190,28 @@ extract_config() {
     fi
 }
 
+# ─── Helper: run SQL via Docker postgres container ───────────────────────────
+run_sql() {
+    docker exec postgres psql -U "$DB_USER" -d "$DB_NAME" -q "$@"
+}
+
+run_sql_raw() {
+    docker exec postgres psql -U "$DB_USER" -d "$DB_NAME" -t "$@"
+}
+
 # ─── Step 4: Whitelist ───────────────────────────────────────────────────────
 whitelist_users() {
     print_header "Step 4: Whitelist Test Users"
 
-    PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -q \
-        -c "INSERT INTO whitelist (evm_address, note) VALUES
-            ('$USER1_ADDR', 'Test User 1'),
-            ('$USER2_ADDR', 'Test User 2')
-            ON CONFLICT DO NOTHING;" 2>/dev/null
+    run_sql -c "INSERT INTO whitelist (evm_address, note) VALUES
+        ('$USER1_ADDR', 'Test User 1'),
+        ('$USER2_ADDR', 'Test User 2')
+        ON CONFLICT DO NOTHING;"
+
+    if [ $? -ne 0 ]; then
+        print_error "Failed to whitelist users. Is the postgres container running?"
+        exit 1
+    fi
 
     print_success "Whitelisted $USER1_ADDR"
     print_success "Whitelisted $USER2_ADDR"
@@ -225,8 +235,7 @@ register_users() {
     if [ -z "$USER1_FINGERPRINT" ]; then
         if echo "$resp1" | grep -q "already registered"; then
             print_warning "User 1 already registered, fetching from database"
-            USER1_FINGERPRINT=$(PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-                -t -c "SELECT fingerprint FROM users WHERE evm_address = '$USER1_ADDR';" 2>/dev/null | tr -d '[:space:]')
+            USER1_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER1_ADDR';" 2>/dev/null | tr -d '[:space:]')
         fi
         if [ -z "$USER1_FINGERPRINT" ]; then
             print_error "User 1 registration failed: $resp1"
@@ -247,8 +256,7 @@ register_users() {
     if [ -z "$USER2_FINGERPRINT" ]; then
         if echo "$resp2" | grep -q "already registered"; then
             print_warning "User 2 already registered, fetching from database"
-            USER2_FINGERPRINT=$(PGPASSWORD="$DB_PASS" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
-                -t -c "SELECT fingerprint FROM users WHERE evm_address = '$USER2_ADDR';" 2>/dev/null | tr -d '[:space:]')
+            USER2_FINGERPRINT=$(run_sql_raw -c "SELECT fingerprint FROM users WHERE evm_address = '$USER2_ADDR';" 2>/dev/null | tr -d '[:space:]')
         fi
         if [ -z "$USER2_FINGERPRINT" ]; then
             print_error "User 2 registration failed: $resp2"
@@ -302,7 +310,7 @@ print_summary() {
     echo "    Canton Ledger API:  localhost:5011 (gRPC)"
     echo "    API Server:         $API_URL"
     echo "    Relayer:            $RELAYER_URL"
-    echo "    PostgreSQL:         $DB_HOST:$DB_PORT"
+    echo "    PostgreSQL:         postgres (Docker container)"
     echo ""
     echo "  Users:"
     echo "    User 1: $USER1_ADDR (500 DEMO)"
