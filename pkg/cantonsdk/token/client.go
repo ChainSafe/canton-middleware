@@ -493,55 +493,58 @@ func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, token
 }
 
 func (c *Client) GetMintEvents(ctx context.Context) ([]*MintEvent, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if end == 0 {
-		return []*MintEvent{}, nil
-	}
-
-	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: "CIP56.Events",
-		EntityName: "MintEvent",
-	}
-
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
-	if err != nil {
-		return nil, fmt.Errorf("query MintEvent: %w", err)
-	}
-
-	out := make([]*MintEvent, 0, len(events))
-	for _, ce := range events {
-		out = append(out, decodeMintEvent(ce))
-	}
-	return out, nil
+	return getEvents(
+		ctx,
+		c.ledger,
+		c.cfg.CIP56PackageID,
+		c.cfg.RelayerParty,
+		"MintEvent",
+		decodeMintEvent,
+	)
 }
 
 func (c *Client) GetBurnEvents(ctx context.Context) ([]*BurnEvent, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
+	return getEvents(
+		ctx,
+		c.ledger,
+		c.cfg.CIP56PackageID,
+		c.cfg.RelayerParty,
+		"BurnEvent",
+		decodeBurnEvent,
+	)
+}
+
+func getEvents[T any](
+	ctx context.Context,
+	ldr ledger.Ledger,
+	cip56PackageID string,
+	relayerParty string,
+	eventName string,
+	decode func(*lapiv2.CreatedEvent) T,
+) ([]T, error) {
+	end, err := ldr.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if end == 0 {
-		return []*BurnEvent{}, nil
+		return []T{}, nil
 	}
 
 	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.CIP56PackageID,
+		PackageId:  cip56PackageID,
 		ModuleName: "CIP56.Events",
-		EntityName: "BurnEvent",
+		EntityName: eventName,
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := ldr.GetActiveContractsByTemplate(ctx, end, []string{relayerParty}, tid)
 	if err != nil {
-		return nil, fmt.Errorf("query BurnEvent: %w", err)
+		return nil, fmt.Errorf("query %s: %w", eventName, err)
 	}
 
-	out := make([]*BurnEvent, 0, len(events))
+	out := make([]T, 0, len(events))
 	for _, ce := range events {
-		out = append(out, decodeBurnEvent(ce))
+		out = append(out, decode(ce))
 	}
+
 	return out, nil
 }
