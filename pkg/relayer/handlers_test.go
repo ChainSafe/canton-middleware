@@ -19,6 +19,7 @@ func TestCantonDestination_SubmitTransfer(t *testing.T) {
 			}
 			return &canton.PendingDeposit{
 				ContractID: "deposit-cid-123",
+				MappingCID: "mapping-cid-123",
 			}, nil
 		},
 		ProcessDepositAndMintFunc: func(ctx context.Context, req canton.ProcessDepositRequest) (*canton.ProcessedDeposit, error) {

@@ -126,8 +126,8 @@ const file_com_daml_ledger_api_v2_admin_object_meta_proto_rawDesc = "" +
 	"\vannotations\x18\f \x03(\v29.com.daml.ledger.api.v2.admin.ObjectMeta.AnnotationsEntryR\vannotations\x1a>\n" +
 	"\x10AnnotationsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x94\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB\x14ObjectMetaOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x97\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB\x14ObjectMetaOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_object_meta_proto_rawDescOnce sync.Once

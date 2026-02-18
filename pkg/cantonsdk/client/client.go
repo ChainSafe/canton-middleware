@@ -52,7 +52,11 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 
-	tk, err := token.New(cfg.Token, l, id, token.WithLogger(s.logger))
+	tokenOpts := []token.Option{token.WithLogger(s.logger)}
+	if s.keyResolver != nil {
+		tokenOpts = append(tokenOpts, token.WithKeyResolver(s.keyResolver))
+	}
+	tk, err := token.New(cfg.Token, l, id, tokenOpts...)
 	if err != nil {
 		_ = l.Close()
 		return nil, err
@@ -141,9 +145,13 @@ func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Opt
 		}
 	}
 
-	return New(ctx, &sdkCfg,
+	newOpts := []Option{
 		WithLogger(s.logger),
 		WithHTTPClient(s.httpClient),
 		WithBridgeConfig(sdkCfg.Bridge),
-	)
+	}
+	if s.keyResolver != nil {
+		newOpts = append(newOpts, WithKeyResolver(s.keyResolver))
+	}
+	return New(ctx, &sdkCfg, newOpts...)
 }

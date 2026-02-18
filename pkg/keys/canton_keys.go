@@ -8,13 +8,19 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/hkdf"
 )
+
+type ecdsaSignature struct {
+	R, S *big.Int
+}
 
 // CantonKeyPair represents a Canton signing keypair using secp256k1
 type CantonKeyPair struct {
@@ -72,6 +78,21 @@ func DeriveCantonKeyPair(evmAddress string, serverSeed []byte) (*CantonKeyPair, 
 	return &CantonKeyPair{
 		PublicKey:  publicKeyBytes,
 		PrivateKey: privateKeyBytes,
+	}, nil
+}
+
+// CantonKeyPairFromPrivateKey reconstructs a full keypair from a 32-byte private key.
+func CantonKeyPairFromPrivateKey(privKey []byte) (*CantonKeyPair, error) {
+	if len(privKey) != 32 {
+		return nil, fmt.Errorf("private key must be 32 bytes, got %d", len(privKey))
+	}
+	ecdsaKey, err := crypto.ToECDSA(privKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid secp256k1 private key: %w", err)
+	}
+	return &CantonKeyPair{
+		PublicKey:  crypto.CompressPubkey(&ecdsaKey.PublicKey),
+		PrivateKey: privKey,
 	}, nil
 }
 
@@ -214,6 +235,40 @@ func (kp *CantonKeyPair) SignHash(hash []byte) ([]byte, error) {
 	}
 
 	return signature[:64], nil
+}
+
+// SignDER signs a message with SHA-256 and returns an ASN.1 DER-encoded ECDSA signature.
+// This is the format Canton requires for Interactive Submission and topology signing.
+func (kp *CantonKeyPair) SignDER(message []byte) ([]byte, error) {
+	hash := sha256.Sum256(message)
+	return kp.SignHashDER(hash[:])
+}
+
+// SignHashDER signs a pre-hashed 32-byte digest and returns an ASN.1 DER-encoded signature.
+// Use this when Canton provides the hash directly (PrepareSubmission, GenerateExternalPartyTopology).
+func (kp *CantonKeyPair) SignHashDER(hash []byte) ([]byte, error) {
+	if len(hash) != 32 {
+		return nil, fmt.Errorf("hash must be 32 bytes, got %d", len(hash))
+	}
+
+	privateKey, err := crypto.ToECDSA(kp.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert private key: %w", err)
+	}
+
+	rawSig, err := crypto.Sign(hash, privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign: %w", err)
+	}
+
+	r := new(big.Int).SetBytes(rawSig[:32])
+	s := new(big.Int).SetBytes(rawSig[32:64])
+
+	derBytes, err := asn1.Marshal(ecdsaSignature{R: r, S: s})
+	if err != nil {
+		return nil, fmt.Errorf("failed to DER-encode signature: %w", err)
+	}
+	return derBytes, nil
 }
 
 // Verify verifies a signature against a message

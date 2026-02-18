@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 
 	"go.uber.org/zap"
 )
@@ -12,9 +13,10 @@ import (
 type Option func(*settings)
 
 type settings struct {
-	logger     *zap.Logger
-	httpClient *http.Client
-	bridgeCfg  *bridge.Config
+	logger      *zap.Logger
+	httpClient  *http.Client
+	bridgeCfg   *bridge.Config
+	keyResolver token.KeyResolver
 }
 
 // WithLogger sets a custom logger for the SDK client.
@@ -31,6 +33,12 @@ func WithHTTPClient(c *http.Client) Option {
 // If nil, the bridge client is not initialized.
 func WithBridgeConfig(cfg *bridge.Config) Option {
 	return func(s *settings) { s.bridgeCfg = cfg }
+}
+
+// WithKeyResolver provides a function to look up signing keys by party ID.
+// Required for transfers involving external parties (Interactive Submission).
+func WithKeyResolver(kr token.KeyResolver) Option {
+	return func(s *settings) { s.keyResolver = kr }
 }
 
 func applyOptions(opts []Option) settings {

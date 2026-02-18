@@ -719,6 +719,27 @@ func (s *Store) GetUserCantonKeyByFingerprint(fingerprint string) (cantonPartyID
 	return cantonPartyID, encryptedKey, nil
 }
 
+// GetUserCantonKeyByPartyID retrieves the encrypted Canton private key for a user by party ID
+func (s *Store) GetUserCantonKeyByPartyID(cantonPartyID string) (encryptedKey string, err error) {
+	var key sql.NullString
+	query := `
+		SELECT canton_private_key_encrypted
+		FROM users
+		WHERE canton_party_id = $1
+	`
+	err = s.db.QueryRow(query, cantonPartyID).Scan(&key)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get Canton key by party ID: %w", err)
+	}
+	if key.Valid {
+		encryptedKey = key.String
+	}
+	return encryptedKey, nil
+}
+
 // HasCantonKey checks if a user has a Canton custodial key
 func (s *Store) HasCantonKey(evmAddress string) (bool, error) {
 	var count int

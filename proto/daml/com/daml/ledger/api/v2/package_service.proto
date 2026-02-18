@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2";
 
 package com.daml.ledger.api.v2;
 

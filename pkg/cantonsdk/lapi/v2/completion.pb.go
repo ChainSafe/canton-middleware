@@ -256,8 +256,8 @@ const file_com_daml_ledger_api_v2_completion_proto_rawDesc = "" +
 	"\x06offset\x18\n" +
 	" \x01(\x03R\x06offset\x12U\n" +
 	"\x11synchronizer_time\x18\v \x01(\v2(.com.daml.ledger.api.v2.SynchronizerTimeR\x10synchronizerTimeB\x16\n" +
-	"\x14deduplication_periodB\x82\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x14CompletionOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x14deduplication_periodB\x85\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x14CompletionOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_completion_proto_rawDescOnce sync.Once

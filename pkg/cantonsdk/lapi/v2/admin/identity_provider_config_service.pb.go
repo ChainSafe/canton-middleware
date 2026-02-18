@@ -611,8 +611,8 @@ const file_com_daml_ledger_api_v2_admin_identity_provider_config_service_proto_r
 	"\x19GetIdentityProviderConfig\x12>.com.daml.ledger.api.v2.admin.GetIdentityProviderConfigRequest\x1a?.com.daml.ledger.api.v2.admin.GetIdentityProviderConfigResponse\x12\xa5\x01\n" +
 	"\x1cUpdateIdentityProviderConfig\x12A.com.daml.ledger.api.v2.admin.UpdateIdentityProviderConfigRequest\x1aB.com.daml.ledger.api.v2.admin.UpdateIdentityProviderConfigResponse\x12\xa2\x01\n" +
 	"\x1bListIdentityProviderConfigs\x12@.com.daml.ledger.api.v2.admin.ListIdentityProviderConfigsRequest\x1aA.com.daml.ledger.api.v2.admin.ListIdentityProviderConfigsResponse\x12\xa5\x01\n" +
-	"\x1cDeleteIdentityProviderConfig\x12A.com.daml.ledger.api.v2.admin.DeleteIdentityProviderConfigRequest\x1aB.com.daml.ledger.api.v2.admin.DeleteIdentityProviderConfigResponseB\xa7\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB'IdentityProviderConfigServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x1cDeleteIdentityProviderConfig\x12A.com.daml.ledger.api.v2.admin.DeleteIdentityProviderConfigRequest\x1aB.com.daml.ledger.api.v2.admin.DeleteIdentityProviderConfigResponseB\xaa\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB'IdentityProviderConfigServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_identity_provider_config_service_proto_rawDescOnce sync.Once

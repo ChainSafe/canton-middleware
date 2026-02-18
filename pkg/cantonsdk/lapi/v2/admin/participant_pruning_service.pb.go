@@ -143,8 +143,8 @@ const file_com_daml_ledger_api_v2_admin_participant_pruning_service_proto_rawDes
 	"\x1cprune_all_divulged_contracts\x18\x03 \x01(\bR\x19pruneAllDivulgedContracts\"\x0f\n" +
 	"\rPruneResponse2}\n" +
 	"\x19ParticipantPruningService\x12`\n" +
-	"\x05Prune\x12*.com.daml.ledger.api.v2.admin.PruneRequest\x1a+.com.daml.ledger.api.v2.admin.PruneResponseB\xa3\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB#ParticipantPruningServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x05Prune\x12*.com.daml.ledger.api.v2.admin.PruneRequest\x1a+.com.daml.ledger.api.v2.admin.PruneResponseB\xa6\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB#ParticipantPruningServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_participant_pruning_service_proto_rawDescOnce sync.Once

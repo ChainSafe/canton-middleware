@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
@@ -167,68 +166,24 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Allocate a unique Canton party for this user
+	// Allocate an external Canton party for this user.
+	// External parties use the Interactive Submission API and have no practical limit
+	// (unlike internal parties which are capped at ~200 per participant).
 	partyHint := fmt.Sprintf("user_%s", evmAddress[2:10]) // e.g., "user_f39Fd6e5"
-	partyResult, err := h.cantonClient.AllocateParty(ctx, partyHint)
-	var cantonPartyID string
+	partyResult, err := h.cantonClient.AllocateExternalParty(ctx, partyHint, cantonKeyPair.PublicKey, cantonKeyPair)
 	if err != nil {
-		// Check if party already exists (from previous registration)
-		errStr := err.Error()
-		if strings.Contains(errStr, "already allocated") || strings.Contains(errStr, "Party already exists") {
-			// Party exists - must use ListParties to get the full (non-truncated) party ID
-			h.logger.Info("Party already exists, looking up full party ID",
-				zap.String("hint", partyHint))
-
-			existingParties, listErr := h.cantonClient.ListParties(ctx)
-			if listErr != nil {
-				h.logger.Error("Failed to list parties to find existing",
-					zap.String("hint", partyHint),
-					zap.Error(listErr))
-				h.writeError(w, http.StatusInternalServerError, "party lookup failed")
-				return
-			}
-
-			h.logger.Info("Searching parties list",
-				zap.Int("party_count", len(existingParties)))
-			for _, p := range existingParties {
-				if strings.HasPrefix(p.PartyID, partyHint+"::") {
-					cantonPartyID = p.PartyID
-					h.logger.Info("Found existing party in list",
-						zap.String("party_id", cantonPartyID))
-					break
-				}
-			}
-
-			if cantonPartyID == "" {
-				h.logger.Error("Could not find existing party in list",
-					zap.String("hint", partyHint))
-				h.writeError(w, http.StatusInternalServerError, "party allocation failed")
-				return
-			}
-		} else {
-			h.logger.Error("Failed to allocate Canton party",
-				zap.String("hint", partyHint),
-				zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "party allocation failed")
-			return
-		}
-	} else {
-		cantonPartyID = partyResult.PartyID
+		h.logger.Error("Failed to allocate external Canton party",
+			zap.String("hint", partyHint),
+			zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+		return
 	}
+	cantonPartyID := partyResult.PartyID
 
-	h.logger.Info("Allocated Canton party for user",
+	h.logger.Info("Allocated external Canton party for user",
 		zap.String("evm_address", evmAddress),
 		zap.String("party_id", cantonPartyID),
 		zap.String("public_key", cantonKeyPair.PublicKeyHex()[:32]+"..."))
-
-	// Grant CanActAs rights to the OAuth client for this party
-	// This enables the custodial model: users own their holdings, API server acts on their behalf
-	if err = h.cantonClient.GrantActAsParty(ctx, cantonPartyID); err != nil {
-		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
-			zap.String("party_id", cantonPartyID),
-			zap.Error(err))
-		// Continue anyway - the right might already exist or can be granted manually
-	}
 
 	// Create fingerprint mapping on Canton (direct creation by issuer)
 	var mapping *canton.FingerprintMapping
@@ -361,15 +316,6 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 	h.logger.Info("Generated EVM address for Canton native user",
 		zap.String("canton_party", req.CantonPartyID),
 		zap.String("evm_address", evmAddress))
-
-	// Grant CanActAs rights to the OAuth client for this party
-	// This enables the custodial model: native users can also use MetaMask via the API server
-	if err = h.cantonClient.GrantActAsParty(ctx, req.CantonPartyID); err != nil {
-		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
-			zap.String("party_id", req.CantonPartyID),
-			zap.Error(err))
-		// Continue anyway - the right might already exist or can be granted manually
-	}
 
 	// Create fingerprint mapping on Canton (direct creation by issuer)
 	// For Canton native users, the party already exists, we just create the mapping

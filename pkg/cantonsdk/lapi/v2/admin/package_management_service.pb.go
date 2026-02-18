@@ -1040,8 +1040,8 @@ const file_com_daml_ledger_api_v2_admin_package_management_service_proto_rawDesc
 	"\x11ListKnownPackages\x126.com.daml.ledger.api.v2.admin.ListKnownPackagesRequest\x1a7.com.daml.ledger.api.v2.admin.ListKnownPackagesResponse\x12x\n" +
 	"\rUploadDarFile\x122.com.daml.ledger.api.v2.admin.UploadDarFileRequest\x1a3.com.daml.ledger.api.v2.admin.UploadDarFileResponse\x12~\n" +
 	"\x0fValidateDarFile\x124.com.daml.ledger.api.v2.admin.ValidateDarFileRequest\x1a5.com.daml.ledger.api.v2.admin.ValidateDarFileResponse\x12\x8d\x01\n" +
-	"\x14UpdateVettedPackages\x129.com.daml.ledger.api.v2.admin.UpdateVettedPackagesRequest\x1a:.com.daml.ledger.api.v2.admin.UpdateVettedPackagesResponseB\xa2\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB\"PackageManagementServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x14UpdateVettedPackages\x129.com.daml.ledger.api.v2.admin.UpdateVettedPackagesRequest\x1a:.com.daml.ledger.api.v2.admin.UpdateVettedPackagesResponseB\xa5\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB\"PackageManagementServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_package_management_service_proto_rawDescOnce sync.Once

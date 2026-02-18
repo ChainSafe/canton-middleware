@@ -442,8 +442,8 @@ const file_com_daml_ledger_api_v2_version_service_proto_rawDesc = "" +
 	"\x17OffsetCheckpointFeature\x12i\n" +
 	"$max_offset_checkpoint_emission_delay\x18\x01 \x01(\v2\x19.google.protobuf.DurationR maxOffsetCheckpointEmissionDelay2\x90\x01\n" +
 	"\x0eVersionService\x12~\n" +
-	"\x13GetLedgerApiVersion\x122.com.daml.ledger.api.v2.GetLedgerApiVersionRequest\x1a3.com.daml.ledger.api.v2.GetLedgerApiVersionResponseB\x86\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x18VersionServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x13GetLedgerApiVersion\x122.com.daml.ledger.api.v2.GetLedgerApiVersionRequest\x1a3.com.daml.ledger.api.v2.GetLedgerApiVersionResponseB\x89\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x18VersionServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_version_service_proto_rawDescOnce sync.Once

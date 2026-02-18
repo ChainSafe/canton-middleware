@@ -905,8 +905,8 @@ const file_com_daml_ledger_api_v2_commands_proto_rawDesc = "" +
 	"\x13PrefetchContractKey\x12C\n" +
 	"\vtemplate_id\x18\x01 \x01(\v2\".com.daml.ledger.api.v2.IdentifierR\n" +
 	"templateId\x12@\n" +
-	"\fcontract_key\x18\x02 \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\vcontractKeyB\x80\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x12CommandsOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\fcontract_key\x18\x02 \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\vcontractKeyB\x83\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x12CommandsOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_commands_proto_rawDescOnce sync.Once

@@ -5,9 +5,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 PROTO_DIR="$PROJECT_ROOT/proto"
-OUT_DIR="$PROJECT_ROOT/pkg/canton/lapi"
+OUT_DIR="$PROJECT_ROOT/pkg/cantonsdk/lapi"
 
 echo "Generating Canton Ledger API protobuf stubs..."
 
@@ -38,17 +38,16 @@ fi
 # Inject go_package option for V2
 echo "Injecting go_package option for V2..."
 for f in "$DAML_PROTO_V2_DIR"/*.proto; do
-    # Remove existing go_package option if present
     sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
 
     if grep -q "syntax =" "$f"; then
         sed -i '' '/syntax =/a\
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";
-' "$f" 2>/dev/null || sed -i '/syntax =/a option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";' "$f"
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2";
+' "$f" 2>/dev/null || sed -i '/syntax =/a option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2";' "$f"
     fi
 done
 
-# Also handle admin protos if present
+# Handle admin protos
 ADMIN_DIR="$DAML_PROTO_V2_DIR/admin"
 if [ -d "$ADMIN_DIR" ]; then
     echo "Injecting go_package option for admin..."
@@ -56,10 +55,38 @@ if [ -d "$ADMIN_DIR" ]; then
         sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
         if grep -q "syntax =" "$f"; then
             sed -i '' '/syntax =/a\
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin";
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin";
 ' "$f" 2>/dev/null || true
         fi
     done
+fi
+
+# Handle interactive protos
+INTERACTIVE_DIR="$DAML_PROTO_V2_DIR/interactive"
+if [ -d "$INTERACTIVE_DIR" ]; then
+    echo "Injecting go_package option for interactive..."
+    for f in "$INTERACTIVE_DIR"/*.proto; do
+        sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
+        if grep -q "syntax =" "$f"; then
+            sed -i '' '/syntax =/a\
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive";
+' "$f" 2>/dev/null || true
+        fi
+    done
+
+    # Handle interactive/transaction/v1 sub-package
+    INTERACTIVE_TX_V1_DIR="$INTERACTIVE_DIR/transaction/v1"
+    if [ -d "$INTERACTIVE_TX_V1_DIR" ]; then
+        echo "Injecting go_package option for interactive/transaction/v1..."
+        for f in "$INTERACTIVE_TX_V1_DIR"/*.proto; do
+            sed -i '' '/option go_package/d' "$f" 2>/dev/null || sed -i '/option go_package/d' "$f"
+            if grep -q "syntax =" "$f"; then
+                sed -i '' '/syntax =/a\
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive/transaction/v1";
+' "$f" 2>/dev/null || true
+            fi
+        done
+    fi
 fi
 
 # Clean old generated files
@@ -76,7 +103,7 @@ protoc \
     --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
     "$DAML_PROTO_V2_DIR"/*.proto
 
-# Generate admin protos (for party management, etc.)
+# Generate admin protos
 if [ -d "$ADMIN_DIR" ]; then
     echo "Generating Go code for V2 admin..."
     mkdir -p "$OUT_DIR/v2/admin"
@@ -90,16 +117,42 @@ if [ -d "$ADMIN_DIR" ]; then
         "$ADMIN_DIR"/*.proto
 fi
 
-echo "✓ Proto generation complete"
+# Generate interactive protos
+if [ -d "$INTERACTIVE_DIR" ]; then
+    echo "Generating Go code for V2 interactive..."
+    mkdir -p "$OUT_DIR/v2/interactive"
+    protoc \
+        --proto_path="$PROTO_DIR/daml" \
+        --proto_path="$PROTO_DIR" \
+        --go_out="$PROJECT_ROOT" \
+        --go_opt=module=github.com/chainsafe/canton-middleware \
+        --go-grpc_out="$PROJECT_ROOT" \
+        --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
+        "$INTERACTIVE_DIR"/*.proto
+
+    # Generate interactive/transaction/v1 protos
+    if [ -d "$INTERACTIVE_TX_V1_DIR" ]; then
+        echo "Generating Go code for V2 interactive/transaction/v1..."
+        mkdir -p "$OUT_DIR/v2/interactive/transaction/v1"
+        protoc \
+            --proto_path="$PROTO_DIR/daml" \
+            --proto_path="$PROTO_DIR" \
+            --go_out="$PROJECT_ROOT" \
+            --go_opt=module=github.com/chainsafe/canton-middleware \
+            --go-grpc_out="$PROJECT_ROOT" \
+            --go-grpc_opt=module=github.com/chainsafe/canton-middleware \
+            "$INTERACTIVE_TX_V1_DIR"/*.proto
+    fi
+fi
+
+echo "Proto generation complete"
 echo "Generated files in: $OUT_DIR"
 
-# Instructions
 cat << EOF
 
 Next steps:
-1. Review generated files in pkg/canton/lapi/v2/
-2. Update Go code: replace lapiv1 imports with lapiv2
-3. Run: go mod tidy
+1. Review generated files in pkg/cantonsdk/lapi/v2/
+2. Run: go mod tidy
 
 NOTE: Canton 3.4.8 consolidated all types into v2 API.
       Types like Command, Value, Record are now in v2.

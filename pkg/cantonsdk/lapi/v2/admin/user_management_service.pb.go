@@ -1656,8 +1656,8 @@ const file_com_daml_ledger_api_v2_admin_user_management_service_proto_rawDesc = 
 	"\x0fGrantUserRights\x124.com.daml.ledger.api.v2.admin.GrantUserRightsRequest\x1a5.com.daml.ledger.api.v2.admin.GrantUserRightsResponse\x12\x81\x01\n" +
 	"\x10RevokeUserRights\x125.com.daml.ledger.api.v2.admin.RevokeUserRightsRequest\x1a6.com.daml.ledger.api.v2.admin.RevokeUserRightsResponse\x12{\n" +
 	"\x0eListUserRights\x123.com.daml.ledger.api.v2.admin.ListUserRightsRequest\x1a4.com.daml.ledger.api.v2.admin.ListUserRightsResponse\x12\xa5\x01\n" +
-	"\x1cUpdateUserIdentityProviderId\x12A.com.daml.ledger.api.v2.admin.UpdateUserIdentityProviderIdRequest\x1aB.com.daml.ledger.api.v2.admin.UpdateUserIdentityProviderIdResponseB\x9f\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB\x1fUserManagementServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x1cUpdateUserIdentityProviderId\x12A.com.daml.ledger.api.v2.admin.UpdateUserIdentityProviderIdRequest\x1aB.com.daml.ledger.api.v2.admin.UpdateUserIdentityProviderIdResponseB\xa2\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB\x1fUserManagementServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_user_management_service_proto_rawDescOnce sync.Once

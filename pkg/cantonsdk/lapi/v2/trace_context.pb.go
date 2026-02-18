@@ -88,8 +88,8 @@ const file_com_daml_ledger_api_v2_trace_context_proto_rawDesc = "" +
 	"tracestate\x18\x02 \x01(\tH\x01R\n" +
 	"tracestate\x88\x01\x01B\x0e\n" +
 	"\f_traceparentB\r\n" +
-	"\v_tracestateB\x84\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x16TraceContextOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\v_tracestateB\x87\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x16TraceContextOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_trace_context_proto_rawDescOnce sync.Once

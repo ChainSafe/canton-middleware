@@ -15,6 +15,7 @@ import (
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
+	interactivev2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
@@ -52,6 +53,10 @@ type Ledger interface {
 	// UserAdmin returns the UserManagementService client.
 	UserAdmin() adminv2.UserManagementServiceClient
 
+	// Interactive returns the InteractiveSubmissionService client
+	// for prepare/sign/execute transaction flows with external parties.
+	Interactive() interactivev2.InteractiveSubmissionServiceClient
+
 	// GetLedgerEnd retrieves the current absolute ledger offset.
 	GetLedgerEnd(ctx context.Context) (int64, error)
 
@@ -85,8 +90,9 @@ type Client struct {
 	command lapiv2.CommandServiceClient
 	update  lapiv2.UpdateServiceClient
 
-	partyAdmin adminv2.PartyManagementServiceClient
-	userAdmin  adminv2.UserManagementServiceClient
+	partyAdmin  adminv2.PartyManagementServiceClient
+	userAdmin   adminv2.UserManagementServiceClient
+	interactive interactivev2.InteractiveSubmissionServiceClient
 
 	auth AuthProvider
 
@@ -126,9 +132,10 @@ func New(cfg *Config, opts ...Option) (*Client, error) {
 		state:      lapiv2.NewStateServiceClient(conn),
 		command:    lapiv2.NewCommandServiceClient(conn),
 		update:     lapiv2.NewUpdateServiceClient(conn),
-		partyAdmin: adminv2.NewPartyManagementServiceClient(conn),
-		userAdmin:  adminv2.NewUserManagementServiceClient(conn),
-		auth:       ap,
+		partyAdmin:  adminv2.NewPartyManagementServiceClient(conn),
+		userAdmin:   adminv2.NewUserManagementServiceClient(conn),
+		interactive: interactivev2.NewInteractiveSubmissionServiceClient(conn),
+		auth:        ap,
 	}, nil
 }
 
@@ -148,6 +155,10 @@ func (c *Client) PartyAdmin() adminv2.PartyManagementServiceClient {
 
 func (c *Client) UserAdmin() adminv2.UserManagementServiceClient {
 	return c.userAdmin
+}
+
+func (c *Client) Interactive() interactivev2.InteractiveSubmissionServiceClient {
+	return c.interactive
 }
 
 func (c *Client) AuthContext(ctx context.Context) context.Context {
