@@ -24,7 +24,7 @@ type Client struct {
 }
 
 // New creates an SDK client from SDK-native config.
-func New(ctx context.Context, cfg Config, opts ...Option) (*Client, error) {
+func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	_ = ctx // reserved for future (e.g. eager connectivity check)
 	s := applyOptions(opts)
 
@@ -65,7 +65,7 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Client, error) {
 	}
 	if bridgeCfg != nil {
 		bridgeCfg.UserID = sub
-		br, err = bridge.New(*bridgeCfg, l, id, bridge.WithLogger(s.logger))
+		br, err = bridge.New(bridgeCfg, l, id, bridge.WithLogger(s.logger))
 		if err != nil {
 			_ = l.Close()
 			return nil, err
@@ -99,29 +99,29 @@ func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Opt
 	s := applyOptions(opts)
 
 	sdkCfg := Config{
-		Ledger: ledger.Config{
+		Ledger: &ledger.Config{
 			RPCURL:         cfg.RPCURL,
 			LedgerID:       cfg.LedgerID,
 			MaxMessageSize: cfg.MaxMessageSize,
-			TLS: ledger.TLSConfig{
+			TLS: &ledger.TLSConfig{
 				Enabled:  cfg.TLS.Enabled,
 				CertFile: cfg.TLS.CertFile,
 				KeyFile:  cfg.TLS.KeyFile,
 				CAFile:   cfg.TLS.CAFile,
 			},
-			Auth: ledger.AuthConfig{
+			Auth: &ledger.AuthConfig{
 				ClientID:     cfg.Auth.ClientID,
 				ClientSecret: cfg.Auth.ClientSecret,
 				Audience:     cfg.Auth.Audience,
 				TokenURL:     cfg.Auth.TokenURL,
 			},
 		},
-		Identity: identity.Config{
+		Identity: &identity.Config{
 			DomainID:        cfg.DomainID,
 			RelayerParty:    cfg.RelayerParty,
 			CommonPackageID: cfg.CommonPackageID,
 		},
-		Token: token.Config{
+		Token: &token.Config{
 			DomainID:       cfg.DomainID,
 			RelayerParty:   cfg.RelayerParty,
 			CIP56PackageID: cfg.CIP56PackageID,
@@ -141,7 +141,7 @@ func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Opt
 		}
 	}
 
-	return New(ctx, sdkCfg,
+	return New(ctx, &sdkCfg,
 		WithLogger(s.logger),
 		WithHTTPClient(s.httpClient),
 		WithBridgeConfig(sdkCfg.Bridge),

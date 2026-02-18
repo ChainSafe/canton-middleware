@@ -1,6 +1,9 @@
 package ledger
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // Config contains the configuration required to establish
 // a connection to a Canton participant.
@@ -9,8 +12,8 @@ type Config struct {
 	LedgerID       string
 	MaxMessageSize int
 
-	TLS  TLSConfig
-	Auth AuthConfig
+	TLS  *TLSConfig
+	Auth *AuthConfig
 }
 
 // TLSConfig defines transport security settings for the gRPC connection.
@@ -33,4 +36,14 @@ type AuthConfig struct {
 	// ExpiryLeeway specifies how long before actual token expiry
 	// the token should be considered expired. If zero, a default is applied.
 	ExpiryLeeway time.Duration
+}
+
+func (cfg *AuthConfig) validate() error {
+	if cfg == nil {
+		return errors.New("nil config")
+	}
+	if cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.Audience == "" || cfg.TokenURL == "" {
+		return errors.New("no auth configured: OAuth2 client credentials are required")
+	}
+	return nil
 }

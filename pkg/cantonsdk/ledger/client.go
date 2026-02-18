@@ -7,6 +7,7 @@ package ledger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -75,7 +76,7 @@ type Ledger interface {
 // It encapsulates the gRPC connection, Ledger API service clients,
 // and authentication handling.
 type Client struct {
-	cfg    Config
+	cfg    *Config
 	logger *zap.Logger
 
 	conn *grpc.ClientConn
@@ -95,7 +96,7 @@ type Client struct {
 }
 
 // New creates a new Ledger client using the provided configuration.
-func New(cfg Config, opts ...Option) (*Client, error) {
+func New(cfg *Config, opts ...Option) (*Client, error) {
 	s := applyOptions(opts)
 
 	dopts, err := dialOptions(cfg, s.dialOpts)
@@ -108,7 +109,7 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("failed to create Canton client: %w", err)
 	}
 
-	var ap AuthProvider = s.authProvider
+	var ap = s.authProvider
 	if ap == nil {
 		ap = NewOAuthClientCredentialsProvider(cfg.Auth, s.httpClient)
 	}
@@ -275,7 +276,7 @@ func (c *Client) GetActiveContractsByTemplate(
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, fmt.Errorf("failed to receive active contract: %w", err)

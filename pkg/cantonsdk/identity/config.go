@@ -15,7 +15,10 @@ type Config struct {
 	BridgePackageID string
 }
 
-func (c Config) validate() error {
+func (c *Config) validate() error {
+	if c == nil {
+		return errors.New("nil config")
+	}
 	if c.DomainID == "" {
 		return errors.New("domain_id is required")
 	}
@@ -32,7 +35,7 @@ func (c Config) validate() error {
 }
 
 // GetPackageID return the CommonPackageID or BridgePackageID based on the preference.
-func (c Config) GetPackageID() string {
+func (c *Config) GetPackageID() string {
 	if c.CommonPackageID != "" {
 		return c.CommonPackageID
 	}

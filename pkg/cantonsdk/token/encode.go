@@ -7,7 +7,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
 
-func encodeIssuerMintArgs(req MintRequest) *lapiv2.Record {
+func encodeIssuerMintArgs(req *MintRequest) *lapiv2.Record {
 	evmTx := values.None()
 	if req.EvmTxHash != "" {
 		evmTx = values.Optional(values.TextValue(req.EvmTxHash))
@@ -24,7 +24,7 @@ func encodeIssuerMintArgs(req MintRequest) *lapiv2.Record {
 	}
 }
 
-func encodeIssuerBurnArgs(req BurnRequest) *lapiv2.Record {
+func encodeIssuerBurnArgs(req *BurnRequest) *lapiv2.Record {
 	evmDest := values.None()
 	if req.EvmDestination != "" {
 		evmDest = values.Optional(values.TextValue(req.EvmDestination))

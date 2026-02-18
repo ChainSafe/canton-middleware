@@ -28,7 +28,10 @@ type Config struct {
 }
 
 // Validate validates config for bridge operations.
-func (c Config) validate() error {
+func (c *Config) validate() error {
+	if c == nil {
+		return fmt.Errorf("nil config")
+	}
 	if c.DomainID == "" {
 		return fmt.Errorf("domain id is required")
 	}
@@ -51,7 +54,7 @@ func (c Config) validate() error {
 }
 
 // effectiveCorePackageID returns the core package id, falling back to BridgePackageID when unset.
-func (c Config) effectiveCorePackageID() string {
+func (c *Config) effectiveCorePackageID() string {
 	if c.CorePackageID != "" {
 		return c.CorePackageID
 	}

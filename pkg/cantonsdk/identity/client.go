@@ -11,6 +11,7 @@ import (
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -39,7 +40,7 @@ type Client struct {
 }
 
 // New creates a new identity client.
-func New(cfg Config, l ledger.Ledger, opts ...Option) (*Client, error) {
+func New(cfg *Config, l ledger.Ledger, opts ...Option) (*Client, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
@@ -47,7 +48,7 @@ func New(cfg Config, l ledger.Ledger, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("nil ledger client")
 	}
 	s := applyOptions(opts)
-	return &Client{cfg: &cfg, ledger: l, logger: s.logger}, nil
+	return &Client{cfg: cfg, ledger: l, logger: s.logger}, nil
 }
 
 func (c *Client) AllocateParty(ctx context.Context, hint string) (*Party, error) {

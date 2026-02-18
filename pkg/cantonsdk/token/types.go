@@ -24,7 +24,7 @@ type MintRequest struct {
 	EvmTxHash       string
 }
 
-func (m MintRequest) validate() error {
+func (m *MintRequest) validate() error {
 	if m.RecipientParty == "" {
 		return fmt.Errorf("recipient_party is required")
 	}
@@ -49,7 +49,7 @@ type BurnRequest struct {
 	EvmDestination  string
 }
 
-func (b BurnRequest) validate() error {
+func (b *BurnRequest) validate() error {
 	if b.HoldingCID == "" {
 		return fmt.Errorf("holding_cid is required")
 	}
@@ -66,7 +66,8 @@ func (b BurnRequest) validate() error {
 }
 
 // MintEvent is a decoded representation of a CIP56.Events.MintEvent.
-// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L21C10-L21C19
+// See canton-erc20 repository:
+// daml/cip56-token/src/CIP56/Events.daml
 type MintEvent struct {
 	ContractID      string
 	Issuer          string
@@ -81,7 +82,8 @@ type MintEvent struct {
 }
 
 // BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
-// Ref: https://github.com/ChainSafe/canton-erc20/blob/53065ebcffa047e07cd7dc472ba9a9eed9895340/daml/cip56-token/src/CIP56/Events.daml#L45
+// See canton-erc20 repository:
+// daml/cip56-token/src/CIP56/Events.daml
 type BurnEvent struct {
 	ContractID      string
 	Issuer          string

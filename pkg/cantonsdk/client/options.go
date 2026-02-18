@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+
 	"go.uber.org/zap"
 )
 

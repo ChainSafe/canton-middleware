@@ -1,8 +1,9 @@
 package values
 
 import (
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"time"
+
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
 // Text extracts a text value.

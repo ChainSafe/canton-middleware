@@ -11,6 +11,7 @@ import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -31,10 +32,10 @@ type Token interface {
 	GetTokenConfigCID(ctx context.Context, tokenSymbol string) (string, error)
 
 	// Mint mints tokens using TokenConfig.IssuerMint and returns the created holding contract ID.
-	Mint(ctx context.Context, req MintRequest) (string, error)
+	Mint(ctx context.Context, req *MintRequest) (string, error)
 
 	// Burn burns tokens using TokenConfig.IssuerBurn.
-	Burn(ctx context.Context, req BurnRequest) error
+	Burn(ctx context.Context, req *BurnRequest) error
 
 	// GetHoldings returns all CIP56Holding contracts for the owner and token symbol.
 	GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*Holding, error)
@@ -70,8 +71,8 @@ type Client struct {
 }
 
 // New creates a new token client.
-func New(cfg Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*Client, error) {
-	err := cfg.Validate()
+func New(cfg *Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*Client, error) {
+	err := cfg.validate()
 	if err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -84,7 +85,7 @@ func New(cfg Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*Cl
 
 	s := applyOptions(opts)
 	return &Client{
-		cfg:      &cfg,
+		cfg:      cfg,
 		ledger:   l,
 		identity: id,
 		logger:   s.logger,
@@ -121,7 +122,7 @@ func (c *Client) GetTokenConfigCID(ctx context.Context, tokenSymbol string) (str
 	return "", fmt.Errorf("no active TokenConfig found for symbol %s", tokenSymbol)
 }
 
-func (c *Client) Mint(ctx context.Context, req MintRequest) (string, error) {
+func (c *Client) Mint(ctx context.Context, req *MintRequest) (string, error) {
 	err := req.validate()
 	if err != nil {
 		return "", fmt.Errorf("invalid request: %w", err)
@@ -180,7 +181,7 @@ func (c *Client) Mint(ctx context.Context, req MintRequest) (string, error) {
 	return "", fmt.Errorf("CIP56Holding contract not found in mint response")
 }
 
-func (c *Client) Burn(ctx context.Context, req BurnRequest) error {
+func (c *Client) Burn(ctx context.Context, req *BurnRequest) error {
 	err := req.validate()
 	if err != nil {
 		return fmt.Errorf("invalid request: %w", err)
@@ -382,7 +383,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 		return err
 	}
 
-	return c.transferHolding(ctx, transferAsUserRequest{
+	return c.transferHolding(ctx, &transferAsUserRequest{
 		FromPartyID:              fromParty,
 		ToPartyID:                toParty,
 		HoldingCID:               holdingCID,
@@ -402,7 +403,7 @@ type transferAsUserRequest struct {
 	ExistingRecipientHolding string
 }
 
-func (c *Client) transferHolding(ctx context.Context, req transferAsUserRequest) error {
+func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest) error {
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
@@ -450,13 +451,15 @@ func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, require
 
 	total := "0"
 	for _, h := range holdings {
-		next, err := addDecimalStrings(total, h.Amount)
+		var next string
+		next, err = addDecimalStrings(total, h.Amount)
 		if err != nil {
 			return "", err
 		}
 		total = next
 
-		cmp, err := compareDecimalStrings(h.Amount, requiredAmount)
+		var cmp int
+		cmp, err = compareDecimalStrings(h.Amount, requiredAmount)
 		if err != nil {
 			return "", err
 		}

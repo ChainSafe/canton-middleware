@@ -147,7 +147,7 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
-			err = cantonClient.Token.Burn(ctx, token.BurnRequest{
+			err = cantonClient.Token.Burn(ctx, &token.BurnRequest{
 				HoldingCID:      h.ContractID,
 				Amount:          h.Amount,
 				UserFingerprint: "",
@@ -193,7 +193,7 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 1 (%s)...\n", *mintAmount, truncateParty(user1Party))
 	if !*dryRun && user1Party != "" {
-		_, err := cantonClient.Token.Mint(ctx, token.MintRequest{
+		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
 			RecipientParty:  user1Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user1Fingerprint,
@@ -210,7 +210,7 @@ func main() {
 
 	fmt.Printf("    Minting %s DEMO to User 2 (%s)...\n", *mintAmount, truncateParty(user2Party))
 	if !*dryRun && user2Party != "" {
-		_, err := cantonClient.Token.Mint(ctx, token.MintRequest{
+		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
 			RecipientParty:  user2Party,
 			Amount:          *mintAmount,
 			UserFingerprint: user2Fingerprint,

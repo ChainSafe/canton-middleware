@@ -6,6 +6,7 @@ package bridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -23,8 +25,9 @@ import (
 )
 
 const (
-	streamReconnectDelay    = 5 * time.Second
-	streamMaxReconnectDelay = 60 * time.Second
+	streamReconnectDelay      = 5 * time.Second
+	streamMaxReconnectDelay   = 60 * time.Second
+	withdrawalEventChannelCap = 10
 )
 
 // Bridge defines bridge operations.
@@ -64,7 +67,7 @@ type Client struct {
 }
 
 // New creates a new bridge client.
-func New(cfg Config, l ledger.Ledger, i identity.Identity, opts ...Option) (*Client, error) {
+func New(cfg *Config, l ledger.Ledger, i identity.Identity, opts ...Option) (*Client, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -74,7 +77,7 @@ func New(cfg Config, l ledger.Ledger, i identity.Identity, opts ...Option) (*Cli
 	s := applyOptions(opts)
 
 	return &Client{
-		cfg:      &cfg,
+		cfg:      cfg,
 		ledger:   l,
 		identity: i,
 		logger:   s.logger,
@@ -134,7 +137,8 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 	}
 
 	check := func(tid *lapiv2.Identifier) (bool, error) {
-		events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+		var events []*lapiv2.CreatedEvent
+		events, err = c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
 		if err != nil {
 			return false, err
 		}
@@ -391,7 +395,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 }
 
 func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-chan *WithdrawalEvent {
-	outCh := make(chan *WithdrawalEvent, 10)
+	outCh := make(chan *WithdrawalEvent, withdrawalEventChannelCap)
 
 	go func() {
 		defer close(outCh)
@@ -407,7 +411,7 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-ch
 			}
 
 			err := c.streamWithdrawalEventsOnce(ctx, currentOffset, outCh, &currentOffset)
-			if err == nil || err == io.EOF || ctx.Err() != nil {
+			if err == nil || errors.Is(err, io.EOF) || ctx.Err() != nil {
 				return
 			}
 
@@ -476,9 +480,6 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 	for {
 		resp, recvErr := stream.Recv()
 		if recvErr != nil {
-			if recvErr == io.EOF {
-				return io.EOF
-			}
 			return recvErr
 		}
 

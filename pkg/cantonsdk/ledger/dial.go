@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func dialOptions(cfg Config, extra []grpc.DialOption) ([]grpc.DialOption, error) {
+func dialOptions(cfg *Config, extra []grpc.DialOption) ([]grpc.DialOption, error) {
 	var opts []grpc.DialOption
 
 	if cfg.TLS.Enabled {
@@ -32,9 +32,9 @@ func dialOptions(cfg Config, extra []grpc.DialOption) ([]grpc.DialOption, error)
 	return opts, nil
 }
 
-func loadTLSConfig(c TLSConfig) (*tls.Config, error) {
+func loadTLSConfig(c *TLSConfig) (*tls.Config, error) {
 	tlsCfg := &tls.Config{
-		InsecureSkipVerify: c.InsecureSkipVerify,
+		InsecureSkipVerify: c.InsecureSkipVerify, //nolint:gosec // for testing only this flag is true
 		NextProtos:         []string{"h2"},
 	}
 

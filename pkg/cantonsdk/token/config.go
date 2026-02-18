@@ -12,7 +12,10 @@ type Config struct {
 	CIP56PackageID string
 }
 
-func (c Config) Validate() error {
+func (c *Config) validate() error {
+	if c == nil {
+		return errors.New("nil config")
+	}
 	if c.DomainID == "" {
 		return errors.New("domain_id is required")
 	}

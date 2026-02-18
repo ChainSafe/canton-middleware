@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"fmt"
+
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
