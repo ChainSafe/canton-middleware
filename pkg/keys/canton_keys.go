@@ -6,10 +6,12 @@ package keys
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math/big"
@@ -17,6 +19,22 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/crypto/hkdf"
 )
+
+// ASN.1 OIDs for EC public key and secp256k1 curve
+var (
+	oidECPublicKey = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+	oidSecp256k1   = asn1.ObjectIdentifier{1, 3, 132, 0, 10}
+)
+
+type spkiAlgorithmIdentifier struct {
+	Algorithm  asn1.ObjectIdentifier
+	Parameters asn1.ObjectIdentifier
+}
+
+type subjectPublicKeyInfo struct {
+	Algorithm        spkiAlgorithmIdentifier
+	SubjectPublicKey asn1.BitString
+}
 
 type ecdsaSignature struct {
 	R, S *big.Int
@@ -99,6 +117,41 @@ func CantonKeyPairFromPrivateKey(privKey []byte) (*CantonKeyPair, error) {
 // PublicKeyHex returns the public key as a hex string (for display/logging)
 func (kp *CantonKeyPair) PublicKeyHex() string {
 	return fmt.Sprintf("%x", kp.PublicKey)
+}
+
+// SPKIPublicKey returns the public key in X.509 SubjectPublicKeyInfo DER format.
+func (kp *CantonKeyPair) SPKIPublicKey() ([]byte, error) {
+	ecdsaPub, err := crypto.DecompressPubkey(kp.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("decompress public key: %w", err)
+	}
+	uncompressed := elliptic.Marshal(ecdsaPub.Curve, ecdsaPub.X, ecdsaPub.Y)
+
+	return asn1.Marshal(subjectPublicKeyInfo{
+		Algorithm: spkiAlgorithmIdentifier{
+			Algorithm:  oidECPublicKey,
+			Parameters: oidSecp256k1,
+		},
+		SubjectPublicKey: asn1.BitString{
+			Bytes:     uncompressed,
+			BitLength: len(uncompressed) * 8,
+		},
+	})
+}
+
+// Fingerprint returns the Canton key fingerprint: multihash-encoded SHA-256
+// of the SPKI public key bytes with hash purpose 12.
+func (kp *CantonKeyPair) Fingerprint() string {
+	spki, err := kp.SPKIPublicKey()
+	if err != nil {
+		return ""
+	}
+	var purpose [4]byte
+	binary.BigEndian.PutUint32(purpose[:], 12)
+	h := sha256.Sum256(append(purpose[:], spki...))
+	// Multihash encoding: 0x12 (SHA-256 algo) + 0x20 (32 byte length) + hash
+	mh := append([]byte{0x12, 0x20}, h[:]...)
+	return fmt.Sprintf("%x", mh)
 }
 
 // PublicKeyBase64 returns the public key as a base64 string

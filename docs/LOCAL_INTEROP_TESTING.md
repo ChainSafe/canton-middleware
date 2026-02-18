@@ -2,7 +2,8 @@
 
 This guide walks you through running the full Canton-EVM interoperability test locally. It demonstrates:
 
-- **DEMO token interoperability** -- bidirectional transfers between MetaMask (EVM) users and native Canton Ledger API users
+- **External party allocation** -- all users (MetaMask and native) are created as external parties using the Interactive Submission API
+- **DEMO token interoperability** -- bidirectional transfers between MetaMask (EVM) users and native Canton external parties via the `/eth` JSON-RPC endpoint
 - **PROMPT token bridging** -- depositing ERC-20 tokens from Ethereum into Canton and transferring them on-ledger
 
 ## Prerequisites
@@ -15,24 +16,23 @@ This guide walks you through running the full Canton-EVM interoperability test l
 ## Quick Start (Two Commands)
 
 ```bash
-# 1. Bootstrap: starts Docker, registers users, mints tokens
+# 1. Bootstrap: starts Docker, registers users as external parties, mints tokens
 ./scripts/testing/bootstrap-local.sh --clean
 
-# 2. Test: runs all 10 interop + bridge test steps
+# 2. Test: runs all 8 interop + bridge test steps
 go run scripts/testing/interop-demo.go
 ```
 
 That's it. Both scripts auto-detect all dynamic configuration (domain IDs, party IDs, contract addresses) from the running Docker containers.
 
-> **Go module cache note:** If `go run` fails with "no required module provides package" errors, your `GOMODCACHE` may be pointing to a sandboxed or empty cache directory. Fix by explicitly setting it before running:
+The bootstrap script auto-generates `CANTON_MASTER_KEY` (for encrypting stored Canton signing keys) and sets `SKIP_CANTON_SIG_VERIFY=true` (for local testing). No manual environment setup is needed.
+
+> **Go module cache note:** If `go run` fails with "no required module provides package" errors, set `GOMODCACHE` before running:
 >
 > ```bash
 > export GOMODCACHE="$HOME/go/pkg/mod"
-> ./scripts/testing/bootstrap-local.sh --clean
 > go run scripts/testing/interop-demo.go
 > ```
->
-> The bootstrap script sets this automatically, but external tools (e.g. Cursor IDE sandbox) can override it. If you hit this issue, export `GOMODCACHE` in your shell profile (`~/.zshrc` or `~/.bashrc`) to make it permanent.
 
 ## Architecture Overview
 
@@ -42,9 +42,9 @@ The local stack consists of the following services:
 |---------|------|-------------|
 | Canton | 5011 (gRPC), 5013 (HTTP) | Canton participant node with two participants and a sequencer |
 | Anvil | 8545 | Local Ethereum node (Foundry) |
-| PostgreSQL | 5432 | Database for the API server |
+| PostgreSQL | 5432 | Database for the API server (users, whitelist, encrypted Canton keys) |
 | Mock OAuth2 | 8088 | OAuth2 token provider for Canton authentication |
-| API Server | 8081 | ERC-20 JSON-RPC facade (MetaMask-compatible) |
+| API Server | 8081 | ERC-20 JSON-RPC facade with `/eth` and `/register` endpoints |
 | Relayer | - | Bridges EVM deposits/withdrawals to Canton |
 | Bootstrap | - | One-shot container that sets up parties, DARs, and configs |
 
@@ -57,9 +57,27 @@ The local stack consists of the following services:
 
 ### How It Works
 
-- **MetaMask users** interact through the API server, which translates Ethereum JSON-RPC calls into Canton Ledger API operations.
-- **Native Canton users** interact directly via the Canton Ledger API (gRPC).
-- Both user types hold the same `CIP56Holding` contracts on Canton, enabling seamless interoperability.
+All users are **external parties** on Canton. External parties hold their own signing keys and use the **Interactive Submission API** (prepare/sign/execute) instead of the standard `CommandService`. This removes the ~200 internal party limit and enables interoperability with wallets like Canton Loop.
+
+- **MetaMask users** register via `/register` with an EIP-191 signature. The API server generates a secp256k1 Canton keypair, allocates an external party, and stores the encrypted signing key.
+- **Native Canton users** are allocated externally (via the SDK), then registered via `/register` with their Canton party ID and signing key, which the API server stores for Interactive Submission.
+- All transfers route through the `/eth` JSON-RPC endpoint using `eth_sendRawTransaction`. The API server resolves the sender's Canton signing key from the database, then uses Interactive Submission to execute the transfer on Canton.
+
+```
+MetaMask / cast send
+        |
+        v
+  /eth endpoint (JSON-RPC)
+        |
+        v
+  TokenService.Transfer()
+        |
+        v
+  PrepareSubmission -> sign with user's key -> ExecuteSubmission
+        |
+        v
+  Canton Ledger (CIP-56 Holding transfer)
+```
 
 ## Step 1: Bootstrap
 
@@ -73,7 +91,7 @@ This single command does everything from scratch:
 2. Waits for all services to be healthy
 3. Extracts dynamic config from the bootstrap container (domain ID, relayer party, contract addresses)
 4. Auto-updates `config.e2e-local.yaml` so subsequent scripts use the correct values
-5. Whitelists and registers two test users via the API server (EIP-191 signatures)
+5. Whitelists and registers two test users via the API server (EIP-191 signatures, external party allocation)
 6. Bootstraps 500 DEMO tokens to each user
 
 **Options:**
@@ -84,10 +102,10 @@ This single command does everything from scratch:
 ```
 
 **Expected state after bootstrap:**
-| User | DEMO | PROMPT |
-|------|------|--------|
-| User 1 (`0xf39F...`) | 500 | 0 |
-| User 2 (`0x7099...`) | 500 | 0 |
+| User | Type | DEMO | PROMPT |
+|------|------|------|--------|
+| User 1 (`0xf39F...`) | External (MetaMask) | 500 | 0 |
+| User 2 (`0x7099...`) | External (MetaMask) | 500 | 0 |
 
 ## Step 2: Run the Interop Test
 
@@ -95,48 +113,53 @@ This single command does everything from scratch:
 go run scripts/testing/interop-demo.go
 ```
 
-**Options:**
-```bash
-go run scripts/testing/interop-demo.go --skip-prompt   # Skip PROMPT bridge tests
-go run scripts/testing/interop-demo.go --skip-demo     # Skip DEMO interop tests
-```
-
 ## What the Test Covers
 
-The interop demo runs 10 automated steps across two parts:
+The interop demo runs 8 automated steps across two parts:
 
-### Part A: DEMO Token Interoperability (Steps 1--6)
+### Part A: DEMO Token Interoperability (Steps 1--4)
 
-Tests bidirectional transfers between MetaMask users and native Canton Ledger API users using the native DEMO token.
-
-| Step | Description |
-|------|-------------|
-| 1 | **Allocate Native Parties** -- Creates `native_interop_1` and `native_interop_2` on Canton (not registered with API server) |
-| 2 | **MetaMask → Native** -- User 1 (MetaMask) sends 100 DEMO to Native User 1 |
-| 3 | **Native → Native** -- Native User 1 sends 100 DEMO to Native User 2 via Ledger API |
-| 4 | **Native → MetaMask** -- Native User 2 sends 100 DEMO back to User 1 |
-| 5 | **Register Native User** -- Registers Native User 1 with the API server, generating a MetaMask-compatible EVM keypair |
-| 6 | **MetaMask → Registered Native** -- User 1 sends 100 DEMO to the newly registered Native User 1 |
-
-### Part B: PROMPT Token Bridge (Steps 7--10)
-
-Tests the full ERC-20 bridge lifecycle: Ethereum deposit → Canton balance → Canton transfer.
+Tests bidirectional transfers between MetaMask users and native Canton external parties using the native DEMO token. All transfers go through the `/eth` endpoint using Interactive Submission.
 
 | Step | Description |
 |------|-------------|
-| 7 | **Deposit PROMPT** -- Approves and deposits 100 PROMPT from Anvil (Ethereum) to Canton via the bridge contract |
-| 8 | **Verify Canton Balance** -- Polls until the relayer processes the deposit and PROMPT appears on Canton |
-| 9 | **Transfer on Canton** -- Sends 25 PROMPT from User 1 to User 2 via the API server's `eth_sendRawTransaction` |
-| 10 | **Verify Final Balances** -- Confirms User 1 has 75 PROMPT and User 2 has 25 PROMPT |
+| 1 | **Allocate External Native Parties** -- Creates `native_interop_1` and `native_interop_2` as external parties on Canton, registers them with the API server (passing Canton signing keys), and whitelists their EVM addresses |
+| 2 | **MetaMask -> Native** -- User 1 (MetaMask) sends 100 DEMO to Native User 1 via `cast send` to `/eth` |
+| 3 | **Native -> Native** -- Native User 1 sends 100 DEMO to Native User 2 via `cast send` to `/eth` |
+| 4 | **Native -> MetaMask** -- Native User 2 sends 100 DEMO back to User 1 via `cast send` to `/eth` |
+
+### Part B: PROMPT Token Bridge (Steps 5--8)
+
+Tests the full ERC-20 bridge lifecycle: Ethereum deposit -> Canton balance -> Canton transfer.
+
+| Step | Description |
+|------|-------------|
+| 5 | **Deposit PROMPT** -- Approves and deposits 100 PROMPT from Anvil (Ethereum) to Canton via the bridge contract |
+| 6 | **Verify Canton Balance** -- Polls until the relayer processes the deposit and PROMPT appears on Canton |
+| 7 | **Transfer on Canton** -- Sends 25 PROMPT from User 1 to User 2 via `cast send` to `/eth` |
+| 8 | **Verify Final Balances** -- Confirms User 1 has 75 PROMPT and User 2 has 25 PROMPT |
+
+### Expected Final State
+
+| User | DEMO | PROMPT |
+|------|------|--------|
+| User 1 (`0xf39F...`) | 500 | 75 |
+| User 2 (`0x7099...`) | 500 | 25 |
+| Native User 1 | 0 | 0 |
+| Native User 2 | 0 | 0 |
 
 ## Test Accounts
 
-### MetaMask Users (Pre-configured)
+### MetaMask Users (Pre-configured Anvil accounts)
 
 | | Address | Private Key |
 |-|---------|-------------|
 | User 1 | `0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266` | `ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` |
 | User 2 | `0x70997970C51812dc3A010C7d01b50e0d17dc79C8` | `59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d` |
+
+### Native Users (Created by interop demo)
+
+Native users are allocated as external parties during the test. Each gets a fresh secp256k1 Canton keypair and a derived EVM address. Their Canton signing keys are stored (encrypted) in the API server's database so it can sign Interactive Submission transactions on their behalf.
 
 ### MetaMask Network Configuration
 
@@ -156,15 +179,27 @@ Tests the full ERC-20 bridge lifecycle: Ethereum deposit → Canton balance → 
 
 > PROMPT and bridge contract addresses are deterministic on first deployment but change if Docker volumes are recreated. The bootstrap script and interop test auto-detect them from `docker logs deployer`.
 
+## Key Concepts
+
+### External Parties and Interactive Submission
+
+Canton has two types of parties:
+
+- **Internal parties** are created by `AllocateParty`. The participant node manages their keys and signs transactions via `CommandService.SubmitAndWait`. Limited to ~200 per participant.
+- **External parties** are created by `AllocateExternalParty`. Their signing keys are held externally. Transactions use the Interactive Submission API: `PrepareSubmission` -> sign hash with external key -> `ExecuteSubmission`. No practical limit.
+
+This middleware uses external parties exclusively. The API server stores each user's Canton signing key (AES-256-GCM encrypted with `CANTON_MASTER_KEY`) and signs Interactive Submission transactions on their behalf.
+
+### Canton Key Fingerprints
+
+Canton identifies signing keys by their **fingerprint**: a multihash-encoded SHA-256 of the X.509 SubjectPublicKeyInfo (SPKI) DER-encoded public key. The fingerprint is used in the `SignedBy` field of signature messages. The `CantonKeyPair.Fingerprint()` method computes this.
+
 ## Troubleshooting
 
 ### Docker services fail to start
 
 ```bash
-# Check container status
 docker compose ps
-
-# Check logs for a specific service
 docker compose logs canton
 docker compose logs bootstrap
 ```
@@ -174,59 +209,37 @@ docker compose logs bootstrap
 Canton takes a few seconds to start. The bootstrap script retries automatically. If it times out:
 
 ```bash
-# Verify Canton is healthy
 docker compose exec canton curl -s http://localhost:5013/v2/state/connected-synchronizers | jq
 ```
 
-### Bootstrap fails at "Allocating BridgeIssuer party"
+### Bootstrap fails at user registration ("party allocation failed")
 
-Check Canton logs for errors:
+Check the API server logs for the underlying Canton error:
 ```bash
-docker compose logs canton 2>&1 | grep -i "error\|exception"
+docker logs erc20-api-server --tail 20
 ```
 
-### Package ID mismatch
+Common causes:
+- Canton node not ready yet (retry after a few seconds)
+- Key format issue (should be SPKI DER-encoded, not raw)
 
-If you rebuilt DARs, the package IDs change. The bootstrap script auto-detects them, but if you're running scripts manually, update the config:
+### CANTON_MASTER_KEY issues
 
+The bootstrap script auto-generates this key. If you're running services manually, set it:
 ```bash
-# Get the current bridge-wayfinder package ID
-daml damlc inspect contracts/canton-erc20/daml/bridge-wayfinder/.daml/dist/bridge-wayfinder-*.dar | grep "^package"
-
-# Update in config files
-# bridge_package_id in: config.docker-local.yaml, .test-config.yaml, etc.
+export CANTON_MASTER_KEY=$(openssl rand -base64 32)
+docker compose up -d api-server
 ```
 
-### `no required module provides package` errors
+The API server will refuse to start without it. The key must be the same one used during user registration (it encrypts the stored Canton signing keys).
 
-Go can't find downloaded dependencies. This typically happens when `GOMODCACHE` points to a sandboxed or empty directory (common in Cursor IDE or CI environments).
+### Transfer fails with "no key resolver configured"
 
-```bash
-# Check where Go is looking for modules
-go env GOMODCACHE
-
-# If it points to a temp/sandbox path, override it:
-export GOMODCACHE="$HOME/go/pkg/mod"
-
-# Then re-download and retry
-go mod download
-./scripts/testing/bootstrap-local.sh --skip-docker
-```
-
-The bootstrap script exports `GOMODCACHE="$HOME/go/pkg/mod"` internally, but if the parent shell has already set it to something else, you may need to export it before invoking the script.
-
-### `USER_NOT_FOUND` warnings during party allocation
-
-When the interop demo allocates native Canton parties, it attempts to call `GrantCanActAs` via Canton's **User Management Service** to register the OAuth client (`local-test-client`) as authorized to act as the new party. This call fails with `USER_NOT_FOUND` because the mock OAuth user is not registered in Canton's User Management Service.
-
-**Why the demo still works:** Command submission (`CommandService.SubmitAndWaitForTransaction`) and party allocation are handled by the Canton participant node's authentication layer, which is separate from the User Management Service. In the local Docker setup, the participant trusts the authenticated caller (via the mock OAuth token) to act as any party it has locally allocated. The `GrantCanActAs` step is only needed in production Canton deployments with strict user management enforcement.
-
-These warnings are expected in local testing and can be safely ignored.
+The API server's Canton SDK client doesn't have a `KeyResolver`. This means `CANTON_MASTER_KEY` was not set when the API server started.
 
 ### Stale state from previous runs
 
 ```bash
-# Full cleanup and re-bootstrap
 ./scripts/testing/bootstrap-local.sh --clean
 ```
 
@@ -234,7 +247,6 @@ These warnings are expected in local testing and can be safely ignored.
 
 If ports 5011, 5013, 8081, 8088, or 8545 are in use:
 ```bash
-# Check what's using the port
 lsof -i :8081
 ```
 

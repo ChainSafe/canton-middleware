@@ -3,9 +3,11 @@ package token
 import "go.uber.org/zap"
 
 // Signer can produce DER-encoded ECDSA signatures for Canton Interactive Submission.
+// SignDER hashes the message with SHA-256 before signing (Canton returns multihash data).
+// Fingerprint returns the Canton key fingerprint (multihash of SPKI public key).
 type Signer interface {
-	SignHashDER(hash []byte) ([]byte, error)
-	PublicKeyHex() string
+	SignDER(message []byte) ([]byte, error)
+	Fingerprint() string
 }
 
 // KeyResolver looks up a signer for the given Canton party ID.

@@ -464,7 +464,7 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 		return fmt.Errorf("prepare submission: %w", err)
 	}
 
-	derSig, err := signerKey.SignHashDER(prepResp.PreparedTransactionHash)
+	derSig, err := signerKey.SignDER(prepResp.PreparedTransactionHash)
 	if err != nil {
 		return fmt.Errorf("sign prepared transaction: %w", err)
 	}
@@ -477,7 +477,7 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 					{
 						Format:              lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
 						Signature:           derSig,
-						SignedBy:            signerKey.PublicKeyHex(),
+						SignedBy:            signerKey.Fingerprint(),
 						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
 					},
 				},

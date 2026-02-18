@@ -1,11 +1,13 @@
 package registration
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
@@ -55,6 +57,11 @@ type RegisterRequest struct {
 	// Canton native user registration (Loop wallet signMessage)
 	CantonPartyID   string `json:"canton_party_id,omitempty"`
 	CantonSignature string `json:"canton_signature,omitempty"`
+
+	// Optional: hex-encoded 32-byte Canton signing key. When provided for native
+	// registration, the handler stores it so the API server can sign Interactive
+	// Submission transactions on the user's behalf (e.g. transfers via /eth).
+	CantonPrivateKey string `json:"canton_private_key,omitempty"`
 }
 
 // RegisterResponse represents a registration response
@@ -170,7 +177,13 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 	// External parties use the Interactive Submission API and have no practical limit
 	// (unlike internal parties which are capped at ~200 per participant).
 	partyHint := fmt.Sprintf("user_%s", evmAddress[2:10]) // e.g., "user_f39Fd6e5"
-	partyResult, err := h.cantonClient.AllocateExternalParty(ctx, partyHint, cantonKeyPair.PublicKey, cantonKeyPair)
+	spkiKey, err := cantonKeyPair.SPKIPublicKey()
+	if err != nil {
+		h.logger.Error("Failed to encode SPKI public key", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "key encoding failed")
+		return
+	}
+	partyResult, err := h.cantonClient.AllocateExternalParty(ctx, partyHint, spkiKey, cantonKeyPair)
 	if err != nil {
 		h.logger.Error("Failed to allocate external Canton party",
 			zap.String("hint", partyHint),
@@ -350,19 +363,36 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Store the EVM private key (encrypted) so user can download it later for MetaMask
+	// Store the Canton signing key if provided (enables Interactive Submission
+	// for transfers via /eth). Otherwise fall back to storing the EVM key.
 	if h.keyStore != nil {
-		if err := h.keyStore.SetUserKey(evmAddress, req.CantonPartyID, evmKeyPair.PrivateKey); err != nil {
-			h.logger.Error("Failed to store EVM key",
+		var keyToStore []byte
+		var keyLabel string
+
+		if req.CantonPrivateKey != "" {
+			raw := strings.TrimPrefix(req.CantonPrivateKey, "0x")
+			decoded, err := hex.DecodeString(raw)
+			if err != nil || len(decoded) != 32 {
+				h.writeError(w, http.StatusBadRequest, "canton_private_key must be a hex-encoded 32-byte key")
+				return
+			}
+			keyToStore = decoded
+			keyLabel = "Canton"
+		} else {
+			keyToStore = evmKeyPair.PrivateKey
+			keyLabel = "EVM"
+		}
+
+		if err := h.keyStore.SetUserKey(evmAddress, req.CantonPartyID, keyToStore); err != nil {
+			h.logger.Error(fmt.Sprintf("Failed to store %s key", keyLabel),
 				zap.String("evm_address", evmAddress),
 				zap.Error(err))
-			// Cleanup: delete the user we just created
 			if delErr := h.db.DeleteUser(evmAddress); delErr != nil {
 				h.logger.Error("Failed to cleanup user after key storage failure",
 					zap.String("evm_address", evmAddress),
 					zap.Error(delErr))
 			}
-			h.writeError(w, http.StatusInternalServerError, "failed to store EVM key")
+			h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to store %s key", keyLabel))
 			return
 		}
 	}

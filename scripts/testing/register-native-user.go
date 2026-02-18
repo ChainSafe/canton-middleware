@@ -2,13 +2,14 @@
 
 // Register Native Canton User Script
 //
-// This script allocates a Canton party and registers it as a "native" user with the API server.
-// The API server generates an EVM keypair for the user, which can be imported to MetaMask.
+// Allocates an external Canton party and registers it as a "native" user
+// with the API server. The Canton signing key is passed to the handler so
+// the API server can perform Interactive Submission on the user's behalf.
 //
-// This is designed for local demo purposes where SKIP_CANTON_SIG_VERIFY=true is set.
+// Designed for local demo purposes where SKIP_CANTON_SIG_VERIFY=true is set.
 //
 // Usage:
-//   go run scripts/register-native-user.go -config config.e2e-local.yaml
+//   go run scripts/testing/register-native-user.go -config config.e2e-local.yaml
 //
 // Output:
 //   - Prints EVM address and private key (for MetaMask import)
@@ -19,8 +20,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,7 +31,6 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
-	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
 )
 
@@ -55,23 +53,21 @@ func main() {
 	flag.Parse()
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  Register Native Canton User")
+	fmt.Println("  Register Native Canton User (External Party)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Load config
 	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Create logger
 	logger, _ := zap.NewDevelopment()
+	ctx := context.Background()
 
-	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.NewFromAppConfig(ctx, &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -79,32 +75,41 @@ func main() {
 	fmt.Println("    Connected!")
 	fmt.Println()
 
-	ctx := context.Background()
-
-	// Generate party hint if not provided
 	hint := *partyHint
 	if hint == "" {
 		hint = fmt.Sprintf("native_%d", time.Now().Unix())
 	}
 
-	// Allocate a new party
-	fmt.Println(">>> Allocating Canton party...")
-	fmt.Printf("    Party hint: %s\n", hint)
-
-	result, err := cantonClient.Identity.AllocateParty(ctx, hint)
+	// Generate Canton keypair and allocate external party
+	fmt.Println(">>> Generating Canton keypair...")
+	cantonKeyPair, err := keys.GenerateCantonKeyPair()
 	if err != nil {
-		fmt.Printf("ERROR: Failed to allocate party: %v\n", err)
+		fmt.Printf("ERROR: Failed to generate Canton keypair: %v\n", err)
 		os.Exit(1)
 	}
 
-	partyID := result.PartyID
+	fmt.Println(">>> Allocating external Canton party...")
+	fmt.Printf("    Party hint: %s\n", hint)
+
+	spkiKey, err := cantonKeyPair.SPKIPublicKey()
+	if err != nil {
+		fmt.Printf("ERROR: Failed to encode SPKI public key: %v\n", err)
+		os.Exit(1)
+	}
+	party, err := cantonClient.Identity.AllocateExternalParty(ctx, hint, spkiKey, cantonKeyPair)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to allocate external party: %v\n", err)
+		os.Exit(1)
+	}
+
+	partyID := party.PartyID
 	fmt.Printf("    Party ID: %s\n", partyID)
 	fmt.Println()
 
-	// Register with API server
+	// Register with API server, passing Canton key for Interactive Submission
 	fmt.Println(">>> Registering with API server...")
 
-	userInfo, err := registerNativeUser(partyID)
+	userInfo, err := registerNativeUser(partyID, cantonKeyPair.PrivateKeyHex())
 	if err != nil {
 		fmt.Printf("ERROR: Registration failed: %v\n", err)
 		os.Exit(1)
@@ -113,7 +118,6 @@ func main() {
 	fmt.Println("    Registration successful!")
 	fmt.Println()
 
-	// Display results
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Registration Complete - MetaMask Import Info")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -131,7 +135,6 @@ func main() {
 	fmt.Printf("    %s\n", userInfo.Fingerprint)
 	fmt.Println()
 
-	// Save to file
 	userInfo.RegisteredAt = time.Now().Format(time.RFC3339)
 	jsonData, _ := json.MarshalIndent(userInfo, "", "  ")
 	if err := os.WriteFile(*outputFile, jsonData, 0600); err != nil {
@@ -162,28 +165,14 @@ func main() {
 	fmt.Println()
 }
 
-func registerNativeUser(partyID string) (*NativeUserInfo, error) {
-	// Generate a temporary keypair for signing
-	// This is just for protocol purposes when SKIP_CANTON_SIG_VERIFY is false
-	keyPair, err := keys.GenerateCantonKeyPair()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate keypair: %w", err)
-	}
-
-	// Create registration message
-	message := fmt.Sprintf("Register for Canton Bridge: %d", time.Now().Unix())
-
-	// Sign the message
-	signature, err := signMessage(keyPair, message)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
-	}
-
-	// Prepare registration request
+func registerNativeUser(partyID, cantonPrivKeyHex string) (*NativeUserInfo, error) {
 	reqBody := map[string]string{
 		"canton_party_id":  partyID,
-		"canton_signature": signature,
-		"message":          message,
+		"canton_signature": "",
+		"message":          fmt.Sprintf("Register for Canton Bridge: %d", time.Now().Unix()),
+	}
+	if cantonPrivKeyHex != "" {
+		reqBody["canton_private_key"] = cantonPrivKeyHex
 	}
 
 	jsonBody, _ := json.Marshal(reqBody)
@@ -220,23 +209,4 @@ func registerNativeUser(partyID string) (*NativeUserInfo, error) {
 		CantonParty: result.Party,
 		Fingerprint: result.Fingerprint,
 	}, nil
-}
-
-func signMessage(keyPair *keys.CantonKeyPair, message string) (string, error) {
-	// Hash the message with SHA-256
-	hash := sha256.Sum256([]byte(message))
-
-	// Sign with the keypair
-	privateKey, err := crypto.ToECDSA(keyPair.PrivateKey)
-	if err != nil {
-		return "", err
-	}
-
-	signature, err := crypto.Sign(hash[:], privateKey)
-	if err != nil {
-		return "", err
-	}
-
-	// Return as base64 (Canton dApp SDK format)
-	return base64.StdEncoding.EncodeToString(signature[:64]), nil
 }

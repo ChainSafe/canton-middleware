@@ -20,16 +20,17 @@ import (
 
 const listKnownPartiesPageSize = 1000
 
-// ExternalPartyKey holds the public key and signing capability needed to
-// allocate an external party. Implemented by keys.CantonKeyPair.
+// ExternalPartyKey holds the signing capability needed to allocate an external
+// party. Canton returns a multihash that must be SHA-256 hashed and signed.
+// Implemented by keys.CantonKeyPair.
 type ExternalPartyKey interface {
-	SignHashDER(hash []byte) ([]byte, error)
+	SignDER(message []byte) ([]byte, error)
 }
 
 // Identity defines identity and party management operations.
 type Identity interface {
 	AllocateParty(ctx context.Context, hint string) (*Party, error)
-	AllocateExternalParty(ctx context.Context, hint string, compressedPubKey []byte, signer ExternalPartyKey) (*Party, error)
+	AllocateExternalParty(ctx context.Context, hint string, spkiPublicKey []byte, signer ExternalPartyKey) (*Party, error)
 	ListParties(ctx context.Context) ([]*Party, error) // TODO: add iterator
 	GetParticipantID(ctx context.Context) (string, error)
 
@@ -82,14 +83,14 @@ func (c *Client) AllocateParty(ctx context.Context, hint string) (*Party, error)
 
 // AllocateExternalParty creates an external party using the Interactive Submission flow.
 // External parties have no practical limit (unlike internal parties which are capped at ~200).
-// compressedPubKey is the 33-byte compressed secp256k1 public key.
-// signer provides the SignHashDER capability for signing the topology multi-hash.
-func (c *Client) AllocateExternalParty(ctx context.Context, hint string, compressedPubKey []byte, signer ExternalPartyKey) (*Party, error) {
+// spkiPublicKey is the DER-encoded X.509 SubjectPublicKeyInfo public key (use CantonKeyPair.SPKIPublicKey()).
+// signer provides the SignDER capability for signing the topology multi-hash.
+func (c *Client) AllocateExternalParty(ctx context.Context, hint string, spkiPublicKey []byte, signer ExternalPartyKey) (*Party, error) {
 	authCtx := c.ledger.AuthContext(ctx)
 
 	pubKey := &lapiv2.SigningPublicKey{
-		Format:  lapiv2.CryptoKeyFormat_CRYPTO_KEY_FORMAT_RAW,
-		KeyData: compressedPubKey,
+		Format:  lapiv2.CryptoKeyFormat_CRYPTO_KEY_FORMAT_DER_X509_SUBJECT_PUBLIC_KEY_INFO,
+		KeyData: spkiPublicKey,
 		KeySpec: lapiv2.SigningKeySpec_SIGNING_KEY_SPEC_EC_SECP256K1,
 	}
 
@@ -102,7 +103,7 @@ func (c *Client) AllocateExternalParty(ctx context.Context, hint string, compres
 		return nil, fmt.Errorf("generate external party topology: %w", err)
 	}
 
-	derSig, err := signer.SignHashDER(topoResp.MultiHash)
+	derSig, err := signer.SignDER(topoResp.MultiHash)
 	if err != nil {
 		return nil, fmt.Errorf("sign topology multi-hash: %w", err)
 	}
