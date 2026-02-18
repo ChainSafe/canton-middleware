@@ -230,7 +230,6 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 	if tokenSymbol == "" {
 		return nil, fmt.Errorf("token symbol is required")
 	}
-	// TODO: check if it supports filtering on request
 
 	allHoldings, err := c.GetAllHoldings(ctx)
 	if err != nil {

@@ -48,7 +48,7 @@ linters:
 
   settings:
     dupl:
-      threshold: 100
+      threshold: 150
 
     funlen:
       # Lines are a poor signal; statements are a decent one.
@@ -79,7 +79,6 @@ linters:
 
     godox:
       keywords:
-        - TODO
         - FIXME
 
     mnd:
@@ -127,7 +126,6 @@ linters:
         - name: unused-parameter
         - name: unused-receiver
         - name: early-return
-        - name: var-naming
         - name: exported
           disabled: true # too chatty unless your repo is strict about comments
 

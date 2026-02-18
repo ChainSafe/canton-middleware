@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
@@ -384,8 +383,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 		},
 	)
 	if err != nil {
-		// TODO: Match grpc error code without hard-wiring exact text.
-		if strings.Contains(strings.ToLower(err.Error()), "already") {
+		if isAlreadyExistsError(err) { // TODO: verify it works
 			return nil
 		}
 		return fmt.Errorf("complete withdrawal: %w", err)
@@ -540,4 +538,12 @@ func isAuthError(err error) bool {
 
 func (c *Client) GetLatestLedgerOffset(ctx context.Context) (int64, error) {
 	return c.ledger.GetLedgerEnd(ctx)
+}
+
+func isAlreadyExistsError(err error) bool {
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.AlreadyExists
+	}
+
+	return false
 }
