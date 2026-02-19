@@ -7,7 +7,7 @@ import "go.uber.org/zap"
 // Fingerprint returns the Canton key fingerprint (multihash of SPKI public key).
 type Signer interface {
 	SignDER(message []byte) ([]byte, error)
-	Fingerprint() string
+	Fingerprint() (string, error)
 }
 
 // KeyResolver looks up a signer for the given Canton party ID.
