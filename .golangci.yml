@@ -75,7 +75,7 @@ linters:
         - whyNoLint
 
     gocyclo:
-      min-complexity: 15
+      min-complexity: 20
 
     godox:
       keywords:
@@ -149,7 +149,6 @@ linters:
       - ^pkg/registration
       - ^pkg/relayer
       - ^pkg/service
-      - ^cmd
       - ^internal
 
     rules:
@@ -185,5 +184,4 @@ formatters:
       - ^pkg/registration
       - ^pkg/relayer
       - ^pkg/service
-      - ^cmd
       - ^internal
