@@ -126,12 +126,12 @@ func New(cfg *Config, opts ...Option) (*Client, error) {
 	)
 
 	return &Client{
-		cfg:        cfg,
-		logger:     s.logger,
-		conn:       conn,
-		state:      lapiv2.NewStateServiceClient(conn),
-		command:    lapiv2.NewCommandServiceClient(conn),
-		update:     lapiv2.NewUpdateServiceClient(conn),
+		cfg:         cfg,
+		logger:      s.logger,
+		conn:        conn,
+		state:       lapiv2.NewStateServiceClient(conn),
+		command:     lapiv2.NewCommandServiceClient(conn),
+		update:      lapiv2.NewUpdateServiceClient(conn),
 		partyAdmin:  adminv2.NewPartyManagementServiceClient(conn),
 		userAdmin:   adminv2.NewUserManagementServiceClient(conn),
 		interactive: interactivev2.NewInteractiveSubmissionServiceClient(conn),

@@ -475,9 +475,9 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 				Party: partyID,
 				Signatures: []*lapiv2.Signature{
 					{
-						Format:              lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
-						Signature:           derSig,
-						SignedBy:            signerKey.Fingerprint(),
+						Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+						Signature:            derSig,
+						SignedBy:             signerKey.Fingerprint(),
 						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
 					},
 				},

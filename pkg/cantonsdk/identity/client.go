@@ -109,9 +109,9 @@ func (c *Client) AllocateExternalParty(ctx context.Context, hint string, spkiPub
 	}
 
 	multiHashSig := &lapiv2.Signature{
-		Format:              lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
-		Signature:           derSig,
-		SignedBy:            topoResp.PublicKeyFingerprint,
+		Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+		Signature:            derSig,
+		SignedBy:             topoResp.PublicKeyFingerprint,
 		SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
 	}
 
