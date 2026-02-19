@@ -188,6 +188,11 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 		h.logger.Error("Failed to allocate external Canton party",
 			zap.String("hint", partyHint),
 			zap.Error(err))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "already allocated") || strings.Contains(errMsg, "ALREADY_EXISTS") {
+			h.writeError(w, http.StatusConflict, "Canton party already allocated for this user")
+			return
+		}
 		h.writeError(w, http.StatusInternalServerError, "party allocation failed")
 		return
 	}
