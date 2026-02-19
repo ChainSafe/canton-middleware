@@ -1,0 +1,54 @@
+name: Lint & Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  test:
+    name: PR Test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Verify Go Version
+        run: go version
+
+      - name: Download Dependencies
+        run: go mod download
+
+      - name: Run Unit Tests
+        run: go test ./... -v
+
+  lint:
+    name: PR Lint
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Run golangci-lint (v2)
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.9.0
+          args: --timeout=5m
