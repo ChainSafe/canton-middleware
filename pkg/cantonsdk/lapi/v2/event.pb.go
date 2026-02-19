@@ -863,8 +863,8 @@ const file_com_daml_ledger_api_v2_event_proto_rawDesc = "" +
 	"\x0fexercise_result\x18\f \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\x0eexerciseResult\x12!\n" +
 	"\fpackage_name\x18\r \x01(\tR\vpackageName\x12Y\n" +
 	"\x16implemented_interfaces\x18\x0e \x03(\v2\".com.daml.ledger.api.v2.IdentifierR\x15implementedInterfaces\x12\x1b\n" +
-	"\tacs_delta\x18\x0f \x01(\bR\bacsDeltaB}\n" +
-	"\x16com.daml.ledger.api.v2B\x0fEventOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\tacs_delta\x18\x0f \x01(\bR\bacsDeltaB\x80\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x0fEventOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_event_proto_rawDescOnce sync.Once

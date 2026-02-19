@@ -464,8 +464,8 @@ const file_com_daml_ledger_api_v2_update_service_proto_rawDesc = "" +
 	"\n" +
 	"GetUpdates\x12).com.daml.ledger.api.v2.GetUpdatesRequest\x1a*.com.daml.ledger.api.v2.GetUpdatesResponse0\x01\x12p\n" +
 	"\x11GetUpdateByOffset\x120.com.daml.ledger.api.v2.GetUpdateByOffsetRequest\x1a).com.daml.ledger.api.v2.GetUpdateResponse\x12h\n" +
-	"\rGetUpdateById\x12,.com.daml.ledger.api.v2.GetUpdateByIdRequest\x1a).com.daml.ledger.api.v2.GetUpdateResponseB\x85\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x17UpdateServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\rGetUpdateById\x12,.com.daml.ledger.api.v2.GetUpdateByIdRequest\x1a).com.daml.ledger.api.v2.GetUpdateResponseB\x88\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x17UpdateServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_update_service_proto_rawDescOnce sync.Once

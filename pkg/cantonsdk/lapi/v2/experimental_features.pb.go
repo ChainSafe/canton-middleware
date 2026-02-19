@@ -226,8 +226,8 @@ const file_com_daml_ledger_api_v2_experimental_features_proto_rawDesc = "" +
 	"$ExperimentalCommandInspectionService\x12\x1c\n" +
 	"\tsupported\x18\x01 \x01(\bR\tsupported\"?\n" +
 	"\x1fExperimentalPartyTopologyEvents\x12\x1c\n" +
-	"\tsupported\x18\x01 \x01(\bR\tsupportedB\x8c\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1eExperimentalFeaturesOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\tsupported\x18\x01 \x01(\bR\tsupportedB\x8f\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1eExperimentalFeaturesOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_experimental_features_proto_rawDescOnce sync.Once

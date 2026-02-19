@@ -368,8 +368,8 @@ const file_com_daml_ledger_api_v2_package_reference_proto_rawDesc = "" +
 	"\x13PriorTopologySerial\x12\x16\n" +
 	"\x05prior\x18\x01 \x01(\rH\x00R\x05prior\x123\n" +
 	"\bno_prior\x18\x02 \x01(\v2\x16.google.protobuf.EmptyH\x00R\anoPriorB\b\n" +
-	"\x06serialB\x88\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1aPackageReferenceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x06serialB\x8b\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1aPackageReferenceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_package_reference_proto_rawDescOnce sync.Once

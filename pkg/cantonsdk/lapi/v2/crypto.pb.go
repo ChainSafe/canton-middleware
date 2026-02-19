@@ -432,8 +432,8 @@ const file_com_daml_ledger_api_v2_crypto_proto_rawDesc = "" +
 	"\x14SIGNATURE_FORMAT_RAW\x10\x01\x12\x18\n" +
 	"\x14SIGNATURE_FORMAT_DER\x10\x02\x12\x1b\n" +
 	"\x17SIGNATURE_FORMAT_CONCAT\x10\x03\x12\x1e\n" +
-	"\x19SIGNATURE_FORMAT_SYMBOLIC\x10\x90NB~\n" +
-	"\x16com.daml.ledger.api.v2B\x10CryptoOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x19SIGNATURE_FORMAT_SYMBOLIC\x10\x90NB\x81\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x10CryptoOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_crypto_proto_rawDescOnce sync.Once

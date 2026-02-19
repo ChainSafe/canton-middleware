@@ -270,8 +270,8 @@ const file_com_daml_ledger_api_v2_event_query_service_proto_rawDesc = "" +
 	"\x0earchived_event\x18\x01 \x01(\v2%.com.daml.ledger.api.v2.ArchivedEventR\rarchivedEvent\x12'\n" +
 	"\x0fsynchronizer_id\x18\x02 \x01(\tR\x0esynchronizerId2\x9a\x01\n" +
 	"\x11EventQueryService\x12\x84\x01\n" +
-	"\x15GetEventsByContractId\x124.com.daml.ledger.api.v2.GetEventsByContractIdRequest\x1a5.com.daml.ledger.api.v2.GetEventsByContractIdResponseB\x89\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1bEventQueryServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x15GetEventsByContractId\x124.com.daml.ledger.api.v2.GetEventsByContractIdRequest\x1a5.com.daml.ledger.api.v2.GetEventsByContractIdResponseB\x8c\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1bEventQueryServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_event_query_service_proto_rawDescOnce sync.Once

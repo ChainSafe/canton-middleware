@@ -438,8 +438,8 @@ const file_com_daml_ledger_api_v2_topology_transaction_proto_rawDesc = "" +
 	"\x16participant_permission\x18\x03 \x01(\x0e2-.com.daml.ledger.api.v2.ParticipantPermissionR\x15participantPermission\"c\n" +
 	"\x1fParticipantAuthorizationRevoked\x12\x19\n" +
 	"\bparty_id\x18\x01 \x01(\tR\apartyId\x12%\n" +
-	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantIdB\x8b\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1dTopologyTransactionOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x0eparticipant_id\x18\x02 \x01(\tR\rparticipantIdB\x8e\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1dTopologyTransactionOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_topology_transaction_proto_rawDescOnce sync.Once

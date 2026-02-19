@@ -200,8 +200,8 @@ const file_com_daml_ledger_api_v2_transaction_proto_rawDesc = "" +
 	"recordTime\x12?\n" +
 	"\x19external_transaction_hash\x18\n" +
 	" \x01(\fH\x00R\x17externalTransactionHash\x88\x01\x01B\x1c\n" +
-	"\x1a_external_transaction_hashB\x83\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x15TransactionOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x1a_external_transaction_hashB\x86\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x15TransactionOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_transaction_proto_rawDescOnce sync.Once

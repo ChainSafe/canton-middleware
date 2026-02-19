@@ -12,6 +12,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
@@ -57,8 +58,31 @@ func main() {
 		zap.String("host", cfg.Database.Host),
 		zap.String("database", cfg.Database.Database))
 
-	// Create Canton client
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	// Create key store for custodial Canton key management (needed before Canton client for KeyResolver)
+	masterKeyStr := os.Getenv(cfg.KeyManagement.MasterKeyEnv)
+	if masterKeyStr == "" {
+		logger.Fatal("Canton master key not set",
+			zap.String("env_var", cfg.KeyManagement.MasterKeyEnv),
+			zap.String("hint", "Generate with: openssl rand -base64 32"))
+	}
+	masterKey, err := keys.MasterKeyFromBase64(masterKeyStr)
+	if err != nil {
+		logger.Fatal("Invalid Canton master key", zap.Error(err))
+	}
+	keyStore, err := keys.NewPostgresKeyStore(db, masterKey)
+	if err != nil {
+		logger.Fatal("Failed to create key store", zap.Error(err))
+	}
+	logger.Info("Custodial key management initialized")
+
+	// Create Canton client with KeyResolver for Interactive Submission
+	keyResolver := func(partyID string) (token.Signer, error) {
+		return keys.ResolveKeyPairByPartyID(keyStore, partyID)
+	}
+	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton,
+		canton.WithLogger(logger),
+		canton.WithKeyResolver(keyResolver),
+	)
 	if err != nil {
 		logger.Fatal("Failed to create Canton client", zap.Error(err))
 	}
@@ -87,23 +111,6 @@ func main() {
 
 	// Create shared token service
 	tokenService := service.NewTokenService(cfg, db, cantonClient.Token, logger)
-
-	// Create key store for custodial Canton key management
-	masterKeyStr := os.Getenv(cfg.KeyManagement.MasterKeyEnv)
-	if masterKeyStr == "" {
-		logger.Fatal("Canton master key not set",
-			zap.String("env_var", cfg.KeyManagement.MasterKeyEnv),
-			zap.String("hint", "Generate with: openssl rand -base64 32"))
-	}
-	masterKey, err := keys.MasterKeyFromBase64(masterKeyStr)
-	if err != nil {
-		logger.Fatal("Invalid Canton master key", zap.Error(err))
-	}
-	keyStore, err := keys.NewPostgresKeyStore(db, masterKey)
-	if err != nil {
-		logger.Fatal("Failed to create key store", zap.Error(err))
-	}
-	logger.Info("Custodial key management initialized")
 
 	// Create HTTP mux for multiple endpoints
 	mux := http.NewServeMux()

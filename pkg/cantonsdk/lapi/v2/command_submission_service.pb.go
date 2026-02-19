@@ -202,8 +202,8 @@ const file_com_daml_ledger_api_v2_command_submission_service_proto_rawDesc = "" 
 	"\x1aSubmitReassignmentResponse2\xf0\x01\n" +
 	"\x18CommandSubmissionService\x12W\n" +
 	"\x06Submit\x12%.com.daml.ledger.api.v2.SubmitRequest\x1a&.com.daml.ledger.api.v2.SubmitResponse\x12{\n" +
-	"\x12SubmitReassignment\x121.com.daml.ledger.api.v2.SubmitReassignmentRequest\x1a2.com.daml.ledger.api.v2.SubmitReassignmentResponseB\x90\x01\n" +
-	"\x16com.daml.ledger.api.v2B\"CommandSubmissionServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x12SubmitReassignment\x121.com.daml.ledger.api.v2.SubmitReassignmentRequest\x1a2.com.daml.ledger.api.v2.SubmitReassignmentResponseB\x93\x01\n" +
+	"\x16com.daml.ledger.api.v2B\"CommandSubmissionServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_command_submission_service_proto_rawDescOnce sync.Once

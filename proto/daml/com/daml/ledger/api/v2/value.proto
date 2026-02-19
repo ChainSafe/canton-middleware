@@ -5,7 +5,7 @@
 //            Make sure to check if they're valid and the output is as expected.
 
 syntax = "proto3";
-option go_package = "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2";
+option go_package = "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2";
 
 package com.daml.ledger.api.v2;
 

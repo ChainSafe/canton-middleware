@@ -381,8 +381,8 @@ const file_com_daml_ledger_api_v2_reassignment_commands_proto_rawDesc = "" +
 	"\rAssignCommand\x12'\n" +
 	"\x0freassignment_id\x18\x01 \x01(\tR\x0ereassignmentId\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x16\n" +
-	"\x06target\x18\x03 \x01(\tR\x06targetB\x8b\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1dReassignmentCommandOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x06target\x18\x03 \x01(\tR\x06targetB\x8e\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1dReassignmentCommandOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_reassignment_commands_proto_rawDescOnce sync.Once

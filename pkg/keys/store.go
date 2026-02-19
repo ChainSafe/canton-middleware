@@ -16,6 +16,10 @@ type KeyStore interface {
 	// Returns 32-byte secp256k1 private key
 	GetUserKeyByFingerprint(fingerprint string) (partyID string, privateKey []byte, err error)
 
+	// GetUserKeyByPartyID retrieves and decrypts the Canton private key by Canton party ID.
+	// Returns 32-byte secp256k1 private key. Used by Interactive Submission to sign on behalf of external parties.
+	GetUserKeyByPartyID(cantonPartyID string) (privateKey []byte, err error)
+
 	// SetUserKey encrypts and stores the Canton key for a user
 	// Expects 32-byte secp256k1 private key
 	SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error
@@ -77,6 +81,24 @@ func (s *PostgresKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, 
 	return partyID, privateKey, nil
 }
 
+// GetUserKeyByPartyID retrieves and decrypts the Canton private key by Canton party ID
+func (s *PostgresKeyStore) GetUserKeyByPartyID(cantonPartyID string) ([]byte, error) {
+	encryptedKey, err := s.db.GetUserCantonKeyByPartyID(cantonPartyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get encrypted key: %w", err)
+	}
+	if encryptedKey == "" {
+		return nil, nil
+	}
+
+	privateKey, err := DecryptPrivateKey(encryptedKey, s.masterKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+	}
+
+	return privateKey, nil
+}
+
 // SetUserKey encrypts and stores the Canton key for a user
 func (s *PostgresKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error {
 	if len(privateKey) != 32 {
@@ -133,6 +155,16 @@ func (s *MemoryKeyStore) GetUserKeyByFingerprint(fingerprint string) (string, []
 	return "", nil, fmt.Errorf("GetUserKeyByFingerprint not supported by MemoryKeyStore")
 }
 
+// GetUserKeyByPartyID retrieves the Canton private key by party ID (in memory)
+func (s *MemoryKeyStore) GetUserKeyByPartyID(cantonPartyID string) ([]byte, error) {
+	for _, entry := range s.keys {
+		if entry.partyID == cantonPartyID {
+			return entry.privateKey, nil
+		}
+	}
+	return nil, nil
+}
+
 // SetUserKey stores the Canton key for a user (in memory)
 func (s *MemoryKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey []byte) error {
 	if len(privateKey) != 32 {
@@ -149,4 +181,17 @@ func (s *MemoryKeyStore) SetUserKey(evmAddress, cantonPartyID string, privateKey
 func (s *MemoryKeyStore) HasUserKey(evmAddress string) (bool, error) {
 	_, ok := s.keys[evmAddress]
 	return ok, nil
+}
+
+// ResolveKeyPairByPartyID looks up a party's private key from the store and
+// reconstructs a full CantonKeyPair. Returns nil, nil if the key is not found.
+func ResolveKeyPairByPartyID(ks KeyStore, partyID string) (*CantonKeyPair, error) {
+	privKey, err := ks.GetUserKeyByPartyID(partyID)
+	if err != nil {
+		return nil, fmt.Errorf("key store lookup: %w", err)
+	}
+	if privKey == nil {
+		return nil, fmt.Errorf("no signing key found for party %s", partyID)
+	}
+	return CantonKeyPairFromPrivateKey(privKey)
 }

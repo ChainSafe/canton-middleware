@@ -869,8 +869,8 @@ const file_com_daml_ledger_api_v2_state_service_proto_rawDesc = "" +
 	"\x12GetActiveContracts\x121.com.daml.ledger.api.v2.GetActiveContractsRequest\x1a2.com.daml.ledger.api.v2.GetActiveContractsResponse0\x01\x12\x90\x01\n" +
 	"\x19GetConnectedSynchronizers\x128.com.daml.ledger.api.v2.GetConnectedSynchronizersRequest\x1a9.com.daml.ledger.api.v2.GetConnectedSynchronizersResponse\x12i\n" +
 	"\fGetLedgerEnd\x12+.com.daml.ledger.api.v2.GetLedgerEndRequest\x1a,.com.daml.ledger.api.v2.GetLedgerEndResponse\x12\x87\x01\n" +
-	"\x16GetLatestPrunedOffsets\x125.com.daml.ledger.api.v2.GetLatestPrunedOffsetsRequest\x1a6.com.daml.ledger.api.v2.GetLatestPrunedOffsetsResponseB\x84\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x16StateServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x16GetLatestPrunedOffsets\x125.com.daml.ledger.api.v2.GetLatestPrunedOffsetsRequest\x1a6.com.daml.ledger.api.v2.GetLatestPrunedOffsetsResponseB\x87\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x16StateServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_state_service_proto_rawDescOnce sync.Once

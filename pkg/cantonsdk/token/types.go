@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+// Signer can produce DER-encoded ECDSA signatures for Canton Interactive Submission.
+// SignDER hashes the message with SHA-256 before signing (Canton returns multihash data).
+// Fingerprint returns the Canton key fingerprint (multihash of SPKI public key).
+type Signer interface {
+	SignDER(message []byte) ([]byte, error)
+	Fingerprint() (string, error)
+}
+
+// KeyResolver looks up a signer for the given Canton party ID.
+// Used by Interactive Submission to sign transactions on behalf of external parties.
+type KeyResolver func(partyID string) (Signer, error)
+
 // Holding represents a CIP56Holding contract.
 type Holding struct {
 	ContractID string

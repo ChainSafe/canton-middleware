@@ -778,8 +778,8 @@ const file_com_daml_ledger_api_v2_transaction_filter_proto_rawDesc = "" +
 	"\x10TransactionShape\x12!\n" +
 	"\x1dTRANSACTION_SHAPE_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bTRANSACTION_SHAPE_ACS_DELTA\x10\x01\x12$\n" +
-	" TRANSACTION_SHAPE_LEDGER_EFFECTS\x10\x02B\x89\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1bTransactionFilterOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	" TRANSACTION_SHAPE_LEDGER_EFFECTS\x10\x02B\x8c\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1bTransactionFilterOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_transaction_filter_proto_rawDescOnce sync.Once

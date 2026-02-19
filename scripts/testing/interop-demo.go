@@ -7,6 +7,10 @@
 // MetaMask-registered users and native Canton users, plus PROMPT ERC-20
 // bridging from Ethereum to Canton.
 //
+// All users (MetaMask and native) are registered as external parties, using
+// the Interactive Submission API for transfers. Transfers go through the
+// API server's /eth JSON-RPC endpoint via cast send.
+//
 // Prerequisites:
 //   Run bootstrap-local.sh first (sets up Docker, registers users, mints DEMO)
 //
@@ -17,19 +21,17 @@
 //
 // What it tests:
 //
-//   Part A - DEMO Token Interoperability (native Canton token)
-//     Step 1: Allocate 2 native Canton parties (not registered with API server)
-//     Step 2: MetaMask User → Native User (100 DEMO)
-//     Step 3: Native User → Native User via Ledger API (100 DEMO)
-//     Step 4: Native User → MetaMask User (100 DEMO back)
-//     Step 5: Register Native User 1 with the API server
-//     Step 6: MetaMask User → Registered Native User (100 DEMO)
+//   Part A - DEMO Token Interoperability (external parties)
+//     Step 1: Allocate 2 external native Canton parties + register with API server
+//     Step 2: MetaMask User → Native User 1 (100 DEMO via /eth)
+//     Step 3: Native User 1 → Native User 2 (100 DEMO via /eth)
+//     Step 4: Native User 2 → MetaMask User 1 (100 DEMO via /eth)
 //
 //   Part B - PROMPT Token Bridge (ERC-20 ↔ Canton)
-//     Step 7: Deposit PROMPT from Ethereum to Canton via bridge (100 PROMPT)
-//     Step 8: Verify Canton PROMPT balance
-//     Step 9: Transfer PROMPT on Canton, User 1 → User 2 (25 PROMPT)
-//     Step 10: Verify final PROMPT balances
+//     Step 5: Deposit PROMPT from Ethereum to Canton via bridge (100 PROMPT)
+//     Step 6: Verify Canton PROMPT balance
+//     Step 7: Transfer PROMPT on Canton, User 1 → User 2 (25 PROMPT)
+//     Step 8: Verify final PROMPT balances
 
 package main
 
@@ -50,6 +52,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -65,7 +68,17 @@ const (
 	apiURL     = "http://localhost:8081"
 	ethRPCURL  = "http://localhost:8081/eth"
 	configFile = "config.e2e-local.yaml"
+
+	// Synthetic DEMO token address recognised by the /eth endpoint
+	demoTokenAddr = "0xDE30000000000000000000000000000000000001"
 )
+
+// nativeUser holds the credentials returned from registering a native Canton user.
+type nativeUser struct {
+	CantonPartyID string
+	EVMAddress    string
+	EVMPrivateKey string // hex, no 0x prefix
+}
 
 // Contract addresses - auto-detected from Docker deployer logs
 var (
@@ -135,40 +148,32 @@ func main() {
 	fmt.Println()
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// Part A: DEMO Token Interoperability
+	// Part A: DEMO Token Interoperability (all external parties)
 	// ═══════════════════════════════════════════════════════════════════════
 	if !*skipDemo {
-		printPartHeader("A", "DEMO Token Interoperability")
+		printPartHeader("A", "DEMO Token Interoperability (External Parties)")
 
 		// Show initial holdings
 		printHeader("Initial Canton Holdings")
 		showHoldings(ctx, cantonClient)
 
-		// Step 1: Allocate native parties
-		native1, native2 := stepAllocateNativeParties(ctx, cantonClient)
+		// Step 1: Allocate external native parties + register with API server
+		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, db)
 
-		// Step 2: MetaMask → Native User 1
-		stepTransfer(ctx, cantonClient, 2, "MetaMask User 1 → Native User 1",
-			user1.CantonPartyID, native1, *demoAmount, "DEMO",
-			fmt.Sprintf("%s (MetaMask)", user1.EVMAddress), trunc(native1)+" (Native)")
+		// Step 2: MetaMask User 1 → Native User 1 (via /eth)
+		stepTransferDemoViaCast(2, "MetaMask User 1 → Native User 1",
+			user1Key, user1Addr, native1.EVMAddress, *demoAmount)
+		showHoldings(ctx, cantonClient)
 
-		// Step 3: Native 1 → Native 2 (Ledger API)
-		stepTransfer(ctx, cantonClient, 3, "Native User 1 → Native User 2 (Ledger API)",
-			native1, native2, *demoAmount, "DEMO",
-			trunc(native1)+" (Native 1)", trunc(native2)+" (Native 2)")
+		// Step 3: Native User 1 → Native User 2 (via /eth)
+		stepTransferDemoViaCast(3, "Native User 1 → Native User 2",
+			native1.EVMPrivateKey, native1.EVMAddress, native2.EVMAddress, *demoAmount)
+		showHoldings(ctx, cantonClient)
 
-		// Step 4: Native 2 → MetaMask User 1
-		stepTransfer(ctx, cantonClient, 4, "Native User 2 → MetaMask User 1",
-			native2, user1.CantonPartyID, *demoAmount, "DEMO",
-			trunc(native2)+" (Native 2)", fmt.Sprintf("%s (MetaMask)", user1.EVMAddress))
-
-		// Step 5: Register Native User 1
-		stepRegisterNativeUser(ctx, native1)
-
-		// Step 6: MetaMask → Registered Native User
-		stepTransfer(ctx, cantonClient, 6, "MetaMask User 1 → Registered Native User 1",
-			user1.CantonPartyID, native1, *demoAmount, "DEMO",
-			fmt.Sprintf("%s (MetaMask)", user1.EVMAddress), trunc(native1)+" (Now MetaMask-enabled)")
+		// Step 4: Native User 2 → MetaMask User 1 (via /eth)
+		stepTransferDemoViaCast(4, "Native User 2 → MetaMask User 1",
+			native2.EVMPrivateKey, native2.EVMAddress, user1Addr, *demoAmount)
+		showHoldings(ctx, cantonClient)
 
 		// Reconcile
 		fmt.Println(">>> Running reconciliation...")
@@ -185,17 +190,17 @@ func main() {
 	if !*skipPrompt {
 		printPartHeader("B", "PROMPT Token Bridge (ERC-20 ↔ Canton)")
 
-		// Step 7: Deposit PROMPT from Ethereum to Canton
+		// Step 5: Deposit PROMPT from Ethereum to Canton
 		stepDepositPrompt(ctx, user1)
 
-		// Step 8: Verify Canton PROMPT balance
-		stepVerifyPromptBalance(ctx, 8, user1)
+		// Step 6: Verify Canton PROMPT balance
+		stepVerifyPromptBalance(ctx, 6, user1)
 
-		// Step 9: Transfer PROMPT on Canton (User 1 → User 2)
-		stepTransferPromptViaCast(ctx, 9, user2Addr)
+		// Step 7: Transfer PROMPT on Canton (User 1 → User 2)
+		stepTransferPromptViaCast(ctx, 7, user2Addr)
 
-		// Step 10: Verify final PROMPT balances
-		stepVerifyFinalPromptBalances(ctx, 10, user1, user2)
+		// Step 8: Verify final PROMPT balances
+		stepVerifyFinalPromptBalances(ctx, 8, user1, user2)
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
@@ -206,72 +211,79 @@ func main() {
 
 // ─── Part A Steps ───────────────────────────────────────────────────────────
 
-func stepAllocateNativeParties(ctx context.Context, sdk *canton.Client) (string, string) {
-	printStep(1, "Allocate Native Canton Parties")
-	fmt.Println("    Creating 2 native parties (NOT registered with API server)...")
+func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, db *apidb.Store) (nativeUser, nativeUser) {
+	printStep(1, "Allocate External Parties + Register Native Users")
+	fmt.Println("    Creating 2 external parties and registering with API server...")
 	fmt.Println()
 
-	native1, err := allocateParty(ctx, sdk, "native_interop_1")
-	if err != nil {
-		recordFail("Allocate native party 1: %v", err)
-		fatalf("Cannot continue without native parties")
-	}
-	fmt.Printf("    Native User 1: %s\n", trunc(native1))
+	native1 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_1")
+	fmt.Printf("    Native User 1: party=%s  evm=%s\n", trunc(native1.CantonPartyID), native1.EVMAddress)
 
-	native2, err := allocateParty(ctx, sdk, "native_interop_2")
-	if err != nil {
-		recordFail("Allocate native party 2: %v", err)
-		fatalf("Cannot continue without native parties")
-	}
-	fmt.Printf("    Native User 2: %s\n", trunc(native2))
+	native2 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_2")
+	fmt.Printf("    Native User 2: party=%s  evm=%s\n", trunc(native2.CantonPartyID), native2.EVMAddress)
 	fmt.Println()
 
-	recordPass("Allocated 2 native Canton parties")
+	recordPass("Allocated and registered 2 external native users")
 	return native1, native2
 }
 
-func stepTransfer(ctx context.Context, sdk *canton.Client, stepNum int, title, from, to, amount, symbol, fromLabel, toLabel string) {
-	printStep(stepNum, title)
-	fmt.Printf("    Transfer: %s %s\n", amount, symbol)
-	fmt.Printf("    From:     %s\n", fromLabel)
-	fmt.Printf("    To:       %s\n", toLabel)
-	fmt.Println()
-
-	err := sdk.Token.TransferByPartyID(ctx, from, to, amount, symbol)
+func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *apidb.Store, hint string) nativeUser {
+	kp, err := keys.GenerateCantonKeyPair()
 	if err != nil {
-		recordFail("Step %d: %s: %v", stepNum, title, err)
-		return
+		fatalf("Generate Canton keypair for %s: %v", hint, err)
 	}
-	recordPass("Step %d: %s", stepNum, title)
 
-	fmt.Println(">>> Holdings after transfer:")
-	showHoldings(ctx, sdk)
-	fmt.Println()
+	spkiKey, err := kp.SPKIPublicKey()
+	if err != nil {
+		fatalf("SPKI encode key for %s: %v", hint, err)
+	}
+	party, err := sdk.Identity.AllocateExternalParty(ctx, hint, spkiKey, kp)
+	if err != nil {
+		fatalf("AllocateExternalParty %s: %v", hint, err)
+	}
+
+	nu, err := registerNativeUser(ctx, apiURL, party.PartyID, kp.PrivateKeyHex())
+	if err != nil {
+		fatalf("Register native user %s: %v", hint, err)
+	}
+	nu.CantonPartyID = party.PartyID
+
+	if err := db.AddToWhitelist(nu.EVMAddress, "interop-demo native user"); err != nil {
+		fatalf("Whitelist native user %s (%s): %v", hint, nu.EVMAddress, err)
+	}
+
+	return nu
 }
 
-func stepRegisterNativeUser(ctx context.Context, nativeParty string) {
-	printStep(5, "Register Native User 1 with API Server")
-	fmt.Println("    Registering so they can use MetaMask...")
+func stepTransferDemoViaCast(stepNum int, title, senderKey, senderAddr, recipientAddr, amount string) {
+	printStep(stepNum, title)
+	amountWei := toWei(amount)
+	fmt.Printf("    Transfer: %s DEMO (%s wei)\n", amount, amountWei)
+	fmt.Printf("    From:     %s\n", senderAddr)
+	fmt.Printf("    To:       %s\n", recipientAddr)
 	fmt.Println()
 
-	evmAddr, privKey, err := registerNativeUser(ctx, apiURL, nativeParty)
-	if err != nil {
-		recordFail("Step 5: Registration failed: %v", err)
-		return
+	fmt.Println(">>> Sending ERC-20 transfer via Canton /eth endpoint...")
+	output := castSendLegacy(demoTokenAddr, "transfer(address,uint256)", recipientAddr, amountWei, senderKey, ethRPCURL)
+	txHash := extractTxHash(output)
+	if txHash != "" {
+		fmt.Printf("    Tx hash: %s\n", txHash)
 	}
 
-	fmt.Printf("    EVM Address:  %s\n", evmAddr)
-	fmt.Printf("    Private Key:  %s\n", privKey)
-	fmt.Println("    Native User 1 can now import this key into MetaMask.")
-	fmt.Println()
+	time.Sleep(3 * time.Second)
 
-	recordPass("Step 5: Registered Native User 1 (%s)", evmAddr)
+	if strings.Contains(output, "error") || strings.Contains(output, "reverted") {
+		recordFail("Step %d: %s: %s", stepNum, title, strings.TrimSpace(output))
+	} else {
+		recordPass("Step %d: %s", stepNum, title)
+	}
+	fmt.Println()
 }
 
 // ─── Part B Steps ───────────────────────────────────────────────────────────
 
 func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
-	printStep(7, "Deposit PROMPT from Ethereum to Canton")
+	printStep(5, "Deposit PROMPT from Ethereum to Canton")
 
 	amountWei := toWei(*promptDeposit)
 	fmt.Printf("    Amount:   %s PROMPT (%s wei)\n", *promptDeposit, amountWei)
@@ -300,7 +312,7 @@ func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
 	castSend(bridgeAddr, "depositToCanton(address,uint256,bytes32)",
 		tokenAddr, amountWei, bytes32, user1Key, anvilURL)
 
-	recordPass("Step 7: Deposit %s PROMPT to Canton", *promptDeposit)
+	recordPass("Step 5: Deposit %s PROMPT to Canton", *promptDeposit)
 	fmt.Println()
 }
 
@@ -385,56 +397,45 @@ func stepVerifyFinalPromptBalances(ctx context.Context, stepNum int, user1, user
 
 // ─── Canton helpers ─────────────────────────────────────────────────────────
 
-func allocateParty(ctx context.Context, sdk *canton.Client, hint string) (string, error) {
-	result, err := sdk.Identity.AllocateParty(ctx, hint)
-	if err != nil {
-		if strings.Contains(err.Error(), "already allocated") || strings.Contains(err.Error(), "already exists") {
-			parties, listErr := sdk.Identity.ListParties(ctx)
-			if listErr != nil {
-				return "", fmt.Errorf("party exists but cannot list: %w", listErr)
-			}
-			for _, p := range parties {
-				if strings.HasPrefix(p.PartyID, hint+"::") {
-					return p.PartyID, nil
-				}
-			}
-			return "", fmt.Errorf("party exists but not found in list")
-		}
-		return "", err
-	}
-	if err := sdk.Identity.GrantActAsParty(ctx, result.PartyID); err != nil {
-		fmt.Printf("    Warning: CanActAs grant failed (ok for local): %v\n", err)
-	}
-	return result.PartyID, nil
-}
-
-func registerNativeUser(ctx context.Context, apiURL, cantonParty string) (evmAddress, privateKey string, err error) {
+// registerNativeUser calls POST /register with the Canton party ID and signing key.
+// The handler stores the Canton key (for Interactive Submission) and returns EVM credentials.
+func registerNativeUser(ctx context.Context, apiURL, cantonParty, cantonPrivKeyHex string) (nativeUser, error) {
 	reqBody := map[string]string{
 		"canton_party_id":  cantonParty,
 		"canton_signature": "",
 		"message":          fmt.Sprintf("Register Canton party %s", cantonParty),
+	}
+	if cantonPrivKeyHex != "" {
+		reqBody["canton_private_key"] = cantonPrivKeyHex
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(apiURL+"/register", "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return "", "", fmt.Errorf("registration request failed: %w", err)
+		return nativeUser{}, fmt.Errorf("registration request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("registration failed (%d): %s", resp.StatusCode, string(body))
+		return nativeUser{}, fmt.Errorf("registration failed (%d): %s", resp.StatusCode, string(body))
 	}
 
 	var response struct {
 		EVMAddress string `json:"evm_address"`
 		PrivateKey string `json:"private_key"`
+		Party      string `json:"party"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return "", "", fmt.Errorf("failed to parse response: %w", err)
+		return nativeUser{}, fmt.Errorf("failed to parse response: %w", err)
 	}
-	return response.EVMAddress, response.PrivateKey, nil
+
+	privKey := strings.TrimPrefix(response.PrivateKey, "0x")
+	return nativeUser{
+		CantonPartyID: response.Party,
+		EVMAddress:    response.EVMAddress,
+		EVMPrivateKey: privKey,
+	}, nil
 }
 
 func showHoldings(ctx context.Context, sdk *canton.Client) {
@@ -601,10 +602,10 @@ func extractTxHash(output string) string {
 
 func printBanner() {
 	fmt.Println("======================================================================")
-	fmt.Println("  Canton Interoperability Test Suite")
+	fmt.Println("  Canton Interoperability Test Suite (External Parties)")
 	fmt.Println("======================================================================")
 	fmt.Println()
-	fmt.Println("  Part A: DEMO Token Interoperability (native Canton ↔ MetaMask)")
+	fmt.Println("  Part A: DEMO Token Interoperability (external parties via /eth)")
 	fmt.Println("  Part B: PROMPT Token Bridge (Ethereum ERC-20 ↔ Canton)")
 	fmt.Println()
 }

@@ -525,8 +525,8 @@ const file_com_daml_ledger_api_v2_admin_command_inspection_service_proto_rawDesc
 	"\x17COMMAND_STATE_SUCCEEDED\x10\x02\x12\x18\n" +
 	"\x14COMMAND_STATE_FAILED\x10\x032\x9e\x01\n" +
 	"\x18CommandInspectionService\x12\x81\x01\n" +
-	"\x10GetCommandStatus\x125.com.daml.ledger.api.v2.admin.GetCommandStatusRequest\x1a6.com.daml.ledger.api.v2.admin.GetCommandStatusResponseB\xa2\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB\"CommandInspectionServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x10GetCommandStatus\x125.com.daml.ledger.api.v2.admin.GetCommandStatusRequest\x1a6.com.daml.ledger.api.v2.admin.GetCommandStatusResponseB\xa5\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB\"CommandInspectionServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_command_inspection_service_proto_rawDescOnce sync.Once

@@ -150,8 +150,8 @@ const file_com_daml_ledger_api_v2_offset_checkpoint_proto_rawDesc = "" +
 	"\x10SynchronizerTime\x12'\n" +
 	"\x0fsynchronizer_id\x18\x01 \x01(\tR\x0esynchronizerId\x12;\n" +
 	"\vrecord_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"recordTimeB\x88\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x1aOffsetCheckpointOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"recordTimeB\x8b\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x1aOffsetCheckpointOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_offset_checkpoint_proto_rawDescOnce sync.Once

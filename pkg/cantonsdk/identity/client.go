@@ -20,9 +20,17 @@ import (
 
 const listKnownPartiesPageSize = 1000
 
+// ExternalPartyKey holds the signing capability needed to allocate an external
+// party. Canton returns a multihash that must be SHA-256 hashed and signed.
+// Implemented by keys.CantonKeyPair.
+type ExternalPartyKey interface {
+	SignDER(message []byte) ([]byte, error)
+}
+
 // Identity defines identity and party management operations.
 type Identity interface {
 	AllocateParty(ctx context.Context, hint string) (*Party, error)
+	AllocateExternalParty(ctx context.Context, hint string, spkiPublicKey []byte, signer ExternalPartyKey) (*Party, error)
 	ListParties(ctx context.Context) ([]*Party, error) // TODO: add iterator
 	GetParticipantID(ctx context.Context) (string, error)
 
@@ -70,6 +78,67 @@ func (c *Client) AllocateParty(ctx context.Context, hint string) (*Party, error)
 	return &Party{
 		PartyID: resp.PartyDetails.Party,
 		IsLocal: resp.PartyDetails.IsLocal,
+	}, nil
+}
+
+// AllocateExternalParty creates an external party using the Interactive Submission flow.
+// External parties have no practical limit (unlike internal parties which are capped at ~200).
+// spkiPublicKey is the DER-encoded X.509 SubjectPublicKeyInfo public key (use CantonKeyPair.SPKIPublicKey()).
+// signer provides the SignDER capability for signing the topology multi-hash.
+func (c *Client) AllocateExternalParty(ctx context.Context, hint string, spkiPublicKey []byte, signer ExternalPartyKey) (*Party, error) {
+	authCtx := c.ledger.AuthContext(ctx)
+
+	pubKey := &lapiv2.SigningPublicKey{
+		Format:  lapiv2.CryptoKeyFormat_CRYPTO_KEY_FORMAT_DER_X509_SUBJECT_PUBLIC_KEY_INFO,
+		KeyData: spkiPublicKey,
+		KeySpec: lapiv2.SigningKeySpec_SIGNING_KEY_SPEC_EC_SECP256K1,
+	}
+
+	topoResp, err := c.ledger.PartyAdmin().GenerateExternalPartyTopology(authCtx, &adminv2.GenerateExternalPartyTopologyRequest{
+		Synchronizer: c.cfg.DomainID,
+		PartyHint:    hint,
+		PublicKey:    pubKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("generate external party topology: %w", err)
+	}
+
+	derSig, err := signer.SignDER(topoResp.MultiHash)
+	if err != nil {
+		return nil, fmt.Errorf("sign topology multi-hash: %w", err)
+	}
+
+	multiHashSig := &lapiv2.Signature{
+		Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+		Signature:            derSig,
+		SignedBy:             topoResp.PublicKeyFingerprint,
+		SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
+	}
+
+	signedTxs := make([]*adminv2.AllocateExternalPartyRequest_SignedTransaction, len(topoResp.TopologyTransactions))
+	for i, tx := range topoResp.TopologyTransactions {
+		signedTxs[i] = &adminv2.AllocateExternalPartyRequest_SignedTransaction{
+			Transaction: tx,
+		}
+	}
+
+	allocResp, err := c.ledger.PartyAdmin().AllocateExternalParty(authCtx, &adminv2.AllocateExternalPartyRequest{
+		Synchronizer:           c.cfg.DomainID,
+		OnboardingTransactions: signedTxs,
+		MultiHashSignatures:    []*lapiv2.Signature{multiHashSig},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("allocate external party: %w", err)
+	}
+
+	c.logger.Info("Allocated external party",
+		zap.String("party_id", allocResp.PartyId),
+		zap.String("hint", hint),
+		zap.String("key_fingerprint", topoResp.PublicKeyFingerprint))
+
+	return &Party{
+		PartyID: allocResp.PartyId,
+		IsLocal: false,
 	}, nil
 }
 

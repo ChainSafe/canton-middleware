@@ -1230,8 +1230,8 @@ const file_com_daml_ledger_api_v2_admin_party_management_service_proto_rawDesc =
 	"\x15AllocateExternalParty\x12:.com.daml.ledger.api.v2.admin.AllocateExternalPartyRequest\x1a;.com.daml.ledger.api.v2.admin.AllocateExternalPartyResponse\x12\x87\x01\n" +
 	"\x12UpdatePartyDetails\x127.com.daml.ledger.api.v2.admin.UpdatePartyDetailsRequest\x1a8.com.daml.ledger.api.v2.admin.UpdatePartyDetailsResponse\x12\xa8\x01\n" +
 	"\x1dUpdatePartyIdentityProviderId\x12B.com.daml.ledger.api.v2.admin.UpdatePartyIdentityProviderIdRequest\x1aC.com.daml.ledger.api.v2.admin.UpdatePartyIdentityProviderIdResponse\x12\xa8\x01\n" +
-	"\x1dGenerateExternalPartyTopology\x12B.com.daml.ledger.api.v2.admin.GenerateExternalPartyTopologyRequest\x1aC.com.daml.ledger.api.v2.admin.GenerateExternalPartyTopologyResponseB\xa0\x01\n" +
-	"\x1ccom.daml.ledger.api.v2.adminB PartyManagementServiceOuterClassZ?github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
+	"\x1dGenerateExternalPartyTopology\x12B.com.daml.ledger.api.v2.admin.GenerateExternalPartyTopologyRequest\x1aC.com.daml.ledger.api.v2.admin.GenerateExternalPartyTopologyResponseB\xa3\x01\n" +
+	"\x1ccom.daml.ledger.api.v2.adminB PartyManagementServiceOuterClassZBgithub.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin\xaa\x02\x1cCom.Daml.Ledger.Api.V2.Adminb\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_admin_party_management_service_proto_rawDescOnce sync.Once

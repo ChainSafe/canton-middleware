@@ -1,6 +1,7 @@
 package registration
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,6 +57,11 @@ type RegisterRequest struct {
 	// Canton native user registration (Loop wallet signMessage)
 	CantonPartyID   string `json:"canton_party_id,omitempty"`
 	CantonSignature string `json:"canton_signature,omitempty"`
+
+	// Optional: hex-encoded 32-byte Canton signing key. When provided for native
+	// registration, the handler stores it so the API server can sign Interactive
+	// Submission transactions on the user's behalf (e.g. transfers via /eth).
+	CantonPrivateKey string `json:"canton_private_key,omitempty"`
 }
 
 // RegisterResponse represents a registration response
@@ -167,68 +173,35 @@ func (h *Handler) handleWeb3Registration(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Allocate a unique Canton party for this user
+	// Allocate an external Canton party for this user.
+	// External parties use the Interactive Submission API and have no practical limit
+	// (unlike internal parties which are capped at ~200 per participant).
 	partyHint := fmt.Sprintf("user_%s", evmAddress[2:10]) // e.g., "user_f39Fd6e5"
-	partyResult, err := h.cantonClient.AllocateParty(ctx, partyHint)
-	var cantonPartyID string
+	spkiKey, err := cantonKeyPair.SPKIPublicKey()
 	if err != nil {
-		// Check if party already exists (from previous registration)
-		errStr := err.Error()
-		if strings.Contains(errStr, "already allocated") || strings.Contains(errStr, "Party already exists") {
-			// Party exists - must use ListParties to get the full (non-truncated) party ID
-			h.logger.Info("Party already exists, looking up full party ID",
-				zap.String("hint", partyHint))
-
-			existingParties, listErr := h.cantonClient.ListParties(ctx)
-			if listErr != nil {
-				h.logger.Error("Failed to list parties to find existing",
-					zap.String("hint", partyHint),
-					zap.Error(listErr))
-				h.writeError(w, http.StatusInternalServerError, "party lookup failed")
-				return
-			}
-
-			h.logger.Info("Searching parties list",
-				zap.Int("party_count", len(existingParties)))
-			for _, p := range existingParties {
-				if strings.HasPrefix(p.PartyID, partyHint+"::") {
-					cantonPartyID = p.PartyID
-					h.logger.Info("Found existing party in list",
-						zap.String("party_id", cantonPartyID))
-					break
-				}
-			}
-
-			if cantonPartyID == "" {
-				h.logger.Error("Could not find existing party in list",
-					zap.String("hint", partyHint))
-				h.writeError(w, http.StatusInternalServerError, "party allocation failed")
-				return
-			}
-		} else {
-			h.logger.Error("Failed to allocate Canton party",
-				zap.String("hint", partyHint),
-				zap.Error(err))
-			h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+		h.logger.Error("Failed to encode SPKI public key", zap.Error(err))
+		h.writeError(w, http.StatusInternalServerError, "key encoding failed")
+		return
+	}
+	partyResult, err := h.cantonClient.AllocateExternalParty(ctx, partyHint, spkiKey, cantonKeyPair)
+	if err != nil {
+		h.logger.Error("Failed to allocate external Canton party",
+			zap.String("hint", partyHint),
+			zap.Error(err))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "already allocated") || strings.Contains(errMsg, "ALREADY_EXISTS") {
+			h.writeError(w, http.StatusConflict, "Canton party already allocated for this user")
 			return
 		}
-	} else {
-		cantonPartyID = partyResult.PartyID
+		h.writeError(w, http.StatusInternalServerError, "party allocation failed")
+		return
 	}
+	cantonPartyID := partyResult.PartyID
 
-	h.logger.Info("Allocated Canton party for user",
+	h.logger.Info("Allocated external Canton party for user",
 		zap.String("evm_address", evmAddress),
 		zap.String("party_id", cantonPartyID),
 		zap.String("public_key", cantonKeyPair.PublicKeyHex()[:32]+"..."))
-
-	// Grant CanActAs rights to the OAuth client for this party
-	// This enables the custodial model: users own their holdings, API server acts on their behalf
-	if err = h.cantonClient.GrantActAsParty(ctx, cantonPartyID); err != nil {
-		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
-			zap.String("party_id", cantonPartyID),
-			zap.Error(err))
-		// Continue anyway - the right might already exist or can be granted manually
-	}
 
 	// Create fingerprint mapping on Canton (direct creation by issuer)
 	var mapping *canton.FingerprintMapping
@@ -362,15 +335,6 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		zap.String("canton_party", req.CantonPartyID),
 		zap.String("evm_address", evmAddress))
 
-	// Grant CanActAs rights to the OAuth client for this party
-	// This enables the custodial model: native users can also use MetaMask via the API server
-	if err = h.cantonClient.GrantActAsParty(ctx, req.CantonPartyID); err != nil {
-		h.logger.Warn("Failed to grant CanActAs rights (transfers may fail)",
-			zap.String("party_id", req.CantonPartyID),
-			zap.Error(err))
-		// Continue anyway - the right might already exist or can be granted manually
-	}
-
 	// Create fingerprint mapping on Canton (direct creation by issuer)
 	// For Canton native users, the party already exists, we just create the mapping
 	var mapping *canton.FingerprintMapping
@@ -404,19 +368,36 @@ func (h *Handler) handleCantonNativeRegistration(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Store the EVM private key (encrypted) so user can download it later for MetaMask
+	// Store the Canton signing key if provided (enables Interactive Submission
+	// for transfers via /eth). Otherwise fall back to storing the EVM key.
 	if h.keyStore != nil {
-		if err := h.keyStore.SetUserKey(evmAddress, req.CantonPartyID, evmKeyPair.PrivateKey); err != nil {
-			h.logger.Error("Failed to store EVM key",
+		var keyToStore []byte
+		var keyLabel string
+
+		if req.CantonPrivateKey != "" {
+			raw := strings.TrimPrefix(req.CantonPrivateKey, "0x")
+			decoded, err := hex.DecodeString(raw)
+			if err != nil || len(decoded) != 32 {
+				h.writeError(w, http.StatusBadRequest, "canton_private_key must be a hex-encoded 32-byte key")
+				return
+			}
+			keyToStore = decoded
+			keyLabel = "Canton"
+		} else {
+			keyToStore = evmKeyPair.PrivateKey
+			keyLabel = "EVM"
+		}
+
+		if err := h.keyStore.SetUserKey(evmAddress, req.CantonPartyID, keyToStore); err != nil {
+			h.logger.Error(fmt.Sprintf("Failed to store %s key", keyLabel),
 				zap.String("evm_address", evmAddress),
 				zap.Error(err))
-			// Cleanup: delete the user we just created
 			if delErr := h.db.DeleteUser(evmAddress); delErr != nil {
 				h.logger.Error("Failed to cleanup user after key storage failure",
 					zap.String("evm_address", evmAddress),
 					zap.Error(delErr))
 			}
-			h.writeError(w, http.StatusInternalServerError, "failed to store EVM key")
+			h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to store %s key", keyLabel))
 			return
 		}
 	}

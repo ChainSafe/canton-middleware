@@ -736,8 +736,8 @@ const file_com_daml_ledger_api_v2_package_service_proto_rawDesc = "" +
 	"\n" +
 	"GetPackage\x12).com.daml.ledger.api.v2.GetPackageRequest\x1a*.com.daml.ledger.api.v2.GetPackageResponse\x12u\n" +
 	"\x10GetPackageStatus\x12/.com.daml.ledger.api.v2.GetPackageStatusRequest\x1a0.com.daml.ledger.api.v2.GetPackageStatusResponse\x12{\n" +
-	"\x12ListVettedPackages\x121.com.daml.ledger.api.v2.ListVettedPackagesRequest\x1a2.com.daml.ledger.api.v2.ListVettedPackagesResponseB\x86\x01\n" +
-	"\x16com.daml.ledger.api.v2B\x18PackageServiceOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x12ListVettedPackages\x121.com.daml.ledger.api.v2.ListVettedPackagesRequest\x1a2.com.daml.ledger.api.v2.ListVettedPackagesResponseB\x89\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x18PackageServiceOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_package_service_proto_rawDescOnce sync.Once

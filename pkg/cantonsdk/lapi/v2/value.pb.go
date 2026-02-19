@@ -1044,8 +1044,8 @@ const file_com_daml_ledger_api_v2_value_proto_rawDesc = "" +
 	"\aentries\x18\x01 \x03(\v2$.com.daml.ledger.api.v2.GenMap.EntryR\aentries\x1am\n" +
 	"\x05Entry\x12/\n" +
 	"\x03key\x18\x01 \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\x03key\x123\n" +
-	"\x05value\x18\x02 \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\x05valueB}\n" +
-	"\x16com.daml.ledger.api.v2B\x0fValueOuterClassZ9github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x1d.com.daml.ledger.api.v2.ValueR\x05valueB\x80\x01\n" +
+	"\x16com.daml.ledger.api.v2B\x0fValueOuterClassZ<github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2\xaa\x02\x16Com.Daml.Ledger.Api.V2b\x06proto3"
 
 var (
 	file_com_daml_ledger_api_v2_value_proto_rawDescOnce sync.Once

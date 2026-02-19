@@ -9,6 +9,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	interactivev2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 
@@ -64,10 +65,11 @@ type Token interface {
 
 // Client implements CIP-56 token operations.
 type Client struct {
-	cfg      *Config
-	ledger   ledger.Ledger
-	identity identity.Identity
-	logger   *zap.Logger
+	cfg         *Config
+	ledger      ledger.Ledger
+	identity    identity.Identity
+	keyResolver KeyResolver
+	logger      *zap.Logger
 }
 
 // New creates a new token client.
@@ -85,10 +87,11 @@ func New(cfg *Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*C
 
 	s := applyOptions(opts)
 	return &Client{
-		cfg:      cfg,
-		ledger:   l,
-		identity: id,
-		logger:   s.logger,
+		cfg:         cfg,
+		ledger:      l,
+		identity:    id,
+		keyResolver: s.keyResolver,
+		logger:      s.logger,
 	}, nil
 }
 
@@ -403,6 +406,15 @@ type transferAsUserRequest struct {
 }
 
 func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest) error {
+	if c.keyResolver == nil {
+		return fmt.Errorf("transfer failed: no key resolver configured (required for Interactive Submission)")
+	}
+
+	signerKey, err := c.keyResolver(req.FromPartyID)
+	if err != nil {
+		return fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
+	}
+
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
@@ -422,18 +434,71 @@ func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest
 		},
 	}
 
-	_, err := c.ledger.Command().SubmitAndWait(c.ledger.AuthContext(ctx), &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId: c.cfg.DomainID,
-			CommandId:      uuid.NewString(),
-			UserId:         c.cfg.UserID,
-			ActAs:          []string{req.FromPartyID},
-			ReadAs:         []string{c.cfg.RelayerParty},
-			Commands:       []*lapiv2.Command{cmd},
-		},
+	commands := &lapiv2.Commands{
+		SynchronizerId: c.cfg.DomainID,
+		CommandId:      uuid.NewString(),
+		UserId:         c.cfg.UserID,
+		ActAs:          []string{req.FromPartyID},
+		ReadAs:         []string{c.cfg.RelayerParty},
+		Commands:       []*lapiv2.Command{cmd},
+	}
+
+	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
+}
+
+// prepareAndExecuteAsUser uses the Interactive Submission API to submit a
+// transaction on behalf of an external party. It prepares the transaction,
+// signs the hash with the party's private key, and executes it.
+func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.Commands, signerKey Signer, partyID string) error {
+	authCtx := c.ledger.AuthContext(ctx)
+
+	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
+		UserId:         commands.UserId,
+		CommandId:      commands.CommandId,
+		Commands:       commands.Commands,
+		ActAs:          commands.ActAs,
+		ReadAs:         commands.ReadAs,
+		SynchronizerId: commands.SynchronizerId,
 	})
 	if err != nil {
-		return fmt.Errorf("transfer failed: %w", err)
+		return fmt.Errorf("prepare submission: %w", err)
+	}
+
+	derSig, err := signerKey.SignDER(prepResp.PreparedTransactionHash)
+	if err != nil {
+		return fmt.Errorf("sign prepared transaction: %w", err)
+	}
+
+	fingerprint, err := signerKey.Fingerprint()
+	if err != nil {
+		return fmt.Errorf("get signer fingerprint: %w", err)
+	}
+
+	partySigs := &interactivev2.PartySignatures{
+		Signatures: []*interactivev2.SinglePartySignatures{
+			{
+				Party: partyID,
+				Signatures: []*lapiv2.Signature{
+					{
+						Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+						Signature:            derSig,
+						SignedBy:             fingerprint,
+						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
+					},
+				},
+			},
+		},
+	}
+
+	_, err = c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
+		PreparedTransaction:  prepResp.PreparedTransaction,
+		PartySignatures:      partySigs,
+		SubmissionId:         uuid.NewString(),
+		UserId:               commands.UserId,
+		HashingSchemeVersion: prepResp.HashingSchemeVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("execute submission: %w", err)
 	}
 
 	return nil

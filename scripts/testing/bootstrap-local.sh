@@ -67,6 +67,10 @@ RELAYER_URL="http://localhost:8080"
 DB_USER="postgres"
 DB_NAME="erc20_api"
 
+# Auto-generate Canton master key if not already set (needed for KeyStore encryption)
+export CANTON_MASTER_KEY="${CANTON_MASTER_KEY:-$(openssl rand -base64 32)}"
+export SKIP_CANTON_SIG_VERIFY="${SKIP_CANTON_SIG_VERIFY:-true}"
+
 # ─── Step 1: Docker ──────────────────────────────────────────────────────────
 start_docker() {
     print_header "Step 1: Start Docker Services"
@@ -78,9 +82,6 @@ start_docker() {
         docker compose down -v --remove-orphans 2>/dev/null || true
         print_success "Cleaned"
     fi
-
-    export CANTON_MASTER_KEY=$(openssl rand -base64 32)
-    export SKIP_CANTON_SIG_VERIFY=true
 
     print_step "Starting services (docker compose up --build)..."
     if [ "$VERBOSE" = true ]; then
