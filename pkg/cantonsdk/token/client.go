@@ -469,6 +469,11 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 		return fmt.Errorf("sign prepared transaction: %w", err)
 	}
 
+	fingerprint, err := signerKey.Fingerprint()
+	if err != nil {
+		return fmt.Errorf("get signer fingerprint: %w", err)
+	}
+
 	partySigs := &interactivev2.PartySignatures{
 		Signatures: []*interactivev2.SinglePartySignatures{
 			{
@@ -477,7 +482,7 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 					{
 						Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
 						Signature:            derSig,
-						SignedBy:             signerKey.Fingerprint(),
+						SignedBy:             fingerprint,
 						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
 					},
 				},

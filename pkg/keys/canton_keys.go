@@ -141,17 +141,17 @@ func (kp *CantonKeyPair) SPKIPublicKey() ([]byte, error) {
 
 // Fingerprint returns the Canton key fingerprint: multihash-encoded SHA-256
 // of the SPKI public key bytes with hash purpose 12.
-func (kp *CantonKeyPair) Fingerprint() string {
+func (kp *CantonKeyPair) Fingerprint() (string, error) {
 	spki, err := kp.SPKIPublicKey()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("encode SPKI public key: %w", err)
 	}
 	var purpose [4]byte
 	binary.BigEndian.PutUint32(purpose[:], 12)
 	h := sha256.Sum256(append(purpose[:], spki...))
 	// Multihash encoding: 0x12 (SHA-256 algo) + 0x20 (32 byte length) + hash
 	mh := append([]byte{0x12, 0x20}, h[:]...)
-	return fmt.Sprintf("%x", mh)
+	return fmt.Sprintf("%x", mh), nil
 }
 
 // PublicKeyBase64 returns the public key as a base64 string
