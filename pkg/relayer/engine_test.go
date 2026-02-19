@@ -201,13 +201,13 @@ func TestEngine_LoadOffsets_WithStoredState(t *testing.T) {
 		},
 	}
 
-	mockCantonClient := &MockCantonClient{
+	mockCanton := &MockCantonClient{
 		GetLatestLedgerOffsetFunc: func(ctx context.Context) (int64, error) {
-			return 10000, nil
+			return 7000, nil
 		},
 	}
 
-	engine := NewEngine(cfg, mockCantonClient, &MockEthereumClient{}, mockStore, zap.NewNop())
+	engine := NewEngine(cfg, mockCanton, &MockEthereumClient{}, mockStore, zap.NewNop())
 	err := engine.loadOffsets(context.Background())
 
 	if err != nil {
