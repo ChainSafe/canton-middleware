@@ -170,7 +170,8 @@ echo ""
 echo ">>> Updating config file..."
 sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$CONFIG_FILE"
 sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
-echo "    Config updated with party and domain"
+sed -i "s|instrument_admin: \".*\"|instrument_admin: \"$PARTY_ID\"|" "$CONFIG_FILE"
+echo "    Config updated with party, domain, and instrument_admin"
 
 # =============================================================================
 # Update API server config file
@@ -180,7 +181,8 @@ if [ -f "$API_SERVER_CONFIG_FILE" ]; then
     echo ">>> Updating API server config file..."
     sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
     sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
-    echo "    API server config updated with party and domain"
+    sed -i "s|instrument_admin: \".*\"|instrument_admin: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
+    echo "    API server config updated with party, domain, and instrument_admin"
 fi
 
 # =============================================================================

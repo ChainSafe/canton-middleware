@@ -17,13 +17,17 @@ type Signer interface {
 // Used by Interactive Submission to sign transactions on behalf of external parties.
 type KeyResolver func(partyID string) (Signer, error)
 
-// Holding represents a CIP56Holding contract.
+// Holding represents a CIP56Holding contract (Splice-compliant).
 type Holding struct {
-	ContractID string
-	Issuer     string
-	Owner      string
-	Amount     string
-	Symbol     string
+	ContractID      string
+	Issuer          string
+	Owner           string
+	Amount          string
+	Symbol          string // derived from Metadata["splice.chainsafe.io/symbol"]
+	InstrumentAdmin string
+	InstrumentID    string
+	Locked          bool
+	Metadata        map[string]string
 }
 
 // MintRequest represents an issuer mint request via TokenConfig.

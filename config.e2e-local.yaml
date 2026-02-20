@@ -67,13 +67,17 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: "local::1220b3bb1850fc2c704f281876d3e721e160470df4d9c40f06e13f612360be27d2a4"  # Auto-detected by bootstrap
+  domain_id: "local::1220997f0072a752cb1b5a59702a54602d5685f9ecbe07ba37a0b75cdd4ab6e0b36e"  # Auto-detected by bootstrap
   application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::12205b2635449f3e9c1fd058b4c217cc1a9eb258e57cee38fc51962b5bf15c5272b2"  # Auto-detected by bootstrap
-  bridge_package_id: "aa807d8ebeb267eb2f032730113ab03a925585312ec745f63066a6ba77dd9a31"
+  relayer_party: "BridgeIssuer::1220cf831ed05d9dc2044bb1c09f153bb328dd3d4032cb5db3e185d5403a43c4b082"  # Auto-detected by bootstrap
+  bridge_package_id: "96892a7be13d25a83b8772a1d3d4027cb39c7e65d60c879dc455a515e04e8b89"
   common_package_id: "5de6731c1a7487543d61ffe2bf847abbdf8694c4561c580986d8f4c2049745ea"
-  core_package_id: "2c7cb8d93550b815307a7139d687c8e1a5f4b2e93b822d92ebe414fec8d843ed"
-  cip56_package_id: "7be0822fb54b081934f6f27accd79888f4542d1f729f9c1e52eea43cf2e81262"
+  core_package_id: "118e54e7f9619af76065036b0491f8f0911082dace8374d27d9b22ed98a1e665"
+  cip56_package_id: "168483ce8a80e76f69f7392ceaa9ff57b1036b8fb41ccb3d410b087048195a92"
+  splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
+  splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+  instrument_admin: "BridgeIssuer::1220cf831ed05d9dc2044bb1c09f153bb328dd3d4032cb5db3e185d5403a43c4b082"  # Set by bootstrap (same as relayer_party)
+  instrument_id: "PROMPT"
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
   tls:

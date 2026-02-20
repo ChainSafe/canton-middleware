@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
@@ -237,7 +237,11 @@ func printHoldings(holdings []HoldingInfo) {
 	} else {
 		for i, h := range holdings {
 			fmt.Printf("[%d] Owner: %s\n", i+1, h.Owner)
-			fmt.Printf("    Balance:  %s PROMPT\n", h.Amount)
+			symbol := h.TokenID
+			if symbol == "" {
+				symbol = "UNKNOWN"
+			}
+			fmt.Printf("    Balance:  %s %s\n", h.Amount, symbol)
 			fmt.Printf("    Token ID: %s\n", h.TokenID)
 			fmt.Printf("    CID:      %s\n", h.ContractID)
 			fmt.Println()
@@ -671,6 +675,15 @@ func extractMetaTokenId(v *lapiv2.Value) string {
 		}
 		for _, field := range rec.Record.Fields {
 			switch field.Label {
+			case "values":
+				// Splice Metadata: Record { values : TextMap Text }
+				if tm, ok := field.Value.Sum.(*lapiv2.Value_TextMap); ok && tm.TextMap != nil {
+					for _, entry := range tm.TextMap.Entries {
+						if entry.Key == "splice.chainsafe.io/symbol" {
+							return extractText(entry.Value)
+						}
+					}
+				}
 			case "tokenId", "id", "instrumentId", "assetId", "symbol", "name":
 				if text := extractText(field.Value); text != "" {
 					return text

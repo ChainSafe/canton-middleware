@@ -31,6 +31,10 @@ canton:
   relayer_party: "" # Set via environment variable CANTON_RELAYER_PARTY or after allocating party
   bridge_package_id: "" # Set after DAR upload - will be the package ID hash
   cip56_package_id: "" # Set after DAR upload - cip56-token package ID
+  splice_holding_package_id: "" # Splice HoldingV1 interface package ID
+  splice_transfer_package_id: "" # Splice TransferInstructionV1 interface package ID
+  instrument_admin: "" # Set by bootstrap (same as relayer_party)
+  instrument_id: "" # Token instrument identifier (e.g. "PROMPT")
   bridge_module: "Wayfinder.Bridge"
   bridge_contract: "WayfinderBridgeConfig"
   tls:

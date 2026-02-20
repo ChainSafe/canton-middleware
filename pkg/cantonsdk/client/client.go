@@ -126,9 +126,13 @@ func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Opt
 			CommonPackageID: cfg.CommonPackageID,
 		},
 		Token: &token.Config{
-			DomainID:       cfg.DomainID,
-			RelayerParty:   cfg.RelayerParty,
-			CIP56PackageID: cfg.CIP56PackageID,
+			DomainID:                cfg.DomainID,
+			RelayerParty:            cfg.RelayerParty,
+			CIP56PackageID:          cfg.CIP56PackageID,
+			SpliceHoldingPackageID:  cfg.SpliceHoldingPackageID,
+			SpliceTransferPackageID: cfg.SpliceTransferPackageID,
+			InstrumentAdmin:         cfg.InstrumentAdmin,
+			InstrumentID:            cfg.InstrumentID,
 		},
 	}
 

@@ -67,6 +67,18 @@ func ContractID(v *lapiv2.Value) string {
 	return ""
 }
 
+// IsNone returns true if the value is a Daml None (Optional with no value).
+func IsNone(v *lapiv2.Value) bool {
+	if v == nil {
+		return true
+	}
+	opt, ok := v.Sum.(*lapiv2.Value_Optional)
+	if !ok {
+		return false
+	}
+	return opt.Optional == nil || opt.Optional.Value == nil
+}
+
 // Timestamp extracts timestamp.
 func Timestamp(v *lapiv2.Value) time.Time {
 	if v == nil {

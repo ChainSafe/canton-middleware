@@ -14,6 +14,7 @@ participant1.synchronizers.connect_local(sequencer1, alias = "da")
 import java.io.File
 
 val darDirs = Seq(
+  "/canton/contracts/daml/splice-dars",
   "/canton/contracts/daml/common/.daml/dist",
   "/canton/contracts/daml/cip56-token/.daml/dist",
   "/canton/contracts/daml/bridge-core/.daml/dist",

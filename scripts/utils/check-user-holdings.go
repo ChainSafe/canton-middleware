@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/yaml.v3"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
 type Config struct {

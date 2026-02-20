@@ -8,8 +8,14 @@ type Config struct {
 	RelayerParty string
 	UserID       string
 
-	// CIP56PackageID is the package ID containing CIP-56 templates.
-	CIP56PackageID string
+	CIP56PackageID          string
+	SpliceHoldingPackageID  string
+	SpliceTransferPackageID string
+
+	// InstrumentAdmin is the party that administers the token instrument (typically the relayer).
+	InstrumentAdmin string
+	// InstrumentID is the unique identifier for the token instrument (e.g. "PROMPT").
+	InstrumentID string
 }
 
 func (c *Config) validate() error {
@@ -27,6 +33,12 @@ func (c *Config) validate() error {
 	}
 	if c.CIP56PackageID == "" {
 		return errors.New("cip56_package_id is required")
+	}
+	if c.SpliceHoldingPackageID == "" {
+		return errors.New("splice_holding_package_id is required")
+	}
+	if c.SpliceTransferPackageID == "" {
+		return errors.New("splice_transfer_package_id is required")
 	}
 	return nil
 }
