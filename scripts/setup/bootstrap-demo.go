@@ -42,6 +42,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
 
 var (
@@ -397,7 +398,7 @@ func findTokenConfig(ctx context.Context, client lapiv2.StateServiceClient, part
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
 			event := contract.CreatedEvent
-			if getSymbolFromSpliceMeta(event.GetCreateArguments()) == "DEMO" {
+			if values.MetaSymbolFromRecord(event.GetCreateArguments()) == "DEMO" {
 				return event.ContractId, nil
 			}
 		}
@@ -412,8 +413,8 @@ func createDemoTokenManager(ctx context.Context, client lapiv2.CommandServiceCli
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
-			{Label: "instrumentId", Value: encodeInstrumentId(issuer, "DEMO")},
-			{Label: "meta", Value: encodeSpliceMetadata(map[string]string{
+			{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "DEMO")},
+			{Label: "meta", Value: values.EncodeMetadata(map[string]string{
 				"splice.chainsafe.io/name":     "Demo Token",
 				"splice.chainsafe.io/symbol":   "DEMO",
 				"splice.chainsafe.io/decimals": "18",
@@ -467,8 +468,8 @@ func createTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, 
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 			{Label: "tokenManagerCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenManagerCid}}},
-			{Label: "instrumentId", Value: encodeInstrumentId(issuer, "DEMO")},
-			{Label: "meta", Value: encodeSpliceMetadata(map[string]string{
+			{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "DEMO")},
+			{Label: "meta", Value: values.EncodeMetadata(map[string]string{
 				"splice.chainsafe.io/name":     "Demo Token",
 				"splice.chainsafe.io/symbol":   "DEMO",
 				"splice.chainsafe.io/decimals": "18",
@@ -689,76 +690,6 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 		}
 	}
 	return "", fmt.Errorf("CIP56TransferFactory not found in response")
-}
-
-func encodeInstrumentId(admin, id string) *lapiv2.Value {
-	return &lapiv2.Value{
-		Sum: &lapiv2.Value_Record{
-			Record: &lapiv2.Record{
-				Fields: []*lapiv2.RecordField{
-					{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: admin}}},
-					{Label: "id", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: id}}},
-				},
-			},
-		},
-	}
-}
-
-func encodeSpliceMetadata(kvs map[string]string) *lapiv2.Value {
-	entries := make([]*lapiv2.TextMap_Entry, 0, len(kvs))
-	for k, v := range kvs {
-		entries = append(entries, &lapiv2.TextMap_Entry{
-			Key:   k,
-			Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: v}},
-		})
-	}
-
-	return &lapiv2.Value{
-		Sum: &lapiv2.Value_Record{
-			Record: &lapiv2.Record{
-				Fields: []*lapiv2.RecordField{
-					{
-						Label: "values",
-						Value: &lapiv2.Value{
-							Sum: &lapiv2.Value_TextMap{
-								TextMap: &lapiv2.TextMap{Entries: entries},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-func getSymbolFromSpliceMeta(args *lapiv2.Record) string {
-	if args == nil {
-		return ""
-	}
-	for _, f := range args.Fields {
-		if f.Label != "meta" {
-			continue
-		}
-		rec := f.GetValue().GetRecord()
-		if rec == nil {
-			return ""
-		}
-		for _, rf := range rec.Fields {
-			if rf.Label != "values" {
-				continue
-			}
-			tm := rf.GetValue().GetTextMap()
-			if tm == nil {
-				return ""
-			}
-			for _, entry := range tm.Entries {
-				if entry.Key == "splice.chainsafe.io/symbol" {
-					return entry.GetValue().GetText()
-				}
-			}
-		}
-	}
-	return ""
 }
 
 // updateDemoBalancesInDB connects to the database and updates DEMO balances for users

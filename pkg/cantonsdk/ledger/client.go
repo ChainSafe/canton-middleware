@@ -343,7 +343,7 @@ func (c *Client) GetActiveContractsByInterface(
 	return c.collectActiveContracts(stream)
 }
 
-func (c *Client) collectActiveContracts(stream lapiv2.StateService_GetActiveContractsClient) ([]*lapiv2.CreatedEvent, error) {
+func (*Client) collectActiveContracts(stream lapiv2.StateService_GetActiveContractsClient) ([]*lapiv2.CreatedEvent, error) {
 	var out []*lapiv2.CreatedEvent
 	for {
 		msg, err := stream.Recv()

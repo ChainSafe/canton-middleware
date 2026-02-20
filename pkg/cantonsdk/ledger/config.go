@@ -29,7 +29,7 @@ type TLSConfig struct {
 // used for authenticating against the Canton participant.
 type AuthConfig struct {
 	ClientID     string
-	ClientSecret string
+	ClientSecret string //nolint:gosec // standard OAuth2 config field name
 	Audience     string
 	TokenURL     string
 

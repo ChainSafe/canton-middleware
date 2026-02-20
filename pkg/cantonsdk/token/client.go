@@ -21,6 +21,21 @@ import (
 // ErrInsufficientBalance indicates the owner's total unlocked balance is less than the required amount.
 var ErrInsufficientBalance = errors.New("insufficient balance")
 
+const (
+	defaultTransferValidity = time.Hour
+
+	moduleConfig          = "CIP56.Config"
+	entityTokenConfig     = "TokenConfig"
+	moduleToken           = "CIP56.Token"
+	entityHolding         = "CIP56Holding"
+	moduleTransferFactory = "CIP56.TransferFactory"
+	entityTransferFactory = "CIP56TransferFactory"
+	moduleEvents          = "CIP56.Events"
+
+	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
+	spliceTransferFactory = "TransferFactory"
+)
+
 // Token defines CIP-56 token operations.
 type Token interface {
 	// GetTokenConfigCID returns the active TokenConfig contract ID for the given token symbol.
@@ -100,8 +115,8 @@ func (c *Client) GetTokenConfigCID(ctx context.Context, tokenSymbol string) (str
 
 	tid := &lapiv2.Identifier{
 		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: "CIP56.Config",
-		EntityName: "TokenConfig",
+		ModuleName: moduleConfig,
+		EntityName: entityTokenConfig,
 	}
 
 	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
@@ -138,8 +153,8 @@ func (c *Client) Mint(ctx context.Context, req *MintRequest) (string, error) {
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
 					PackageId:  c.cfg.CIP56PackageID,
-					ModuleName: "CIP56.Config",
-					EntityName: "TokenConfig",
+					ModuleName: moduleConfig,
+					EntityName: entityTokenConfig,
 				},
 				ContractId:     cid,
 				Choice:         "IssuerMint",
@@ -170,7 +185,7 @@ func (c *Client) Mint(ctx context.Context, req *MintRequest) (string, error) {
 		if created == nil || created.TemplateId == nil {
 			continue
 		}
-		if created.TemplateId.ModuleName == "CIP56.Token" && created.TemplateId.EntityName == "CIP56Holding" {
+		if created.TemplateId.ModuleName == moduleToken && created.TemplateId.EntityName == entityHolding {
 			return created.ContractId, nil
 		}
 	}
@@ -194,8 +209,8 @@ func (c *Client) Burn(ctx context.Context, req *BurnRequest) error {
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
 					PackageId:  c.cfg.CIP56PackageID,
-					ModuleName: "CIP56.Config",
-					EntityName: "TokenConfig",
+					ModuleName: moduleConfig,
+					EntityName: entityTokenConfig,
 				},
 				ContractId:     configCID,
 				Choice:         "IssuerBurn",
@@ -255,8 +270,8 @@ func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
 
 	tid := &lapiv2.Identifier{
 		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: "CIP56.Token",
-		EntityName: "CIP56Holding",
+		ModuleName: moduleToken,
+		EntityName: entityHolding,
 	}
 
 	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
@@ -312,8 +327,8 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 
 	tid := &lapiv2.Identifier{
 		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: "CIP56.Token",
-		EntityName: "CIP56Holding",
+		ModuleName: moduleToken,
+		EntityName: entityHolding,
 	}
 
 	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
@@ -414,8 +429,8 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
 					PackageId:  c.cfg.SpliceTransferPackageID,
-					ModuleName: "Splice.Api.Token.TransferInstructionV1",
-					EntityName: "TransferFactory",
+					ModuleName: spliceTransferModule,
+					EntityName: spliceTransferFactory,
 				},
 				ContractId: req.FactoryCID,
 				Choice:     "TransferFactory_Transfer",
@@ -429,7 +444,7 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 							req.InstrumentAdmin,
 							req.InstrumentID,
 							now,
-							now.Add(time.Hour),
+							now.Add(defaultTransferValidity),
 							req.InputHoldingCIDs,
 						),
 					},
@@ -461,8 +476,8 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 
 	tid := &lapiv2.Identifier{
 		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: "CIP56.TransferFactory",
-		EntityName: "CIP56TransferFactory",
+		ModuleName: moduleTransferFactory,
+		EntityName: entityTransferFactory,
 	}
 
 	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
@@ -618,7 +633,7 @@ func getEvents[T any](
 
 	tid := &lapiv2.Identifier{
 		PackageId:  cip56PackageID,
-		ModuleName: "CIP56.Events",
+		ModuleName: moduleEvents,
 		EntityName: eventName,
 	}
 

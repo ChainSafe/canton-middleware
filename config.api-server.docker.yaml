@@ -22,10 +22,10 @@ canton:
   domain_id: ""
   application_id: "erc20-api"
   relayer_party: ""
-  bridge_package_id: "bada1085e91974ade45ad332d78968dbdc61e3e7405c80f6c113c9376bfde610"
+  bridge_package_id: "96892a7be13d25a83b8772a1d3d4027cb39c7e65d60c879dc455a515e04e8b89"
   common_package_id: "5de6731c1a7487543d61ffe2bf847abbdf8694c4561c580986d8f4c2049745ea"
-  core_package_id: "7e6d818508d8814b0e80a124b5b736706800383dd26278aa10007e8b98376552"
-  cip56_package_id: "3f7ad616d1d61a11a1863117a9212bf8b1a1a106e8501fd5d1d8dea57857b505"
+  core_package_id: "118e54e7f9619af76065036b0491f8f0911082dace8374d27d9b22ed98a1e665"
+  cip56_package_id: "168483ce8a80e76f69f7392ceaa9ff57b1036b8fb41ccb3d410b087048195a92"
   splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
   splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
   instrument_admin: ""  # Set by bootstrap (same as relayer_party)

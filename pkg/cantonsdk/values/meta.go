@@ -126,6 +126,16 @@ func EncodeExtraArgs() *lapiv2.Value {
 	}
 }
 
+// MetaSymbolFromRecord extracts the token symbol from a contract's CreateArguments record
+// by finding the "meta" field and decoding its Splice Metadata.
+func MetaSymbolFromRecord(args *lapiv2.Record) string {
+	if args == nil {
+		return ""
+	}
+	fields := RecordToMap(args)
+	return MetaSymbol(fields["meta"])
+}
+
 // DecodeInstrumentId extracts admin and id from a Splice InstrumentId record value.
 func DecodeInstrumentId(v *lapiv2.Value) (admin, id string) {
 	if v == nil {
