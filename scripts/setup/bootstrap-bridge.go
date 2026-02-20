@@ -444,8 +444,8 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
-{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "PROMPT")},
-					{Label: "meta", Value: values.EncodeMetadata(map[string]string{
+			{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "PROMPT")},
+			{Label: "meta", Value: values.EncodeMetadata(map[string]string{
 				"splice.chainsafe.io/name":     "Wayfinder PROMPT",
 				"splice.chainsafe.io/symbol":   "PROMPT",
 				"splice.chainsafe.io/decimals": "18",
