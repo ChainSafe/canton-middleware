@@ -5,6 +5,24 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
 
+func decodeHolding(ce *lapiv2.CreatedEvent) *Holding {
+	fields := values.RecordToMap(ce.CreateArguments)
+	meta := values.DecodeMetadata(fields["meta"])
+	admin, id := values.DecodeInstrumentId(fields["instrumentId"])
+
+	return &Holding{
+		ContractID:      ce.ContractId,
+		Issuer:          values.Party(fields["issuer"]),
+		Owner:           values.Party(fields["owner"]),
+		Amount:          values.Numeric(fields["amount"]),
+		Symbol:          meta[values.MetaKeySymbol],
+		InstrumentAdmin: admin,
+		InstrumentID:    id,
+		Locked:          !values.IsNone(fields["lock"]),
+		Metadata:        meta,
+	}
+}
+
 func decodeMintEvent(ce *lapiv2.CreatedEvent) *MintEvent {
 	fields := values.RecordToMap(ce.CreateArguments)
 

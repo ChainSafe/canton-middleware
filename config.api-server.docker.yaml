@@ -22,10 +22,14 @@ canton:
   domain_id: ""
   application_id: "erc20-api"
   relayer_party: ""
-  bridge_package_id: "aa807d8ebeb267eb2f032730113ab03a925585312ec745f63066a6ba77dd9a31"
+  bridge_package_id: "bada1085e91974ade45ad332d78968dbdc61e3e7405c80f6c113c9376bfde610"
   common_package_id: "5de6731c1a7487543d61ffe2bf847abbdf8694c4561c580986d8f4c2049745ea"
-  core_package_id: "2c7cb8d93550b815307a7139d687c8e1a5f4b2e93b822d92ebe414fec8d843ed"
-  cip56_package_id: "7be0822fb54b081934f6f27accd79888f4542d1f729f9c1e52eea43cf2e81262"
+  core_package_id: "7e6d818508d8814b0e80a124b5b736706800383dd26278aa10007e8b98376552"
+  cip56_package_id: "3f7ad616d1d61a11a1863117a9212bf8b1a1a106e8501fd5d1d8dea57857b505"
+  splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
+  splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+  instrument_admin: ""  # Set by bootstrap (same as relayer_party)
+  instrument_id: "PROMPT"
   bridge_module: "Wayfinder.Bridge"
   tls:
     enabled: false

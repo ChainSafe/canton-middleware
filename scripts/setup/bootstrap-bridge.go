@@ -210,6 +210,15 @@ func main() {
 	fmt.Printf("    TokenConfig Contract ID: %s\n", tokenConfigCid)
 	fmt.Println()
 
+	// Step 5.5: Create CIP56TransferFactory
+	fmt.Println(">>> Step 5.5: Creating CIP56TransferFactory...")
+	factoryCid, err := createTransferFactory(ctx, commandService, *issuerParty, cip56PackageID, domainID)
+	if err != nil {
+		log.Fatalf("Failed to create CIP56TransferFactory: %v", err)
+	}
+	fmt.Printf("    CIP56TransferFactory: %s\n", factoryCid)
+	fmt.Println()
+
 	// Step 6: Create WayfinderBridgeConfig
 	fmt.Println(">>> Step 6: Creating WayfinderBridgeConfig...")
 	configCid, err := createBridgeConfig(ctx, commandService, *issuerParty, pkgID, domainID, cfg.Canton.ApplicationID, tokenConfigCid)
@@ -431,23 +440,16 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 
 	fmt.Printf("    Debug: issuer=%s, cip56PackageID=%s, domainID=%s\n", issuer, cip56PackageID, domainID)
 
-	metaRecord := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Wayfinder PROMPT"}}},
-			{Label: "symbol", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "PROMPT"}}},
-			{Label: "decimals", Value: &lapiv2.Value{Sum: &lapiv2.Value_Int64{Int64: 18}}},
-			{Label: "isin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "dtiCode", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "regulatoryInfo", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{
-				Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "ERC20: 0x28d38df637db75533bd3f71426f3410a82041544"}},
-			}}}},
-		},
-	}
-
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
-			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
+			{Label: "instrumentId", Value: encodeInstrumentId(issuer, "PROMPT")},
+			{Label: "meta", Value: encodeSpliceMetadata(map[string]string{
+				"splice.chainsafe.io/name":     "Wayfinder PROMPT",
+				"splice.chainsafe.io/symbol":   "PROMPT",
+				"splice.chainsafe.io/decimals": "18",
+				"splice.chainsafe.io/erc20":    "0x28d38df637db75533bd3f71426f3410a82041544",
+			})},
 		},
 	}
 
@@ -499,24 +501,17 @@ func createTokenManager(ctx context.Context, client lapiv2.CommandServiceClient,
 func createPromptTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID, tokenManagerCid string) (string, error) {
 	cmdID := fmt.Sprintf("create-prompt-config-%d", time.Now().UnixNano())
 
-	metaRecord := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Wayfinder PROMPT"}}},
-			{Label: "symbol", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "PROMPT"}}},
-			{Label: "decimals", Value: &lapiv2.Value{Sum: &lapiv2.Value_Int64{Int64: 18}}},
-			{Label: "isin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "dtiCode", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "regulatoryInfo", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{
-				Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "ERC20: 0x28d38df637db75533bd3f71426f3410a82041544"}},
-			}}}},
-		},
-	}
-
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 			{Label: "tokenManagerCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenManagerCid}}},
-			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
+			{Label: "instrumentId", Value: encodeInstrumentId(issuer, "PROMPT")},
+			{Label: "meta", Value: encodeSpliceMetadata(map[string]string{
+				"splice.chainsafe.io/name":     "Wayfinder PROMPT",
+				"splice.chainsafe.io/symbol":   "PROMPT",
+				"splice.chainsafe.io/decimals": "18",
+				"splice.chainsafe.io/erc20":    "0x28d38df637db75533bd3f71426f3410a82041544",
+			})},
 			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
@@ -609,4 +604,91 @@ func createBridgeConfig(ctx context.Context, client lapiv2.CommandServiceClient,
 	}
 
 	return "", fmt.Errorf("WayfinderBridgeConfig contract ID not found in response")
+}
+
+func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID string) (string, error) {
+	cmdID := fmt.Sprintf("bootstrap-factory-%d", time.Now().UnixNano())
+
+	createArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Create{
+			Create: &lapiv2.CreateCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  cip56PackageID,
+					ModuleName: "CIP56.TransferFactory",
+					EntityName: "CIP56TransferFactory",
+				},
+				CreateArguments: createArgs,
+			},
+		},
+	}
+
+	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: domainID,
+			CommandId:      cmdID,
+			UserId:         jwtSubject,
+			ActAs:          []string{issuer},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("submit failed: %w", err)
+	}
+
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				if created.TemplateId.EntityName == "CIP56TransferFactory" {
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("CIP56TransferFactory not found in response")
+}
+
+func encodeInstrumentId(admin, id string) *lapiv2.Value {
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: admin}}},
+					{Label: "id", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: id}}},
+				},
+			},
+		},
+	}
+}
+
+func encodeSpliceMetadata(kvs map[string]string) *lapiv2.Value {
+	entries := make([]*lapiv2.TextMap_Entry, 0, len(kvs))
+	for k, v := range kvs {
+		entries = append(entries, &lapiv2.TextMap_Entry{
+			Key:   k,
+			Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: v}},
+		})
+	}
+
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{
+						Label: "values",
+						Value: &lapiv2.Value{
+							Sum: &lapiv2.Value_TextMap{
+								TextMap: &lapiv2.TextMap{Entries: entries},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }

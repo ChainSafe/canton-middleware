@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
@@ -17,15 +18,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Sentinel errors for balance-related operations.
-var (
-	// ErrInsufficientBalance indicates the owner's total balance is less than the required amount.
-	ErrInsufficientBalance = errors.New("insufficient balance")
-
-	// ErrBalanceFragmented indicates the owner has sufficient total balance but it's split across
-	// multiple holdings such that no single holding has enough for the transfer.
-	ErrBalanceFragmented = errors.New("balance fragmented across multiple holdings: consolidation required")
-)
+// ErrInsufficientBalance indicates the owner's total unlocked balance is less than the required amount.
+var ErrInsufficientBalance = errors.New("insufficient balance")
 
 // Token defines CIP-56 token operations.
 type Token interface {
@@ -270,16 +264,9 @@ func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
 		return nil, fmt.Errorf("query holdings: %w", err)
 	}
 
-	out := make([]*Holding, 0)
+	out := make([]*Holding, 0, len(events))
 	for _, ce := range events {
-		fields := values.RecordToMap(ce.CreateArguments)
-		out = append(out, &Holding{
-			ContractID: ce.ContractId,
-			Issuer:     values.Party(fields["issuer"]),
-			Owner:      values.Party(fields["owner"]),
-			Amount:     values.Numeric(fields["amount"]),
-			Symbol:     values.MetaSymbol(fields["meta"]),
-		})
+		out = append(out, decodeHolding(ce))
 	}
 	return out, nil
 }
@@ -375,37 +362,42 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 		return fmt.Errorf("token symbol is required")
 	}
 
-	holdingCID, err := c.findHoldingForTransfer(ctx, fromParty, amount, tokenSymbol)
+	holdings, err := c.GetHoldings(ctx, fromParty, tokenSymbol)
+	if err != nil {
+		return err
+	}
+	selected, err := selectHoldingsForTransfer(holdings, amount)
+	if err != nil {
+		return fmt.Errorf("select holdings for transfer: %w", err)
+	}
+
+	factoryCID, err := c.getTransferFactoryCID(ctx)
 	if err != nil {
 		return err
 	}
 
-	recipientHolding, err := c.findRecipientHolding(ctx, toParty, tokenSymbol)
-	if err != nil {
-		return err
-	}
-
-	return c.transferHolding(ctx, &transferAsUserRequest{
-		FromPartyID:              fromParty,
-		ToPartyID:                toParty,
-		HoldingCID:               holdingCID,
-		Amount:                   amount,
-		TokenSymbol:              tokenSymbol,
-		ExistingRecipientHolding: recipientHolding,
+	return c.transferViaFactory(ctx, &transferFactoryRequest{
+		FromPartyID:      fromParty,
+		ToPartyID:        toParty,
+		Amount:           amount,
+		InstrumentAdmin:  selected.InstrumentAdmin,
+		InstrumentID:     selected.InstrumentID,
+		InputHoldingCIDs: selected.CIDs,
+		FactoryCID:       factoryCID,
 	})
 }
 
-type transferAsUserRequest struct {
-	FromPartyID string
-	ToPartyID   string
-	HoldingCID  string
-	Amount      string
-	TokenSymbol string
-	// Existing recipient CIP56Holding CID (for merge), empty if none
-	ExistingRecipientHolding string
+type transferFactoryRequest struct {
+	FromPartyID      string
+	ToPartyID        string
+	Amount           string
+	InstrumentAdmin  string
+	InstrumentID     string
+	InputHoldingCIDs []string
+	FactoryCID       string
 }
 
-func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest) error {
+func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
 	if c.keyResolver == nil {
 		return fmt.Errorf("transfer failed: no key resolver configured (required for Interactive Submission)")
 	}
@@ -415,19 +407,31 @@ func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest
 		return fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
 	}
 
+	now := time.Now().UTC()
+
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.CIP56PackageID,
-					ModuleName: "CIP56.Token",
-					EntityName: "CIP56Holding",
+					PackageId:  c.cfg.SpliceTransferPackageID,
+					ModuleName: "Splice.Api.Token.TransferInstructionV1",
+					EntityName: "TransferFactory",
 				},
-				ContractId: req.HoldingCID,
-				Choice:     "Transfer",
+				ContractId: req.FactoryCID,
+				Choice:     "TransferFactory_Transfer",
 				ChoiceArgument: &lapiv2.Value{
 					Sum: &lapiv2.Value_Record{
-						Record: encodeHoldingTransferArgs(req.ToPartyID, req.Amount, req.ExistingRecipientHolding),
+						Record: encodeTransferFactoryTransferArgs(
+							req.InstrumentAdmin,
+							req.FromPartyID,
+							req.ToPartyID,
+							req.Amount,
+							req.InstrumentAdmin,
+							req.InstrumentID,
+							now,
+							now.Add(time.Hour),
+							req.InputHoldingCIDs,
+						),
 					},
 				},
 			},
@@ -444,6 +448,32 @@ func (c *Client) transferHolding(ctx context.Context, req *transferAsUserRequest
 	}
 
 	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
+}
+
+func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return "", err
+	}
+	if end == 0 {
+		return "", fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.CIP56PackageID,
+		ModuleName: "CIP56.TransferFactory",
+		EntityName: "CIP56TransferFactory",
+	}
+
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	if err != nil {
+		return "", fmt.Errorf("query transfer factory: %w", err)
+	}
+	if len(events) == 0 {
+		return "", fmt.Errorf("no active CIP56TransferFactory found")
+	}
+
+	return events[0].ContractId, nil
 }
 
 // prepareAndExecuteAsUser uses the Interactive Submission API to submit a
@@ -504,56 +534,48 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 	return nil
 }
 
-func (c *Client) findHoldingForTransfer(ctx context.Context, ownerParty, requiredAmount, tokenSymbol string) (string, error) {
-	holdings, err := c.GetHoldings(ctx, ownerParty, tokenSymbol)
-	if err != nil {
-		return "", err
-	}
+type selectedHoldings struct {
+	CIDs            []string
+	InstrumentAdmin string
+	InstrumentID    string
+}
+
+// selectHoldingsForTransfer selects holdings whose combined value covers the
+// required transfer amount. With multi-input TransferFactory, fragmentation
+// is no longer an issue -- we just accumulate holdings until we have enough.
+func selectHoldingsForTransfer(holdings []*Holding, requiredAmount string) (*selectedHoldings, error) {
 	if len(holdings) == 0 {
-		return "", fmt.Errorf("%w: no %s holdings found", ErrInsufficientBalance, tokenSymbol)
+		return nil, fmt.Errorf("%w: no holdings found", ErrInsufficientBalance)
 	}
 
+	result := &selectedHoldings{}
 	total := "0"
 	for _, h := range holdings {
-		var next string
-		next, err = addDecimalStrings(total, h.Amount)
+		if h.Locked {
+			continue
+		}
+		result.CIDs = append(result.CIDs, h.ContractID)
+		if result.InstrumentAdmin == "" {
+			result.InstrumentAdmin = h.InstrumentAdmin
+			result.InstrumentID = h.InstrumentID
+		}
+		next, err := addDecimalStrings(total, h.Amount)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		total = next
 
-		var cmp int
-		cmp, err = compareDecimalStrings(h.Amount, requiredAmount)
+		cmp, err := compareDecimalStrings(total, requiredAmount)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if cmp >= 0 {
-			return h.ContractID, nil
+			return result, nil
 		}
 	}
 
-	cmpTotal, err := compareDecimalStrings(total, requiredAmount)
-	if err != nil {
-		return "", err
-	}
-	if cmpTotal >= 0 {
-		return "", fmt.Errorf("%w: total %s balance %s across %d holdings, need %s in single holding",
-			ErrBalanceFragmented, tokenSymbol, total, len(holdings), requiredAmount)
-	}
-
-	return "", fmt.Errorf("%w: total %s balance %s, need %s",
-		ErrInsufficientBalance, tokenSymbol, total, requiredAmount)
-}
-
-func (c *Client) findRecipientHolding(ctx context.Context, recipientParty, tokenSymbol string) (string, error) {
-	holdings, err := c.GetHoldings(ctx, recipientParty, tokenSymbol)
-	if err != nil {
-		return "", err
-	}
-	if len(holdings) == 0 {
-		return "", nil
-	}
-	return holdings[0].ContractID, nil
+	return nil, fmt.Errorf("%w: total unlocked balance %s, need %s",
+		ErrInsufficientBalance, total, requiredAmount)
 }
 
 func (c *Client) GetMintEvents(ctx context.Context) ([]*MintEvent, error) {

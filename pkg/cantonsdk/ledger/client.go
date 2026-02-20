@@ -69,6 +69,15 @@ type Ledger interface {
 		templateID *lapiv2.Identifier,
 	) ([]*lapiv2.CreatedEvent, error)
 
+	// GetActiveContractsByInterface retrieves active contracts filtered
+	// by interface identifier and visible parties at the given offset.
+	GetActiveContractsByInterface(
+		ctx context.Context,
+		activeAtOffset int64,
+		parties []string,
+		interfaceID *lapiv2.Identifier,
+	) ([]*lapiv2.CreatedEvent, error)
+
 	// Conn returns the underlying gRPC client connection.
 	Conn() *grpc.ClientConn
 
@@ -280,9 +289,61 @@ func (c *Client) GetActiveContractsByTemplate(
 		},
 	})
 	if err != nil {
+		return nil, fmt.Errorf("failed to get active contracts by template: %w", err)
+	}
+
+	return c.collectActiveContracts(stream)
+}
+
+func (c *Client) GetActiveContractsByInterface(
+	ctx context.Context,
+	activeAtOffset int64,
+	parties []string,
+	interfaceID *lapiv2.Identifier,
+) ([]*lapiv2.CreatedEvent, error) {
+	if activeAtOffset == 0 {
+		return nil, fmt.Errorf("ledger is empty, no contracts exist")
+	}
+	if len(parties) == 0 {
+		return nil, fmt.Errorf("at least one party is required")
+	}
+	if interfaceID == nil {
+		return nil, fmt.Errorf("interfaceID is required")
+	}
+
+	authCtx := c.AuthContext(ctx)
+
+	filtersByParty := make(map[string]*lapiv2.Filters, len(parties))
+	for _, p := range parties {
+		filtersByParty[p] = &lapiv2.Filters{
+			Cumulative: []*lapiv2.CumulativeFilter{
+				{
+					IdentifierFilter: &lapiv2.CumulativeFilter_InterfaceFilter{
+						InterfaceFilter: &lapiv2.InterfaceFilter{
+							InterfaceId:             interfaceID,
+							IncludeCreatedEventBlob: false,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	stream, err := c.state.GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: activeAtOffset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: filtersByParty,
+			Verbose:        true,
+		},
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to get active contracts: %w", err)
 	}
 
+	return c.collectActiveContracts(stream)
+}
+
+func (c *Client) collectActiveContracts(stream lapiv2.StateService_GetActiveContractsClient) ([]*lapiv2.CreatedEvent, error) {
 	var out []*lapiv2.CreatedEvent
 	for {
 		msg, err := stream.Recv()
