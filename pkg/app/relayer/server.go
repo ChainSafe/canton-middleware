@@ -25,15 +25,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO: take these from config
 const (
 	defaultGracefulShutdownTimeout = 30 * time.Second
 	defaultHTTPMiddlewareTimeout   = 60 * time.Second
-	defaultHTTPReadTimeout         = 15 * time.Second
-	defaultHTTPWriteTimeout        = 15 * time.Second
-	defaultHTTPIdleTimeout         = 60 * time.Second
-
-	defaultLimitForListTransfer = 100
+	defaultLimitForListTransfer    = 100
 )
 
 // Server holds configuration for the relayer process.
@@ -105,7 +100,7 @@ func (s *Server) Run() error {
 	router := s.newRouter(store, engine, logger)
 
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(serverAddr, router)
+	httpServer := newHTTPServer(serverAddr, router, cfg.Server)
 
 	return httpserver.ServeAndWait(ctx, logger, httpServer, defaultGracefulShutdownTimeout)
 }
@@ -169,13 +164,13 @@ func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.
 	return r
 }
 
-func newHTTPServer(addr string, handler http.Handler) *http.Server {
+func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
 	return &http.Server{
 		Addr:         addr,
 		Handler:      handler,
-		ReadTimeout:  defaultHTTPReadTimeout,
-		WriteTimeout: defaultHTTPWriteTimeout,
-		IdleTimeout:  defaultHTTPIdleTimeout,
+		ReadTimeout:  sc.ReadTimeout,
+		WriteTimeout: sc.WriteTimeout,
+		IdleTimeout:  sc.IdleTimeout,
 	}
 }
 

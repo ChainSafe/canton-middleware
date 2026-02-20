@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/app/httpserver"
@@ -21,13 +20,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/service"
 
 	"go.uber.org/zap"
-)
-
-// TODO: take from config
-const (
-	defaultHTTPReadTimeout  = 30 * time.Second
-	defaultHTTPWriteTimeout = 30 * time.Second
-	defaultHTTPIdleTimeout  = 60 * time.Second
 )
 
 // Server holds cfg to init the api server.
@@ -98,7 +90,7 @@ func (s *Server) Run() error {
 	mux := s.newRouter(db, cantonClient, keyStore, ethHandler, logger)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(addr, mux)
+	httpServer := newHTTPServer(addr, mux, cfg.Server)
 
 	err = httpserver.ServeAndWait(ctx, logger, httpServer, cfg.Shutdown.Timeout)
 
@@ -238,7 +230,9 @@ func (s *Server) newRouter(
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
+			logger.Warn("failed to write health check response", zap.Error(err))
+		}
 	})
 
 	registrationHandler := registration.NewHandler(s.cfg, db, cantonClient.Identity, keyStore, logger)
@@ -252,12 +246,12 @@ func (s *Server) newRouter(
 	return mux
 }
 
-func newHTTPServer(addr string, handler http.Handler) *http.Server {
+func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
 	return &http.Server{
 		Addr:         addr,
 		Handler:      handler,
-		ReadTimeout:  defaultHTTPReadTimeout,
-		WriteTimeout: defaultHTTPWriteTimeout,
-		IdleTimeout:  defaultHTTPIdleTimeout,
+		ReadTimeout:  sc.ReadTimeout,
+		WriteTimeout: sc.WriteTimeout,
+		IdleTimeout:  sc.IdleTimeout,
 	}
 }
