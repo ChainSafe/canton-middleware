@@ -1,6 +1,8 @@
 package values
 
 import (
+	"sort"
+
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
@@ -49,12 +51,19 @@ func DecodeTextMap(v *lapiv2.Value) map[string]string {
 }
 
 // EncodeMetadata creates a Splice Metadata { values : TextMap Text } value.
+// Keys are sorted for deterministic encoding.
 func EncodeMetadata(kvs map[string]string) *lapiv2.Value {
+	keys := make([]string, 0, len(kvs))
+	for k := range kvs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	entries := make([]*lapiv2.TextMap_Entry, 0, len(kvs))
-	for k, v := range kvs {
+	for _, k := range keys {
 		entries = append(entries, &lapiv2.TextMap_Entry{
 			Key:   k,
-			Value: TextValue(v),
+			Value: TextValue(kvs[k]),
 		})
 	}
 

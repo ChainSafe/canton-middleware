@@ -569,11 +569,11 @@ func selectHoldingsForTransfer(holdings []*Holding, requiredAmount string) (*sel
 		if h.Locked {
 			continue
 		}
-		result.CIDs = append(result.CIDs, h.ContractID)
-		if result.InstrumentAdmin == "" {
+		if len(result.CIDs) == 0 {
 			result.InstrumentAdmin = h.InstrumentAdmin
 			result.InstrumentID = h.InstrumentID
 		}
+		result.CIDs = append(result.CIDs, h.ContractID)
 		next, err := addDecimalStrings(total, h.Amount)
 		if err != nil {
 			return nil, err
