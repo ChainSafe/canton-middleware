@@ -487,6 +487,11 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 	if len(events) == 0 {
 		return "", fmt.Errorf("no active CIP56TransferFactory found")
 	}
+	if len(events) > 1 {
+		c.logger.Warn("multiple CIP56TransferFactory contracts found, using first",
+			zap.Int("count", len(events)),
+			zap.String("selected_cid", events[0].ContractId))
+	}
 
 	return events[0].ContractId, nil
 }
