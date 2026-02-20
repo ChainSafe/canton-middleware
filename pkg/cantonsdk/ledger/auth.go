@@ -102,7 +102,7 @@ func (p *OAuthClientCredentialsProvider) fetchToken(ctx context.Context) (string
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := p.httpClient.Do(req) //nolint:gosec // TokenURL is from trusted server configuration, not user input
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "", time.Time{}, err
@@ -153,7 +153,7 @@ func readHTTPError(resp *http.Response) error {
 }
 
 type tokenResponse struct {
-	AccessToken string `json:"access_token"` //nolint:gosec // standard OAuth2 response field name
+	AccessToken string `json:"access_token"`
 	ExpiresIn   int    `json:"expires_in"`
 	TokenType   string `json:"token_type"`
 }
