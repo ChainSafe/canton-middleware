@@ -22,16 +22,7 @@ func createTransfers() []*migrations.Migration {
 					return err
 				}
 				// Create indexes
-				if err := mghelper.CreateIndex(tx, "transfers", "idx_transfers_status", "status"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "transfers", "idx_transfers_direction", "direction"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "transfers", "idx_transfers_source_tx_hash", "source_tx_hash"); err != nil {
-					return err
-				}
-				return nil
+				return mghelper.CreateModelIndexes(tx, &dao.TransferDao{}, "status", "direction", "source_tx_hash")
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {

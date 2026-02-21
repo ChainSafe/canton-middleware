@@ -22,16 +22,7 @@ func createUsers() []*migrations.Migration {
 					return err
 				}
 				// Create indexes
-				if err := mghelper.CreateIndex(tx, "users", "idx_users_evm", "evm_address"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "users", "idx_users_fingerprint", "fingerprint"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "users", "idx_users_canton_party_id", "canton_party_id"); err != nil {
-					return err
-				}
-				return nil
+				return mghelper.CreateModelIndexes(tx, &dao.UserDao{}, "evm_address", "fingerprint", "canton_party_id")
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {

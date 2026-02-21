@@ -22,16 +22,7 @@ func createBridgeEvents() []*migrations.Migration {
 					return err
 				}
 				// Create indexes
-				if err := mghelper.CreateIndex(tx, "bridge_events", "idx_bridge_events_fingerprint", "fingerprint"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "bridge_events", "idx_bridge_events_type", "event_type"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "bridge_events", "idx_bridge_events_evm_tx", "evm_tx_hash"); err != nil {
-					return err
-				}
-				return nil
+				return mghelper.CreateModelIndexes(tx, &dao.BridgeEventDao{}, "fingerprint", "event_type", "evm_tx_hash")
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {

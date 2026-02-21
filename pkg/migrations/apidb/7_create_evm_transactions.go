@@ -22,16 +22,7 @@ func createEvmTransactions() []*migrations.Migration {
 					return err
 				}
 				// Create indexes
-				if err := mghelper.CreateIndex(tx, "evm_transactions", "idx_evm_transactions_from", "from_address"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "evm_transactions", "idx_evm_transactions_to", "to_address"); err != nil {
-					return err
-				}
-				if err := mghelper.CreateIndex(tx, "evm_transactions", "idx_evm_transactions_block", "block_number"); err != nil {
-					return err
-				}
-				return nil
+				return mghelper.CreateModelIndexes(tx, &dao.EvmTransactionDao{}, "from_address", "to_address", "block_number")
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {
