@@ -31,7 +31,15 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /app/bin/relayer /app/relayer
 COPY --from=builder /app/bin/relayer-migrate /app/relayer-migrate
+COPY scripts/setup/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENV DEFAULT_BINARY=/app/relayer
+
 EXPOSE 8080 9090
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["-config", "/app/config.yaml"]
 
 # Runtime stage for mock-oauth2
 FROM alpine:latest AS mock-oauth2
@@ -65,5 +73,13 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /app/bin/api-server /app/api-server
 COPY --from=builder /app/bin/api-server-migrate /app/api-server-migrate
+COPY scripts/setup/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENV DEFAULT_BINARY=/app/api-server
+
 EXPOSE 8081
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["-config", "/app/config.yaml"]
 

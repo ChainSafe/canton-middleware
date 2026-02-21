@@ -185,7 +185,7 @@ services:
       - "9090:9090"
     volumes:
       - config_state:/app/state:ro
-    command: "/bin/sh -c '/app/relayer-migrate -config /app/state/config.yaml init || true && /app/relayer-migrate -config /app/state/config.yaml up && /app/relayer -config /app/state/config.yaml'"
+    command: ["-config", "/app/state/config.yaml"]
     environment:
       LOG_LEVEL: debug
     depends_on:
@@ -222,7 +222,7 @@ services:
       - "8081:8081"
     volumes:
       - config_state:/app/state:ro
-    command: "/bin/sh -c '/app/api-server-migrate -config /app/state/api-server-config.yaml init || true && /app/api-server-migrate -config /app/state/api-server-config.yaml up && /app/api-server -config /app/state/api-server-config.yaml'"
+    command: ["-config", "/app/state/api-server-config.yaml"]
     environment:
       LOG_LEVEL: debug
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32
