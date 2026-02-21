@@ -9,7 +9,6 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/ethereum/go-ethereum/common"
-	_ "github.com/lib/pq"
 )
 
 func main() {

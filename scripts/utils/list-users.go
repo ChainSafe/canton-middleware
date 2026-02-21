@@ -18,7 +18,6 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	_ "github.com/lib/pq"
 )
 
 var configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
