@@ -109,7 +109,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: p@ssw0rd
       POSTGRES_DB: postgres
-      POSTGRES_MULTIPLE_DATABASES: canton_relayer,erc20_api
+      POSTGRES_MULTIPLE_DATABASES: relayer,erc20_api
     ports:
       - "5432:5432"
     volumes:
