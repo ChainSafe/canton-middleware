@@ -27,7 +27,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
 

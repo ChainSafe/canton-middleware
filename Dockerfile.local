@@ -18,6 +18,8 @@ COPY . .
 # CGO_ENABLED=0 creates static binaries compatible with alpine
 RUN CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
+    CGO_ENABLED=0 go build -o /app/bin/api-server-migrate ./cmd/api-server/migrate && \
+    CGO_ENABLED=0 go build -o /app/bin/relayer-migrate ./cmd/relayer/migrate && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/setup/bootstrap-bridge.go && \
     CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/testing/register-user.go && \
     CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/utils/mock-oauth2-server.go
@@ -28,9 +30,8 @@ FROM alpine:latest AS relayer
 WORKDIR /app
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /app/bin/relayer /app/relayer
+COPY --from=builder /app/bin/relayer-migrate /app/relayer-migrate
 EXPOSE 8080 9090
-ENTRYPOINT ["/app/relayer"]
-CMD ["-config", "/app/config.yaml"]
 
 # Runtime stage for mock-oauth2
 FROM alpine:latest AS mock-oauth2
@@ -48,6 +49,8 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates curl jq bash
 COPY --from=builder /app/bin/bootstrap-bridge /app/bootstrap-bridge
 COPY --from=builder /app/bin/register-user /app/register-user
+COPY --from=builder /app/bin/api-server-migrate /app/api-server-migrate
+COPY --from=builder /app/bin/relayer-migrate /app/relayer-migrate
 
 # Copy the bootstrap script
 COPY scripts/setup/docker-bootstrap.sh /app/docker-bootstrap.sh
@@ -61,7 +64,6 @@ FROM alpine:latest AS api-server
 WORKDIR /app
 RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /app/bin/api-server /app/api-server
+COPY --from=builder /app/bin/api-server-migrate /app/api-server-migrate
 EXPOSE 8081
-ENTRYPOINT ["/app/api-server"]
-CMD ["-config", "/app/config.yaml"]
 

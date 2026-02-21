@@ -108,13 +108,12 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: p@ssw0rd
-      POSTGRES_DB: relayer
+      POSTGRES_DB: postgres
+      POSTGRES_MULTIPLE_DATABASES: canton_relayer,erc20_api
     ports:
       - "5432:5432"
     volumes:
-      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/01-relayer-schema.sql
-      - ./deployments/api-server/create-erc20-db.sh:/docker-entrypoint-initdb.d/02-create-erc20-db.sh
-      - ./deployments/api-server/schema.sql:/docker-entrypoint-initdb.d/03-api-server-schema.sql
+      - ./scripts/setup/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -186,7 +185,7 @@ services:
       - "9090:9090"
     volumes:
       - config_state:/app/state:ro
-    command: ["-config", "/app/state/config.yaml"]
+    command: "/bin/sh -c '/app/relayer-migrate -config /app/state/config.yaml init || true && /app/relayer-migrate -config /app/state/config.yaml up && /app/relayer -config /app/state/config.yaml'"
     environment:
       LOG_LEVEL: debug
     depends_on:
@@ -223,7 +222,7 @@ services:
       - "8081:8081"
     volumes:
       - config_state:/app/state:ro
-    command: ["-config", "/app/state/api-server-config.yaml"]
+    command: "/bin/sh -c '/app/api-server-migrate -config /app/state/api-server-config.yaml init || true && /app/api-server-migrate -config /app/state/api-server-config.yaml up && /app/api-server -config /app/state/api-server-config.yaml'"
     environment:
       LOG_LEVEL: debug
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32

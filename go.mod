@@ -5,6 +5,8 @@ go 1.24.0
 require (
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/go-chi/chi/v5 v5.2.3
+	github.com/go-pg/migrations/v8 v8.1.0
+	github.com/go-pg/pg/v10 v10.15.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
@@ -34,8 +36,10 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-pg/zerochecker v0.2.0 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -45,6 +49,11 @@ require (
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
+	github.com/vmihailenco/bufpool v0.1.11 // indirect
+	github.com/vmihailenco/msgpack/v5 v5.3.4 // indirect
+	github.com/vmihailenco/tagparser v0.1.2 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
@@ -55,4 +64,5 @@ require (
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
+	mellium.im/sasl v0.3.1 // indirect
 )
