@@ -104,8 +104,7 @@ func TruncateTables(db *pg.Tx, models ...any) error {
 
 // CreateIndex creates an index on the database
 func CreateIndex(db *pg.Tx, tableName, indexName, columns string) error {
-	query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s(%s)", indexName, tableName, columns)
-	_, err := db.Exec(query)
+	_, err := db.Exec("CREATE INDEX IF NOT EXISTS ? ON ? (?)", pg.Ident(indexName), pg.Safe(tableName), pg.Safe(columns))
 	return err
 }
 
@@ -131,8 +130,8 @@ func CreateModelIndexes(db *pg.Tx, model any, columns ...string) error {
 func CreateUniqueIndexes(db *pg.Tx, tableName string, columns ...string) error {
 	for _, column := range columns {
 		indexName := fmt.Sprintf("idx_%s_%s", strings.Trim(tableName, `"`), column)
-		query := fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s(%s)", indexName, tableName, column)
-		if _, err := db.Exec(query); err != nil {
+		if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (?)",
+			pg.Ident(indexName), pg.Safe(tableName), pg.Safe(column)); err != nil {
 			return err
 		}
 	}
@@ -155,7 +154,6 @@ func getTableName(model any) string {
 
 // DropIndex drops an index from the database
 func DropIndex(db *pg.Tx, indexName string) error {
-	query := fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)
-	_, err := db.Exec(query)
+	_, err := db.Exec("DROP INDEX IF EXISTS ?", pg.Ident(indexName))
 	return err
 }

@@ -18,7 +18,7 @@ type TransferDao struct {
 	Recipient         string     `json:"recipient" pg:",notnull"`
 	Nonce             int64      `json:"nonce" pg:",notnull"`
 	SourceBlockNumber int64      `json:"source_block_number" pg:",notnull"`
-	ConfirmationCount int        `json:"confirmation_count" pg:",use_zero"`
+	ConfirmationCount int        `json:"confirmation_count" pg:",notnull,use_zero,default:0"`
 	CreatedAt         time.Time  `json:"created_at" pg:"default:now()"`
 	UpdatedAt         time.Time  `json:"updated_at" pg:"default:now()"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty" pg:"completed_at"`

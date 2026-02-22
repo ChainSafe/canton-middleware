@@ -53,6 +53,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
 

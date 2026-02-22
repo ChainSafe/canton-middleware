@@ -29,6 +29,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	_ "github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
