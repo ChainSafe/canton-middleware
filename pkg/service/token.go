@@ -205,7 +205,7 @@ func isInsufficientFunds(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, canton.ErrInsufficientBalance) || errors.Is(err, canton.ErrBalanceFragmented) {
+	if errors.Is(err, canton.ErrInsufficientBalance) {
 		return true
 	}
 	return false
