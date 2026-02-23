@@ -1,7 +1,7 @@
 package apidb
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
@@ -16,24 +16,26 @@ func createEvmMeta() []*migrations.Migration {
 			Version: 8,
 			UpTx:    true,
 			Up: func(db migrations.DB) error {
-				fmt.Println("creating evm_meta table...")
+				log.Println("creating evm_meta table...")
 				tx := db.(*pg.Tx)
 				if err := mghelper.CreateSchema(tx, &dao.EvmMetaDao{}); err != nil {
 					return err
 				}
-				// Insert initial latest block number
-				initialMeta := &dao.EvmMetaDao{
+				// Insert initial latest block number with ON CONFLICT for idempotency
+				_, err := tx.Model(&dao.EvmMetaDao{
 					Key:   "latest_block_number",
 					Value: "0",
-				}
-				if err := mghelper.InsertEntry(tx, initialMeta); err != nil {
+				}).
+					OnConflict("(key) DO NOTHING").
+					Insert()
+				if err != nil {
 					return err
 				}
 				return nil
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {
-				fmt.Println("dropping evm_meta table...")
+				log.Println("dropping evm_meta table...")
 				return mghelper.DropTables(db.(*pg.Tx), &dao.EvmMetaDao{})
 			},
 		},

@@ -1,7 +1,7 @@
 package relayerdb
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/db/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
@@ -16,7 +16,7 @@ func createTransfers() []*migrations.Migration {
 			Version: 1,
 			UpTx:    true,
 			Up: func(db migrations.DB) error {
-				fmt.Println("creating transfers table...")
+				log.Println("creating transfers table...")
 				tx := db.(*pg.Tx)
 				if err := mghelper.CreateSchema(tx, &dao.TransferDao{}); err != nil {
 					return err
@@ -26,7 +26,7 @@ func createTransfers() []*migrations.Migration {
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {
-				fmt.Println("dropping transfers table...")
+				log.Println("dropping transfers table...")
 				return mghelper.DropTables(db.(*pg.Tx), &dao.TransferDao{})
 			},
 		},

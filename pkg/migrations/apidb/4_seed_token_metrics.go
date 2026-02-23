@@ -1,11 +1,9 @@
 package apidb
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
-	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
-
 	"github.com/go-pg/migrations/v8"
 	"github.com/go-pg/pg/v10"
 )
@@ -16,25 +14,17 @@ func seedTokenMetrics() []*migrations.Migration {
 			Version: 4,
 			UpTx:    true,
 			Up: func(db migrations.DB) error {
-				fmt.Println("seeding token_metrics table...")
+				log.Println("seeding token_metrics table...")
 				tx := db.(*pg.Tx)
 
-				promptSupply := "0"
-				demoSupply := "0"
-
-				// Insert PROMPT token
-				promptMetrics := &dao.TokenMetricsDao{
+				// Insert PROMPT and DEMO tokens with ON CONFLICT for idempotency
+				_, err := tx.Model(&dao.TokenMetricsDao{
 					TokenSymbol: "PROMPT",
-					TotalSupply: promptSupply,
-				}
-
-				// Insert DEMO token
-				demoMetrics := &dao.TokenMetricsDao{
-					TokenSymbol: "DEMO",
-					TotalSupply: demoSupply,
-				}
-
-				if err := mghelper.InsertEntry(tx, promptMetrics, demoMetrics); err != nil {
+					TotalSupply: "0",
+				}).
+					OnConflict("(token_symbol) DO NOTHING").
+					Insert()
+				if err != nil {
 					return err
 				}
 
@@ -42,8 +32,13 @@ func seedTokenMetrics() []*migrations.Migration {
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {
-				fmt.Println("removing seed data from token_metrics table...")
-				return mghelper.TruncateTables(db.(*pg.Tx), &dao.TokenMetricsDao{})
+				log.Println("removing seed data from token_metrics table...")
+				tx := db.(*pg.Tx)
+				// Only delete the seeded PROMPT and DEMO rows, not all data
+				_, err := tx.Model((*dao.TokenMetricsDao)(nil)).
+					Where("token_symbol IN ('PROMPT', 'DEMO')").
+					Delete()
+				return err
 			},
 		},
 	}

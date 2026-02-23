@@ -1,7 +1,7 @@
 package apidb
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
@@ -16,7 +16,7 @@ func createUsers() []*migrations.Migration {
 			Version: 1,
 			UpTx:    true,
 			Up: func(db migrations.DB) error {
-				fmt.Println("creating users table...")
+				log.Println("creating users table...")
 				tx := db.(*pg.Tx)
 				if err := mghelper.CreateSchema(tx, &dao.UserDao{}); err != nil {
 					return err
@@ -26,7 +26,7 @@ func createUsers() []*migrations.Migration {
 			},
 			DownTx: true,
 			Down: func(db migrations.DB) error {
-				fmt.Println("dropping users table...")
+				log.Println("dropping users table...")
 				return mghelper.DropTables(db.(*pg.Tx), &dao.UserDao{})
 			},
 		},
