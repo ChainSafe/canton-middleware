@@ -97,6 +97,21 @@ type MintEvent struct {
 	AuditObservers  []string
 }
 
+// TransferFactoryInfo contains the CIP56TransferFactory contract details
+// required by external wallets for Splice-compliant explicit contract disclosure.
+type TransferFactoryInfo struct {
+	ContractID       string
+	CreatedEventBlob []byte
+	TemplateID       TemplateIdentifier
+}
+
+// TemplateIdentifier is a portable representation of a Daml template/interface reference.
+type TemplateIdentifier struct {
+	PackageID  string
+	ModuleName string
+	EntityName string
+}
+
 // BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
 // See canton-erc20 repository:
 // daml/cip56-token/src/CIP56/Events.daml
