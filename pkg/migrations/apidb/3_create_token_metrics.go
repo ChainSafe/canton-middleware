@@ -1,29 +1,21 @@
 package apidb
 
 import (
+	"context"
 	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 
-	"github.com/go-pg/migrations/v8"
-	"github.com/go-pg/pg/v10"
+	"github.com/uptrace/bun"
 )
 
-func createTokenMetrics() []*migrations.Migration {
-	return []*migrations.Migration{
-		{
-			Version: 3,
-			UpTx:    true,
-			Up: func(db migrations.DB) error {
-				log.Println("creating token_metrics table...")
-				return mghelper.CreateSchema(db.(*pg.Tx), &dao.TokenMetricsDao{})
-			},
-			DownTx: true,
-			Down: func(db migrations.DB) error {
-				log.Println("dropping token_metrics table...")
-				return mghelper.DropTables(db.(*pg.Tx), &dao.TokenMetricsDao{})
-			},
-		},
-	}
+func init() {
+	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
+		log.Println("creating token_metrics table...")
+		return mghelper.CreateSchema(ctx, db, &dao.TokenMetricsDao{})
+	}, func(ctx context.Context, db *bun.DB) error {
+		log.Println("dropping token_metrics table...")
+		return mghelper.DropTables(ctx, db, &dao.TokenMetricsDao{})
+	})
 }

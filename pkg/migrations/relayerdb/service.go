@@ -2,15 +2,8 @@
 package relayerdb
 
 import (
-	"github.com/go-pg/migrations/v8"
+	"github.com/uptrace/bun/migrate"
 )
 
-// GetMigrations returns all migrations for the relayer database
-func GetMigrations() []*migrations.Migration {
-	migration := make([]*migrations.Migration, 0)
-	migration = append(migration, createTransfers()...)
-	migration = append(migration, createChainState()...)
-	migration = append(migration, createNonceState()...)
-	migration = append(migration, createBridgeBalances()...)
-	return migration
-}
+// Migrations is the collection of all migrations for the relayer database
+var Migrations = migrate.NewMigrations()

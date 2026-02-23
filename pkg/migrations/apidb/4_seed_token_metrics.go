@@ -1,45 +1,53 @@
 package apidb
 
 import (
+	"context"
 	"log"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
-	"github.com/go-pg/migrations/v8"
-	"github.com/go-pg/pg/v10"
+
+	"github.com/uptrace/bun"
 )
 
-func seedTokenMetrics() []*migrations.Migration {
-	return []*migrations.Migration{
-		{
-			Version: 4,
-			UpTx:    true,
-			Up: func(db migrations.DB) error {
-				log.Println("seeding token_metrics table...")
-				tx := db.(*pg.Tx)
+func init() {
+	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
+		log.Println("seeding token_metrics table...")
 
-				// Insert PROMPT and DEMO tokens with ON CONFLICT for idempotency
-				_, err := tx.Model(&dao.TokenMetricsDao{
-					TokenSymbol: "PROMPT",
-					TotalSupply: "0",
-				}).
-					OnConflict("(token_symbol) DO NOTHING").
-					Insert()
-				if err != nil {
-					return err
-				}
+		// Insert PROMPT token with ON CONFLICT for idempotency
+		_, err := db.NewInsert().
+			Model(&dao.TokenMetricsDao{
+				TokenSymbol: "PROMPT",
+				TotalSupply: "0",
+			}).
+			ModelTableExpr("token_metrics").
+			On("CONFLICT (token_symbol) DO NOTHING").
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
 
-				return nil
-			},
-			DownTx: true,
-			Down: func(db migrations.DB) error {
-				log.Println("removing seed data from token_metrics table...")
-				tx := db.(*pg.Tx)
-				// Only delete the seeded PROMPT and DEMO rows, not all data
-				_, err := tx.Model((*dao.TokenMetricsDao)(nil)).
-					Where("token_symbol IN ('PROMPT', 'DEMO')").
-					Delete()
-				return err
-			},
-		},
-	}
+		// Insert DEMO token with ON CONFLICT for idempotency
+		_, err = db.NewInsert().
+			Model(&dao.TokenMetricsDao{
+				TokenSymbol: "DEMO",
+				TotalSupply: "0",
+			}).
+			ModelTableExpr("token_metrics").
+			On("CONFLICT (token_symbol) DO NOTHING").
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, func(ctx context.Context, db *bun.DB) error {
+		log.Println("removing seed data from token_metrics table...")
+		// Only delete the seeded PROMPT and DEMO rows, not all data
+		_, err := db.NewDelete().
+			Model((*dao.TokenMetricsDao)(nil)).
+			ModelTableExpr("token_metrics").
+			Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
+			Exec(ctx)
+		return err
+	})
 }

@@ -4,8 +4,8 @@ import "time"
 
 // WhitelistDao is a data access object that maps directly to the 'whitelist' table in PostgreSQL.
 type WhitelistDao struct {
-	tableName  struct{}  `pg:"whitelist"` // nolint
-	EVMAddress string    `json:"evm_address" pg:",pk,type:VARCHAR(42)"`
-	Note       *string   `json:"note,omitempty" pg:"note,type:TEXT"`
-	CreatedAt  time.Time `json:"created_at" pg:"default:now()"`
+	tableName  struct{}  `bun:"table:whitelist"` // nolint
+	EVMAddress string    `json:"evm_address" bun:",pk,type:varchar(42)"`
+	Note       *string   `json:"note,omitempty" bun:",type:varchar(500)"`
+	CreatedAt  time.Time `json:"created_at" bun:",nullzero,default:current_timestamp"`
 }

@@ -2,6 +2,7 @@
 package migrations
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,27 +10,23 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/go-pg/pg/v10"
-	"github.com/go-pg/pg/v10/orm"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/migrate"
 )
 
 const usageText = `Usage:
-  go run cmd/db-migrate/*.go <command> [args]
+  go run cmd/*/migrate/*.go <command> [args]
 
 This program runs command on the database. Supported commands are:
-  - init - creates version info table in the database
+  - init - creates migration info table in the database
   - up - runs all available migrations.
-  - up [target] - runs available migrations up to the target one.
   - down - reverts last migration.
-  - reset - reverts all migrations.
-  - version - prints current db version.
-  - set_version [version] - sets db version without running migrations.
+  - status - prints migration status.
 
 Examples:
-  go run cmd/db-migrate/*.go init
-  go run cmd/db-migrate/*.go up
-  go run cmd/db-migrate/*.go down
-  go run cmd/db-migrate/*.go version
+  go run cmd/relayer/migrate/main.go -config config.yaml init
+  go run cmd/relayer/migrate/main.go -config config.yaml up
+  go run cmd/api-server/migrate/main.go -config config.api-server.yaml up
 `
 
 // Usage prints command usage
@@ -51,12 +48,15 @@ func Exitf(s string, args ...any) {
 }
 
 // CreateSchema creates schema from models
-func CreateSchema(db *pg.Tx, models ...any) error {
+func CreateSchema(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
 		log.Println("Creating Table for", reflect.TypeOf(model))
-		err := db.Model(model).CreateTable(&orm.CreateTableOptions{
-			FKConstraints: true,
-		})
+		tableName := getTableName(model)
+		_, err := db.NewCreateTable().
+			Model(model).
+			ModelTableExpr(tableName).
+			IfNotExists().
+			Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -65,13 +65,16 @@ func CreateSchema(db *pg.Tx, models ...any) error {
 }
 
 // DropTables drops tables from database
-func DropTables(db *pg.Tx, models ...any) error {
+func DropTables(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
 		log.Println("Dropping Table for", reflect.TypeOf(model))
-		err := db.Model(model).DropTable(&orm.DropTableOptions{
-			IfExists: true,
-			Cascade:  true,
-		})
+		tableName := getTableName(model)
+		_, err := db.NewDropTable().
+			Model(model).
+			ModelTableExpr(tableName).
+			IfExists().
+			Cascade().
+			Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -80,10 +83,14 @@ func DropTables(db *pg.Tx, models ...any) error {
 }
 
 // InsertEntry inserts entries to the db
-func InsertEntry(db *pg.Tx, entries ...any) error {
+func InsertEntry(ctx context.Context, db bun.IDB, entries ...any) error {
 	for _, entry := range entries {
 		log.Println("Inserting entry")
-		_, err := db.Model(entry).Insert()
+		tableName := getTableName(entry)
+		_, err := db.NewInsert().
+			Model(entry).
+			ModelTableExpr(tableName).
+			Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -92,10 +99,16 @@ func InsertEntry(db *pg.Tx, entries ...any) error {
 }
 
 // TruncateTables removes entries from tables
-func TruncateTables(db *pg.Tx, models ...any) error {
+func TruncateTables(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
-		_, err := db.Model(model).Exec(`DELETE FROM ?TableName`)
+		tableName := getTableName(model)
+		_, err := db.NewDelete().
+			Model(model).
+			ModelTableExpr(tableName).
+			Where("1=1").
+			Exec(ctx)
 		if err != nil {
+			log.Printf("Failed to truncate table %s: %v", tableName, err)
 			return err
 		}
 	}
@@ -103,17 +116,18 @@ func TruncateTables(db *pg.Tx, models ...any) error {
 }
 
 // CreateIndex creates an index on the database
-func CreateIndex(db *pg.Tx, tableName, indexName, columns string) error {
-	_, err := db.Exec("CREATE INDEX IF NOT EXISTS ? ON ? (?)", pg.Ident(indexName), pg.Safe(tableName), pg.Safe(columns))
+func CreateIndex(ctx context.Context, db bun.IDB, tableName, indexName, columns string) error {
+	query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s)", indexName, tableName, columns)
+	_, err := db.ExecContext(ctx, query)
 	return err
 }
 
 // CreateIndexes creates multiple indexes on the table for the given columns.
 // Index names are generated as idx_<table>_<column>.
-func CreateIndexes(db *pg.Tx, tableName string, columns ...string) error {
+func CreateIndexes(ctx context.Context, db bun.IDB, tableName string, columns ...string) error {
 	for _, column := range columns {
 		indexName := fmt.Sprintf("idx_%s_%s", strings.Trim(tableName, `"`), column)
-		if err := CreateIndex(db, tableName, indexName, column); err != nil {
+		if err := CreateIndex(ctx, db, tableName, indexName, column); err != nil {
 			return err
 		}
 	}
@@ -121,17 +135,17 @@ func CreateIndexes(db *pg.Tx, tableName string, columns ...string) error {
 }
 
 // CreateModelIndexes creates multiple indexes on the table associated with the model.
-func CreateModelIndexes(db *pg.Tx, model any, columns ...string) error {
+func CreateModelIndexes(ctx context.Context, db bun.IDB, model any, columns ...string) error {
 	tableName := getTableName(model)
-	return CreateIndexes(db, tableName, columns...)
+	return CreateIndexes(ctx, db, tableName, columns...)
 }
 
 // CreateUniqueIndexes creates multiple unique indexes on the table for the given columns.
-func CreateUniqueIndexes(db *pg.Tx, tableName string, columns ...string) error {
+func CreateUniqueIndexes(ctx context.Context, db bun.IDB, tableName string, columns ...string) error {
 	for _, column := range columns {
 		indexName := fmt.Sprintf("idx_%s_%s", strings.Trim(tableName, `"`), column)
-		if _, err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS ? ON ? (?)",
-			pg.Ident(indexName), pg.Safe(tableName), pg.Safe(column)); err != nil {
+		query := fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s)", indexName, tableName, column)
+		if _, err := db.ExecContext(ctx, query); err != nil {
 			return err
 		}
 	}
@@ -139,9 +153,9 @@ func CreateUniqueIndexes(db *pg.Tx, tableName string, columns ...string) error {
 }
 
 // CreateModelUniqueIndexes creates multiple unique indexes on the table associated with the model.
-func CreateModelUniqueIndexes(db *pg.Tx, model any, columns ...string) error {
+func CreateModelUniqueIndexes(ctx context.Context, db bun.IDB, model any, columns ...string) error {
 	tableName := getTableName(model)
-	return CreateUniqueIndexes(db, tableName, columns...)
+	return CreateUniqueIndexes(ctx, db, tableName, columns...)
 }
 
 func getTableName(model any) string {
@@ -149,11 +163,104 @@ func getTableName(model any) string {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
-	return string(orm.GetTable(t).SQLName)
+
+	// Look for bun table tag
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.Name == "tableName" {
+			tag := field.Tag.Get("bun")
+			if strings.HasPrefix(tag, "table:") {
+				return strings.TrimPrefix(tag, "table:")
+			}
+		}
+	}
+
+	// Fallback to struct name converted to snake_case
+	name := t.Name()
+	// Simple conversion: remove "Dao" suffix and convert to snake_case
+	name = strings.TrimSuffix(name, "Dao")
+	return toSnakeCase(name)
+}
+
+func toSnakeCase(s string) string {
+	var result strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result.WriteRune('_')
+		}
+		result.WriteRune(r)
+	}
+	return strings.ToLower(result.String())
 }
 
 // DropIndex drops an index from the database
-func DropIndex(db *pg.Tx, indexName string) error {
-	_, err := db.Exec("DROP INDEX IF EXISTS ?", pg.Ident(indexName))
+func DropIndex(ctx context.Context, db bun.IDB, indexName string) error {
+	query := fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)
+	_, err := db.ExecContext(ctx, query)
 	return err
+}
+
+// RunMigrations runs migrations based on provided command arguments
+func RunMigrations(migrator *migrate.Migrator, args ...string) error {
+	ctx := context.Background()
+
+	if len(args) == 0 {
+		Exitf("no command provided")
+	}
+
+	switch args[0] {
+	case "init":
+		if err := migrator.Init(ctx); err != nil {
+			return err
+		}
+		log.Println("migration table created")
+		return nil
+
+	case "up":
+		if err := migrator.Lock(ctx); err != nil {
+			return fmt.Errorf("failed to acquire migration lock: %w", err)
+		}
+		defer migrator.Unlock(ctx)
+
+		group, err := migrator.Migrate(ctx)
+		if err != nil {
+			return err
+		}
+		if group.IsZero() {
+			log.Println("no new migrations to run (database is up to date)")
+		} else {
+			log.Printf("migrated to %s\n", group)
+		}
+		return nil
+
+	case "down":
+		if err := migrator.Lock(ctx); err != nil {
+			return fmt.Errorf("failed to acquire migration lock: %w", err)
+		}
+		defer migrator.Unlock(ctx)
+
+		group, err := migrator.Rollback(ctx)
+		if err != nil {
+			return err
+		}
+		if group.IsZero() {
+			log.Println("no migrations to rollback")
+		} else {
+			log.Printf("rolled back %s\n", group)
+		}
+		return nil
+
+	case "status":
+		ms, err := migrator.MigrationsWithStatus(ctx)
+		if err != nil {
+			return err
+		}
+		log.Printf("migrations: %s\n", ms)
+		log.Printf("unapplied migrations: %s\n", ms.Unapplied())
+		log.Printf("last migration group: %s\n", ms.LastGroup())
+		return nil
+
+	default:
+		return fmt.Errorf("unknown command: %s", args[0])
+	}
 }
