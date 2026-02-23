@@ -41,19 +41,46 @@ func encodeIssuerBurnArgs(req *BurnRequest) *lapiv2.Record {
 	}
 }
 
-func encodeHoldingTransferArgs(toParty, amount, existingRecipientHolding string) *lapiv2.Record {
-	existing := values.None()
-	if existingRecipientHolding != "" {
-		existing = values.Optional(values.ContractIDValue(existingRecipientHolding))
+// encodeTransferFactoryTransferArgs encodes the Splice TransferFactory_Transfer choice arguments.
+// The choice is exercised on the TransferFactory interface of a CIP56TransferFactory contract.
+func encodeTransferFactoryTransferArgs(
+	expectedAdmin string,
+	sender string,
+	receiver string,
+	amount string,
+	instrumentAdmin string,
+	instrumentID string,
+	requestedAt time.Time,
+	executeBefore time.Time,
+	inputHoldingCIDs []string,
+) *lapiv2.Record {
+	holdingCidValues := make([]*lapiv2.Value, len(inputHoldingCIDs))
+	for i, cid := range inputHoldingCIDs {
+		holdingCidValues[i] = values.ContractIDValue(cid)
+	}
+
+	transfer := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "sender", Value: values.PartyValue(sender)},
+					{Label: "receiver", Value: values.PartyValue(receiver)},
+					{Label: "amount", Value: values.NumericValue(amount)},
+					{Label: "instrumentId", Value: values.EncodeInstrumentId(instrumentAdmin, instrumentID)},
+					{Label: "requestedAt", Value: values.TimestampValue(requestedAt)},
+					{Label: "executeBefore", Value: values.TimestampValue(executeBefore)},
+					{Label: "inputHoldingCids", Value: values.ListValue(holdingCidValues)},
+					{Label: "meta", Value: values.EmptyMetadata()},
+				},
+			},
+		},
 	}
 
 	return &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
-			{Label: "to", Value: values.PartyValue(toParty)},
-			{Label: "value", Value: values.NumericValue(amount)},
-			{Label: "existingRecipientHolding", Value: existing},
-			{Label: "complianceRulesCid", Value: values.None()},
-			{Label: "complianceProofCid", Value: values.None()},
+			{Label: "expectedAdmin", Value: values.PartyValue(expectedAdmin)},
+			{Label: "transfer", Value: transfer},
+			{Label: "extraArgs", Value: values.EncodeExtraArgs()},
 		},
 	}
 }

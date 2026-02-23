@@ -24,7 +24,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

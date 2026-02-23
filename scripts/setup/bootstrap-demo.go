@@ -42,6 +42,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 )
 
 var (
@@ -51,15 +52,6 @@ var (
 	jwtSubject  string
 )
 
-// DEMO token metadata
-var demoMetadata = map[string]interface{}{
-	"name":           "Demo Token",
-	"symbol":         "DEMO",
-	"decimals":       int64(18),
-	"isin":           nil,
-	"dtiCode":        nil,
-	"regulatoryInfo": nil,
-}
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
@@ -181,6 +173,15 @@ func main() {
 		log.Fatalf("Failed to create TokenConfig: %v", err)
 	}
 	fmt.Printf("    TokenConfig (DEMO): %s\n", nativeConfigCid)
+	fmt.Println()
+
+	// Step 3.5: Create CIP56TransferFactory
+	fmt.Println(">>> Step 3.5: Creating CIP56TransferFactory...")
+	factoryCid, err := createTransferFactory(ctx, commandService, issuer, *cip56PackageID, domainID)
+	if err != nil {
+		log.Fatalf("Failed to create CIP56TransferFactory: %v", err)
+	}
+	fmt.Printf("    CIP56TransferFactory: %s\n", factoryCid)
 	fmt.Println()
 
 	// Step 4-5: Mint to users
@@ -397,17 +398,8 @@ func findTokenConfig(ctx context.Context, client lapiv2.StateServiceClient, part
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
 			event := contract.CreatedEvent
-			// Check that this is the DEMO TokenConfig by inspecting the meta.symbol field
-			// TokenConfig fields: issuer(0), tokenManagerCid(1), meta(2), auditObservers(3)
-			fields := event.GetCreateArguments().GetFields()
-			if len(fields) >= 3 {
-				metaFields := fields[2].GetValue().GetRecord().GetFields()
-				if len(metaFields) >= 2 {
-					symbol := metaFields[1].GetValue().GetText()
-					if symbol == "DEMO" {
-						return event.ContractId, nil
-					}
-				}
+			if values.MetaSymbolFromRecord(event.GetCreateArguments()) == "DEMO" {
+				return event.ContractId, nil
 			}
 		}
 	}
@@ -418,21 +410,15 @@ func findTokenConfig(ctx context.Context, client lapiv2.StateServiceClient, part
 func createDemoTokenManager(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID string) (string, error) {
 	cmdID := fmt.Sprintf("create-demo-manager-%d", time.Now().UnixNano())
 
-	metaRecord := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Demo Token"}}},
-			{Label: "symbol", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "DEMO"}}},
-			{Label: "decimals", Value: &lapiv2.Value{Sum: &lapiv2.Value_Int64{Int64: 18}}},
-			{Label: "isin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "dtiCode", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "regulatoryInfo", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-		},
-	}
-
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
-			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
+			{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "DEMO")},
+			{Label: "meta", Value: values.EncodeMetadata(map[string]string{
+				"splice.chainsafe.io/name":     "Demo Token",
+				"splice.chainsafe.io/symbol":   "DEMO",
+				"splice.chainsafe.io/decimals": "18",
+			})},
 		},
 	}
 
@@ -478,22 +464,16 @@ func createDemoTokenManager(ctx context.Context, client lapiv2.CommandServiceCli
 func createTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID, tokenManagerCid string) (string, error) {
 	cmdID := fmt.Sprintf("create-native-config-%d", time.Now().UnixNano())
 
-	metaRecord := &lapiv2.Record{
-		Fields: []*lapiv2.RecordField{
-			{Label: "name", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "Demo Token"}}},
-			{Label: "symbol", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: "DEMO"}}},
-			{Label: "decimals", Value: &lapiv2.Value{Sum: &lapiv2.Value_Int64{Int64: 18}}},
-			{Label: "isin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "dtiCode", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-			{Label: "regulatoryInfo", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
-		},
-	}
-
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "issuer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
 			{Label: "tokenManagerCid", Value: &lapiv2.Value{Sum: &lapiv2.Value_ContractId{ContractId: tokenManagerCid}}},
-			{Label: "meta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: metaRecord}}},
+			{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "DEMO")},
+			{Label: "meta", Value: values.EncodeMetadata(map[string]string{
+				"splice.chainsafe.io/name":     "Demo Token",
+				"splice.chainsafe.io/symbol":   "DEMO",
+				"splice.chainsafe.io/decimals": "18",
+			})},
 			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
@@ -663,6 +643,53 @@ func getUserParty(ctx context.Context, client lapiv2.StateServiceClient, bridgeP
 	}
 
 	return "", fmt.Errorf("no FingerprintMapping found for fingerprint %s", fingerprint)
+}
+
+func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClient, issuer, cip56PackageID, domainID string) (string, error) {
+	cmdID := fmt.Sprintf("create-demo-factory-%d", time.Now().UnixNano())
+
+	createArgs := &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Create{
+			Create: &lapiv2.CreateCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  cip56PackageID,
+					ModuleName: "CIP56.TransferFactory",
+					EntityName: "CIP56TransferFactory",
+				},
+				CreateArguments: createArgs,
+			},
+		},
+	}
+
+	resp, err := client.SubmitAndWaitForTransaction(ctx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: domainID,
+			CommandId:      cmdID,
+			UserId:         jwtSubject,
+			ActAs:          []string{issuer},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("submit failed: %w", err)
+	}
+
+	if resp.Transaction != nil {
+		for _, event := range resp.Transaction.Events {
+			if created := event.GetCreated(); created != nil {
+				if created.TemplateId.EntityName == "CIP56TransferFactory" {
+					return created.ContractId, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("CIP56TransferFactory not found in response")
 }
 
 // updateDemoBalancesInDB connects to the database and updates DEMO balances for users
