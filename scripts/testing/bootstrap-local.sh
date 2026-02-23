@@ -152,8 +152,8 @@ wait_for_services() {
 extract_config() {
     print_header "Step 3: Extract Config from Bootstrap"
 
-    RELAYER_PARTY=$(docker logs bootstrap 2>&1 | grep -o 'relayer_party: "[^"]*"' | head -1 | sed 's/relayer_party: "//;s/"$//')
-    DOMAIN_ID=$(docker logs bootstrap 2>&1 | grep -o 'domain_id: "[^"]*"' | head -1 | sed 's/domain_id: "//;s/"$//')
+    RELAYER_PARTY=$(docker logs bootstrap 2>&1 | grep "Party ID:" | tail -1 | awk '{print $NF}')
+    DOMAIN_ID=$(docker logs bootstrap 2>&1 | grep "Domain ID:" | tail -1 | awk '{print $NF}')
     BRIDGE_PKG=$(docker logs bootstrap 2>&1 | grep -o 'bridge_package_id: "[^"]*"' | head -1 | sed 's/bridge_package_id: "//;s/"$//')
 
     if [ -z "$RELAYER_PARTY" ] || [ -z "$DOMAIN_ID" ]; then
@@ -180,6 +180,7 @@ extract_config() {
         print_step "Updating $cfg with current values..."
         sed -i.bak "s|domain_id:.*#|domain_id: \"$DOMAIN_ID\"  #|" "$cfg"
         sed -i.bak "s|relayer_party:.*#|relayer_party: \"$RELAYER_PARTY\"  #|" "$cfg"
+        sed -i.bak "s|instrument_admin:.*#|instrument_admin: \"$RELAYER_PARTY\"  #|" "$cfg"
         # Update contract addresses in ethereum section
         sed -i.bak "s|bridge_contract:.*|bridge_contract: \"$BRIDGE_ADDR\"|" "$cfg"
         sed -i.bak "s|token_contract:.*|token_contract: \"$TOKEN_ADDR\"|" "$cfg"

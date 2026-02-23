@@ -32,6 +32,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/lib/pq"
@@ -658,6 +659,7 @@ func queryHoldings(ctx context.Context, client lapiv2.StateServiceClient, party,
 				},
 			},
 		},
+		Verbose: true,
 	}
 
 	stream, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
@@ -688,21 +690,15 @@ func queryHoldings(ctx context.Context, client lapiv2.StateServiceClient, party,
 					Offset:     event.Offset,
 				}
 
-				// Parse create arguments
-				fields := event.GetCreateArguments().GetFields()
-				if len(fields) >= 4 {
-					h.Issuer = fields[0].GetValue().GetParty()
-					h.Owner = fields[1].GetValue().GetParty()
-					h.Amount = fields[2].GetValue().GetNumeric()
+				fm := values.RecordToMap(event.GetCreateArguments())
+				h.Issuer = values.Party(fm["issuer"])
+				h.Owner = values.Party(fm["owner"])
+				h.Amount = values.Numeric(fm["amount"])
 
-					// Token info is in field 3
-					tokenFields := fields[3].GetValue().GetRecord().GetFields()
-					if len(tokenFields) >= 3 {
-						h.TokenName = tokenFields[0].GetValue().GetText()
-						h.TokenSymbol = tokenFields[1].GetValue().GetText()
-						h.Decimals = fmt.Sprintf("%d", tokenFields[2].GetValue().GetInt64())
-					}
-				}
+				meta := values.DecodeMetadata(fm["meta"])
+				h.TokenName = meta["splice.chainsafe.io/name"]
+				h.TokenSymbol = meta["splice.chainsafe.io/symbol"]
+				h.Decimals = meta["splice.chainsafe.io/decimals"]
 
 				if event.CreatedAt != nil {
 					h.CreatedAt = event.CreatedAt.AsTime()
@@ -740,6 +736,7 @@ func queryTokenConfigs(ctx context.Context, client lapiv2.StateServiceClient, pa
 				},
 			},
 		},
+		Verbose: true,
 	}
 
 	stream, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
@@ -767,19 +764,14 @@ func queryTokenConfigs(ctx context.Context, client lapiv2.StateServiceClient, pa
 					ContractID: event.ContractId,
 				}
 
-				fields := event.GetCreateArguments().GetFields()
-				if len(fields) >= 4 {
-					tc.Issuer = fields[0].GetValue().GetParty()
+				fm := values.RecordToMap(event.GetCreateArguments())
+				tc.Issuer = values.Party(fm["issuer"])
+				tc.ManagerCID = values.ContractID(fm["tokenManagerCid"])
 
-					tokenFields := fields[1].GetValue().GetRecord().GetFields()
-					if len(tokenFields) >= 3 {
-						tc.Name = tokenFields[0].GetValue().GetText()
-						tc.Symbol = tokenFields[1].GetValue().GetText()
-						tc.Decimals = fmt.Sprintf("%d", tokenFields[2].GetValue().GetInt64())
-					}
-
-					tc.ManagerCID = fields[2].GetValue().GetContractId()
-				}
+				meta := values.DecodeMetadata(fm["meta"])
+				tc.Name = meta["splice.chainsafe.io/name"]
+				tc.Symbol = meta["splice.chainsafe.io/symbol"]
+				tc.Decimals = meta["splice.chainsafe.io/decimals"]
 
 				if event.CreatedAt != nil {
 					tc.CreatedAt = event.CreatedAt.AsTime()
@@ -812,6 +804,7 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 				},
 			},
 		},
+		Verbose: true,
 	}
 
 	stream, err := client.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
@@ -841,40 +834,26 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 					Offset:     created.Offset,
 				}
 
-				fields := created.GetCreateArguments().GetFields()
+				fm := values.RecordToMap(created.GetCreateArguments())
 
-				// Parse based on event type
-				// CIP56.Events (unified):
-				//   MintEvent: issuer, recipient, amount, holdingCid, tokenSymbol, evmTxHash (Optional), userFingerprint, eventTime, auditObservers
-				//   BurnEvent: issuer, burnedFrom, amount, remainderCid, tokenSymbol, evmDestination (Optional), userFingerprint, eventTime, auditObservers
 				switch eventType {
 				case "MintEvent":
-					if len(fields) >= 3 {
-						e.Owner = fields[1].GetValue().GetParty() // recipient
-						e.Amount = fields[2].GetValue().GetNumeric()
-					}
-					if len(fields) >= 6 {
-						// evmTxHash is Optional Text at index 5
-						if opt := fields[5].GetValue().GetOptional(); opt != nil && opt.Value != nil {
-							e.EvmTxHash = opt.Value.GetText()
+					e.Owner = values.Party(fm["recipient"])
+					e.Amount = values.Numeric(fm["amount"])
+					e.Fingerprint = values.Text(fm["userFingerprint"])
+					if !values.IsNone(fm["evmTxHash"]) {
+						if opt, ok := fm["evmTxHash"].Sum.(*lapiv2.Value_Optional); ok && opt.Optional.Value != nil {
+							e.EvmTxHash = values.Text(opt.Optional.Value)
 						}
-					}
-					if len(fields) >= 7 {
-						e.Fingerprint = fields[6].GetValue().GetText() // userFingerprint
 					}
 				case "BurnEvent":
-					if len(fields) >= 3 {
-						e.Owner = fields[1].GetValue().GetParty() // burnedFrom
-						e.Amount = fields[2].GetValue().GetNumeric()
-					}
-					if len(fields) >= 6 {
-						// evmDestination is Optional Text at index 5
-						if opt := fields[5].GetValue().GetOptional(); opt != nil && opt.Value != nil {
-							e.EvmDestination = opt.Value.GetText()
+					e.Owner = values.Party(fm["burnedFrom"])
+					e.Amount = values.Numeric(fm["amount"])
+					e.Fingerprint = values.Text(fm["userFingerprint"])
+					if !values.IsNone(fm["evmDestination"]) {
+						if opt, ok := fm["evmDestination"].Sum.(*lapiv2.Value_Optional); ok && opt.Optional.Value != nil {
+							e.EvmDestination = values.Text(opt.Optional.Value)
 						}
-					}
-					if len(fields) >= 7 {
-						e.Fingerprint = fields[6].GetValue().GetText() // userFingerprint
 					}
 				}
 
