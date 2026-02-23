@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // ServeAndWait starts an HTTP server with the given handler and config in a goroutine

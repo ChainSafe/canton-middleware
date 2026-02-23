@@ -26,6 +26,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const defaultRequestTimeout = 60
+
 // Server holds cfg to init the api server.
 type Server struct {
 	cfg *config.APIServerConfig
@@ -211,7 +213,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(time.Second * 60)) // TODO: make configurable
+	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {

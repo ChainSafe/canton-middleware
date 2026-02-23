@@ -236,4 +236,3 @@ func (err ServiceError) StatusCode() int {
 		return http.StatusInternalServerError
 	}
 }
-

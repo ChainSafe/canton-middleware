@@ -40,7 +40,7 @@ func DefaultErrorHandler(w http.ResponseWriter, err error) {
 		// Write error response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(svcErr.StatusCode())
-		json.NewEncoder(w).Encode(&errorResponse{
+		_ = json.NewEncoder(w).Encode(&errorResponse{
 			ErrMsg:     svcErr.Message,
 			ErrMsgCode: svcErr.StatusCode(),
 		})
@@ -50,7 +50,7 @@ func DefaultErrorHandler(w http.ResponseWriter, err error) {
 	// Handle unknown errors
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusInternalServerError)
-	json.NewEncoder(w).Encode(&errorResponse{
+	_ = json.NewEncoder(w).Encode(&errorResponse{
 		ErrMsg:     "Unexpected Service Error",
 		ErrMsgCode: http.StatusInternalServerError,
 	})
