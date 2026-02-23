@@ -8,6 +8,7 @@ package registry
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -55,6 +56,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	info, err := h.tokenClient.GetTransferFactory(r.Context())
 	if err != nil {
+		if errors.Is(err, token.ErrTransferFactoryNotFound) {
+			h.writeError(w, http.StatusNotFound, "no active TransferFactory contract found")
+			return
+		}
 		h.logger.Error("Failed to get TransferFactory", zap.Error(err))
 		h.writeError(w, http.StatusInternalServerError, "failed to retrieve transfer factory")
 		return

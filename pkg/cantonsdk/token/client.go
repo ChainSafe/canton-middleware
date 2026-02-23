@@ -22,6 +22,9 @@ import (
 // ErrInsufficientBalance indicates the owner's total unlocked balance is less than the required amount.
 var ErrInsufficientBalance = errors.New("insufficient balance")
 
+// ErrTransferFactoryNotFound indicates no active CIP56TransferFactory contract exists on the ledger.
+var ErrTransferFactoryNotFound = errors.New("no active CIP56TransferFactory found")
+
 const (
 	defaultTransferValidity = time.Hour
 
@@ -471,34 +474,11 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 }
 
 func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
+	info, err := c.GetTransferFactory(ctx)
 	if err != nil {
 		return "", err
 	}
-	if end == 0 {
-		return "", fmt.Errorf("ledger is empty, no contracts exist")
-	}
-
-	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: moduleTransferFactory,
-		EntityName: entityTransferFactory,
-	}
-
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
-	if err != nil {
-		return "", fmt.Errorf("query transfer factory: %w", err)
-	}
-	if len(events) == 0 {
-		return "", fmt.Errorf("no active CIP56TransferFactory found")
-	}
-	if len(events) > 1 {
-		c.logger.Warn("multiple CIP56TransferFactory contracts found, using first",
-			zap.Int("count", len(events)),
-			zap.String("selected_cid", events[0].ContractId))
-	}
-
-	return events[0].ContractId, nil
+	return info.ContractID, nil
 }
 
 func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {
@@ -559,7 +539,7 @@ func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, 
 	}
 
 	if len(events) == 0 {
-		return nil, fmt.Errorf("no active CIP56TransferFactory found")
+		return nil, ErrTransferFactoryNotFound
 	}
 	if len(events) > 1 {
 		c.logger.Warn("multiple CIP56TransferFactory contracts found, using first",

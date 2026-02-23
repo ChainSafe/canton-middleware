@@ -432,8 +432,9 @@ curl -X POST http://localhost:8081/registry/transfer-instruction/v1/transfer-fac
 
 | HTTP Status | Error | Description |
 |------------|-------|-------------|
+| 404 | Not Found | No active `CIP56TransferFactory` contract exists on the ledger |
 | 405 | Method Not Allowed | Only POST is accepted |
-| 500 | Internal Server Error | No active `CIP56TransferFactory` found or Canton connection error |
+| 500 | Internal Server Error | Canton connection error or other internal failure |
 
 ### How External Wallets Use This
 
