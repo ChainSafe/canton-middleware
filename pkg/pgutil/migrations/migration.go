@@ -165,7 +165,7 @@ func getTableName(model any) string {
 	}
 
 	// Look for bun table tag
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		if field.Name == "tableName" {
 			tag := field.Tag.Get("bun")
@@ -220,7 +220,11 @@ func RunMigrations(migrator *migrate.Migrator, args ...string) error {
 		if err := migrator.Lock(ctx); err != nil {
 			return fmt.Errorf("failed to acquire migration lock: %w", err)
 		}
-		defer migrator.Unlock(ctx)
+		defer func() {
+			if err := migrator.Unlock(ctx); err != nil {
+				log.Printf("failed to release migration lock: %v", err)
+			}
+		}()
 
 		group, err := migrator.Migrate(ctx)
 		if err != nil {
@@ -237,7 +241,11 @@ func RunMigrations(migrator *migrate.Migrator, args ...string) error {
 		if err := migrator.Lock(ctx); err != nil {
 			return fmt.Errorf("failed to acquire migration lock: %w", err)
 		}
-		defer migrator.Unlock(ctx)
+		defer func() {
+			if err := migrator.Unlock(ctx); err != nil {
+				log.Printf("failed to release migration lock: %v", err)
+			}
+		}()
 
 		group, err := migrator.Rollback(ctx)
 		if err != nil {

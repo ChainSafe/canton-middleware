@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uptrace/bun"
+
+	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // SetupTestDB creates a PostgreSQL testcontainer and returns a connection
@@ -26,7 +27,7 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
+				WithStartupTimeout(60*time.Second), //nolint:mnd // Standard timeout for postgres startup
 		),
 	)
 	if err != nil {
@@ -59,7 +60,7 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 	// Connect to database with retry logic
 	var db *bun.DB
 	maxRetries := 10
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		db, err = ConnectDB(cfg)
 		if err == nil {
 			break
@@ -69,7 +70,7 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 			t.Fatalf("failed to connect to test database after %d attempts: %v", maxRetries, err)
 		}
 		// Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1.6s, 3.2s...
-		backoff := time.Duration(100*(1<<uint(i))) * time.Millisecond
+		backoff := time.Duration(100*(1<<i)) * time.Millisecond
 		time.Sleep(backoff)
 	}
 

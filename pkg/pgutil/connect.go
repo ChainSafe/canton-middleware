@@ -1,18 +1,21 @@
 package pgutil
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
+
+	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // ConnectDB creates a connection to the specified database
 func ConnectDB(cfg *config.DatabaseConfig) (*bun.DB, error) {
+	ctx := context.Background()
 	// Use default sslmode if not specified
 	sslmode := cfg.SSLMode
 	if sslmode == "" {
@@ -33,7 +36,7 @@ func ConnectDB(cfg *config.DatabaseConfig) (*bun.DB, error) {
 	db := bun.NewDB(sqldb, pgdialect.New())
 
 	// Test connection
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close() // Close connection to prevent resource leak
 		return nil, fmt.Errorf("failed to connect to database %s: %w", cfg.Database, err)
 	}

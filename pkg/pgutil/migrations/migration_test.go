@@ -10,7 +10,7 @@ import (
 
 // Test DAO for testing purposes
 type testDao struct {
-	tableName struct{} `bun:"table:test_table"`
+	tableName struct{} `bun:"table:test_table"` //nolint:unused // Used by Bun ORM
 	ID        int64    `bun:",pk,autoincrement"`
 	Name      string   `bun:",notnull,type:varchar(100)"`
 	Age       int      `bun:",nullzero"`
@@ -333,18 +333,4 @@ func TestDropIndex(t *testing.T) {
 	if err != nil {
 		t.Errorf("DropIndex() second call failed: %v", err)
 	}
-}
-
-// Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

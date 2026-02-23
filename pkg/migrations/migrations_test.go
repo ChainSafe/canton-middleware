@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/migrate"
+
 	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/relayerdb"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/migrate"
 )
 
 func TestAPIDBMigrations_Apply(t *testing.T) {
@@ -200,7 +201,7 @@ func TestSeedData_Applied(t *testing.T) {
 	count, err := db.NewSelect().
 		Model((*dao.TokenMetricsDao)(nil)).
 		ModelTableExpr("token_metrics").
-		Where("token_symbol IN (?)", bun.In([]string{"PROMPT", "DEMO"})).
+		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
 		t.Fatalf("Failed to query seed data: %v", err)
@@ -366,7 +367,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 	count, err := db.NewSelect().
 		Model((*dao.TokenMetricsDao)(nil)).
 		ModelTableExpr("token_metrics").
-		Where("token_symbol IN (?)", bun.In([]string{"PROMPT", "DEMO"})).
+		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
 		t.Fatalf("Failed to query seed data: %v", err)
