@@ -22,11 +22,12 @@ type Config struct {
 
 // ServerConfig contains HTTP server settings
 type ServerConfig struct {
-	Host         string        `yaml:"host"`
-	Port         int           `yaml:"port"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
-	IdleTimeout  time.Duration `yaml:"idle_timeout"`
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	IdleTimeout     time.Duration `yaml:"idle_timeout"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 }
 
 // DatabaseConfig contains database connection settings
@@ -57,27 +58,27 @@ type EthereumConfig struct {
 
 // CantonConfig contains Canton Network client settings
 type CantonConfig struct {
-	RPCURL               string        `yaml:"rpc_url"`
-	LedgerID             string        `yaml:"ledger_id"`
-	DomainID             string        `yaml:"domain_id"`
-	ApplicationID        string        `yaml:"application_id"`
-	ChainID              string        `yaml:"chain_id"`
-	BridgeContract       string        `yaml:"bridge_contract"`
-	RelayerParty         string        `yaml:"relayer_party"`
-	BridgePackageID      string        `yaml:"bridge_package_id"`
-	CorePackageID        string        `yaml:"core_package_id"`
-	CIP56PackageID       string        `yaml:"cip56_package_id"`
-	CommonPackageID      string        `yaml:"common_package_id"`       // Package ID for common DAR (FingerprintMapping)
-	BridgeModule         string        `yaml:"bridge_module"`
-	RelayerPrivateKey    string        `yaml:"relayer_private_key"`
-	ConfirmationBlocks   int           `yaml:"confirmation_blocks"`
-	PollingInterval      time.Duration `yaml:"polling_interval"`
-	StartBlock           int64         `yaml:"start_block"`
-	LookbackBlocks       int64         `yaml:"lookback_blocks"`
-	TLS                  TLSConfig     `yaml:"tls"`
-	Auth                 AuthConfig    `yaml:"auth"`
-	DedupDuration        time.Duration `yaml:"dedup_duration"`
-	MaxMessageSize       int           `yaml:"max_inbound_message_size"`
+	RPCURL             string        `yaml:"rpc_url"`
+	LedgerID           string        `yaml:"ledger_id"`
+	DomainID           string        `yaml:"domain_id"`
+	ApplicationID      string        `yaml:"application_id"`
+	ChainID            string        `yaml:"chain_id"`
+	BridgeContract     string        `yaml:"bridge_contract"`
+	RelayerParty       string        `yaml:"relayer_party"`
+	BridgePackageID    string        `yaml:"bridge_package_id"`
+	CorePackageID      string        `yaml:"core_package_id"`
+	CIP56PackageID     string        `yaml:"cip56_package_id"`
+	CommonPackageID    string        `yaml:"common_package_id"` // Package ID for common DAR (FingerprintMapping)
+	BridgeModule       string        `yaml:"bridge_module"`
+	RelayerPrivateKey  string        `yaml:"relayer_private_key"`
+	ConfirmationBlocks int           `yaml:"confirmation_blocks"`
+	PollingInterval    time.Duration `yaml:"polling_interval"`
+	StartBlock         int64         `yaml:"start_block"`
+	LookbackBlocks     int64         `yaml:"lookback_blocks"`
+	TLS                TLSConfig     `yaml:"tls"`
+	Auth               AuthConfig    `yaml:"auth"`
+	DedupDuration      time.Duration `yaml:"dedup_duration"`
+	MaxMessageSize     int           `yaml:"max_inbound_message_size"`
 }
 
 // TLSConfig holds TLS configuration
@@ -239,6 +240,9 @@ func setAPIServerDefaults(config *APIServerConfig) {
 	}
 	if config.Server.IdleTimeout == 0 {
 		config.Server.IdleTimeout = 60 * time.Second
+	}
+	if config.Server.ShutdownTimeout == 0 {
+		config.Server.ShutdownTimeout = 30 * time.Second
 	}
 
 	// Database defaults
@@ -433,7 +437,9 @@ func setDefaults(config *Config) {
 	if config.Server.IdleTimeout == 0 {
 		config.Server.IdleTimeout = 60 * time.Second
 	}
-
+	if config.Server.ShutdownTimeout == 0 {
+		config.Server.ShutdownTimeout = 30 * time.Second
+	}
 	// Database defaults
 	if config.Database.Host == "" {
 		config.Database.Host = "localhost"

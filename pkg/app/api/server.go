@@ -8,17 +8,21 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/app/httpserver"
+	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
-	"github.com/chainsafe/canton-middleware/pkg/registration"
+	regservice "github.com/chainsafe/canton-middleware/pkg/registration/service"
+	regstore "github.com/chainsafe/canton-middleware/pkg/registration/store/pg"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 )
 
@@ -80,19 +84,19 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
+	registrationService := regservice.NewService(
+		regstore.NewStore(db.DB()),
+		cantonClient.Identity,
+		keyStore,
+		logger,
+		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
+	)
+
 	tokenService := service.NewTokenService(cfg, db, cantonClient.Token, logger)
 
-	ethHandler, err := s.maybeCreateEthHandler(db, tokenService, logger)
-	if err != nil {
-		return err
-	}
+	router := s.setupRouter(db, tokenService, regservice.NewLog(registrationService, logger), logger)
 
-	mux := s.newRouter(db, cantonClient, keyStore, ethHandler, logger)
-
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(addr, mux, cfg.Server)
-
-	err = httpserver.ServeAndWait(ctx, logger, httpServer, cfg.Shutdown.Timeout)
+	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 
 	// Stop background work before deferred DB/client closes kick in.
 	stopReconcile()
@@ -195,15 +199,47 @@ func (s *Server) startPeriodicReconcile(
 	return func() { reconciler.Stop() }
 }
 
-func (s *Server) maybeCreateEthHandler(
+func (s *Server) setupRouter(
+	db *apidb.Store,
+	tokenService *service.TokenService,
+	registrationService regservice.Service,
+	logger *zap.Logger,
+) chi.Router {
+	r := chi.NewRouter()
+
+	// Middleware stack
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(time.Second * 60)) // TODO: make configurable
+
+	// Health check
+	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	// Registration endpoints
+	regservice.RegisterRoutes(r, registrationService, logger)
+
+	// Ethereum JSON-RPC endpoints (if enabled)
+	if s.cfg.EthRPC.Enabled {
+		ethHandler, err := s.createEthHandler(db, tokenService, logger)
+		if err != nil {
+			logger.Error("Failed to create eth handler", zap.Error(err))
+		} else {
+			r.Mount("/eth", ethHandler)
+		}
+	}
+
+	return r
+}
+
+func (s *Server) createEthHandler(
 	db *apidb.Store,
 	tokenService *service.TokenService,
 	logger *zap.Logger,
 ) (http.Handler, error) {
-	if !s.cfg.EthRPC.Enabled {
-		return nil, nil
-	}
-
 	ethSrv, err := ethrpc.NewServer(s.cfg, db, tokenService, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create eth json-rpc server: %w", err)
@@ -216,42 +252,4 @@ func (s *Server) maybeCreateEthHandler(
 	)
 
 	return ethSrv, nil
-}
-
-func (s *Server) newRouter(
-	db *apidb.Store,
-	cantonClient *canton.Client,
-	keyStore *keys.PostgresKeyStore,
-	ethHandler http.Handler,
-	logger *zap.Logger,
-) *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			logger.Warn("failed to write health check response", zap.Error(err))
-		}
-	})
-
-	registrationHandler := registration.NewHandler(s.cfg, db, cantonClient.Identity, keyStore, logger)
-	mux.Handle("/register", registrationHandler)
-	logger.Info("Registration endpoint enabled", zap.String("path", "/register"))
-
-	if ethHandler != nil {
-		mux.Handle("/eth", ethHandler)
-	}
-
-	return mux
-}
-
-func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
-	return &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  sc.ReadTimeout,
-		WriteTimeout: sc.WriteTimeout,
-		IdleTimeout:  sc.IdleTimeout,
-	}
 }

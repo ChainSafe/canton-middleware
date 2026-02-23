@@ -1,0 +1,335 @@
+package service
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
+	"github.com/chainsafe/canton-middleware/pkg/auth"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	"github.com/chainsafe/canton-middleware/pkg/keys"
+	"github.com/chainsafe/canton-middleware/pkg/registration"
+	"github.com/chainsafe/canton-middleware/pkg/registration/store"
+	"go.uber.org/zap"
+)
+
+// Constants for registration operations
+const (
+	// partyHintLength is the number of characters from EVM address used in party hint
+	// Uses first 8 characters after "0x" prefix (e.g., "user_12345678")
+	partyHintLength = 8
+
+	// cantonKeySize is the required size for Canton private keys (32 bytes for secp256k1)
+	cantonKeySize = 32
+)
+
+var (
+	ErrUserAlreadyRegistered  = errors.New("user already registered")
+	ErrNotWhitelisted         = errors.New("address not whitelisted for registration")
+	ErrPartyAlreadyAllocated  = errors.New("Canton party already allocated for this user")
+	ErrInvalidCantonSignature = errors.New("invalid Canton signature")
+	ErrPartyAlreadyRegistered = errors.New("Canton party already registered")
+)
+
+// Service defines the interface for the registration business logic
+type Service interface {
+	RegisterWeb3User(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error)
+	RegisterCantonNativeUser(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error)
+}
+
+type registrationService struct {
+	store                           store.Store
+	cantonClient                    canton.Identity
+	keyStore                        keys.KeyStore
+	logger                          *zap.Logger
+	skipCantonSignatureVerification bool
+}
+
+// NewService creates a new registration service
+func NewService(
+	store store.Store,
+	cantonClient canton.Identity,
+	keyStore keys.KeyStore,
+	logger *zap.Logger,
+	skipCantonSignatureVerification bool,
+) Service {
+	return &registrationService{
+		store:                           store,
+		cantonClient:                    cantonClient,
+		keyStore:                        keyStore,
+		logger:                          logger,
+		skipCantonSignatureVerification: skipCantonSignatureVerification,
+	}
+}
+
+// RegisterWeb3User registers a Web3 user with EIP-191 signature verification.
+// This flow generates a Canton party ID and keys for the user on their behalf.
+//
+// The registration process:
+//  1. Verifies EIP-191 signature to prove EVM address ownership
+//  2. Checks if user already registered
+//  3. Validates address is whitelisted
+//  4. Generates Canton keypair
+//  5. Allocates external Canton party
+//  6. Creates fingerprint mapping on Canton
+//  7. Saves user and encrypted keys to database
+//
+// Returns registration details including Canton party ID and fingerprint.
+// On any failure after party allocation, attempts to cleanup database records.
+func (s *registrationService) RegisterWeb3User(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error) {
+	// Verify EVM signature
+	recoveredAddr, err := auth.VerifyEIP191Signature(req.Message, req.Signature)
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid signature")
+	}
+
+	evmAddress := auth.NormalizeAddress(recoveredAddr.Hex())
+	s.logger.Info("Web3 registration initiated", zap.String("evm_address", evmAddress))
+
+	// Check if user already exists
+	exists, err := s.store.UserExists(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if exists {
+		return nil, apperrors.ConflictError(ErrUserAlreadyRegistered, "user already registered")
+	}
+
+	// Check whitelist
+	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check whitelist: %w", err)
+	}
+	if !whitelisted {
+		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	}
+
+	// Compute fingerprint
+	fingerprint := auth.ComputeFingerprint(evmAddress)
+
+	// Generate Canton keypair for user
+	cantonKeyPair, err := keys.GenerateCantonKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("key generation failed: %w", err)
+	}
+
+	// Allocate an external Canton party for this user
+	partyHint := s.generatePartyHint(evmAddress)
+	spkiKey, err := cantonKeyPair.SPKIPublicKey()
+	if err != nil {
+		return nil, fmt.Errorf("key encoding failed: %w", err)
+	}
+
+	partyResult, err := s.cantonClient.AllocateExternalParty(ctx, partyHint, spkiKey, cantonKeyPair)
+	if err != nil {
+		if s.isPartyAlreadyAllocatedError(err) {
+			return nil, apperrors.ConflictError(ErrPartyAlreadyAllocated, "Canton party already allocated for this user")
+		}
+		return nil, fmt.Errorf("party allocation failed: %w", err)
+	}
+
+	cantonPartyID := partyResult.PartyID
+	// Create fingerprint mapping on Canton
+	mapping, err := s.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
+		UserParty:   cantonPartyID,
+		Fingerprint: fingerprint,
+		EvmAddress:  evmAddress,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
+	}
+
+	// Create and store user
+	user := s.buildUser(evmAddress, cantonPartyID, fingerprint, mapping.ContractID)
+	if err = s.store.CreateUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
+	}
+
+	// Store the encrypted Canton key with automatic cleanup on failure
+	if err = s.storeUserKeyWithCleanup(ctx, evmAddress, cantonPartyID, cantonKeyPair.PrivateKey); err != nil {
+		return nil, err
+	}
+
+	return &registration.RegisterResponse{
+		Party:       cantonPartyID,
+		Fingerprint: fingerprint,
+		MappingCID:  mapping.ContractID,
+		EVMAddress:  evmAddress,
+	}, nil
+}
+
+// RegisterCantonNativeUser registers a Canton native user (e.g., Loop wallet user).
+// These users already have a Canton party ID and are registering to access EVM-compatible features.
+//
+// The registration process:
+//  1. Validates Canton party ID format
+//  2. Verifies Canton signature (if not skipped in config)
+//  3. Checks if party already registered
+//  4. Extracts fingerprint from party ID
+//  5. Generates EVM keypair for MetaMask access
+//  6. Creates fingerprint mapping on Canton
+//  7. Saves user and keys to database
+//
+// Returns registration details including the generated EVM address and private key.
+// The private key allows users to import the account into MetaMask.
+func (s *registrationService) RegisterCantonNativeUser(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error) {
+	// Validate Canton party ID format
+	if err := auth.ValidateCantonPartyID(req.CantonPartyID); err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid canton_party_id")
+	}
+
+	// Verify Canton signature (configurable)
+	if !s.skipCantonSignatureVerification {
+		if req.Message == "" {
+			return nil, apperrors.BadRequestError(nil, "message required for Canton signature verification")
+		}
+
+		valid, err := auth.VerifyCantonSignature(req.CantonPartyID, req.Message, req.CantonSignature)
+		if err != nil {
+			return nil, apperrors.BadRequestError(err, "signature verification failed")
+		}
+		if !valid {
+			return nil, apperrors.UnAuthorizedError(ErrInvalidCantonSignature, "invalid Canton signature")
+		}
+	} else {
+		s.logger.Debug("Canton signature verification skipped (development mode)",
+			zap.String("party_id", req.CantonPartyID))
+	}
+
+	// Check if this exact party ID is already registered
+	existingUser, err := s.store.GetUserByCantonPartyID(ctx, req.CantonPartyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if existingUser != nil {
+		return nil, apperrors.ConflictError(ErrPartyAlreadyRegistered, "Canton party already registered")
+	}
+
+	// Extract fingerprint from party ID for mapping
+	fingerprint, err := auth.ExtractFingerprintFromPartyID(req.CantonPartyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract fingerprint: %w", err)
+	}
+
+	// Generate EVM keypair for MetaMask access
+	evmKeyPair, err := keys.GenerateCantonKeyPair()
+	if err != nil {
+		return nil, fmt.Errorf("key generation failed: %w", err)
+	}
+
+	// Derive EVM address
+	evmAddress := keys.DeriveEVMAddressFromPublicKey(evmKeyPair.PublicKey)
+	// Create fingerprint mapping on Canton
+	mapping, err := s.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
+		UserParty:   req.CantonPartyID,
+		Fingerprint: fingerprint,
+		EvmAddress:  evmAddress,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
+	}
+
+	// Create and store user
+	user := s.buildUser(evmAddress, req.CantonPartyID, fingerprint, mapping.ContractID)
+	if err = s.store.CreateUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
+	}
+
+	// Determine which key to store (user-provided or generated)
+	keyToStore := s.selectKeyToStore(req.CantonPrivateKey, evmKeyPair.PrivateKey)
+	if keyToStore == nil {
+		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("canton_private_key must be a hex-encoded %d-byte key", cantonKeySize))
+	}
+
+	// Store the Canton signing key with automatic cleanup on failure
+	if err = s.storeUserKeyWithCleanup(ctx, evmAddress, req.CantonPartyID, keyToStore); err != nil {
+		return nil, err
+	}
+
+	return &registration.RegisterResponse{
+		Party:       req.CantonPartyID,
+		Fingerprint: fingerprint,
+		MappingCID:  mapping.ContractID,
+		EVMAddress:  evmAddress,
+		PrivateKey:  evmKeyPair.PrivateKeyHex(),
+	}, nil
+}
+
+// Helper methods
+
+// generatePartyHint creates a human-readable party hint from EVM address.
+// Uses first 8 characters after "0x" prefix (e.g., "user_12345678").
+func (s *registrationService) generatePartyHint(evmAddress string) string {
+	if len(evmAddress) < 2+partyHintLength {
+		return "user"
+	}
+	return fmt.Sprintf("user_%s", evmAddress[2:2+partyHintLength])
+}
+
+// isPartyAlreadyAllocatedError checks if error indicates party already exists.
+// Detects both "already allocated" and "ALREADY_EXISTS" error messages from Canton.
+func (s *registrationService) isPartyAlreadyAllocatedError(err error) bool {
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "already allocated") || strings.Contains(errMsg, "ALREADY_EXISTS")
+}
+
+// buildUser creates a User struct with current timestamp.
+// This centralizes user object creation to ensure consistency.
+func (s *registrationService) buildUser(evmAddress, cantonPartyID, fingerprint, mappingCID string) *registration.User {
+	now := time.Now()
+	return &registration.User{
+		EVMAddress:         evmAddress,
+		CantonParty:        cantonPartyID,
+		Fingerprint:        fingerprint,
+		MappingCID:         mappingCID,
+		CantonPartyID:      cantonPartyID,
+		CantonKeyCreatedAt: &now,
+	}
+}
+
+// storeUserKeyWithCleanup stores user's Canton key, automatically cleaning up user record on failure.
+// This ensures database consistency by rolling back user creation if key storage fails.
+// Returns nil if keyStore is not configured (key storage is optional).
+func (s *registrationService) storeUserKeyWithCleanup(ctx context.Context, evmAddress, cantonPartyID string, privateKey []byte) error {
+	if s.keyStore == nil {
+		return nil
+	}
+
+	if err := s.keyStore.SetUserKey(evmAddress, cantonPartyID, privateKey); err != nil {
+		// Cleanup: delete the user we just created to maintain consistency
+		if delErr := s.store.DeleteUser(ctx, evmAddress); delErr != nil {
+			s.logger.Error("Failed to cleanup user after key storage failure",
+				zap.String("evm_address", evmAddress),
+				zap.String("canton_party_id", cantonPartyID),
+				zap.Error(delErr))
+		} else {
+			s.logger.Info("User record cleaned up after key storage failure",
+				zap.String("evm_address", evmAddress))
+		}
+		return fmt.Errorf("failed to store Canton key: %w", err)
+	}
+
+	return nil
+}
+
+// selectKeyToStore determines which key to store: user-provided or generated.
+// Returns nil if user-provided key is invalid (wrong format or size).
+// User-provided keys must be hex-encoded 32-byte secp256k1 private keys.
+func (s *registrationService) selectKeyToStore(userProvidedKey string, generatedKey []byte) []byte {
+	if userProvidedKey == "" {
+		return generatedKey
+	}
+
+	// Decode and validate user-provided key
+	raw := strings.TrimPrefix(userProvidedKey, "0x")
+	decoded, err := hex.DecodeString(raw)
+	if err != nil || len(decoded) != cantonKeySize {
+		return nil
+	}
+
+	return decoded
+}

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/app/httpserver"
+	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
@@ -26,9 +26,8 @@ import (
 )
 
 const (
-	defaultGracefulShutdownTimeout = 30 * time.Second
-	defaultHTTPMiddlewareTimeout   = 60 * time.Second
-	defaultLimitForListTransfer    = 100
+	defaultHTTPMiddlewareTimeout = 60 * time.Second
+	defaultLimitForListTransfer  = 100
 )
 
 // Server holds configuration for the relayer process.
@@ -99,10 +98,7 @@ func (s *Server) Run() error {
 
 	router := s.newRouter(store, engine, logger)
 
-	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(serverAddr, router, cfg.Server)
-
-	return httpserver.ServeAndWait(ctx, logger, httpServer, defaultGracefulShutdownTimeout)
+	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 }
 
 func (s *Server) maybeOpenAPIDB(logger *zap.Logger) (*apidb.Store, func(), error) {
@@ -162,16 +158,6 @@ func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.
 	})
 
 	return r
-}
-
-func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
-	return &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  sc.ReadTimeout,
-		WriteTimeout: sc.WriteTimeout,
-		IdleTimeout:  sc.IdleTimeout,
-	}
 }
 
 func handleGetTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {

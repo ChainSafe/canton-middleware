@@ -393,3 +393,19 @@ func MasterKeyFromBase64(encoded string) ([]byte, error) {
 func MasterKeyToBase64(key []byte) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
+
+// DeriveEVMAddressFromPublicKey derives an EVM address from a compressed secp256k1 public key.
+// This is used for Canton native users to generate an EVM-compatible address for MetaMask access.
+//
+// If decompression fails (e.g., invalid public key), it falls back to using the Keccak256
+// hash of the compressed key (last 20 bytes with 0x prefix).
+func DeriveEVMAddressFromPublicKey(compressedPubKey []byte) string {
+	pubKey, err := crypto.DecompressPubkey(compressedPubKey)
+	if err != nil {
+		// Fallback: use hash of compressed key if decompression fails
+		hash := crypto.Keccak256Hash(compressedPubKey)
+		return "0x" + hash.Hex()[26:]
+	}
+	addr := crypto.PubkeyToAddress(*pubKey)
+	return addr.Hex()
+}
