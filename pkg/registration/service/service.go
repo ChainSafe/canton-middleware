@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
@@ -45,6 +44,8 @@ type registrationService struct {
 	store                           store.Store
 	cantonClient                    canton.Identity
 	logger                          *zap.Logger
+	keyEncryptor                    keys.Encryptor
+	keyDecryptor                    keys.Decryptor
 	skipCantonSignatureVerification bool
 }
 
@@ -52,6 +53,7 @@ type registrationService struct {
 func NewService(
 	store store.Store,
 	cantonClient canton.Identity,
+	maskerKey []byte,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
 ) Service {
@@ -59,6 +61,8 @@ func NewService(
 		store:                           store,
 		cantonClient:                    cantonClient,
 		logger:                          logger,
+		keyEncryptor:                    keys.NewEncryptor(maskerKey),
+		keyDecryptor:                    keys.NewDecryptor(maskerKey),
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
 	}
 }
@@ -143,15 +147,21 @@ func (s *registrationService) RegisterWeb3User(
 		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
 	}
 
-	// Create and store user
-	user := s.buildUser(evmAddress, cantonPartyID, fingerprint, mapping.ContractID)
-	if err = s.store.CreateUser(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to save user: %w", err)
+	encryptedPKey, err := s.keyEncryptor(cantonKeyPair.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
+	user := registration.NewUser(
+		evmAddress,
+		req.CantonPartyID,
+		fingerprint,
+		mapping.ContractID,
+		encryptedPKey,
+	)
 
-	// Store the encrypted Canton key with automatic cleanup on failure
-	if err = s.storeUserKeyWithCleanup(ctx, evmAddress, cantonPartyID, cantonKeyPair.PrivateKey); err != nil {
-		return nil, err
+	err = s.store.CreateUser(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
 	}
 
 	return &registration.RegisterResponse{
@@ -236,23 +246,27 @@ func (s *registrationService) RegisterCantonNativeUser(
 		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
 	}
 
-	// Create and store user
-	user := s.buildUser(evmAddress, req.CantonPartyID, fingerprint, mapping.ContractID)
-	if err = s.store.CreateUser(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to save user: %w", err)
-	}
-
 	// Determine which key to store (user-provided or generated)
 	keyToStore := s.selectKeyToStore(req.CantonPrivateKey, evmKeyPair.PrivateKey)
 	if keyToStore == nil {
 		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("canton_private_key must be a hex-encoded %d-byte key", cantonKeySize))
 	}
 
-	user := s.buildUser(evmAddress, req.CantonPartyID, fingerprint, mapping.ContractID)
+	encryptedPKey, err := s.keyEncryptor(keyToStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt key: %w", err)
+	}
+	user := registration.NewUser(
+		evmAddress,
+		req.CantonPartyID,
+		fingerprint,
+		mapping.ContractID,
+		encryptedPKey,
+	)
 
-	// Store the Canton signing key with automatic cleanup on failure
-	if err = s.storeUserKeyWithCleanup(ctx, evmAddress, req.CantonPartyID, keyToStore); err != nil {
-		return nil, err
+	err = s.store.CreateUser(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
 	}
 
 	return &registration.RegisterResponse{
@@ -280,20 +294,6 @@ func (s *registrationService) generatePartyHint(evmAddress string) string {
 func (s *registrationService) isPartyAlreadyAllocatedError(err error) bool {
 	errMsg := err.Error()
 	return strings.Contains(errMsg, "already allocated") || strings.Contains(errMsg, "ALREADY_EXISTS")
-}
-
-// buildUser creates a User struct with current timestamp.
-// This centralizes user object creation to ensure consistency.
-func (s *registrationService) buildUser(evmAddress, cantonPartyID, fingerprint, mappingCID string) *registration.User {
-	now := time.Now()
-	return &registration.User{
-		EVMAddress:         evmAddress,
-		CantonParty:        cantonPartyID,
-		Fingerprint:        fingerprint,
-		MappingCID:         mappingCID,
-		CantonPartyID:      cantonPartyID,
-		CantonKeyCreatedAt: &now,
-	}
 }
 
 // selectKeyToStore determines which key to store: user-provided or generated.

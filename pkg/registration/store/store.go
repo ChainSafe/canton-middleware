@@ -3,11 +3,9 @@ package store
 import (
 	"context"
 
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 )
-
-// Decryptor is a function that decrypts an encrypted key string
-type Decryptor func(encryptedKey string) ([]byte, error)
 
 // Store defines the interface for user registration data persistence
 type Store interface {
@@ -26,7 +24,7 @@ type WhitelistStore interface {
 
 // KeyStore defines the interface for user key persistence and retrieval
 type KeyStore interface {
-	GetUserKey(ctx context.Context, decryptor Decryptor, opts ...QueryOption) ([]byte, error)
+	GetUserKey(ctx context.Context, decryptor keys.Decryptor, opts ...QueryOption) ([]byte, error)
 }
 
 // QueryOptions defines options for querying users

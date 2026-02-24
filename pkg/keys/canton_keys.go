@@ -164,97 +164,6 @@ func (kp *CantonKeyPair) PrivateKeyHex() string {
 	return fmt.Sprintf("0x%x", kp.PrivateKey)
 }
 
-// EncryptPrivateKey encrypts the private key using AES-256-GCM with the provided master key.
-// Returns the encrypted key as a base64-encoded string containing: nonce || ciphertext || tag
-func EncryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {
-	if len(masterKey) != 32 {
-		return "", fmt.Errorf("master key must be 32 bytes (AES-256)")
-	}
-
-	if len(privateKey) != 32 {
-		return "", fmt.Errorf("private key must be 32 bytes (secp256k1)")
-	}
-
-	// Create AES cipher
-	block, err := aes.NewCipher(masterKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to create AES cipher: %w", err)
-	}
-
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	// Generate random nonce
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("failed to generate nonce: %w", err)
-	}
-
-	// Encrypt the private key
-	// The private key is 32 bytes for secp256k1
-	ciphertext := gcm.Seal(nonce, nonce, privateKey, nil)
-
-	// Return as base64
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-// NewDecryptor creates a Decryptor function from a master key.
-// This is a convenience wrapper around DecryptPrivateKey for use with the store.KeyStore interface.
-func NewDecryptor(masterKey []byte) func(encryptedKey string) ([]byte, error) {
-	return func(encryptedKey string) ([]byte, error) {
-		return DecryptPrivateKey(encryptedKey, masterKey)
-	}
-}
-
-// DecryptPrivateKey decrypts an encrypted private key using AES-256-GCM.
-// The encrypted string should be base64-encoded containing: nonce || ciphertext || tag
-func DecryptPrivateKey(encrypted string, masterKey []byte) ([]byte, error) {
-	if len(masterKey) != 32 {
-		return nil, fmt.Errorf("master key must be 32 bytes (AES-256)")
-	}
-
-	// Decode from base64
-	ciphertext, err := base64.StdEncoding.DecodeString(encrypted)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64: %w", err)
-	}
-
-	// Create AES cipher
-	block, err := aes.NewCipher(masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
-	}
-
-	// Create GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %w", err)
-	}
-
-	// Extract nonce
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-
-	// Decrypt
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt: %w", err)
-	}
-
-	// Verify it's a valid secp256k1 private key (32 bytes)
-	if len(plaintext) != 32 {
-		return nil, fmt.Errorf("decrypted key has wrong size: got %d, want 32", len(plaintext))
-	}
-
-	return plaintext, nil
-}
-
 // Sign signs a message with the private key using ECDSA with SHA-256
 // Returns the signature in DER format (compatible with Canton)
 func (kp *CantonKeyPair) Sign(message []byte) ([]byte, error) {
@@ -373,6 +282,111 @@ func (kp *CantonKeyPair) Verify(message, signature []byte) bool {
 	}
 
 	return false
+}
+
+// Encryptor is a function that encrypts a key string
+type Encryptor func(key []byte) (string, error)
+
+// Decryptor is a function that decrypts an encrypted key string
+type Decryptor func(encryptedKey string) ([]byte, error)
+
+// NewEncryptor creates a Encryptor function from a master key.
+// This is a convenience wrapper around EncryptPrivateKey for use in services.
+func NewEncryptor(masterKey []byte) Encryptor {
+	return func(key []byte) (string, error) {
+		return encryptPrivateKey(key, masterKey)
+	}
+}
+
+// encryptPrivateKey encrypts the private key using AES-256-GCM with the provided master key.
+// Returns the encrypted key as a base64-encoded string containing: nonce || ciphertext || tag
+func encryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {
+	if len(masterKey) != 32 {
+		return "", fmt.Errorf("master key must be 32 bytes (AES-256)")
+	}
+
+	if len(privateKey) != 32 {
+		return "", fmt.Errorf("private key must be 32 bytes (secp256k1)")
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to create AES cipher: %w", err)
+	}
+
+	// Create GCM mode
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Generate random nonce
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
+
+	// Encrypt the private key
+	// The private key is 32 bytes for secp256k1
+	ciphertext := gcm.Seal(nonce, nonce, privateKey, nil)
+
+	// Return as base64
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// NewDecryptor creates a Decryptor function from a master key.
+// This is a convenience wrapper around DecryptPrivateKey for use with the store.KeyStore interface.
+func NewDecryptor(masterKey []byte) Decryptor {
+	return func(encryptedKey string) ([]byte, error) {
+		return decryptPrivateKey(encryptedKey, masterKey)
+	}
+}
+
+// decryptPrivateKey decrypts an encrypted private key using AES-256-GCM.
+// The encrypted string should be base64-encoded containing: nonce || ciphertext || tag
+func decryptPrivateKey(encrypted string, masterKey []byte) ([]byte, error) {
+	if len(masterKey) != 32 {
+		return nil, fmt.Errorf("master key must be 32 bytes (AES-256)")
+	}
+
+	// Decode from base64
+	ciphertext, err := base64.StdEncoding.DecodeString(encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base64: %w", err)
+	}
+
+	// Create AES cipher
+	block, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
+	}
+
+	// Create GCM mode
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// Extract nonce
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+
+	// Decrypt
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	// Verify it's a valid secp256k1 private key (32 bytes)
+	if len(plaintext) != 32 {
+		return nil, fmt.Errorf("decrypted key has wrong size: got %d, want 32", len(plaintext))
+	}
+
+	return plaintext, nil
 }
 
 // GenerateMasterKey generates a new random 32-byte master key for encrypting Canton keys.

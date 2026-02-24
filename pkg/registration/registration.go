@@ -45,3 +45,17 @@ type User struct {
 	DemoBalance               string
 	BalanceUpdatedAt          *time.Time
 }
+
+// NewUser creates a User from the given parameters.
+func NewUser(evmAddress, cantonPartyID, fingerprint, mappingCID string, encryptedPKey string) *User {
+	now := time.Now()
+	return &User{
+		EVMAddress:                evmAddress,
+		CantonParty:               cantonPartyID,
+		Fingerprint:               fingerprint,
+		MappingCID:                mappingCID,
+		CantonPartyID:             cantonPartyID,
+		CantonKeyCreatedAt:        &now,
+		CantonPrivateKeyEncrypted: encryptedPKey,
+	}
+}
