@@ -51,7 +51,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/lib/pq"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,10 +73,10 @@ type TestConfig struct {
 	} `yaml:"users"`
 
 	Services struct {
-		RelayerURL    string `yaml:"relayer_url"`
-		APIServerURL  string `yaml:"api_server_url"`
-		EthRPCURL     string `yaml:"eth_rpc_url"`
-		RegisterURL   string `yaml:"register_url"`
+		RelayerURL   string `yaml:"relayer_url"`
+		APIServerURL string `yaml:"api_server_url"`
+		EthRPCURL    string `yaml:"eth_rpc_url"`
+		RegisterURL  string `yaml:"register_url"`
 	} `yaml:"services"`
 
 	EthRPC struct {
