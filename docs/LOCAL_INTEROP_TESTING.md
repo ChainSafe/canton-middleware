@@ -2,9 +2,11 @@
 
 This guide walks you through running the full Canton-EVM interoperability test locally. It demonstrates:
 
+- **Splice Token Standard (CIP-0056) compliance** -- all tokens use the Splice `HoldingV1`, `TransferFactory`, and `Metadata` interfaces, enabling interoperability with wallets like Canton Loop
 - **External party allocation** -- all users (MetaMask and native) are created as external parties using the Interactive Submission API
 - **DEMO token interoperability** -- bidirectional transfers between MetaMask (EVM) users and native Canton external parties via the `/eth` JSON-RPC endpoint
 - **PROMPT token bridging** -- depositing ERC-20 tokens from Ethereum into Canton and transferring them on-ledger
+- **Metadata propagation** -- token metadata (symbol, name, decimals) is preserved through transfers and bridge operations
 
 ## Prerequisites
 
@@ -52,8 +54,10 @@ The local stack consists of the following services:
 
 | Token | Type | Description |
 |-------|------|-------------|
-| DEMO | Native Canton (CIP-56) | Minted directly on Canton, no EVM counterpart |
-| PROMPT | Bridged ERC-20 | Bridged from Ethereum via the Wayfinder bridge |
+| DEMO | Native Canton (CIP-56) | Minted directly on Canton via `CIP56Manager`, implements Splice `HoldingV1` |
+| PROMPT | Bridged ERC-20 | Bridged from Ethereum via the Wayfinder bridge, also uses Splice `HoldingV1` |
+
+Both tokens carry Splice-standard metadata (`TextMap Text`) with DNS-prefixed keys (e.g., `splice.chainsafe.io/symbol`). Metadata is propagated through all transfers via the `TransferFactory`.
 
 ### How It Works
 
@@ -257,6 +261,23 @@ docker compose down -v
 ```
 
 This stops all containers and removes all volumes (database data, Canton state).
+
+## Canton Configuration
+
+The bootstrap process auto-detects and sets several Canton-specific configuration fields in `config.e2e-local.yaml`:
+
+| Field | Description |
+|-------|-------------|
+| `domain_id` | Canton synchronizer domain ID (auto-detected from bootstrap container) |
+| `relayer_party` | Canton party ID for the bridge relayer / token issuer |
+| `instrument_admin` | Party that administers token instruments (set to `relayer_party`) |
+| `cip56_package_id` | Package hash of the `cip56-token` DAR |
+| `bridge_package_id` | Package hash of the `bridge-wayfinder` DAR |
+| `core_package_id` | Package hash of the `bridge-core` DAR |
+| `splice_holding_package_id` | Package hash of the Splice `HoldingV1` interface DAR |
+| `splice_transfer_package_id` | Package hash of the Splice `TransferFactory` interface DAR |
+
+These are set automatically by `bootstrap-local.sh` and `docker-bootstrap.sh`. You should not need to edit them manually unless you rebuild the DAML contracts (which changes their package hashes).
 
 ## Related Documentation
 

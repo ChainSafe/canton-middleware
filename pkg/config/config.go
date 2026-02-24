@@ -58,27 +58,31 @@ type EthereumConfig struct {
 
 // CantonConfig contains Canton Network client settings
 type CantonConfig struct {
-	RPCURL             string        `yaml:"rpc_url"`
-	LedgerID           string        `yaml:"ledger_id"`
-	DomainID           string        `yaml:"domain_id"`
-	ApplicationID      string        `yaml:"application_id"`
-	ChainID            string        `yaml:"chain_id"`
-	BridgeContract     string        `yaml:"bridge_contract"`
-	RelayerParty       string        `yaml:"relayer_party"`
-	BridgePackageID    string        `yaml:"bridge_package_id"`
-	CorePackageID      string        `yaml:"core_package_id"`
-	CIP56PackageID     string        `yaml:"cip56_package_id"`
-	CommonPackageID    string        `yaml:"common_package_id"` // Package ID for common DAR (FingerprintMapping)
-	BridgeModule       string        `yaml:"bridge_module"`
-	RelayerPrivateKey  string        `yaml:"relayer_private_key"`
-	ConfirmationBlocks int           `yaml:"confirmation_blocks"`
-	PollingInterval    time.Duration `yaml:"polling_interval"`
-	StartBlock         int64         `yaml:"start_block"`
-	LookbackBlocks     int64         `yaml:"lookback_blocks"`
-	TLS                TLSConfig     `yaml:"tls"`
-	Auth               AuthConfig    `yaml:"auth"`
-	DedupDuration      time.Duration `yaml:"dedup_duration"`
-	MaxMessageSize     int           `yaml:"max_inbound_message_size"`
+	RPCURL                  string        `yaml:"rpc_url"`
+	LedgerID                string        `yaml:"ledger_id"`
+	DomainID                string        `yaml:"domain_id"`
+	ApplicationID           string        `yaml:"application_id"`
+	ChainID                 string        `yaml:"chain_id"`
+	BridgeContract          string        `yaml:"bridge_contract"`
+	RelayerParty            string        `yaml:"relayer_party"`
+	BridgePackageID         string        `yaml:"bridge_package_id"`
+	CorePackageID           string        `yaml:"core_package_id"`
+	CIP56PackageID          string        `yaml:"cip56_package_id"`
+	CommonPackageID         string        `yaml:"common_package_id"`
+	SpliceHoldingPackageID  string        `yaml:"splice_holding_package_id"`
+	SpliceTransferPackageID string        `yaml:"splice_transfer_package_id"`
+	InstrumentAdmin         string        `yaml:"instrument_admin"`
+	InstrumentID            string        `yaml:"instrument_id"`
+	BridgeModule            string        `yaml:"bridge_module"`
+	RelayerPrivateKey       string        `yaml:"relayer_private_key"`
+	ConfirmationBlocks      int           `yaml:"confirmation_blocks"`
+	PollingInterval         time.Duration `yaml:"polling_interval"`
+	StartBlock              int64         `yaml:"start_block"`
+	LookbackBlocks          int64         `yaml:"lookback_blocks"`
+	TLS                     TLSConfig     `yaml:"tls"`
+	Auth                    AuthConfig    `yaml:"auth"`
+	DedupDuration           time.Duration `yaml:"dedup_duration"`
+	MaxMessageSize          int           `yaml:"max_inbound_message_size"`
 }
 
 // TLSConfig holds TLS configuration
