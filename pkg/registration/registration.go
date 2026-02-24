@@ -34,10 +34,14 @@ type RegisterResponse struct {
 
 // User represents the domain model for a registered user
 type User struct {
-	EVMAddress         string
-	CantonParty        string
-	Fingerprint        string
-	MappingCID         string
-	CantonPartyID      string
-	CantonKeyCreatedAt *time.Time
+	EVMAddress                string
+	CantonParty               string
+	Fingerprint               string
+	MappingCID                string
+	CantonPartyID             string
+	CantonKeyCreatedAt        *time.Time
+	CantonPrivateKeyEncrypted string
+	PromptBalance             string
+	DemoBalance               string
+	BalanceUpdatedAt          *time.Time
 }
