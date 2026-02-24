@@ -38,6 +38,8 @@ var (
 
 // Store is the narrow data-access interface for the registration service.
 // Defined here to keep registration service decoupled from userstore implementation details.
+//
+//go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
 	UserExists(ctx context.Context, evmAddress string) (bool, error)
 	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
@@ -47,6 +49,8 @@ type Store interface {
 }
 
 // Service defines the interface for the registration business logic
+//
+//go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
 type Service interface {
 	RegisterWeb3User(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	RegisterCantonNativeUser(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)

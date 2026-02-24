@@ -1,4 +1,7 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks
+
+MOCKERY_VERSION ?= v2.53.6
+GO ?= $(shell command -v go 2>/dev/null || echo $(HOME)/.local/go/go1.24.13/bin/go)
 
 # Build the relayer binary
 build:
@@ -26,6 +29,12 @@ run:
 deps:
 	go mod download
 	go mod tidy
+
+install-mockery:
+	GOBIN=$(HOME)/.local/bin $(GO) install github.com/vektra/mockery/v2@$(MOCKERY_VERSION)
+
+generate-mocks:
+	$(GO) generate -run mockery ./pkg/user/service
 
 get_lint:
 	if [ ! -f ./bin/golangci-lint ]; then \
