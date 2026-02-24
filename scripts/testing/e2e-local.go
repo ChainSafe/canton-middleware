@@ -78,10 +78,10 @@ type LocalTestConfig struct {
 	} `yaml:"users"`
 
 	Services struct {
-		RelayerURL    string `yaml:"relayer_url"`
-		APIServerURL  string `yaml:"api_server_url"`
-		EthRPCURL     string `yaml:"eth_rpc_url"`
-		RegisterURL   string `yaml:"register_url"`
+		RelayerURL   string `yaml:"relayer_url"`
+		APIServerURL string `yaml:"api_server_url"`
+		EthRPCURL    string `yaml:"eth_rpc_url"`
+		RegisterURL  string `yaml:"register_url"`
 	} `yaml:"services"`
 
 	EthRPC struct {
@@ -1100,4 +1100,3 @@ func truncate(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "..."
 }
-
