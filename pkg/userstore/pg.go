@@ -14,6 +14,10 @@ import (
 )
 
 var ErrKeyNotFound = errors.New("key not found")
+var ErrUserNotFound = errors.New("user not found")
+
+// KeyDecryptor decrypts an encrypted private key string into raw bytes.
+type KeyDecryptor func(encryptedKey string) ([]byte, error)
 
 type pgStore struct {
 	db *bun.DB
@@ -22,22 +26,6 @@ type pgStore struct {
 // NewStore creates a new postgres implementation of the user store
 func NewStore(db *bun.DB) *pgStore {
 	return &pgStore{db: db}
-}
-
-// balanceCol returns the column name for a given token type.
-func balanceCol(tokenType token.Type) string {
-	if tokenType == token.Demo {
-		return "demo_balance"
-	}
-	return "prompt_balance"
-}
-
-// normalizeFP returns (withPrefix, withoutPrefix) for fingerprint lookups.
-func normalizeFP(fingerprint string) (string, string) {
-	if strings.HasPrefix(fingerprint, "0x") {
-		return fingerprint, fingerprint[2:]
-	}
-	return "0x" + fingerprint, fingerprint
 }
 
 func (s *pgStore) CreateUser(ctx context.Context, usr *user.User) error {
@@ -53,24 +41,9 @@ func (s *pgStore) CreateUser(ctx context.Context, usr *user.User) error {
 	return nil
 }
 
-func (s *pgStore) GetUser(ctx context.Context, opts ...QueryOption) (*user.User, error) {
-	options := &QueryOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
+func (s *pgStore) getUserBy(ctx context.Context, column string, value string) (*user.User, error) {
 	dao := new(UserDao)
-	query := s.db.NewSelect().Model(dao)
-
-	if options.EVMAddress != nil {
-		query = query.Where("evm_address = ?", *options.EVMAddress)
-	}
-	if options.CantonPartyID != nil {
-		query = query.Where("canton_party_id = ?", *options.CantonPartyID)
-	}
-	if options.Fingerprint != nil {
-		query = query.Where("fingerprint = ?", *options.Fingerprint)
-	}
+	query := s.db.NewSelect().Model(dao).Where(column+" = ?", value)
 
 	err := query.Scan(ctx)
 	if err != nil {
@@ -81,6 +54,18 @@ func (s *pgStore) GetUser(ctx context.Context, opts ...QueryOption) (*user.User,
 	}
 
 	return toUser(dao), nil
+}
+
+func (s *pgStore) GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error) {
+	return s.getUserBy(ctx, "evm_address", evmAddress)
+}
+
+func (s *pgStore) GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error) {
+	return s.getUserBy(ctx, "canton_party_id", partyID)
+}
+
+func (s *pgStore) GetUserByFingerprint(ctx context.Context, fingerprint string) (*user.User, error) {
+	return s.getUserBy(ctx, "fingerprint", fingerprint)
 }
 
 func (s *pgStore) UserExists(ctx context.Context, evmAddress string) (bool, error) {
@@ -225,26 +210,12 @@ func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, e
 	return exists, nil
 }
 
-func (s *pgStore) GetUserKey(ctx context.Context, decryptor KeyDecryptor, opts ...QueryOption) ([]byte, error) {
-	options := &QueryOptions{}
-	for _, opt := range opts {
-		opt(options)
-	}
-
+func (s *pgStore) getUserKeyBy(ctx context.Context, decryptor KeyDecryptor, column string, value string) ([]byte, error) {
 	dao := new(UserDao)
 	query := s.db.NewSelect().
 		Model(dao).
-		Column("canton_private_key_encrypted")
-
-	if options.EVMAddress != nil {
-		query = query.Where("evm_address = ?", *options.EVMAddress)
-	}
-	if options.CantonPartyID != nil {
-		query = query.Where("canton_party_id = ?", *options.CantonPartyID)
-	}
-	if options.Fingerprint != nil {
-		query = query.Where("fingerprint = ?", *options.Fingerprint)
-	}
+		Column("canton_private_key_encrypted").
+		Where(column+" = ?", value)
 
 	err := query.Scan(ctx)
 	if err != nil {
@@ -266,10 +237,30 @@ func (s *pgStore) GetUserKey(ctx context.Context, decryptor KeyDecryptor, opts .
 	return decryptedKey, nil
 }
 
-func (s *pgStore) GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error) {
-	return s.GetUser(ctx, WithCantonPartyID(partyID))
+func (s *pgStore) GetUserKeyByCantonPartyID(ctx context.Context, decryptor KeyDecryptor, partyID string) ([]byte, error) {
+	return s.getUserKeyBy(ctx, decryptor, "canton_party_id", partyID)
 }
 
-func (s *pgStore) GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error) {
-	return s.GetUser(ctx, WithEVMAddress(evmAddress))
+func (s *pgStore) GetUserKeyByEVMAddress(ctx context.Context, decryptor KeyDecryptor, evmAddress string) ([]byte, error) {
+	return s.getUserKeyBy(ctx, decryptor, "evm_address", evmAddress)
+}
+
+func (s *pgStore) GetUserKeyByFingerprint(ctx context.Context, decryptor KeyDecryptor, fingerprint string) ([]byte, error) {
+	return s.getUserKeyBy(ctx, decryptor, "fingerprint", fingerprint)
+}
+
+// balanceCol returns the column name for a given token type.
+func balanceCol(tokenType token.Type) string {
+	if tokenType == token.Demo {
+		return "demo_balance"
+	}
+	return "prompt_balance"
+}
+
+// normalizeFP returns (withPrefix, withoutPrefix) for fingerprint lookups.
+func normalizeFP(fingerprint string) (string, string) {
+	if strings.HasPrefix(fingerprint, "0x") {
+		return fingerprint, fingerprint[2:]
+	}
+	return "0x" + fingerprint, fingerprint
 }

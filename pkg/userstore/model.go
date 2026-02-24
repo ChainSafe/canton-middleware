@@ -3,25 +3,26 @@ package userstore
 import (
 	"time"
 
+	"github.com/uptrace/bun"
+
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
 // UserDao is a data access object that maps directly to the 'users' table in PostgreSQL.
-// TODO:  remove json tag
 type UserDao struct {
-	tableName                 struct{}   `bun:"table:users"` //nolint:unused // Bun uses this marker field for table mapping via struct tags.
-	ID                        int64      `json:"id" bun:",pk,autoincrement"`
-	EVMAddress                string     `json:"evm_address" bun:",unique,notnull,type:varchar(42)"`
-	CantonParty               string     `json:"canton_party" bun:",notnull,type:varchar(255)"`
-	Fingerprint               string     `json:"fingerprint" bun:",notnull,type:varchar(128)"`
-	MappingCID                *string    `json:"mapping_cid,omitempty" bun:",type:varchar(255)"`
-	PromptBalance             *string    `json:"prompt_balance" bun:",nullzero,type:numeric(38,18)"`
-	DemoBalance               *string    `json:"demo_balance" bun:",nullzero,type:numeric(38,18)"`
-	BalanceUpdatedAt          *time.Time `json:"balance_updated_at,omitempty" bun:"balance_updated_at"`
-	CreatedAt                 time.Time  `json:"created_at" bun:",nullzero,default:current_timestamp"`
-	CantonPartyID             *string    `json:"canton_party_id,omitempty" bun:",type:varchar(255)"`
-	CantonPrivateKeyEncrypted *string    `json:"-" bun:",type:text"`
-	CantonKeyCreatedAt        *time.Time `json:"canton_key_created_at,omitempty" bun:"canton_key_created_at"`
+	bun.BaseModel             `bun:"table:users,alias:u"`
+	ID                        int64      `bun:"id,pk,autoincrement"`
+	EVMAddress                string     `bun:"evm_address,unique,notnull,type:varchar(42)"`
+	CantonParty               string     `bun:"canton_party,notnull,type:varchar(255)"`
+	Fingerprint               string     `bun:"fingerprint,notnull,type:varchar(128)"`
+	MappingCID                *string    `bun:"mapping_cid,type:varchar(255)"`
+	PromptBalance             *string    `bun:"prompt_balance,nullzero,type:numeric(38,18)"`
+	DemoBalance               *string    `bun:"demo_balance,nullzero,type:numeric(38,18)"`
+	BalanceUpdatedAt          *time.Time `bun:"balance_updated_at"`
+	CreatedAt                 time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
+	CantonPartyID             *string    `bun:"canton_party_id,type:varchar(255)"`
+	CantonPrivateKeyEncrypted *string    `bun:"canton_private_key_encrypted,type:text"`
+	CantonKeyCreatedAt        *time.Time `bun:"canton_key_created_at"`
 }
 
 // toUserDao converts a user.User to UserDao.
@@ -92,8 +93,8 @@ func toUser(dao *UserDao) *user.User {
 
 // WhitelistDao is a data access object that maps directly to the 'whitelist' table in PostgreSQL.
 type WhitelistDao struct {
-	tableName  struct{}  `bun:"table:whitelist"` //nolint:unused // Bun uses this marker field for table mapping via struct tags.
-	EVMAddress string    `json:"evm_address" bun:",pk,type:varchar(42)"`
-	Note       *string   `json:"note,omitempty" bun:",type:varchar(500)"`
-	CreatedAt  time.Time `json:"created_at" bun:",nullzero,default:current_timestamp"`
+	bun.BaseModel `bun:"table:whitelist,alias:w"`
+	EVMAddress    string    `bun:"evm_address,pk,type:varchar(42)"`
+	Note          *string   `bun:"note,type:varchar(500)"`
+	CreatedAt     time.Time `bun:"created_at,nullzero,default:current_timestamp"`
 }

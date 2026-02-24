@@ -28,11 +28,18 @@ const (
 	tokenSymbolDemo   = "DEMO"
 )
 
+// UserStore defines the minimal user persistence behavior this service needs.
+type UserStore interface {
+	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
+	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
+	TransferBalanceByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount string, tokenType token.Type) error
+}
+
 // TokenService provides shared token operations for both RPC and EthRPC endpoints
 type TokenService struct {
 	config       *config.APIServerConfig
 	db           *apidb.Store // financial metrics: total supply
-	userStore    userstore.Store
+	userStore    UserStore
 	cantonClient canton.Token
 	logger       *zap.Logger
 }
@@ -41,7 +48,7 @@ type TokenService struct {
 func NewTokenService(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
-	userStore userstore.Store,
+	userStore UserStore,
 	cantonClient canton.Token,
 	logger *zap.Logger,
 ) *TokenService {
@@ -84,7 +91,7 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, ErrInvalidAddress
 	}
 
-	fromUser, err := s.userStore.GetUser(ctx, userstore.WithEVMAddress(fromAddress))
+	fromUser, err := s.userStore.GetUserByEVMAddress(ctx, fromAddress)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return nil, ErrUserNotRegistered
@@ -96,7 +103,7 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, ErrUserNotRegistered
 	}
 
-	toUser, err := s.userStore.GetUser(ctx, userstore.WithEVMAddress(toAddress))
+	toUser, err := s.userStore.GetUserByEVMAddress(ctx, toAddress)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return nil, ErrRecipientNotFound
@@ -163,7 +170,7 @@ func (s *TokenService) GetBalance(ctx context.Context, evmAddress, tokenSymbol s
 		tokenSymbol = tokenSymbolPrompt
 	}
 
-	user, err := s.userStore.GetUser(ctx, userstore.WithEVMAddress(addr))
+	user, err := s.userStore.GetUserByEVMAddress(ctx, addr)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return "0", nil
@@ -209,7 +216,7 @@ func (s *TokenService) GetTokenDecimals() int {
 // IsUserRegistered checks if an EVM address is registered
 func (s *TokenService) IsUserRegistered(ctx context.Context, evmAddress string) (bool, error) {
 	addr := auth.NormalizeAddress(evmAddress)
-	_, err := s.userStore.GetUser(ctx, userstore.WithEVMAddress(addr))
+	_, err := s.userStore.GetUserByEVMAddress(ctx, addr)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return false, nil
@@ -248,7 +255,7 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 		return nil, fmt.Errorf("invalid recipient party ID: %w", err)
 	}
 
-	fromUser, err := s.userStore.GetUser(ctx, userstore.WithCantonPartyID(req.FromPartyID))
+	fromUser, err := s.userStore.GetUserByCantonPartyID(ctx, req.FromPartyID)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return nil, ErrUserNotRegistered
@@ -257,7 +264,7 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 		return nil, fmt.Errorf("failed to get sender: %w", err)
 	}
 
-	toUser, err := s.userStore.GetUser(ctx, userstore.WithCantonPartyID(req.ToPartyID))
+	toUser, err := s.userStore.GetUserByCantonPartyID(ctx, req.ToPartyID)
 	if err != nil {
 		if errors.Is(err, userstore.ErrUserNotFound) {
 			return nil, ErrRecipientNotFound
@@ -318,5 +325,5 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 
 // GetUserByPartyID retrieves user info by Canton party ID
 func (s *TokenService) GetUserByPartyID(ctx context.Context, partyID string) (*user.User, error) {
-	return s.userStore.GetUser(ctx, userstore.WithCantonPartyID(partyID))
+	return s.userStore.GetUserByCantonPartyID(ctx, partyID)
 }

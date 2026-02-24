@@ -35,6 +35,10 @@ type Server struct {
 	cfg *config.APIServerConfig
 }
 
+type userKeyStore interface {
+	GetUserKeyByCantonPartyID(ctx context.Context, decryptor userstore.KeyDecryptor, partyID string) ([]byte, error)
+}
+
 // NewServer initializes new api server.
 func NewServer(cfg *config.APIServerConfig) *Server {
 	return &Server{cfg: cfg}
@@ -147,12 +151,12 @@ func (s *Server) getMasterKey() ([]byte, error) {
 
 func (s *Server) openCantonClient(
 	ctx context.Context,
-	keyStore userstore.KeyStore,
+	keyStore userKeyStore,
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (token.Signer, error) {
-		privKey, err := keyStore.GetUserKey(ctx, cipher.Decrypt, userstore.WithCantonPartyID(partyID))
+		privKey, err := keyStore.GetUserKeyByCantonPartyID(ctx, cipher.Decrypt, partyID)
 		if err != nil {
 			return nil, fmt.Errorf("key store lookup: %w", err)
 		}

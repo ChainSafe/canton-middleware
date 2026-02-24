@@ -51,10 +51,8 @@ func Exitf(s string, args ...any) {
 func CreateSchema(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
 		log.Println("Creating Table for", reflect.TypeOf(model))
-		tableName := getTableName(model)
 		_, err := db.NewCreateTable().
 			Model(model).
-			ModelTableExpr(tableName).
 			IfNotExists().
 			Exec(ctx)
 		if err != nil {
@@ -68,10 +66,8 @@ func CreateSchema(ctx context.Context, db bun.IDB, models ...any) error {
 func DropTables(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
 		log.Println("Dropping Table for", reflect.TypeOf(model))
-		tableName := getTableName(model)
 		_, err := db.NewDropTable().
 			Model(model).
-			ModelTableExpr(tableName).
 			IfExists().
 			Cascade().
 			Exec(ctx)
@@ -86,10 +82,8 @@ func DropTables(ctx context.Context, db bun.IDB, models ...any) error {
 func InsertEntry(ctx context.Context, db bun.IDB, entries ...any) error {
 	for _, entry := range entries {
 		log.Println("Inserting entry")
-		tableName := getTableName(entry)
 		_, err := db.NewInsert().
 			Model(entry).
-			ModelTableExpr(tableName).
 			Exec(ctx)
 		if err != nil {
 			return err
@@ -101,14 +95,11 @@ func InsertEntry(ctx context.Context, db bun.IDB, entries ...any) error {
 // TruncateTables removes entries from tables
 func TruncateTables(ctx context.Context, db bun.IDB, models ...any) error {
 	for _, model := range models {
-		tableName := getTableName(model)
 		_, err := db.NewDelete().
 			Model(model).
-			ModelTableExpr(tableName).
 			Where("1=1").
 			Exec(ctx)
 		if err != nil {
-			log.Printf("Failed to truncate table %s: %v", tableName, err)
 			return err
 		}
 	}
@@ -117,8 +108,12 @@ func TruncateTables(ctx context.Context, db bun.IDB, models ...any) error {
 
 // CreateIndex creates an index on the database
 func CreateIndex(ctx context.Context, db bun.IDB, tableName, indexName, columns string) error {
-	query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s)", indexName, tableName, columns)
-	_, err := db.ExecContext(ctx, query)
+	_, err := db.NewCreateIndex().
+		Table(tableName).
+		Index(indexName).
+		Column(columns).
+		IfNotExists().
+		Exec(ctx)
 	return err
 }
 
@@ -136,16 +131,17 @@ func CreateIndexes(ctx context.Context, db bun.IDB, tableName string, columns ..
 
 // CreateModelIndexes creates multiple indexes on the table associated with the model.
 func CreateModelIndexes(ctx context.Context, db bun.IDB, model any, columns ...string) error {
-	tableName := getTableName(model)
-	return CreateIndexes(ctx, db, tableName, columns...)
-}
-
-// CreateUniqueIndexes creates multiple unique indexes on the table for the given columns.
-func CreateUniqueIndexes(ctx context.Context, db bun.IDB, tableName string, columns ...string) error {
 	for _, column := range columns {
-		indexName := fmt.Sprintf("idx_%s_%s", strings.Trim(tableName, `"`), column)
-		query := fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s)", indexName, tableName, column)
-		if _, err := db.ExecContext(ctx, query); err != nil {
+		indexName, err := modelIndexName(db, model, column)
+		if err != nil {
+			return err
+		}
+		if _, err = db.NewCreateIndex().
+			Model(model).
+			Index(indexName).
+			Column(column).
+			IfNotExists().
+			Exec(ctx); err != nil {
 			return err
 		}
 	}
@@ -154,55 +150,80 @@ func CreateUniqueIndexes(ctx context.Context, db bun.IDB, tableName string, colu
 
 // CreateModelUniqueIndexes creates multiple unique indexes on the table associated with the model.
 func CreateModelUniqueIndexes(ctx context.Context, db bun.IDB, model any, columns ...string) error {
-	tableName := getTableName(model)
-	return CreateUniqueIndexes(ctx, db, tableName, columns...)
-}
-
-func getTableName(model any) string {
-	t := reflect.TypeOf(model)
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-
-	// Validate that we have a struct type
-	if t.Kind() != reflect.Struct {
-		panic(fmt.Sprintf("getTableName: expected struct type, got %v", t.Kind()))
-	}
-
-	// Look for bun table tag
-	for i := range t.NumField() {
-		field := t.Field(i)
-		if field.Name == "tableName" {
-			tag := field.Tag.Get("bun")
-			if strings.HasPrefix(tag, "table:") {
-				return strings.TrimPrefix(tag, "table:")
-			}
+	for _, column := range columns {
+		indexName, err := modelIndexName(db, model, column)
+		if err != nil {
+			return err
+		}
+		if _, err = db.NewCreateIndex().
+			Model(model).
+			Index(indexName).
+			Column(column).
+			Unique().
+			IfNotExists().
+			Exec(ctx); err != nil {
+			return err
 		}
 	}
-
-	// Fallback to struct name converted to snake_case
-	name := t.Name()
-	// Simple conversion: remove "Dao" suffix and convert to snake_case
-	name = strings.TrimSuffix(name, "Dao")
-	return toSnakeCase(name)
+	return nil
 }
 
-func toSnakeCase(s string) string {
-	var result strings.Builder
-	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result.WriteRune('_')
+// CreateUniqueIndexes creates multiple unique indexes on the table for the given columns.
+// Index names are generated as idx_<table>_<column>.
+func CreateUniqueIndexes(ctx context.Context, db bun.IDB, tableName string, columns ...string) error {
+	for _, column := range columns {
+		indexName := fmt.Sprintf("idx_%s_%s", strings.Trim(tableName, `"`), column)
+		if _, err := db.NewCreateIndex().
+			Table(tableName).
+			Index(indexName).
+			Column(column).
+			Unique().
+			IfNotExists().
+			Exec(ctx); err != nil {
+			return err
 		}
-		result.WriteRune(r)
 	}
-	return strings.ToLower(result.String())
+	return nil
 }
 
-// DropIndex drops an index from the database
+// DropIndex drops an index from the database.
 func DropIndex(ctx context.Context, db bun.IDB, indexName string) error {
-	query := fmt.Sprintf("DROP INDEX IF EXISTS %s", indexName)
-	_, err := db.ExecContext(ctx, query)
+	_, err := db.NewDropIndex().
+		Index(indexName).
+		IfExists().
+		Exec(ctx)
 	return err
+}
+
+// DropModelIndexes drops indexes from the database using model + column names.
+func DropModelIndexes(ctx context.Context, db bun.IDB, model any, columns ...string) error {
+	for _, column := range columns {
+		indexName, err := modelIndexName(db, model, column)
+		if err != nil {
+			return err
+		}
+		if _, err = db.NewDropIndex().
+			Model(model).
+			Index(indexName).
+			IfExists().
+			Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func modelIndexName(db bun.IDB, model any, column string) (string, error) {
+	if model == nil {
+		return "", fmt.Errorf("model cannot be nil")
+	}
+	tableName := db.NewCreateIndex().Model(model).GetTableName()
+	if tableName == "" {
+		return "", fmt.Errorf("failed to resolve table name for model %T", model)
+	}
+
+	indexTableName := strings.NewReplacer(`"`, "", ".", "_").Replace(tableName)
+	return fmt.Sprintf("idx_%s_%s", indexTableName, column), nil
 }
 
 // RunMigrations runs migrations based on provided command arguments

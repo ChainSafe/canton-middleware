@@ -6,14 +6,15 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/uptrace/bun"
 )
 
 // Test DAO for testing purposes
 type testDao struct {
-	tableName struct{} `bun:"table:test_table"` //nolint:unused // Used by Bun ORM
-	ID        int64    `bun:",pk,autoincrement"`
-	Name      string   `bun:",notnull,type:varchar(100)"`
-	Age       int      `bun:",nullzero"`
+	bun.BaseModel `bun:"table:test_table"`
+	ID            int64  `bun:",pk,autoincrement"`
+	Name          string `bun:",notnull,type:varchar(100)"`
+	Age           int    `bun:",nullzero"`
 }
 
 func TestConnectDB_Success(t *testing.T) {
@@ -332,5 +333,46 @@ func TestDropIndex(t *testing.T) {
 	err = DropIndex(ctx, db, "idx_test_name")
 	if err != nil {
 		t.Errorf("DropIndex() second call failed: %v", err)
+	}
+}
+
+func TestDropModelIndexes(t *testing.T) {
+	db, cleanup := pgutil.SetupTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	err := CreateSchema(ctx, db, &testDao{})
+	if err != nil {
+		t.Fatalf("CreateSchema() failed: %v", err)
+	}
+
+	err = CreateModelIndexes(ctx, db, &testDao{}, "name", "age")
+	if err != nil {
+		t.Fatalf("CreateModelIndexes() failed: %v", err)
+	}
+	pgutil.AssertIndexExists(t, db, "idx_test_table_name")
+	pgutil.AssertIndexExists(t, db, "idx_test_table_age")
+
+	err = DropModelIndexes(ctx, db, &testDao{}, "name", "age")
+	if err != nil {
+		t.Fatalf("DropModelIndexes() failed: %v", err)
+	}
+
+	var exists bool
+	query := `SELECT EXISTS (SELECT FROM pg_indexes WHERE schemaname = 'public' AND indexname = ?)`
+	err = db.NewRaw(query, "idx_test_table_name").Scan(ctx, &exists)
+	if err != nil {
+		t.Fatalf("failed to check name index: %v", err)
+	}
+	if exists {
+		t.Error("idx_test_table_name should be dropped")
+	}
+
+	err = db.NewRaw(query, "idx_test_table_age").Scan(ctx, &exists)
+	if err != nil {
+		t.Fatalf("failed to check age index: %v", err)
+	}
+	if exists {
+		t.Error("idx_test_table_age should be dropped")
 	}
 }
