@@ -108,13 +108,12 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: p@ssw0rd
-      POSTGRES_DB: relayer
+      POSTGRES_DB: postgres
+      POSTGRES_MULTIPLE_DATABASES: relayer,erc20_api
     ports:
       - "5432:5432"
     volumes:
-      - ./pkg/db/schema.sql:/docker-entrypoint-initdb.d/01-relayer-schema.sql
-      - ./deployments/api-server/create-erc20-db.sh:/docker-entrypoint-initdb.d/02-create-erc20-db.sh
-      - ./deployments/api-server/schema.sql:/docker-entrypoint-initdb.d/03-api-server-schema.sql
+      - ./scripts/setup/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -252,7 +251,6 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
   config_state:
 
 

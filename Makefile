@@ -83,7 +83,10 @@ db-down:
 	docker rm canton-bridge-db
 
 db-migrate:
-	psql -h localhost -U bridge -d canton_bridge -f pkg/db/schema.sql
+	@echo "Running relayer database migrations..."
+	go run ./cmd/relayer/migrate/main.go -config config.yaml up
+	@echo "Running API server database migrations..."
+	go run ./cmd/api-server/migrate/main.go -config config.api-server.yaml up
 
 # Docker build
 docker-build:
