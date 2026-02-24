@@ -6,6 +6,19 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 )
 
+// Store defines the interface for user registration data persistence
+type Store interface {
+	CreateUser(ctx context.Context, user *registration.User) error
+	GetUser(ctx context.Context, opts ...QueryOption) (*registration.User, error)
+	UserExists(ctx context.Context, evmAddress string) (bool, error)
+	DeleteUser(ctx context.Context, evmAddress string) error
+}
+
+// WhitelistStore defines the interface for whitelist data persistence
+type WhitelistStore interface {
+	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
+}
+
 // QueryOptions defines options for querying users
 type QueryOptions struct {
 	EVMAddress    *string
@@ -35,17 +48,4 @@ func WithFingerprint(fingerprint string) QueryOption {
 	return func(opts *QueryOptions) {
 		opts.Fingerprint = &fingerprint
 	}
-}
-
-// Store defines the interface for user registration data persistence
-type Store interface {
-	CreateUser(ctx context.Context, user *registration.User) error
-	GetUser(ctx context.Context, opts ...QueryOption) (*registration.User, error)
-	UserExists(ctx context.Context, evmAddress string) (bool, error)
-	DeleteUser(ctx context.Context, evmAddress string) error
-}
-
-// WhitelistStore defines the interface for whitelist data persistence
-type WhitelistStore interface {
-	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 }

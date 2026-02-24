@@ -2,12 +2,16 @@ package pg
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/chainsafe/canton-middleware/pkg/registration/store"
 	"github.com/uptrace/bun"
 )
+
+var ErrUserNotFound = errors.New("user not found")
 
 type pgStore struct {
 	db *bun.DB
@@ -61,6 +65,9 @@ func (s *pgStore) GetUser(ctx context.Context, opts ...store.QueryOption) (*regi
 
 	err := query.Scan(ctx)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
