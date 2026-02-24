@@ -164,6 +164,11 @@ func getTableName(model any) string {
 		t = t.Elem()
 	}
 
+	// Validate that we have a struct type
+	if t.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("getTableName: expected struct type, got %v", t.Kind()))
+	}
+
 	// Look for bun table tag
 	for i := range t.NumField() {
 		field := t.Field(i)

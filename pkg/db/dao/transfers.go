@@ -18,10 +18,10 @@ type TransferDao struct {
 	Recipient         string     `json:"recipient" bun:",notnull,type:varchar(255)"`
 	Nonce             int64      `json:"nonce" bun:",notnull"`
 	SourceBlockNumber int64      `json:"source_block_number" bun:",notnull"`
-	ConfirmationCount int        `json:"confirmation_count" bun:",notnull,nullzero,default:0"`
-	CreatedAt         time.Time  `json:"created_at" bun:",notnull,nullzero,default:current_timestamp"`
-	UpdatedAt         time.Time  `json:"updated_at" bun:",notnull,nullzero,default:current_timestamp"`
+	ConfirmationCount int        `json:"confirmation_count" bun:",notnull,default:0"`
+	CreatedAt         time.Time  `json:"created_at" bun:",notnull,default:current_timestamp"`
+	UpdatedAt         time.Time  `json:"updated_at" bun:",notnull,default:current_timestamp"`
 	CompletedAt       *time.Time `json:"completed_at,omitempty" bun:"completed_at"`
 	ErrorMessage      *string    `json:"error_message,omitempty" bun:",type:text"`
-	RetryCount        int        `json:"retry_count" bun:",notnull,nullzero,default:0"`
+	RetryCount        int        `json:"retry_count" bun:",notnull,default:0"`
 }

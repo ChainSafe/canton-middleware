@@ -8,5 +8,5 @@ type ChainStateDao struct {
 	ChainID       string    `json:"chain_id" bun:",pk,type:varchar(100)"`
 	LastBlock     int64     `json:"last_block" bun:",notnull"`
 	LastBlockHash string    `json:"last_block_hash" bun:",notnull,type:varchar(255)"`
-	UpdatedAt     time.Time `json:"updated_at" bun:",notnull,nullzero,default:current_timestamp"`
+	UpdatedAt     time.Time `json:"updated_at" bun:",notnull,default:current_timestamp"`
 }

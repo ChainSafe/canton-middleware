@@ -8,5 +8,5 @@ type BridgeBalanceDao struct {
 	ChainID      string    `json:"chain_id" bun:",pk,type:varchar(100)"`
 	TokenAddress string    `json:"token_address" bun:",pk,type:varchar(255)"`
 	Balance      string    `json:"balance" bun:",notnull,type:varchar(255)"`
-	UpdatedAt    time.Time `json:"updated_at" bun:",notnull,nullzero,default:current_timestamp"`
+	UpdatedAt    time.Time `json:"updated_at" bun:",notnull,default:current_timestamp"`
 }

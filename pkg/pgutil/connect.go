@@ -16,22 +16,18 @@ import (
 // ConnectDB creates a connection to the specified database
 func ConnectDB(cfg *config.DatabaseConfig) (*bun.DB, error) {
 	ctx := context.Background()
-	// Use default sslmode if not specified
-	sslmode := cfg.SSLMode
-	if sslmode == "" {
-		sslmode = "disable"
-	}
 
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		cfg.User,
-		cfg.Password,
-		cfg.Host,
-		cfg.Port,
-		cfg.Database,
-		sslmode,
+	// Build connector using functional options to properly escape special characters
+	connector := pgdriver.NewConnector(
+		pgdriver.WithNetwork("tcp"),
+		pgdriver.WithAddr(fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)),
+		pgdriver.WithUser(cfg.User),
+		pgdriver.WithPassword(cfg.Password),
+		pgdriver.WithDatabase(cfg.Database),
+		pgdriver.WithInsecure(cfg.SSLMode == "" || cfg.SSLMode == "disable"),
 	)
 
-	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
+	sqldb := sql.OpenDB(connector)
 
 	db := bun.NewDB(sqldb, pgdialect.New())
 

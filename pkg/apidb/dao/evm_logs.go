@@ -13,6 +13,6 @@ type EvmLogDao struct {
 	Data        *[]byte  `json:"data,omitempty" bun:",type:bytea"`
 	BlockNumber int64    `json:"block_number" bun:",notnull"`
 	BlockHash   []byte   `json:"block_hash" bun:",notnull,type:bytea"`
-	TxIndex     int      `json:"tx_index" bun:",notnull,nullzero"`
-	Removed     bool     `json:"removed" bun:",notnull,nullzero"`
+	TxIndex     int      `json:"tx_index" bun:",notnull"`
+	Removed     bool     `json:"removed" bun:",notnull"`
 }

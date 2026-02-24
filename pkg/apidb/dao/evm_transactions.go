@@ -14,7 +14,7 @@ type EvmTransactionDao struct {
 	Status       int16     `json:"status" bun:",notnull,default:1,type:smallint"`
 	BlockNumber  int64     `json:"block_number" bun:",notnull"`
 	BlockHash    []byte    `json:"block_hash" bun:",notnull,type:bytea"`
-	TxIndex      int       `json:"tx_index" bun:",notnull,nullzero,default:0"`
+	TxIndex      int       `json:"tx_index" bun:",notnull,default:0"`
 	GasUsed      int64     `json:"gas_used" bun:",notnull,default:21000"`
 	ErrorMessage *string   `json:"error_message,omitempty" bun:",type:text"`
 	CreatedAt    time.Time `json:"created_at" bun:",notnull,default:current_timestamp"`

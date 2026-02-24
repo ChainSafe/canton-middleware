@@ -8,5 +8,5 @@ type NonceStateDao struct {
 	ChainID   string    `json:"chain_id" bun:",pk,type:varchar(100)"`
 	Address   string    `json:"address" bun:",pk,type:varchar(255)"`
 	Nonce     int64     `json:"nonce" bun:",notnull"`
-	UpdatedAt time.Time `json:"updated_at" bun:",notnull,nullzero,default:current_timestamp"`
+	UpdatedAt time.Time `json:"updated_at" bun:",notnull,default:current_timestamp"`
 }
