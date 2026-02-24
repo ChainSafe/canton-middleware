@@ -17,6 +17,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/registration"
+	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 
 	"go.uber.org/zap"
@@ -238,6 +239,11 @@ func (s *Server) newRouter(
 	registrationHandler := registration.NewHandler(s.cfg, db, cantonClient.Identity, keyStore, logger)
 	mux.Handle("/register", registrationHandler)
 	logger.Info("Registration endpoint enabled", zap.String("path", "/register"))
+
+	registryHandler := registry.NewHandler(cantonClient.Token, logger)
+	mux.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
+	logger.Info("Splice Registry API enabled",
+		zap.String("path", "/registry/transfer-instruction/v1/transfer-factory"))
 
 	if ethHandler != nil {
 		mux.Handle("/eth", ethHandler)

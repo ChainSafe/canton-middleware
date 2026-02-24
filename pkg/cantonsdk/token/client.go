@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
@@ -20,6 +21,9 @@ import (
 
 // ErrInsufficientBalance indicates the owner's total unlocked balance is less than the required amount.
 var ErrInsufficientBalance = errors.New("insufficient balance")
+
+// ErrTransferFactoryNotFound indicates no active CIP56TransferFactory contract exists on the ledger.
+var ErrTransferFactoryNotFound = errors.New("no active CIP56TransferFactory found")
 
 const (
 	defaultTransferValidity = time.Hour
@@ -70,6 +74,10 @@ type Token interface {
 
 	// GetBurnEvents returns all active CIP56.Events.BurnEvent contracts visible to relayerParty.
 	GetBurnEvents(ctx context.Context) ([]*BurnEvent, error)
+
+	// GetTransferFactory returns the active CIP56TransferFactory contract ID and its
+	// CreatedEventBlob for explicit contract disclosure by external wallets (Splice Registry API).
+	GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error)
 }
 
 // Client implements CIP-56 token operations.
@@ -466,12 +474,20 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 }
 
 func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
+	info, err := c.GetTransferFactory(ctx)
 	if err != nil {
 		return "", err
 	}
+	return info.ContractID, nil
+}
+
+func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if end == 0 {
-		return "", fmt.Errorf("ledger is empty, no contracts exist")
+		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
 	tid := &lapiv2.Identifier{
@@ -480,12 +496,50 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 		EntityName: entityTransferFactory,
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
-	if err != nil {
-		return "", fmt.Errorf("query transfer factory: %w", err)
+	authCtx := c.ledger.AuthContext(ctx)
+
+	filtersByParty := map[string]*lapiv2.Filters{
+		c.cfg.RelayerParty: {
+			Cumulative: []*lapiv2.CumulativeFilter{
+				{
+					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+						TemplateFilter: &lapiv2.TemplateFilter{
+							TemplateId:              tid,
+							IncludeCreatedEventBlob: true,
+						},
+					},
+				},
+			},
+		},
 	}
+
+	stream, err := c.ledger.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: end,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: filtersByParty,
+			Verbose:        true,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query transfer factory with blob: %w", err)
+	}
+
+	var events []*lapiv2.CreatedEvent
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("receive transfer factory contract: %w", err)
+		}
+		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
+			events = append(events, ac.CreatedEvent)
+		}
+	}
+
 	if len(events) == 0 {
-		return "", fmt.Errorf("no active CIP56TransferFactory found")
+		return nil, ErrTransferFactoryNotFound
 	}
 	if len(events) > 1 {
 		c.logger.Warn("multiple CIP56TransferFactory contracts found, using first",
@@ -493,7 +547,16 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 			zap.String("selected_cid", events[0].ContractId))
 	}
 
-	return events[0].ContractId, nil
+	ev := events[0]
+	return &TransferFactoryInfo{
+		ContractID:       ev.ContractId,
+		CreatedEventBlob: ev.CreatedEventBlob,
+		TemplateID: TemplateIdentifier{
+			PackageID:  tid.PackageId,
+			ModuleName: tid.ModuleName,
+			EntityName: tid.EntityName,
+		},
+	}, nil
 }
 
 // prepareAndExecuteAsUser uses the Interactive Submission API to submit a

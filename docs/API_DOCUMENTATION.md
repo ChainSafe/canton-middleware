@@ -6,6 +6,7 @@
 |----------|-------|------------|
 | **Ethereum JSON-RPC** | `http://localhost:8081/eth` | `https://<your-deployment>/eth` |
 | **User Registration** | `http://localhost:8081/register` | `https://<your-deployment>/register` |
+| **Splice Registry API** | `http://localhost:8081/registry/transfer-instruction/v1/transfer-factory` | `https://<your-deployment>/registry/transfer-instruction/v1/transfer-factory` |
 | **Health Check** | `http://localhost:8081/health` | `https://<your-deployment>/health` |
 
 For local development, use `http://localhost:8081`. For production, replace with your deployed API server URL.
@@ -384,6 +385,92 @@ async function main() {
 
 main().catch(console.error);
 ```
+
+---
+
+## Splice Registry API (`/registry/...`)
+
+The Splice Registry API enables external wallets (such as Canton Loop) to discover the `TransferFactory` contract needed for Splice-standard token transfers. External wallets use the returned `created_event_blob` for **explicit contract disclosure** -- a Splice mechanism where one party shares contract state with another so they can exercise choices on it.
+
+### Transfer Factory Lookup
+
+**POST** `/registry/transfer-instruction/v1/transfer-factory`
+
+Returns the active `CIP56TransferFactory` contract ID, its `CreatedEventBlob` (for explicit disclosure), and the template identifier.
+
+#### Request
+
+No request body is required. The endpoint looks up the factory contract visible to the relayer party.
+
+```bash
+curl -X POST http://localhost:8081/registry/transfer-instruction/v1/transfer-factory
+```
+
+#### Response
+
+**Success (200 OK):**
+
+```json
+{
+  "contract_id": "0021766b56d142d3c80cf362ec14a170b336edacc75dbe46a8606cbde227ab8bb4ca...",
+  "created_event_blob": "CgMyLjESqwMKRQAhdmtW0ULTyAzzYuw...",
+  "template_id": {
+    "package_id": "168483ce8a80e76f69f7392ceaa9ff57b1036b8fb41ccb3d410b087048195a92",
+    "module_name": "CIP56.TransferFactory",
+    "entity_name": "CIP56TransferFactory"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `contract_id` | string | The active `CIP56TransferFactory` contract ID on the Canton ledger |
+| `created_event_blob` | string | Base64-encoded `CreatedEventBlob` for explicit contract disclosure. External wallets include this in their `DisclosedContracts` when submitting transfer commands |
+| `template_id` | object | Daml template identifier (`package_id`, `module_name`, `entity_name`) |
+
+#### Errors
+
+| HTTP Status | Error | Description |
+|------------|-------|-------------|
+| 404 | Not Found | No active `CIP56TransferFactory` contract exists on the ledger |
+| 405 | Method Not Allowed | Only POST is accepted |
+| 500 | Internal Server Error | Canton connection error or other internal failure |
+
+### How External Wallets Use This
+
+External wallets like Canton Loop follow this flow to transfer tokens:
+
+1. **Discover the TransferFactory** -- call this endpoint to get the `contract_id` and `created_event_blob`
+2. **Build the transfer command** -- construct a `TransferFactory_Transfer` exercise command with the transfer details (sender, receiver, amount, instrument, input holdings)
+3. **Attach disclosed contracts** -- include the `created_event_blob` in the command's `DisclosedContracts` so the submitting participant can validate the factory contract
+4. **Submit via Interactive Submission** -- prepare, sign, and execute the transaction
+
+```
+External Wallet (Canton Loop)
+        |
+        v
+  POST /registry/.../transfer-factory  →  { contract_id, created_event_blob }
+        |
+        v
+  Build ExerciseCommand(TransferFactory_Transfer)
+        |
+        v
+  PrepareSubmission (with DisclosedContracts) → sign → ExecuteSubmission
+        |
+        v
+  Canton Ledger (CIP-56 Holding transfer)
+```
+
+### InstrumentID Configuration
+
+External wallets also need the `InstrumentID` to identify which token to transfer. This is configured on the middleware and consists of:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `instrument_admin` | The party that administers the token instrument (typically the relayer/issuer) | `BridgeIssuer::1220854a01c53e23e1437c35f6f82ae54682c30de013dbabc81131534...` |
+| `instrument_id` | The unique identifier for the token instrument | `PROMPT` or `DEMO` |
+
+These values are set in `config.e2e-local.yaml` (or equivalent) under `canton.instrument_admin` and `canton.instrument_id`, and are auto-detected by the bootstrap script.
 
 ---
 
