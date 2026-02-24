@@ -107,9 +107,9 @@ type TransferFactoryInfo struct {
 
 // TemplateIdentifier is a portable representation of a Daml template/interface reference.
 type TemplateIdentifier struct {
-	PackageID  string
-	ModuleName string
-	EntityName string
+	PackageID  string `json:"package_id"`
+	ModuleName string `json:"module_name"`
+	EntityName string `json:"entity_name"`
 }
 
 // BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.

@@ -32,15 +32,9 @@ func NewHandler(tokenClient token.Token, logger *zap.Logger) *Handler {
 
 // TransferFactoryResponse is the JSON body returned by the transfer-factory endpoint.
 type TransferFactoryResponse struct {
-	ContractID       string             `json:"contract_id"`
-	CreatedEventBlob string             `json:"created_event_blob"`
-	TemplateID       templateIDResponse `json:"template_id"`
-}
-
-type templateIDResponse struct {
-	PackageID  string `json:"package_id"`
-	ModuleName string `json:"module_name"`
-	EntityName string `json:"entity_name"`
+	ContractID       string                   `json:"contract_id"`
+	CreatedEventBlob string                   `json:"created_event_blob"`
+	TemplateID       token.TemplateIdentifier `json:"template_id"`
 }
 
 type errorResponse struct {
@@ -73,11 +67,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, TransferFactoryResponse{
 		ContractID:       info.ContractID,
 		CreatedEventBlob: base64.StdEncoding.EncodeToString(info.CreatedEventBlob),
-		TemplateID: templateIDResponse{
-			PackageID:  info.TemplateID.PackageID,
-			ModuleName: info.TemplateID.ModuleName,
-			EntityName: info.TemplateID.EntityName,
-		},
+		TemplateID:       info.TemplateID,
 	})
 }
 
