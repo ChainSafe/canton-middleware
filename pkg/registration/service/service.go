@@ -14,6 +14,8 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/chainsafe/canton-middleware/pkg/registration/store"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Constants for registration operations
@@ -44,8 +46,7 @@ type registrationService struct {
 	store                           store.Store
 	cantonClient                    canton.Identity
 	logger                          *zap.Logger
-	keyEncryptor                    keys.Encryptor
-	keyDecryptor                    keys.Decryptor
+	keyCipher                       keys.KeyCipher
 	skipCantonSignatureVerification bool
 }
 
@@ -53,7 +54,7 @@ type registrationService struct {
 func NewService(
 	store store.Store,
 	cantonClient canton.Identity,
-	maskerKey []byte,
+	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
 ) Service {
@@ -61,8 +62,7 @@ func NewService(
 		store:                           store,
 		cantonClient:                    cantonClient,
 		logger:                          logger,
-		keyEncryptor:                    keys.NewEncryptor(maskerKey),
-		keyDecryptor:                    keys.NewDecryptor(maskerKey),
+		keyCipher:                       keyCipher,
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
 	}
 }
@@ -147,7 +147,7 @@ func (s *registrationService) RegisterWeb3User(
 		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
 	}
 
-	encryptedPKey, err := s.keyEncryptor(cantonKeyPair.PrivateKey)
+	encryptedPKey, err := s.keyCipher.Encrypt(cantonKeyPair.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
@@ -252,7 +252,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("canton_private_key must be a hex-encoded %d-byte key", cantonKeySize))
 	}
 
-	encryptedPKey, err := s.keyEncryptor(keyToStore)
+	encryptedPKey, err := s.keyCipher.Encrypt(keyToStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
@@ -289,11 +289,12 @@ func (s *registrationService) generatePartyHint(evmAddress string) string {
 	return fmt.Sprintf("user_%s", evmAddress[2:2+partyHintLength])
 }
 
-// isPartyAlreadyAllocatedError checks if error indicates party already exists.
-// Detects both "already allocated" and "ALREADY_EXISTS" error messages from Canton.
+// isPartyAlreadyAllocatedError checks whether Canton returned a gRPC AlreadyExists status.
 func (s *registrationService) isPartyAlreadyAllocatedError(err error) bool {
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "already allocated") || strings.Contains(errMsg, "ALREADY_EXISTS")
+	if st, ok := status.FromError(err); ok {
+		return st.Code() == codes.AlreadyExists
+	}
+	return false
 }
 
 // selectKeyToStore determines which key to store: user-provided or generated.

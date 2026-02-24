@@ -17,8 +17,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	regservice "github.com/chainsafe/canton-middleware/pkg/registration/service"
-	regstore "github.com/chainsafe/canton-middleware/pkg/registration/store/pg"
+	regstore "github.com/chainsafe/canton-middleware/pkg/registration/store"
+	regpg "github.com/chainsafe/canton-middleware/pkg/registration/store/pg"
 	"github.com/chainsafe/canton-middleware/pkg/service"
 
 	"github.com/go-chi/chi/v5"
@@ -64,13 +66,21 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = db.Close() }()
 
-	keyStore, err := s.openKeyStore(db)
+	masterKey, err := s.getMasterKey()
 	if err != nil {
 		return err
 	}
-	logger.Info("Custodial key management initialized")
 
-	cantonClient, err := s.openCantonClient(ctx, keyStore, logger)
+	dbBun, err := pgutil.ConnectDB(&cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer dbBun.Close()
+
+	userStore := regpg.NewStore(dbBun)
+	cipher := keys.NewMasterKeyCipher(masterKey)
+
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
 	if err != nil {
 		return err
 	}
@@ -87,9 +97,9 @@ func (s *Server) Run() error {
 	defer stopReconcile()
 
 	registrationService := regservice.NewService(
-		regstore.NewStore(db.DB()),
+		userStore,
 		cantonClient.Identity,
-		keyStore,
+		cipher,
 		logger,
 		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
 	)
@@ -119,7 +129,7 @@ func (s *Server) openDB(logger *zap.Logger) (*apidb.Store, error) {
 	return db, nil
 }
 
-func (s *Server) openKeyStore(db *apidb.Store) (*keys.PostgresKeyStore, error) {
+func (s *Server) getMasterKey() ([]byte, error) {
 	masterKeyStr := os.Getenv(s.cfg.KeyManagement.MasterKeyEnv)
 	if masterKeyStr == "" {
 		return nil, fmt.Errorf(
@@ -132,22 +142,24 @@ func (s *Server) openKeyStore(db *apidb.Store) (*keys.PostgresKeyStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid canton master key: %w", err)
 	}
-
-	keyStore, err := keys.NewPostgresKeyStore(db, masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("create keystore: %w", err)
-	}
-
-	return keyStore, nil
+	return masterKey, nil
 }
 
 func (s *Server) openCantonClient(
 	ctx context.Context,
-	keyStore *keys.PostgresKeyStore,
+	keyStore regstore.KeyStore,
+	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (token.Signer, error) {
-		return keys.ResolveKeyPairByPartyID(keyStore, partyID)
+		privKey, err := keyStore.GetUserKey(ctx, cipher.Decrypt, regstore.WithCantonPartyID(partyID))
+		if err != nil {
+			return nil, fmt.Errorf("key store lookup: %w", err)
+		}
+		if privKey == nil {
+			return nil, fmt.Errorf("no signing key found for party %s", partyID)
+		}
+		return keys.CantonKeyPairFromPrivateKey(privKey)
 	}
 
 	client, err := canton.NewFromAppConfig(

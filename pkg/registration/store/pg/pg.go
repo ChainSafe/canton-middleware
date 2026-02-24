@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/chainsafe/canton-middleware/pkg/registration/store"
 	"github.com/uptrace/bun"
@@ -100,7 +99,7 @@ func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, e
 	return exists, nil
 }
 
-func (s *pgStore) GetUserKey(ctx context.Context, decryptor keys.Decryptor, opts ...store.QueryOption) ([]byte, error) {
+func (s *pgStore) GetUserKey(ctx context.Context, decryptor store.KeyDecryptor, opts ...store.QueryOption) ([]byte, error) {
 	options := &store.QueryOptions{}
 	for _, opt := range opts {
 		opt(options)

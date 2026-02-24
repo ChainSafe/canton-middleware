@@ -284,18 +284,30 @@ func (kp *CantonKeyPair) Verify(message, signature []byte) bool {
 	return false
 }
 
-// Encryptor is a function that encrypts a key string
-type Encryptor func(key []byte) (string, error)
+// KeyCipher encrypts and decrypts Canton private keys.
+type KeyCipher interface {
+	Encrypt(key []byte) (string, error)
+	Decrypt(encryptedKey string) ([]byte, error)
+}
 
-// Decryptor is a function that decrypts an encrypted key string
-type Decryptor func(encryptedKey string) ([]byte, error)
+// MasterKeyCipher implements KeyCipher using AES-256-GCM with a 32-byte master key.
+type MasterKeyCipher struct {
+	masterKey []byte
+}
 
-// NewEncryptor creates a Encryptor function from a master key.
-// This is a convenience wrapper around EncryptPrivateKey for use in services.
-func NewEncryptor(masterKey []byte) Encryptor {
-	return func(key []byte) (string, error) {
-		return encryptPrivateKey(key, masterKey)
-	}
+// NewMasterKeyCipher creates a MasterKeyCipher from a 32-byte master key.
+func NewMasterKeyCipher(masterKey []byte) *MasterKeyCipher {
+	return &MasterKeyCipher{masterKey: masterKey}
+}
+
+// Encrypt encrypts a private key using AES-256-GCM.
+func (c *MasterKeyCipher) Encrypt(key []byte) (string, error) {
+	return encryptPrivateKey(key, c.masterKey)
+}
+
+// Decrypt decrypts an encrypted private key using AES-256-GCM.
+func (c *MasterKeyCipher) Decrypt(encryptedKey string) ([]byte, error) {
+	return decryptPrivateKey(encryptedKey, c.masterKey)
 }
 
 // encryptPrivateKey encrypts the private key using AES-256-GCM with the provided master key.
@@ -333,14 +345,6 @@ func encryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {
 
 	// Return as base64
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-// NewDecryptor creates a Decryptor function from a master key.
-// This is a convenience wrapper around DecryptPrivateKey for use with the store.KeyStore interface.
-func NewDecryptor(masterKey []byte) Decryptor {
-	return func(encryptedKey string) ([]byte, error) {
-		return decryptPrivateKey(encryptedKey, masterKey)
-	}
 }
 
 // decryptPrivateKey decrypts an encrypted private key using AES-256-GCM.

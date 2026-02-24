@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 
-	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/registration"
 )
 
@@ -22,9 +21,12 @@ type WhitelistStore interface {
 	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 }
 
+// KeyDecryptor decrypts an encrypted private key string into raw bytes.
+type KeyDecryptor func(encryptedKey string) ([]byte, error)
+
 // KeyStore defines the interface for user key persistence and retrieval
 type KeyStore interface {
-	GetUserKey(ctx context.Context, decryptor keys.Decryptor, opts ...QueryOption) ([]byte, error)
+	GetUserKey(ctx context.Context, decryptor KeyDecryptor, opts ...QueryOption) ([]byte, error)
 }
 
 // QueryOptions defines options for querying users
