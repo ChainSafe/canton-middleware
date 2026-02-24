@@ -3,19 +3,19 @@ package ethrpc
 import (
 	"context"
 	"fmt"
-	"github.com/shopspring/decimal"
 	"math/big"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	"github.com/chainsafe/canton-middleware/pkg/service"
+	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 )
 
@@ -75,7 +75,7 @@ func (api *EthAPI) EstimateGas(ctx context.Context, args CallArgs, blockNrOrHash
 
 // GetBalance returns the ETH balance (synthetic for registered users)
 func (api *EthAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash BlockNumberOrHash) (*hexutil.Big, error) {
-	registered, err := api.server.tokenService.IsUserRegistered(address.Hex())
+	registered, err := api.server.tokenService.IsUserRegistered(ctx, address.Hex())
 	if err != nil {
 		api.server.logger.Error("Failed to check user registration", zap.Error(err))
 		return (*hexutil.Big)(big.NewInt(0)), nil
@@ -212,7 +212,7 @@ func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (
 	defer cancel()
 
 	// Route transfer - unified path for all tokens
-	_, err = api.server.tokenService.Transfer(timeoutCtx, &service.TransferRequest{
+	_, err = api.server.tokenService.Transfer(timeoutCtx, &tokenservice.TransferRequest{
 		FromEVMAddress: from.Hex(),
 		ToEVMAddress:   toAddr.Hex(),
 		Amount:         humanReadableAmount,

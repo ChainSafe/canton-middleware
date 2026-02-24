@@ -7,15 +7,15 @@ import (
 	"fmt"
 	"strings"
 
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
-	"github.com/chainsafe/canton-middleware/pkg/registration"
-	"github.com/chainsafe/canton-middleware/pkg/registration/store"
-	"go.uber.org/zap"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
 // Constants for registration operations
@@ -31,19 +31,29 @@ const (
 var (
 	ErrUserAlreadyRegistered  = errors.New("user already registered")
 	ErrNotWhitelisted         = errors.New("address not whitelisted for registration")
-	ErrPartyAlreadyAllocated  = errors.New("Canton party already allocated for this user")
+	ErrPartyAlreadyAllocated  = errors.New("canton party already allocated for this user")
 	ErrInvalidCantonSignature = errors.New("invalid Canton signature")
-	ErrPartyAlreadyRegistered = errors.New("Canton party already registered")
+	ErrPartyAlreadyRegistered = errors.New("canton party already registered")
 )
+
+// Store is the narrow data-access interface for the registration service.
+// Defined here to keep registration service decoupled from userstore implementation details.
+type Store interface {
+	UserExists(ctx context.Context, evmAddress string) (bool, error)
+	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
+	CreateUser(ctx context.Context, user *user.User) error
+	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
+	DeleteUser(ctx context.Context, evmAddress string) error
+}
 
 // Service defines the interface for the registration business logic
 type Service interface {
-	RegisterWeb3User(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error)
-	RegisterCantonNativeUser(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error)
+	RegisterWeb3User(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
+	RegisterCantonNativeUser(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 }
 
 type registrationService struct {
-	store                           store.Store
+	store                           Store
 	cantonClient                    canton.Identity
 	logger                          *zap.Logger
 	keyCipher                       keys.KeyCipher
@@ -52,7 +62,7 @@ type registrationService struct {
 
 // NewService creates a new registration service
 func NewService(
-	store store.Store,
+	store Store,
 	cantonClient canton.Identity,
 	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
@@ -83,8 +93,8 @@ func NewService(
 // On any failure after party allocation, attempts to cleanup database records.
 func (s *registrationService) RegisterWeb3User(
 	ctx context.Context,
-	req *registration.RegisterRequest,
-) (*registration.RegisterResponse, error) {
+	req *user.RegisterRequest,
+) (*user.RegisterResponse, error) {
 	// Verify EVM signature
 	recoveredAddr, err := auth.VerifyEIP191Signature(req.Message, req.Signature)
 	if err != nil {
@@ -122,7 +132,7 @@ func (s *registrationService) RegisterWeb3User(
 	}
 
 	// Allocate an external Canton party for this user
-	partyHint := s.generatePartyHint(evmAddress)
+	partyHint := generatePartyHint(evmAddress)
 	spkiKey, err := cantonKeyPair.SPKIPublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("key encoding failed: %w", err)
@@ -130,7 +140,7 @@ func (s *registrationService) RegisterWeb3User(
 
 	partyResult, err := s.cantonClient.AllocateExternalParty(ctx, partyHint, spkiKey, cantonKeyPair)
 	if err != nil {
-		if s.isPartyAlreadyAllocatedError(err) {
+		if isPartyAlreadyAllocatedError(err) {
 			return nil, apperrors.ConflictError(ErrPartyAlreadyAllocated, "Canton party already allocated for this user")
 		}
 		return nil, fmt.Errorf("party allocation failed: %w", err)
@@ -151,7 +161,7 @@ func (s *registrationService) RegisterWeb3User(
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
-	user := registration.NewUser(
+	regUser := user.New(
 		evmAddress,
 		req.CantonPartyID,
 		fingerprint,
@@ -159,12 +169,12 @@ func (s *registrationService) RegisterWeb3User(
 		encryptedPKey,
 	)
 
-	err = s.store.CreateUser(ctx, user)
+	err = s.store.CreateUser(ctx, regUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save user: %w", err)
 	}
 
-	return &registration.RegisterResponse{
+	return &user.RegisterResponse{
 		Party:       cantonPartyID,
 		Fingerprint: fingerprint,
 		MappingCID:  mapping.ContractID,
@@ -188,8 +198,8 @@ func (s *registrationService) RegisterWeb3User(
 // The private key allows users to import the account into MetaMask.
 func (s *registrationService) RegisterCantonNativeUser(
 	ctx context.Context,
-	req *registration.RegisterRequest,
-) (*registration.RegisterResponse, error) {
+	req *user.RegisterRequest,
+) (*user.RegisterResponse, error) {
 	// Validate Canton party ID format
 	if err := auth.ValidateCantonPartyID(req.CantonPartyID); err != nil {
 		return nil, apperrors.BadRequestError(err, "invalid canton_party_id")
@@ -214,7 +224,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 	}
 
 	// Check if this exact party ID is already registered
-	existingUser, err := s.store.GetUser(ctx, store.WithCantonPartyID(req.CantonPartyID))
+	existingUser, err := s.store.GetUserByCantonPartyID(ctx, req.CantonPartyID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check user existence: %w", err)
 	}
@@ -247,7 +257,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 	}
 
 	// Determine which key to store (user-provided or generated)
-	keyToStore := s.selectKeyToStore(req.CantonPrivateKey, evmKeyPair.PrivateKey)
+	keyToStore := selectKeyToStore(req.CantonPrivateKey, evmKeyPair.PrivateKey)
 	if keyToStore == nil {
 		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("canton_private_key must be a hex-encoded %d-byte key", cantonKeySize))
 	}
@@ -256,7 +266,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt key: %w", err)
 	}
-	user := registration.NewUser(
+	regUser := user.New(
 		evmAddress,
 		req.CantonPartyID,
 		fingerprint,
@@ -264,12 +274,12 @@ func (s *registrationService) RegisterCantonNativeUser(
 		encryptedPKey,
 	)
 
-	err = s.store.CreateUser(ctx, user)
+	err = s.store.CreateUser(ctx, regUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save user: %w", err)
 	}
 
-	return &registration.RegisterResponse{
+	return &user.RegisterResponse{
 		Party:       req.CantonPartyID,
 		Fingerprint: fingerprint,
 		MappingCID:  mapping.ContractID,
@@ -282,7 +292,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 
 // generatePartyHint creates a human-readable party hint from EVM address.
 // Uses first 8 characters after "0x" prefix (e.g., "user_12345678").
-func (s *registrationService) generatePartyHint(evmAddress string) string {
+func generatePartyHint(evmAddress string) string {
 	if len(evmAddress) < 2+partyHintLength {
 		return "user"
 	}
@@ -290,7 +300,7 @@ func (s *registrationService) generatePartyHint(evmAddress string) string {
 }
 
 // isPartyAlreadyAllocatedError checks whether Canton returned a gRPC AlreadyExists status.
-func (s *registrationService) isPartyAlreadyAllocatedError(err error) bool {
+func isPartyAlreadyAllocatedError(err error) bool {
 	if st, ok := status.FromError(err); ok {
 		return st.Code() == codes.AlreadyExists
 	}
@@ -300,7 +310,7 @@ func (s *registrationService) isPartyAlreadyAllocatedError(err error) bool {
 // selectKeyToStore determines which key to store: user-provided or generated.
 // Returns nil if user-provided key is invalid (wrong format or size).
 // User-provided keys must be hex-encoded 32-byte secp256k1 private keys.
-func (s *registrationService) selectKeyToStore(userProvidedKey string, generatedKey []byte) []byte {
+func selectKeyToStore(userProvidedKey string, generatedKey []byte) []byte {
 	if userProvidedKey == "" {
 		return generatedKey
 	}

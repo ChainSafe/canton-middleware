@@ -1,17 +1,34 @@
-package store
+package userstore
 
 import (
 	"context"
+	"errors"
 
-	"github.com/chainsafe/canton-middleware/pkg/registration"
+	"github.com/chainsafe/canton-middleware/pkg/token"
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
+
+// ErrUserNotFound is returned when a user lookup finds no matching record.
+var ErrUserNotFound = errors.New("user not found")
+
+// UserBalanceStore defines all user balance cache operations.
+// Used by the reconciler and bridge relayer to keep the balance cache in sync.
+type UserBalanceStore interface {
+	ListUsers(ctx context.Context) ([]*user.User, error)
+	UpdateBalanceByCantonPartyID(ctx context.Context, partyID, balance string, token token.Type) error
+	IncrementBalanceByFingerprint(ctx context.Context, fingerprint, amount string, token token.Type) error
+	DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, amount string, token token.Type) error
+	TransferBalanceByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount string, token token.Type) error
+	ResetBalances(ctx context.Context, token token.Type) error
+}
 
 // Store defines the interface for user registration data persistence
 type Store interface {
 	KeyStore
 	WhitelistStore
-	CreateUser(ctx context.Context, user *registration.User) error
-	GetUser(ctx context.Context, opts ...QueryOption) (*registration.User, error)
+	UserBalanceStore
+	CreateUser(ctx context.Context, user *user.User) error
+	GetUser(ctx context.Context, opts ...QueryOption) (*user.User, error)
 	UserExists(ctx context.Context, evmAddress string) (bool, error)
 	DeleteUser(ctx context.Context, evmAddress string) error
 }

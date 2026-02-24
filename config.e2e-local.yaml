@@ -67,9 +67,9 @@ ethereum:
 canton:
   rpc_url: "localhost:5011"
   ledger_id: "canton-ledger-id"
-  domain_id: "local::122014ee782f1e02c9de2e1887b027e7b776f4c9d669749285083efc0135cee470c4"  # Auto-detected by bootstrap
+  domain_id: "local::12200f7d85acdb342a03302ed612f9446c1aa8ac8eff3c66de961a3140410c79fcd7"  # Auto-detected by bootstrap
   application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::1220227935b91a3ecadb19dee807a4e9d623af504eea46adc46ec29a002fef00be3b"  # Auto-detected by bootstrap
+  relayer_party: "BridgeIssuer::122024df024a12812c7d3afa6ec8c5462b9e4144012c946f73d500707dff942f8f2e"  # Auto-detected by bootstrap
   bridge_package_id: "96892a7be13d25a83b8772a1d3d4027cb39c7e65d60c879dc455a515e04e8b89"
   common_package_id: "5de6731c1a7487543d61ffe2bf847abbdf8694c4561c580986d8f4c2049745ea"
   core_package_id: "118e54e7f9619af76065036b0491f8f0911082dace8374d27d9b22ed98a1e665"

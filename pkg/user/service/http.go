@@ -5,12 +5,15 @@ import (
 	"io"
 	"net/http"
 
-	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
-	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+
+	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
+	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
+
+const maxRequestBodyBytes = 1 << 20
 
 // HTTP wraps the Service to provide HTTP endpoints
 type HTTP struct {
@@ -31,18 +34,18 @@ func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
 // register handles HTTP requests
 func (h *HTTP) register(w http.ResponseWriter, r *http.Request) error {
 	// Read request body
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes)) // 1MB limit
 	if err != nil {
 		return apperrors.BadRequestError(err, "failed to read request")
 	}
 
 	// Parse request
-	var req registration.RegisterRequest
+	var req user.RegisterRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return apperrors.BadRequestError(err, "invalid JSON")
 	}
 
-	var resp *registration.RegisterResponse
+	var resp *user.RegisterResponse
 	var regErr error
 
 	// Determine registration type and route accordingly
@@ -74,5 +77,7 @@ func (h *HTTP) register(w http.ResponseWriter, r *http.Request) error {
 func (h *HTTP) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		h.logger.Error("failed to write JSON response", zap.Error(err))
+	}
 }

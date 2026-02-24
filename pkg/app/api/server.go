@@ -18,10 +18,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	regservice "github.com/chainsafe/canton-middleware/pkg/registration/service"
-	regstore "github.com/chainsafe/canton-middleware/pkg/registration/store"
-	regpg "github.com/chainsafe/canton-middleware/pkg/registration/store/pg"
-	"github.com/chainsafe/canton-middleware/pkg/service"
+	reconcilerpkg "github.com/chainsafe/canton-middleware/pkg/reconciler"
+	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
+	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -77,7 +77,7 @@ func (s *Server) Run() error {
 	}
 	defer dbBun.Close()
 
-	userStore := regpg.NewStore(dbBun)
+	userStore := userstore.NewStore(dbBun)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
 	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
@@ -88,15 +88,15 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton", zap.String("rpc_url", cfg.Canton.RPCURL))
 
-	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-	s.runInitialReconcile(ctx, reconciler, logger)
+	rec := reconcilerpkg.New(db, userStore, cantonClient.Token, logger)
+	s.runInitialReconcile(ctx, rec, logger)
 
-	stopReconcile := s.startPeriodicReconcile(reconciler, logger)
+	stopReconcile := s.startPeriodicReconcile(rec, logger)
 	// We will call stopReconcile explicitly after ServeAndWait returns for deterministic shutdown order.
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
-	registrationService := regservice.NewService(
+	registrationService := userservice.NewService(
 		userStore,
 		cantonClient.Identity,
 		cipher,
@@ -104,9 +104,9 @@ func (s *Server) Run() error {
 		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
 	)
 
-	tokenService := service.NewTokenService(cfg, db, cantonClient.Token, logger)
+	tokenService := tokenservice.NewTokenService(cfg, db, userStore, cantonClient.Token, logger)
 
-	router := s.setupRouter(db, tokenService, regservice.NewLog(registrationService, logger), logger)
+	router := s.setupRouter(db, tokenService, userservice.NewLog(registrationService, logger), logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 
@@ -147,12 +147,12 @@ func (s *Server) getMasterKey() ([]byte, error) {
 
 func (s *Server) openCantonClient(
 	ctx context.Context,
-	keyStore regstore.KeyStore,
+	keyStore userstore.KeyStore,
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (token.Signer, error) {
-		privKey, err := keyStore.GetUserKey(ctx, cipher.Decrypt, regstore.WithCantonPartyID(partyID))
+		privKey, err := keyStore.GetUserKey(ctx, cipher.Decrypt, userstore.WithCantonPartyID(partyID))
 		if err != nil {
 			return nil, fmt.Errorf("key store lookup: %w", err)
 		}
@@ -176,7 +176,7 @@ func (s *Server) openCantonClient(
 
 func (s *Server) runInitialReconcile(
 	ctx context.Context,
-	reconciler *apidb.Reconciler,
+	reconciler *reconcilerpkg.Reconciler,
 	logger *zap.Logger,
 ) {
 	if s.cfg.Reconciliation.InitialTimeout <= 0 {
@@ -199,7 +199,7 @@ func (s *Server) runInitialReconcile(
 }
 
 func (s *Server) startPeriodicReconcile(
-	reconciler *apidb.Reconciler,
+	reconciler *reconcilerpkg.Reconciler,
 	logger *zap.Logger,
 ) func() {
 	if s.cfg.Reconciliation.Interval <= 0 {
@@ -215,8 +215,8 @@ func (s *Server) startPeriodicReconcile(
 
 func (s *Server) setupRouter(
 	db *apidb.Store,
-	tokenService *service.TokenService,
-	registrationService regservice.Service,
+	tokenService *tokenservice.TokenService,
+	registrationService userservice.Service,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -234,7 +234,7 @@ func (s *Server) setupRouter(
 	})
 
 	// Registration endpoints
-	regservice.RegisterRoutes(r, registrationService, logger)
+	userservice.RegisterRoutes(r, registrationService, logger)
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
@@ -251,7 +251,7 @@ func (s *Server) setupRouter(
 
 func (s *Server) createEthHandler(
 	db *apidb.Store,
-	tokenService *service.TokenService,
+	tokenService *tokenservice.TokenService,
 	logger *zap.Logger,
 ) (http.Handler, error) {
 	ethSrv, err := ethrpc.NewServer(s.cfg, db, tokenService, logger)

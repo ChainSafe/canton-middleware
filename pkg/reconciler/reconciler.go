@@ -1,4 +1,4 @@
-package apidb
+package reconciler
 
 import (
 	"context"
@@ -6,14 +6,26 @@ import (
 	"sync"
 	"time"
 
-	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/apidb"
+	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+	tokentype "github.com/chainsafe/canton-middleware/pkg/token"
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
+
+// UserStore provides user identity and balance operations for reconciliation.
+type UserStore interface {
+	ListUsers(ctx context.Context) ([]*user.User, error)
+	UpdateBalanceByCantonPartyID(ctx context.Context, partyID, balance string, token tokentype.Type) error
+	ResetBalances(ctx context.Context, token tokentype.Type) error
+}
 
 // Reconciler handles synchronization between Canton ledger state and DB cache
 type Reconciler struct {
-	db           *Store
+	db           *apidb.Store
+	userStore    UserStore
 	cantonClient canton.Token
 	logger       *zap.Logger
 
@@ -21,10 +33,11 @@ type Reconciler struct {
 	wg     sync.WaitGroup
 }
 
-// NewReconciler creates a new reconciler
-func NewReconciler(db *Store, cantonClient canton.Token, logger *zap.Logger) *Reconciler {
+// New creates a new Reconciler
+func New(db *apidb.Store, userStore UserStore, cantonClient canton.Token, logger *zap.Logger) *Reconciler {
 	return &Reconciler{
 		db:           db,
+		userStore:    userStore,
 		cantonClient: cantonClient,
 		logger:       logger,
 		stopCh:       make(chan struct{}),
@@ -150,12 +163,12 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 			continue
 		}
 
-		amount, err := decimal.NewFromString(holding.Amount)
-		if err != nil {
+		amount, parseErr := decimal.NewFromString(holding.Amount)
+		if parseErr != nil {
 			r.logger.Warn("Failed to parse holding amount",
 				zap.String("owner", holding.Owner),
 				zap.String("amount", holding.Amount),
-				zap.Error(err))
+				zap.Error(parseErr))
 			continue
 		}
 
@@ -176,7 +189,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 	}
 
 	// Get all registered users to update their balances
-	users, err := r.db.GetAllUsers()
+	users, err := r.userStore.ListUsers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get users: %w", err)
 	}
@@ -198,7 +211,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 				demoBalance = bal
 			}
 		}
-		if err := r.db.UpdateBalanceByCantonPartyID(user.CantonPartyID, demoBalance.String(), TokenDemo); err != nil {
+		if err := r.userStore.UpdateBalanceByCantonPartyID(ctx, user.CantonPartyID, demoBalance.String(), tokentype.Demo); err != nil {
 			r.logger.Warn("Failed to update DEMO balance",
 				zap.String("party_id", user.CantonPartyID),
 				zap.Error(err))
@@ -211,7 +224,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 				promptBalance = bal
 			}
 		}
-		if err := r.db.UpdateBalanceByCantonPartyID(user.CantonPartyID, promptBalance.String(), TokenPrompt); err != nil {
+		if err := r.userStore.UpdateBalanceByCantonPartyID(ctx, user.CantonPartyID, promptBalance.String(), tokentype.Prompt); err != nil {
 			r.logger.Warn("Failed to update PROMPT balance",
 				zap.String("party_id", user.CantonPartyID),
 				zap.Error(err))
@@ -256,20 +269,21 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 	// Process mint events
 	for _, event := range mintEvents {
 		// Check if already processed
-		processed, err := r.db.IsEventProcessed(event.ContractID)
-		if err != nil {
-			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(err))
+		processed, checkErr := r.db.IsEventProcessed(event.ContractID)
+		if checkErr != nil {
+			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(checkErr))
 			continue
 		}
 		if processed {
 			continue
 		}
 
-		if err := r.db.StoreMintEvent(event); err != nil {
+		storeErr := r.db.StoreMintEvent(event)
+		if storeErr != nil {
 			r.logger.Warn("Failed to store mint event",
 				zap.String("contract_id", event.ContractID),
 				zap.String("fingerprint", event.UserFingerprint),
-				zap.Error(err))
+				zap.Error(storeErr))
 			continue
 		}
 		mintCount++
@@ -296,11 +310,12 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.db.StoreBurnEvent(event); err != nil {
+		storeErr := r.db.StoreBurnEvent(event)
+		if storeErr != nil {
 			r.logger.Warn("Failed to store burn event",
 				zap.String("contract_id", event.ContractID),
 				zap.String("fingerprint", event.UserFingerprint),
-				zap.Error(err))
+				zap.Error(storeErr))
 			continue
 		}
 		burnCount++
@@ -337,7 +352,7 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 	start := time.Now()
 
 	// Step 1: Reset all user balances to 0
-	if err := r.db.ResetBalances(TokenPrompt); err != nil {
+	if err := r.userStore.ResetBalances(ctx, tokentype.Prompt); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
 	r.logger.Debug("Reset all user balances to 0")
@@ -364,6 +379,6 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 }
 
 // GetReconciliationStatus returns the current reconciliation state
-func (r *Reconciler) GetReconciliationStatus(ctx context.Context) (*ReconciliationState, error) {
+func (r *Reconciler) GetReconciliationStatus(_ context.Context) (*apidb.ReconciliationState, error) {
 	return r.db.GetReconciliationState()
 }

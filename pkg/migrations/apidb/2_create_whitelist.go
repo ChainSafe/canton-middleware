@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
 	"github.com/uptrace/bun"
 )
@@ -13,9 +13,9 @@ import (
 func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		log.Println("creating whitelist table...")
-		return mghelper.CreateSchema(ctx, db, &dao.WhitelistDao{})
+		return mghelper.CreateSchema(ctx, db, &userstore.WhitelistDao{})
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping whitelist table...")
-		return mghelper.DropTables(ctx, db, &dao.WhitelistDao{})
+		return mghelper.DropTables(ctx, db, &userstore.WhitelistDao{})
 	})
 }

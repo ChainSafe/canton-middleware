@@ -5,11 +5,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/registration"
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
 const serviceName = "RegistrationService"
+
+const (
+	logMessageMaxLen     = 50
+	signatureDisplaySize = 16
+)
 
 // logService wraps Service with automatic logging of all method calls
 type logService struct {
@@ -27,14 +33,17 @@ func NewLog(svc Service, logger *zap.Logger) Service {
 }
 
 // RegisterWeb3User wraps the service method with logging
-func (ls *logService) RegisterWeb3User(ctx context.Context, req *registration.RegisterRequest) (resp *registration.RegisterResponse, err error) {
+func (ls *logService) RegisterWeb3User(
+	ctx context.Context,
+	req *user.RegisterRequest,
+) (resp *user.RegisterResponse, err error) {
 	start := time.Now()
 
 	// Log method entry
 	ls.logger.Info("RegisterWeb3User started",
 		zap.String("service", serviceName),
 		zap.String("method", "RegisterWeb3User"),
-		zap.String("message", truncateString(req.Message, 50)),
+		zap.String("message", truncateString(req.Message, logMessageMaxLen)),
 		zap.String("signature", redactSignature(req.Signature)),
 	)
 
@@ -68,7 +77,10 @@ func (ls *logService) RegisterWeb3User(ctx context.Context, req *registration.Re
 }
 
 // RegisterCantonNativeUser wraps the service method with logging
-func (ls *logService) RegisterCantonNativeUser(ctx context.Context, req *registration.RegisterRequest) (resp *registration.RegisterResponse, err error) {
+func (ls *logService) RegisterCantonNativeUser(
+	ctx context.Context,
+	req *user.RegisterRequest,
+) (resp *user.RegisterResponse, err error) {
 	start := time.Now()
 
 	// Log method entry
@@ -76,7 +88,7 @@ func (ls *logService) RegisterCantonNativeUser(ctx context.Context, req *registr
 		zap.String("service", serviceName),
 		zap.String("method", "RegisterCantonNativeUser"),
 		zap.String("canton_party_id", req.CantonPartyID),
-		zap.String("message", truncateString(req.Message, 50)),
+		zap.String("message", truncateString(req.Message, logMessageMaxLen)),
 		zap.String("canton_signature", redactSignature(req.CantonSignature)),
 		zap.Bool("has_private_key", req.CantonPrivateKey != ""),
 	)
@@ -129,7 +141,7 @@ func redactSignature(sig string) string {
 		return "<empty>"
 	}
 	sigLen := len(sig)
-	if sigLen > 16 {
+	if sigLen > signatureDisplaySize {
 		// Show first 8 and last 4 characters with length
 		return fmt.Sprintf("%s...%s (%d bytes)", sig[:8], sig[sigLen-4:], sigLen)
 	}

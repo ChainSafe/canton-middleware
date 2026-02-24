@@ -10,7 +10,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	"github.com/chainsafe/canton-middleware/pkg/service"
+	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -21,7 +21,7 @@ import (
 type Server struct {
 	cfg          *config.APIServerConfig
 	db           *apidb.Store
-	tokenService *service.TokenService
+	tokenService *tokenservice.TokenService
 	logger       *zap.Logger
 
 	chainID          *big.Int
@@ -36,7 +36,7 @@ type Server struct {
 func NewServer(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
-	tokenService *service.TokenService,
+	tokenService *tokenservice.TokenService,
 	logger *zap.Logger,
 ) (*Server, error) {
 	if cfg.EthRPC.TokenAddress == "" {

@@ -1,8 +1,34 @@
-package registration
+package user
 
-import (
-	"time"
-)
+import "time"
+
+// User represents the domain model for a registered user.
+type User struct {
+	EVMAddress                string
+	CantonParty               string
+	Fingerprint               string
+	MappingCID                string
+	CantonPartyID             string
+	CantonKeyCreatedAt        *time.Time
+	CantonPrivateKeyEncrypted string
+	PromptBalance             string
+	DemoBalance               string
+	BalanceUpdatedAt          *time.Time
+}
+
+// New creates a User from the given parameters.
+func New(evmAddress, cantonPartyID, fingerprint, mappingCID, encryptedPKey string) *User {
+	now := time.Now()
+	return &User{
+		EVMAddress:                evmAddress,
+		CantonParty:               cantonPartyID,
+		Fingerprint:               fingerprint,
+		MappingCID:                mappingCID,
+		CantonPartyID:             cantonPartyID,
+		CantonKeyCreatedAt:        &now,
+		CantonPrivateKeyEncrypted: encryptedPKey,
+	}
+}
 
 // RegisterRequest represents a registration request
 // Supports two registration modes:
@@ -30,32 +56,4 @@ type RegisterResponse struct {
 	MappingCID  string `json:"mapping_cid,omitzero"`
 	EVMAddress  string `json:"evm_address,omitzero"` // Returned for Canton native users
 	PrivateKey  string `json:"private_key,omitzero"` // Returned for Canton native users (for MetaMask import)
-}
-
-// User represents the domain model for a registered user
-type User struct {
-	EVMAddress                string
-	CantonParty               string
-	Fingerprint               string
-	MappingCID                string
-	CantonPartyID             string
-	CantonKeyCreatedAt        *time.Time
-	CantonPrivateKeyEncrypted string
-	PromptBalance             string
-	DemoBalance               string
-	BalanceUpdatedAt          *time.Time
-}
-
-// NewUser creates a User from the given parameters.
-func NewUser(evmAddress, cantonPartyID, fingerprint, mappingCID string, encryptedPKey string) *User {
-	now := time.Now()
-	return &User{
-		EVMAddress:                evmAddress,
-		CantonParty:               cantonPartyID,
-		Fingerprint:               fingerprint,
-		MappingCID:                mappingCID,
-		CantonPartyID:             cantonPartyID,
-		CantonKeyCreatedAt:        &now,
-		CantonPrivateKeyEncrypted: encryptedPKey,
-	}
 }
