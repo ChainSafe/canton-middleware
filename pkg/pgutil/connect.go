@@ -24,7 +24,7 @@ func ConnectDB(cfg *config.DatabaseConfig) (*bun.DB, error) {
 		pgdriver.WithUser(cfg.User),
 		pgdriver.WithPassword(cfg.Password),
 		pgdriver.WithDatabase(cfg.Database),
-		pgdriver.WithInsecure(cfg.SSLMode == "" || cfg.SSLMode == "disable"),
+		pgdriver.WithInsecure(cfg.SSLMode == "disable"),
 	)
 
 	sqldb := sql.OpenDB(connector)
