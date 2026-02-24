@@ -44,7 +44,6 @@ type Service interface {
 type registrationService struct {
 	store                           store.Store
 	cantonClient                    canton.Identity
-	keyStore                        keys.KeyStore
 	logger                          *zap.Logger
 	skipCantonSignatureVerification bool
 }
@@ -53,14 +52,12 @@ type registrationService struct {
 func NewService(
 	store store.Store,
 	cantonClient canton.Identity,
-	keyStore keys.KeyStore,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
 ) Service {
 	return &registrationService{
 		store:                           store,
 		cantonClient:                    cantonClient,
-		keyStore:                        keyStore,
 		logger:                          logger,
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
 	}
@@ -80,7 +77,10 @@ func NewService(
 //
 // Returns registration details including Canton party ID and fingerprint.
 // On any failure after party allocation, attempts to cleanup database records.
-func (s *registrationService) RegisterWeb3User(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error) {
+func (s *registrationService) RegisterWeb3User(
+	ctx context.Context,
+	req *registration.RegisterRequest,
+) (*registration.RegisterResponse, error) {
 	// Verify EVM signature
 	recoveredAddr, err := auth.VerifyEIP191Signature(req.Message, req.Signature)
 	if err != nil {
@@ -176,7 +176,10 @@ func (s *registrationService) RegisterWeb3User(ctx context.Context, req *registr
 //
 // Returns registration details including the generated EVM address and private key.
 // The private key allows users to import the account into MetaMask.
-func (s *registrationService) RegisterCantonNativeUser(ctx context.Context, req *registration.RegisterRequest) (*registration.RegisterResponse, error) {
+func (s *registrationService) RegisterCantonNativeUser(
+	ctx context.Context,
+	req *registration.RegisterRequest,
+) (*registration.RegisterResponse, error) {
 	// Validate Canton party ID format
 	if err := auth.ValidateCantonPartyID(req.CantonPartyID); err != nil {
 		return nil, apperrors.BadRequestError(err, "invalid canton_party_id")
@@ -201,12 +204,12 @@ func (s *registrationService) RegisterCantonNativeUser(ctx context.Context, req 
 	}
 
 	// Check if this exact party ID is already registered
-	existingUser, err := s.store.GetUserByCantonPartyID(ctx, req.CantonPartyID)
+	existingUser, err := s.store.GetUser(ctx, store.WithCantonPartyID(req.CantonPartyID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if existingUser != nil {
-		return nil, apperrors.ConflictError(ErrPartyAlreadyRegistered, "Canton party already registered")
+		return nil, apperrors.ConflictError(ErrPartyAlreadyRegistered, "canton party already registered")
 	}
 
 	// Extract fingerprint from party ID for mapping
@@ -244,6 +247,8 @@ func (s *registrationService) RegisterCantonNativeUser(ctx context.Context, req 
 	if keyToStore == nil {
 		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("canton_private_key must be a hex-encoded %d-byte key", cantonKeySize))
 	}
+
+	user := s.buildUser(evmAddress, req.CantonPartyID, fingerprint, mapping.ContractID)
 
 	// Store the Canton signing key with automatic cleanup on failure
 	if err = s.storeUserKeyWithCleanup(ctx, evmAddress, req.CantonPartyID, keyToStore); err != nil {
@@ -289,31 +294,6 @@ func (s *registrationService) buildUser(evmAddress, cantonPartyID, fingerprint, 
 		CantonPartyID:      cantonPartyID,
 		CantonKeyCreatedAt: &now,
 	}
-}
-
-// storeUserKeyWithCleanup stores user's Canton key, automatically cleaning up user record on failure.
-// This ensures database consistency by rolling back user creation if key storage fails.
-// Returns nil if keyStore is not configured (key storage is optional).
-func (s *registrationService) storeUserKeyWithCleanup(ctx context.Context, evmAddress, cantonPartyID string, privateKey []byte) error {
-	if s.keyStore == nil {
-		return nil
-	}
-
-	if err := s.keyStore.SetUserKey(evmAddress, cantonPartyID, privateKey); err != nil {
-		// Cleanup: delete the user we just created to maintain consistency
-		if delErr := s.store.DeleteUser(ctx, evmAddress); delErr != nil {
-			s.logger.Error("Failed to cleanup user after key storage failure",
-				zap.String("evm_address", evmAddress),
-				zap.String("canton_party_id", cantonPartyID),
-				zap.Error(delErr))
-		} else {
-			s.logger.Info("User record cleaned up after key storage failure",
-				zap.String("evm_address", evmAddress))
-		}
-		return fmt.Errorf("failed to store Canton key: %w", err)
-	}
-
-	return nil
 }
 
 // selectKeyToStore determines which key to store: user-provided or generated.

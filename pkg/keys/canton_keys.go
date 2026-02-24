@@ -201,6 +201,14 @@ func EncryptPrivateKey(privateKey []byte, masterKey []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// NewDecryptor creates a Decryptor function from a master key.
+// This is a convenience wrapper around DecryptPrivateKey for use with the store.KeyStore interface.
+func NewDecryptor(masterKey []byte) func(encryptedKey string) ([]byte, error) {
+	return func(encryptedKey string) ([]byte, error) {
+		return DecryptPrivateKey(encryptedKey, masterKey)
+	}
+}
+
 // DecryptPrivateKey decrypts an encrypted private key using AES-256-GCM.
 // The encrypted string should be base64-encoded containing: nonce || ciphertext || tag
 func DecryptPrivateKey(encrypted string, masterKey []byte) ([]byte, error) {

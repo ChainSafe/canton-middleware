@@ -12,6 +12,7 @@ import (
 )
 
 var ErrUserNotFound = errors.New("user not found")
+var ErrKeyNotFound = errors.New("key not found")
 
 type pgStore struct {
 	db *bun.DB
@@ -20,15 +21,6 @@ type pgStore struct {
 // NewStore creates a new postgres implementation of the registration store
 func NewStore(db *bun.DB) store.Store {
 	return &pgStore{db: db}
-}
-
-type pgWhitelistStore struct {
-	db *bun.DB
-}
-
-// NewWhitelistStore creates a new postgres implementation of the whitelist store
-func NewWhitelistStore(db *bun.DB) store.WhitelistStore {
-	return &pgWhitelistStore{db: db}
 }
 
 func (s *pgStore) CreateUser(ctx context.Context, user *registration.User) error {
@@ -96,7 +88,7 @@ func (s *pgStore) DeleteUser(ctx context.Context, evmAddress string) error {
 	return nil
 }
 
-func (s *pgWhitelistStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
+func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	exists, err := s.db.NewSelect().
 		TableExpr("whitelist").
 		Where("evm_address = ?", evmAddress).
@@ -105,4 +97,45 @@ func (s *pgWhitelistStore) IsWhitelisted(ctx context.Context, evmAddress string)
 		return false, fmt.Errorf("failed to check whitelist: %w", err)
 	}
 	return exists, nil
+}
+
+func (s *pgStore) GetUserKey(ctx context.Context, decryptor store.Decryptor, opts ...store.QueryOption) ([]byte, error) {
+	options := &store.QueryOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	dao := new(UserDao)
+	query := s.db.NewSelect().
+		Model(dao).
+		Column("canton_private_key_encrypted")
+
+	if options.EVMAddress != nil {
+		query = query.Where("evm_address = ?", *options.EVMAddress)
+	}
+	if options.CantonPartyID != nil {
+		query = query.Where("canton_party_id = ?", *options.CantonPartyID)
+	}
+	if options.Fingerprint != nil {
+		query = query.Where("fingerprint = ?", *options.Fingerprint)
+	}
+
+	err := query.Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrKeyNotFound
+		}
+		return nil, fmt.Errorf("failed to get user key: %w", err)
+	}
+
+	if dao.CantonPrivateKeyEncrypted == nil || *dao.CantonPrivateKeyEncrypted == "" {
+		return nil, nil
+	}
+
+	decryptedKey, err := decryptor(*dao.CantonPrivateKeyEncrypted)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt key: %w", err)
+	}
+
+	return decryptedKey, nil
 }
