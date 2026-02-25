@@ -14,8 +14,8 @@ This document describes how MetaMask, the API Server, the Relayer, and the Canto
 │    │  🦊 MetaMask     │                      │  Native Canton   │           │
 │    │  (EVM Wallet)    │                      │  User / CLI      │           │
 │    └────────┬─────────┘                      └────────┬─────────┘           │
-│             │ eth_sendRawTransaction                  │ Direct gRPC         │
-│             │ eth_call, eth_getBalance                │ (or via scripts)    │
+│             │ eth_sendRawTransaction                  │ eth_sendRawTransaction│
+│             │ eth_call, eth_getBalance                │ (via /eth endpoint) │
 └─────────────┼─────────────────────────────────────────┼─────────────────────┘
               │                                         │
               ▼                                         │
@@ -277,6 +277,29 @@ sequenceDiagram
 
 ---
 
+## External Party Model
+
+All users are allocated as **external parties** on Canton. This is a key architectural decision that removes the ~200 internal party limit and enables interoperability with wallets like Canton Loop.
+
+| Party Type | Key Management | Submission Method | Limit |
+|------------|---------------|-------------------|-------|
+| **Internal** | Participant node holds keys | `CommandService.SubmitAndWait` | ~200 per participant |
+| **External** (used) | API server holds keys custodially | Interactive Submission API | No practical limit |
+
+### Interactive Submission API
+
+All token transfers use the Interactive Submission flow:
+
+```
+1. PrepareSubmission  →  Canton returns transaction hash to sign
+2. Sign hash          →  API server signs with user's custodial secp256k1 key
+3. ExecuteSubmission  →  Canton executes the signed transaction
+```
+
+The API server stores each user's Canton signing key encrypted at rest (AES-256-GCM with `CANTON_MASTER_KEY`). When a user sends a transfer via `/eth`, the server decrypts their key, signs the prepared transaction, and submits it.
+
+---
+
 ## Canton Integration
 
 ### gRPC Ledger API
@@ -287,8 +310,9 @@ The middleware connects to Canton via the **Daml Ledger gRPC API v2**:
 Canton Participant Node
     │
     ├── Ledger API (gRPC, port 5011)
-    │   ├── CommandService - Submit transactions
-    │   ├── UpdateService - Stream events  
+    │   ├── InteractiveSubmissionService - Prepare/execute (external parties)
+    │   ├── CommandService - Submit transactions (relayer/operator)
+    │   ├── UpdateService - Stream events
     │   └── StateService - Query active contracts
     │
     └── HTTP API (port 5013) - Health/version checks
@@ -300,9 +324,11 @@ Canton Participant Node
 - Built-in deduplication via command IDs
 - Generated Go stubs from protobuf definitions
 
+> **Note:** gRPC connections through ALBs/proxies require ALPN to be disabled (grpc-go >= 1.67 enforces ALPN by default). The SDK uses `expcreds.NewTLSWithALPNDisabled` to handle this.
+
 ### Authentication
 
-Canton uses **JWT-based authorization** (not client-side transaction signing):
+Canton uses **JWT-based authorization** via OAuth2:
 
 ```go
 // JWT claims structure
@@ -313,7 +339,7 @@ Canton uses **JWT-based authorization** (not client-side transaction signing):
 }
 ```
 
-The participant node handles internal signing. The middleware authenticates via OAuth2 to obtain JWT tokens.
+The middleware authenticates via OAuth2 to obtain JWT tokens. User transfers are submitted by the operator party using Interactive Submission with the user's external party key.
 
 ---
 
@@ -352,14 +378,15 @@ The API Server runs periodic reconciliation (every 5 minutes):
 
 ## Key Design Decisions
 
-### 1. Custodial Key Management (secp256k1)
+### 1. External Parties with Custodial Key Management (secp256k1)
 
-The API Server generates and holds **secp256k1** Canton signing keys for all users:
-- Same elliptic curve as Ethereum (enables future MetaMask Snap integration)
-- Keys encrypted at rest with `CANTON_MASTER_KEY`
+All users are **external parties** on Canton, with the API Server custodially holding their **secp256k1** signing keys:
+- Same elliptic curve as Ethereum (enables future MetaMask Snap trustless signing)
+- Keys encrypted at rest with `CANTON_MASTER_KEY` (AES-256-GCM)
 - Stored in PostgreSQL `users` table
+- Transactions use the **Interactive Submission API** (PrepareSubmission/ExecuteSubmission)
 
-This enables MetaMask users to interact without Canton tooling. Trade-off: Users trust the API Server with their Canton keys.
+This enables MetaMask users to interact without Canton tooling and removes the ~200 internal party limit. Trade-off: Users trust the API Server with their Canton keys (mitigated by future MetaMask Snap integration).
 
 ### 2. PostgreSQL as Cache, Canton as Source of Truth
 

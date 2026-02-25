@@ -138,6 +138,23 @@ func main() {
 	}
 	fmt.Println()
 
+	// Get users from database (needed for fingerprint lookup and minting)
+	users, err := db.GetAllUsers()
+	if err != nil {
+		fatalf("Failed to get users: %v", err)
+	}
+
+	// Build party → fingerprint lookup from database users
+	fingerprintByParty := make(map[string]string)
+	for _, u := range users {
+		if u.CantonPartyID != "" {
+			fingerprintByParty[u.CantonPartyID] = u.Fingerprint
+		}
+		if u.CantonParty != "" {
+			fingerprintByParty[u.CantonParty] = u.Fingerprint
+		}
+	}
+
 	// Step 1: Archive all DEMO holdings using CIP56Manager.Burn
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Step 1: Archive All DEMO Holdings")
@@ -147,10 +164,15 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
+			// Look up fingerprint; use "archive" for orphaned parties from old sessions
+			fp := fingerprintByParty[h.Owner]
+			if fp == "" {
+				fp = "archive"
+			}
 			err = cantonClient.Token.Burn(ctx, &token.BurnRequest{
 				HoldingCID:      h.ContractID,
 				Amount:          h.Amount,
-				UserFingerprint: "",
+				UserFingerprint: fp,
 				TokenSymbol:     "DEMO",
 				EvmDestination:  "",
 			})
@@ -174,11 +196,6 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Get user fingerprints from database
-	users, err := db.GetAllUsers()
-	if err != nil {
-		fatalf("Failed to get users: %v", err)
-	}
 
 	// Find fingerprints for each user party
 	user1Fingerprint := ""

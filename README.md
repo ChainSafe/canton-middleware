@@ -311,7 +311,7 @@ Key Canton-specific fields (auto-detected by bootstrap):
 | [Local Interop Testing](docs/LOCAL_INTEROP_TESTING.md) | Full local bootstrap and 8-step interop test guide |
 | [API Documentation](docs/API_DOCUMENTATION.md) | Endpoint reference (JSON-RPC, Registration, Splice Registry) |
 | [Architecture](docs/ARCHITECTURE.md) | System design and data flows |
-| [Setup & Testing](docs/SETUP_AND_TESTING.md) | Environment configuration |
+| [DevNet Interop Testing](docs/DEVNET_INTEROP_TESTING.md) | DEMO token testing on ChainSafe DevNet |
 | [CIP-0086 Overview](docs/CIP-0086-OVERVIEW.md) | CIP-0086 compliance |
 | [Deployment Requirements](docs/WAYFINDER_DEPLOYMENT_REQUIREMENTS.md) | Production deployment checklist |
 
