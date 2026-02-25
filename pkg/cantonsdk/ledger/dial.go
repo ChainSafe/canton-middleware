@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	expcreds "google.golang.org/grpc/experimental/credentials"
 )
 
 func dialOptions(cfg *Config, extra []grpc.DialOption) ([]grpc.DialOption, error) {
@@ -19,7 +19,9 @@ func dialOptions(cfg *Config, extra []grpc.DialOption) ([]grpc.DialOption, error
 		if err != nil {
 			return nil, fmt.Errorf("load TLS config: %w", err)
 		}
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+		// Use ALPN-disabled TLS so connections work through ALBs/proxies
+		// that don't negotiate h2 ALPN (grpc-go >= 1.67 enforces by default).
+		opts = append(opts, grpc.WithTransportCredentials(expcreds.NewTLSWithALPNDisabled(tlsCfg)))
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}

@@ -258,11 +258,17 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 		return nil, err
 	}
 
+	// Return the last match (most recently created) to handle stale mappings
+	// from prior bootstrap runs on shared ledgers.
+	var latest *FingerprintMapping
 	for _, ce := range events {
 		m := fingerprintMappingFromCreateEvent(ce)
 		if m != nil && m.Fingerprint == fp {
-			return m, nil
+			latest = m
 		}
+	}
+	if latest != nil {
+		return latest, nil
 	}
 
 	return nil, fmt.Errorf("no FingerprintMapping found for fingerprint: %s", fp)
