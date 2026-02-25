@@ -18,7 +18,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	reconcilerpkg "github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
@@ -93,7 +93,7 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton", zap.String("rpc_url", cfg.Canton.RPCURL))
 
-	rec := reconcilerpkg.New(db, userStore, cantonClient.Token, logger)
+	rec := reconciler.New(db, userStore, cantonClient.Token, logger)
 	s.runInitialReconcile(ctx, rec, logger)
 
 	stopReconcile := s.startPeriodicReconcile(rec, logger)
@@ -181,7 +181,7 @@ func (s *Server) openCantonClient(
 
 func (s *Server) runInitialReconcile(
 	ctx context.Context,
-	reconciler *reconcilerpkg.Reconciler,
+	reconciler *reconciler.Reconciler,
 	logger *zap.Logger,
 ) {
 	if s.cfg.Reconciliation.InitialTimeout <= 0 {
@@ -204,7 +204,7 @@ func (s *Server) runInitialReconcile(
 }
 
 func (s *Server) startPeriodicReconcile(
-	reconciler *reconcilerpkg.Reconciler,
+	reconciler *reconciler.Reconciler,
 	logger *zap.Logger,
 ) func() {
 	if s.cfg.Reconciliation.Interval <= 0 {
