@@ -35,7 +35,6 @@ func dialOptions(cfg *Config, extra []grpc.DialOption) ([]grpc.DialOption, error
 func loadTLSConfig(c *TLSConfig) (*tls.Config, error) {
 	tlsCfg := &tls.Config{
 		InsecureSkipVerify: c.InsecureSkipVerify, //nolint:gosec // for testing only this flag is true
-		NextProtos:         []string{"h2"},
 	}
 
 	if c.CertFile != "" && c.KeyFile != "" {
