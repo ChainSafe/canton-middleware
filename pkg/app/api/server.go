@@ -19,6 +19,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	reconcilerpkg "github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/registry"
 	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
@@ -110,7 +111,7 @@ func (s *Server) Run() error {
 
 	tokenService := tokenservice.NewTokenService(cfg, db, userStore, cantonClient.Token, logger)
 
-	router := s.setupRouter(db, tokenService, userservice.NewLog(registrationService, logger), logger)
+	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 
@@ -219,6 +220,7 @@ func (s *Server) startPeriodicReconcile(
 
 func (s *Server) setupRouter(
 	db *apidb.Store,
+	cantonClient *canton.Client,
 	tokenService *tokenservice.TokenService,
 	registrationService userservice.Service,
 	logger *zap.Logger,
@@ -239,6 +241,11 @@ func (s *Server) setupRouter(
 
 	// Registration endpoints
 	userservice.RegisterRoutes(r, registrationService, logger)
+
+	registryHandler := registry.NewHandler(cantonClient.Token, logger)
+	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
+	logger.Info("Splice Registry API enabled",
+		zap.String("path", "/registry/transfer-instruction/v1/transfer-factory"))
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
