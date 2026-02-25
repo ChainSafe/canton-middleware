@@ -11,20 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"database/sql"
-
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
-
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
-	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -85,25 +77,12 @@ func (s *Server) Run() error {
 	}
 	ethClient.Close()
 
-	apiStore, cleanupAPIDB, err := s.maybeOpenAPIDB(logger)
-	if err != nil {
-		apiStore = nil
-	}
-	if cleanupAPIDB != nil {
-		defer cleanupAPIDB()
-	}
-
 	engine := relayer.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
-	if apiStore != nil {
-		engine.SetAPIDB(apiStore)
+	// TODO: disabled the api-db & balance cacher for now.
+	// The relayer should not be able to access the api database
+	// Find out a better solution for this relayer - api server communication
 
-		// Also connect via bun for registration store user balance ops
-		if userBalanceStore := maybeOpenUserBalanceStore(ctx, s.cfg.Database.GetAPIConnectionString(), logger); userBalanceStore != nil {
-			engine.SetUserBalanceCacher(userBalanceStore)
-		}
-	}
-
-	if err := engine.Start(ctx); err != nil {
+	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
 	}
 	defer engine.Stop()
@@ -111,41 +90,6 @@ func (s *Server) Run() error {
 	router := s.newRouter(store, engine, logger)
 
 	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
-}
-
-// maybeOpenUserBalanceStore opens a bun-backed registration store for user balance cache ops.
-// Returns nil (without error) if no API DB connection string is configured.
-func maybeOpenUserBalanceStore(ctx context.Context, dsn string, logger *zap.Logger) relayer.UserBalanceCacher {
-	if dsn == "" {
-		return nil
-	}
-	connector := pgdriver.NewConnector(pgdriver.WithDSN(dsn))
-	sqlDB := sql.OpenDB(connector)
-	bunDB := bun.NewDB(sqlDB, pgdialect.New())
-	if err := bunDB.PingContext(ctx); err != nil {
-		logger.Warn("Failed to connect bun DB for user balance cache (balance cache partially disabled)", zap.Error(err))
-		_ = bunDB.Close()
-		return nil
-	}
-	logger.Info("User balance cache (bun) connection established")
-	return userstore.NewStore(bunDB)
-}
-
-func (s *Server) maybeOpenAPIDB(logger *zap.Logger) (*apidb.Store, func(), error) {
-	apiDBConnStr := s.cfg.Database.GetAPIConnectionString()
-	if apiDBConnStr == "" {
-		return nil, nil, nil
-	}
-
-	apiStore, err := apidb.NewStore(apiDBConnStr)
-	if err != nil {
-		logger.Warn("Failed to connect to API database (balance cache disabled)", zap.Error(err))
-		return nil, nil, err
-	}
-
-	logger.Info("API database connection established (balance cache enabled)")
-	cleanup := func() { _ = apiStore.Close() }
-	return apiStore, cleanup, nil
 }
 
 func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.Logger) http.Handler {

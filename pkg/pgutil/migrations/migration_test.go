@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/uptrace/bun"
+
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/uptrace/bun"
 )
 
 // Test DAO for testing purposes

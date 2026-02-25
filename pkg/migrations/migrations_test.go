@@ -142,7 +142,7 @@ func TestSeedData_Applied(t *testing.T) {
 
 	count, err := db.NewSelect().
 		Model((*apidbdao.TokenMetricsDao)(nil)).
-		Where("token_symbol IN (?)", bun.In([]string{"PROMPT", "DEMO"})).
+		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
 		t.Fatalf("failed to query seeded tokens: %v", err)
@@ -154,7 +154,7 @@ func TestSeedData_Applied(t *testing.T) {
 	var tokens []apidbdao.TokenMetricsDao
 	if err = db.NewSelect().
 		Model(&tokens).
-		Where("token_symbol IN (?)", bun.In([]string{"PROMPT", "DEMO"})).
+		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Order("token_symbol ASC").
 		Scan(ctx); err != nil {
 		t.Fatalf("failed to scan token data: %v", err)
@@ -226,7 +226,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 
 	count, err := db.NewSelect().
 		Model((*apidbdao.TokenMetricsDao)(nil)).
-		Where("token_symbol IN (?)", bun.In([]string{"PROMPT", "DEMO"})).
+		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
 		t.Fatalf("failed to query seeded tokens: %v", err)
