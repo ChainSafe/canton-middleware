@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,7 +36,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	_ "google.golang.org/grpc/balancer/roundrobin" // register round-robin balancer
+
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
 // Colors for output
@@ -121,10 +124,27 @@ type TemplateInfo struct {
 	EntityName string
 }
 
+func splitIDs(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var ids []string
+	for _, id := range strings.Split(s, ",") {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func main() {
 	configPath := flag.String("config", "config.devnet.yaml", "Path to config file")
 	dryRun := flag.Bool("dry-run", true, "List contracts without archiving")
 	doArchive := flag.Bool("archive", false, "Actually archive the contracts")
+	extraCoreIDs := flag.String("extra-core-ids", "", "Comma-separated extra bridge-core package IDs to archive")
+	extraCIP56IDs := flag.String("extra-cip56-ids", "", "Comma-separated extra cip56-token package IDs to archive")
+	extraBridgeIDs := flag.String("extra-bridge-ids", "", "Comma-separated extra bridge-wayfinder package IDs to archive")
 	flag.Parse()
 
 	if *doArchive {
@@ -145,7 +165,6 @@ func main() {
 	if cfg.Canton.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2"},
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
@@ -153,7 +172,11 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to Canton: %v", err)
 	}
@@ -170,6 +193,17 @@ func main() {
 
 	// Build package map from config
 	oldPackages := buildPackagesFromConfig(cfg)
+
+	// Add extra package IDs from flags
+	for _, id := range splitIDs(*extraCoreIDs) {
+		oldPackages[id] = templatesByPackageType["core"]
+	}
+	for _, id := range splitIDs(*extraCIP56IDs) {
+		oldPackages[id] = templatesByPackageType["cip56"]
+	}
+	for _, id := range splitIDs(*extraBridgeIDs) {
+		oldPackages[id] = templatesByPackageType["bridge"]
+	}
 
 	printHeader("Contract Archive Tool")
 	fmt.Printf("Canton RPC:     %s\n", cfg.Canton.RPCURL)
@@ -358,12 +392,21 @@ func findContracts(ctx context.Context, client lapiv2.StateServiceClient, party,
 			break
 		}
 		if contract := msg.GetActiveContract(); contract != nil {
+			// Use the actual package ID from the contract, not the query filter
+			actualPkgID := packageID
+			actualModule := moduleName
+			actualEntity := entityName
+			if tid := contract.CreatedEvent.GetTemplateId(); tid != nil {
+				actualPkgID = tid.PackageId
+				actualModule = tid.ModuleName
+				actualEntity = tid.EntityName
+			}
 			contracts = append(contracts, ContractInfo{
 				ContractID: contract.CreatedEvent.ContractId,
-				TemplateID: fmt.Sprintf("%s:%s:%s", packageID, moduleName, entityName),
-				PackageID:  packageID,
-				ModuleName: moduleName,
-				EntityName: entityName,
+				TemplateID: fmt.Sprintf("%s:%s:%s", actualPkgID, actualModule, actualEntity),
+				PackageID:  actualPkgID,
+				ModuleName: actualModule,
+				EntityName: actualEntity,
 			})
 		}
 	}

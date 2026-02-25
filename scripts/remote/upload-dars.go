@@ -39,7 +39,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
-	admin "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin"
+	admin "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 )
 
 var (
@@ -84,7 +84,11 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to Canton: %v", err)
 	}
@@ -214,8 +218,7 @@ func main() {
 		log.Fatalf("Failed to list packages: %v", err)
 	}
 
-	// Find the target version (1.4.0) of each package we care about
-	targetVersion := "1.4.0"
+	// Find the latest version of each package we care about
 	targetPackages := map[string]string{
 		"common":           "COMMON_PACKAGE_ID",
 		"cip56-token":      "CIP56_PACKAGE_ID",
@@ -223,27 +226,25 @@ func main() {
 		"bridge-wayfinder": "BRIDGE_WAYFINDER_PACKAGE_ID",
 	}
 
-	// Track version for comparison
-	packageVersions := make(map[string]string)
+	// Track latest version per package name
+	latestVersions := make(map[string]string)
 
 	for _, pkg := range listResp.PackageDetails {
-		for darName, envName := range targetPackages {
-			if pkg.Name == darName && pkg.Version == targetVersion {
-				newPackages[envName] = pkg.PackageId
-				packageVersions[envName] = pkg.Version
+		if _, ok := targetPackages[pkg.Name]; ok {
+			if existing, found := latestVersions[pkg.Name]; !found || pkg.Version > existing {
+				latestVersions[pkg.Name] = pkg.Version
+				newPackages[targetPackages[pkg.Name]] = pkg.PackageId
 			}
 		}
 	}
 
-	// Now vet the v1.4.0 packages with force flag
+	// Now vet the latest packages with force flag
 	fmt.Println(">>> Vetting new packages with force flag...")
 	var packagesToVet []*admin.VettedPackagesRef
-	for envName, pkgId := range newPackages {
-		if packageVersions[envName] == "1.4.0" {
-			packagesToVet = append(packagesToVet, &admin.VettedPackagesRef{
-				PackageId: pkgId,
-			})
-		}
+	for _, pkgId := range newPackages {
+		packagesToVet = append(packagesToVet, &admin.VettedPackagesRef{
+			PackageId: pkgId,
+		})
 	}
 
 	if len(packagesToVet) > 0 {

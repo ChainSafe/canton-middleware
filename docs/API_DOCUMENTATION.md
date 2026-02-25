@@ -231,9 +231,9 @@ Registration requires an **EIP-191 personal signature** from the user's Ethereum
 
 ### Message Format
 
-The message should be in the format: `{arbitrary_text}:{timestamp}`
-
-Example: `registration:1234567890`
+The message can be any string. Common formats:
+- `Register for Canton Bridge` (used by bootstrap scripts)
+- `registration:1234567890` (timestamp-based)
 
 ### Response
 
@@ -494,12 +494,6 @@ Standard Ethereum JSON-RPC error codes:
 - `-32601` - Method not found
 - `-32602` - Invalid params
 - `-32603` - Internal error
-
----
-
-## Rate Limiting
-
-*(To be documented based on deployment requirements)*
 
 ---
 

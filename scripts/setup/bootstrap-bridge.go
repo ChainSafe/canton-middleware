@@ -100,7 +100,6 @@ func main() {
 	if cfg.Canton.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2"},
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
@@ -110,7 +109,11 @@ func main() {
 		fmt.Println("TLS: disabled")
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to Canton: %v", err)
 	}

@@ -1,5 +1,10 @@
 # Wayfinder Deployment Requirements
 
+> **Note:** This document was written for the Wayfinder showcase and may be outdated. Key changes since this was written:
+> - All users are now **external parties** using the **Interactive Submission API** (no ~200 internal party limit)
+> - Bootstrap flow has changed -- see [Local Interop Testing](LOCAL_INTEROP_TESTING.md) and [DevNet Interop Testing](DEVNET_INTEROP_TESTING.md)
+> - Canton signing keys use **secp256k1** (not ed25519)
+
 This document outlines what Wayfinder needs to prepare for:
 1. **Single Transfer Showcase** - using ChainSafe infrastructure
 2. **Full Production Deployment** - as participant node owner and issuer
@@ -355,5 +360,5 @@ Wayfinder becomes the **participant node operator** and **bridge issuer**, requi
 ## Related Documentation
 
 - [Architecture](./ARCHITECTURE.md) - System design and data flows
-- [Setup and Testing](./SETUP_AND_TESTING.md) - Local setup and environment configuration
+- [Local Interop Testing](./LOCAL_INTEROP_TESTING.md) - Full local E2E testing
 - [API Documentation](./API_DOCUMENTATION.md) - Endpoint reference

@@ -20,53 +20,27 @@ User → MetaMask Snap (EVM sig + Canton sig) → API Server (relay) → Canton
 
 ## Implementation Phases
 
-### Phase 1: Server-Side Interactive Submission API ✅ (Current Branch)
+### Phase 1: Server-Side Interactive Submission API ✅ Complete
 
-**Status:** Foundation complete with secp256k1 migration
+**Status:** Fully implemented and tested on both local and DevNet environments.
 
 **Completed:**
-- ✅ secp256k1 key generation
-- ✅ secp256k1 encryption/decryption
-- ✅ Key storage in database
-- ✅ All tests passing
+- ✅ secp256k1 key generation and Canton key fingerprint computation
+- ✅ AES-256-GCM key encryption/decryption with `CANTON_MASTER_KEY`
+- ✅ Key storage in PostgreSQL
+- ✅ External party allocation via `AllocateExternalParty` (topology signing)
+- ✅ Interactive Submission API: `PrepareSubmission` / `ExecuteSubmission`
+- ✅ CIP-56 token transfers via Interactive Submission for all external party users
+- ✅ Splice `HoldingV1` and `TransferFactory` interface compliance
+- ✅ Splice Registry API for TransferFactory discovery (Canton Loop interop)
+- ✅ End-to-end tested: MetaMask-to-native, native-to-native, native-to-MetaMask transfers
 
-**Next Steps:**
-1. Add Interactive Submission API client in middleware
-2. Update party registration to specify secp256k1 key spec
-3. Test with Canton's PrepareSubmission/ExecuteSubmission
-
-**Files to Create:**
-- `pkg/canton/interactive.go` - Interactive Submission API client
-- `pkg/canton/interactive_test.go` - Tests
-
-**Code Example:**
-```go
-// pkg/canton/interactive.go
-type PreparedTransaction struct {
-    TransactionHash string
-    PreparedData    []byte
-}
-
-func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferRequest) (*PreparedTransaction, error) {
-    // Call Canton PrepareSubmission
-    resp, err := c.interactiveClient.PrepareSubmission(ctx, &interactive.PrepareSubmissionRequest{
-        Commands: buildTransferCommands(req),
-    })
-    return &PreparedTransaction{
-        TransactionHash: resp.PreparedTransaction.Hash,
-        PreparedData:    resp.PreparedTransaction.Data,
-    }, nil
-}
-
-func (c *Client) ExecuteTransfer(ctx context.Context, hash string, signature []byte) error {
-    // Call Canton ExecuteSubmission with user's signature
-    _, err := c.interactiveClient.ExecuteSubmission(ctx, &interactive.ExecuteSubmissionRequest{
-        PreparedTransaction: hash,
-        Signatures: buildSignatures(signature),
-    })
-    return err
-}
-```
+**Key implementation files:**
+- `pkg/cantonsdk/token/` -- CIP-56 token operations (transfer, mint, query)
+- `pkg/cantonsdk/identity/` -- External party allocation, fingerprint mappings
+- `pkg/cantonsdk/ledger/` -- gRPC client with ISA support
+- `pkg/service/` -- Token service coordinating Interactive Submission
+- `pkg/keys/` -- secp256k1 Canton keypair management
 
 ### Phase 2: MetaMask Snap Development 🔄 (Next)
 
@@ -554,9 +528,9 @@ Migrate all users to trustless mode:
 ## Resources
 
 - [MetaMask Snaps Documentation](https://docs.metamask.io/snaps/)
-- [Canton Interactive Submission API](../proto/daml/com/daml/ledger/api/v2/interactive/)
+- [Canton Interactive Submission API](../pkg/cantonsdk/lapi/v2/) -- Generated protobuf stubs
 - [secp256k1 Implementation](../pkg/keys/canton_keys.go)
-- [API Changes](./secp256k1-api-changes.md)
+- [Architecture](./ARCHITECTURE.md) -- External party model and ISA overview
 
 ## Questions & Decisions
 
@@ -574,10 +548,4 @@ Migrate all users to trustless mode:
 
 ## Next Action
 
-**Start Phase 1**: Implement Interactive Submission API in `pkg/canton/interactive.go`
-
-```bash
-# Create the file
-touch pkg/canton/interactive.go
-# Start implementing PrepareSubmission/ExecuteSubmission clients
-```
+**Start Phase 2**: Build the MetaMask Snap for client-side Canton signing. Phase 1 (server-side Interactive Submission) is complete and running in production.

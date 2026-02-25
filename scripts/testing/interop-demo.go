@@ -12,12 +12,14 @@
 // API server's /eth JSON-RPC endpoint via cast send.
 //
 // Prerequisites:
-//   Run bootstrap-local.sh first (sets up Docker, registers users, mints DEMO)
+//   Run bootstrap-local.sh (local) or bootstrap-remote.sh (devnet) first.
 //
 // Usage:
-//   go run scripts/testing/interop-demo.go                      # auto-detect everything
-//   go run scripts/testing/interop-demo.go --skip-prompt         # skip PROMPT bridge tests
-//   go run scripts/testing/interop-demo.go --skip-demo           # skip DEMO interop tests
+//   go run scripts/testing/interop-demo.go                                          # local (default)
+//   go run scripts/testing/interop-demo.go --config config.api-server.devnet.yaml --skip-prompt  # devnet (DEMO only)
+//   go run scripts/testing/interop-demo.go --skip-prompt                             # skip PROMPT bridge tests
+//   go run scripts/testing/interop-demo.go --skip-demo                               # skip DEMO interop tests
+//   go run scripts/testing/interop-demo.go --api-url http://localhost:8082           # custom API URL
 //
 // What it tests:
 //
@@ -64,10 +66,7 @@ const (
 	user2Key  = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 	user2Addr = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
-	anvilURL   = "http://localhost:8545"
-	apiURL     = "http://localhost:8081"
-	ethRPCURL  = "http://localhost:8081/eth"
-	configFile = "config.e2e-local.yaml"
+	anvilURL = "http://localhost:8545"
 
 	// Synthetic DEMO token address recognised by the /eth endpoint
 	demoTokenAddr = "0xDE30000000000000000000000000000000000001"
@@ -87,6 +86,8 @@ var (
 )
 
 var (
+	configFile    = flag.String("config", "config.e2e-local.yaml", "Path to API server config file")
+	apiBaseURL    = flag.String("api-url", "http://localhost:8081", "API server base URL")
 	demoAmount    = flag.String("demo-amount", "100", "DEMO amount per transfer step")
 	promptDeposit = flag.String("prompt-deposit", "100", "PROMPT deposit amount (whole tokens)")
 	promptXfer    = flag.String("prompt-transfer", "25", "PROMPT transfer amount (whole tokens)")
@@ -97,6 +98,7 @@ var (
 // ─── Test state ─────────────────────────────────────────────────────────────
 
 var (
+	ethRPCURL string
 	passCount int
 	failCount int
 )
@@ -105,12 +107,18 @@ func main() {
 	flag.Parse()
 
 	printBanner()
-	detectContractAddresses()
+
+	// Derive ethRPCURL from the base API URL
+	ethRPCURL = *apiBaseURL + "/eth"
+
+	if !*skipPrompt {
+		detectContractAddresses()
+	}
 
 	// Load config
-	cfg, err := config.LoadAPIServer(configFile)
+	cfg, err := config.LoadAPIServer(*configFile)
 	if err != nil {
-		fatalf("Failed to load config %s: %v\nDid you run bootstrap-local.sh first?", configFile, err)
+		fatalf("Failed to load config %s: %v\nDid you run bootstrap first?", *configFile, err)
 	}
 
 	logger, _ := zap.NewDevelopment()
@@ -242,7 +250,7 @@ func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *apid
 		fatalf("AllocateExternalParty %s: %v", hint, err)
 	}
 
-	nu, err := registerNativeUser(ctx, apiURL, party.PartyID, kp.PrivateKeyHex())
+	nu, err := registerNativeUser(ctx, *apiBaseURL, party.PartyID, kp.PrivateKeyHex())
 	if err != nil {
 		fatalf("Register native user %s: %v", hint, err)
 	}
