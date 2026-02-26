@@ -11,13 +11,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 )
 
@@ -46,17 +48,18 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	uStore := userstore.NewStore(bunDB)
 	fmt.Println("    ✓ Connected")
 	fmt.Println()
 
 	// Get all users
-	users, err := db.GetAllUsers()
+	users, err := uStore.ListUsers(context.Background())
 	if err != nil {
 		fmt.Printf("ERROR: Failed to get users: %v\n", err)
 		os.Exit(1)
@@ -72,23 +75,23 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	for i, user := range users {
-		fmt.Printf("[%d] EVM Address: %s\n", i+1, user.EVMAddress)
+	for i, u := range users {
+		fmt.Printf("[%d] EVM Address: %s\n", i+1, u.EVMAddress)
 
-		partyDisplay := user.CantonPartyID
+		partyDisplay := u.CantonPartyID
 		if len(partyDisplay) > 70 {
 			partyDisplay = partyDisplay[:67] + "..."
 		}
 		fmt.Printf("    Canton Party: %s\n", partyDisplay)
 
-		fpDisplay := user.Fingerprint
+		fpDisplay := u.Fingerprint
 		if len(fpDisplay) > 70 {
 			fpDisplay = fpDisplay[:67] + "..."
 		}
 		fmt.Printf("    Fingerprint:  %s\n", fpDisplay)
 
-		fmt.Printf("    DEMO Balance: %s\n", formatBalance(user.DemoBalance))
-		promptBal := formatBalance(user.PromptBalance)
+		fmt.Printf("    DEMO Balance: %s\n", formatBalance(u.DemoBalance))
+		promptBal := formatBalance(u.PromptBalance)
 		if promptBal != "0" && promptBal != "0.00" {
 			fmt.Printf("    PROMPT Balance: %s\n", promptBal)
 		}
