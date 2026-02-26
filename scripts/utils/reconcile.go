@@ -21,6 +21,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -72,12 +76,20 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
+		fmt.Printf("ERROR: Failed to connect to database (bun): %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	uStore := userstore.NewStore(bunDB)
+
+	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		fmt.Printf("ERROR: Failed to connect to database (apidb): %v\n", err)
+		os.Exit(1)
+	}
+	defer apiStore.Close()
 	fmt.Println("    ✓ Connected")
 	fmt.Println()
 
@@ -88,7 +100,8 @@ func main() {
 	fmt.Println("  Balances Before Reconciliation")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	showBalances(db)
+	beforeUsers, _ := uStore.ListUsers(ctx)
+	showBalances(beforeUsers)
 
 	// Run reconciliation
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -98,8 +111,8 @@ func main() {
 	fmt.Println(">>> Querying Canton for current holdings...")
 	fmt.Println(">>> Updating database balances...")
 
-	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-	if err := reconciler.FullBalanceReconciliation(ctx); err != nil {
+	rec := reconciler.New(apiStore, uStore, cantonClient.Token, logger)
+	if err := rec.FullBalanceReconciliation(ctx); err != nil {
 		fmt.Printf("ERROR: Reconciliation failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -111,7 +124,8 @@ func main() {
 	fmt.Println("  Balances After Reconciliation")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	showBalances(db)
+	afterUsers, _ := uStore.ListUsers(ctx)
+	showBalances(afterUsers)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  ✓ Reconciliation Successful!")
@@ -122,13 +136,7 @@ func main() {
 	fmt.Println()
 }
 
-func showBalances(db *apidb.Store) {
-	users, err := db.GetAllUsers()
-	if err != nil {
-		fmt.Printf("    (Failed to get users: %v)\n", err)
-		return
-	}
-
+func showBalances(users []*user.User) {
 	if len(users) == 0 {
 		fmt.Println("    No registered users found.")
 		return

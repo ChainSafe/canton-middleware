@@ -16,6 +16,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 )
 
 // Constants for registration operations
@@ -167,7 +168,7 @@ func (s *registrationService) RegisterWeb3User(
 	}
 	regUser := user.New(
 		evmAddress,
-		req.CantonPartyID,
+		cantonPartyID,
 		fingerprint,
 		mapping.ContractID,
 		encryptedPKey,
@@ -229,7 +230,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 
 	// Check if this exact party ID is already registered
 	existingUser, err := s.store.GetUserByCantonPartyID(ctx, req.CantonPartyID)
-	if err != nil {
+	if err != nil && !errors.Is(err, userstore.ErrUserNotFound) {
 		return nil, fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if existingUser != nil {
