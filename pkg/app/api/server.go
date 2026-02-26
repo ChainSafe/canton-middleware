@@ -15,12 +15,12 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
+	ethrpcservice "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
-	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
+	tokenservice "github.com/chainsafe/canton-middleware/pkg/token"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -109,7 +109,8 @@ func (s *Server) Run() error {
 		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
 	)
 
-	tokenService := tokenservice.NewTokenService(cfg, db, userStore, cantonClient.Token, logger)
+	coreTokenService := tokenservice.NewERC20TokenService(cfg, db, userStore, cantonClient.Token)
+	tokenService := tokenservice.NewERC20TokenServiceWithLog(coreTokenService, logger)
 
 	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
@@ -221,7 +222,7 @@ func (s *Server) startPeriodicReconcile(
 func (s *Server) setupRouter(
 	db *apidb.Store,
 	cantonClient *canton.Client,
-	tokenService *tokenservice.TokenService,
+	tokenService tokenservice.ERC20TokenService,
 	registrationService userservice.Service,
 	logger *zap.Logger,
 ) chi.Router {
@@ -249,32 +250,9 @@ func (s *Server) setupRouter(
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
-		ethHandler, err := s.createEthHandler(db, tokenService, logger)
-		if err != nil {
-			logger.Error("Failed to create eth handler", zap.Error(err))
-		} else {
-			r.Mount("/eth", ethHandler)
-		}
+		coreEthSvc := ethrpcservice.NewService(s.cfg.EthRPC, s.cfg.Token, s.cfg.DemoToken, db, tokenService)
+		ethrpcservice.RegisterRoutes(r, ethrpcservice.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
 	}
 
 	return r
-}
-
-func (s *Server) createEthHandler(
-	db *apidb.Store,
-	tokenService *tokenservice.TokenService,
-	logger *zap.Logger,
-) (http.Handler, error) {
-	ethSrv, err := ethrpc.NewServer(s.cfg, db, tokenService, logger)
-	if err != nil {
-		return nil, fmt.Errorf("create eth json-rpc server: %w", err)
-	}
-
-	logger.Info("Ethereum JSON-RPC endpoint enabled",
-		zap.String("path", "/eth"),
-		zap.Uint64("chain_id", s.cfg.EthRPC.ChainID),
-		zap.String("token_address", s.cfg.EthRPC.TokenAddress),
-	)
-
-	return ethSrv, nil
 }
