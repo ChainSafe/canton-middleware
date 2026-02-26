@@ -3,13 +3,14 @@ package token
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 )
 
-// ERC20 is an interface defining the methods of an ERC-20 token.
+// ERC20 defines the ERC-20 surface exposed by this package.
 type ERC20 interface {
 	Name(ctx context.Context) string
 	Symbol(ctx context.Context) string
@@ -26,6 +27,7 @@ type erc20Impl struct {
 	svc     *Service
 }
 
+// NewERC20 creates an ERC20 implementation bound to a contract address.
 func NewERC20(address common.Address, tokenService *Service) ERC20 {
 	return &erc20Impl{address: address, svc: tokenService}
 }
@@ -50,6 +52,9 @@ func (e *erc20Impl) Decimals(ctx context.Context) uint8 {
 	decimals, err := e.svc.getTokenDecimals(ctx, e.address)
 	if err != nil {
 		return 0 // Default to zero.
+	}
+	if decimals < 0 || decimals > math.MaxUint8 {
+		return 0
 	}
 	return uint8(decimals)
 }
@@ -82,11 +87,11 @@ func (e *erc20Impl) TransferFrom(ctx context.Context, from, to common.Address, a
 	return e.svc.transfer(ctx, e.address, from, to, bigIntToDecimal(amount, e.Decimals(ctx)))
 }
 
-func (e erc20Impl) Approve(ctx context.Context, spender common.Address, amount big.Int) error {
+func (erc20Impl) Approve(_ context.Context, _ common.Address, _ big.Int) error {
 	return fmt.Errorf("not supported")
 }
 
-func (e erc20Impl) Allowance(ctx context.Context, owner, spender common.Address) big.Int {
+func (erc20Impl) Allowance(_ context.Context, _, _ common.Address) big.Int {
 	return big.Int{}
 }
 

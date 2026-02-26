@@ -4,26 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/ethereum/go-ethereum/common"
 )
 
-// UserStore defines the minimal user persistence behavior this service needs.
+// UserStore defines user persistence required by Service.
 type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
 	TransferBalanceByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount string, tokenType Type) error
 }
 
+// Store defines token persistence required by Service.
 type Store interface {
 	GetTotalSupply(tokenSymbol string) (string, error)
 }
 
-// Service provides shared token operations for both RPC and EthRPC endpoints
+// Service provides token operations shared by API and EthRPC endpoints.
 type Service struct {
 	cfg          *Config
 	tokenStore   Store
@@ -31,9 +32,7 @@ type Service struct {
 	cantonClient canton.Token
 }
 
-// NewTokenService creates a new token service.
-// Token service works as a middleware between erc20 token to canton CIP56 token api.
-// It accepts the erc20 params and covert them to canton compatible operations.
+// NewTokenService creates a Service.
 func NewTokenService(
 	cfg *Config,
 	tokenStore Store,
@@ -48,11 +47,12 @@ func NewTokenService(
 	}
 }
 
-// ERC20 returns ERC20 compatible token interface.
+// ERC20 returns an ERC-20 view for the given contract address.
 func (s *Service) ERC20(address common.Address) ERC20 {
 	return NewERC20(address, s)
 }
 
+// Native returns the native token view.
 func (s *Service) Native() Native {
 	return NewNative(s)
 }

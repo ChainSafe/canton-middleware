@@ -13,14 +13,14 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
-	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	ethrpcservice "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
+	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
-	tokenservice "github.com/chainsafe/canton-middleware/pkg/token"
+	"github.com/chainsafe/canton-middleware/pkg/token"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -109,8 +109,10 @@ func (s *Server) Run() error {
 		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
 	)
 
-	coreTokenService := tokenservice.NewERC20TokenService(cfg, db, userStore, cantonClient.Token)
-	tokenService := tokenservice.NewERC20TokenServiceWithLog(coreTokenService, logger)
+	tokenConfig := token.NewConfig(cfg.EthRPC.NativeBalanceWei)
+	tokenConfig.AddToken(cfg.EthRPC.TokenAddress, cfg.Token)
+	tokenConfig.AddToken(cfg.EthRPC.DemoTokenAddress, cfg.DemoToken)
+	tokenService := token.NewTokenService(tokenConfig, db, userStore, cantonClient.Token)
 
 	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
@@ -157,7 +159,7 @@ func (s *Server) openCantonClient(
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
-	keyResolver := func(partyID string) (token.Signer, error) {
+	keyResolver := func(partyID string) (cantontkn.Signer, error) {
 		privKey, err := keyStore.GetUserKeyByCantonPartyID(ctx, cipher.Decrypt, partyID)
 		if err != nil {
 			return nil, fmt.Errorf("key store lookup: %w", err)
@@ -222,7 +224,7 @@ func (s *Server) startPeriodicReconcile(
 func (s *Server) setupRouter(
 	db *apidb.Store,
 	cantonClient *canton.Client,
-	tokenService tokenservice.ERC20TokenService,
+	tokenService *token.Service,
 	registrationService userservice.Service,
 	logger *zap.Logger,
 ) chi.Router {
@@ -250,8 +252,8 @@ func (s *Server) setupRouter(
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
-		coreEthSvc := ethrpcservice.NewService(s.cfg.EthRPC, s.cfg.Token, s.cfg.DemoToken, db, tokenService)
-		ethrpcservice.RegisterRoutes(r, ethrpcservice.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
+		coreEthSvc := ethrpc.NewService(&s.cfg.EthRPC, db, tokenService)
+		ethrpc.RegisterRoutes(r, ethrpc.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
 	}
 
 	return r

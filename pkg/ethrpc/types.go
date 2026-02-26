@@ -28,7 +28,7 @@ type RPCBlock struct {
 	GasLimit         hexutil.Uint64   `json:"gasLimit"`
 	GasUsed          hexutil.Uint64   `json:"gasUsed"`
 	Timestamp        hexutil.Uint64   `json:"timestamp"`
-	Transactions     []interface{}    `json:"transactions"`
+	Transactions     []any            `json:"transactions"`
 	Uncles           []common.Hash    `json:"uncles"`
 	BaseFeePerGas    *hexutil.Big     `json:"baseFeePerGas,omitempty"`
 }
@@ -38,8 +38,8 @@ type FilterQuery struct {
 	BlockHash *common.Hash    `json:"blockHash,omitempty"`
 	FromBlock *hexutil.Uint64 `json:"fromBlock,omitempty"`
 	ToBlock   *hexutil.Uint64 `json:"toBlock,omitempty"`
-	Address   interface{}     `json:"address,omitempty"` // single address or array
-	Topics    []interface{}   `json:"topics,omitempty"`
+	Address   any             `json:"address,omitempty"` // single address or array
+	Topics    []any           `json:"topics,omitempty"`
 }
 
 // CallArgs represents the arguments to eth_call and eth_estimateGas

@@ -12,10 +12,10 @@ func NewWeb3API() *Web3API {
 	return &Web3API{}
 }
 
-func (api *Web3API) ClientVersion() string {
+func (*Web3API) ClientVersion() string {
 	return "canton-middleware/1.0.0"
 }
 
-func (api *Web3API) Sha3(input hexutil.Bytes) hexutil.Bytes {
+func (*Web3API) Sha3(input hexutil.Bytes) hexutil.Bytes {
 	return crypto.Keccak256(input)
 }

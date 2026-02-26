@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+// Native defines the native-token surface exposed by this package.
 type Native interface {
 	GetBalance(ctx context.Context, address common.Address) (big.Int, error)
 	Transfer(ctx context.Context, from, to common.Address, amount big.Int) error
@@ -17,6 +18,9 @@ type nativeImpl struct {
 	svc *Service
 }
 
+const decimalBase = 10
+
+// NewNative creates a Native implementation.
 func NewNative(svc *Service) Native {
 	return &nativeImpl{svc: svc}
 }
@@ -27,10 +31,10 @@ func (n *nativeImpl) GetBalance(ctx context.Context, address common.Address) (bi
 	if err != nil || !isRegistered {
 		return big.Int{}, err
 	}
-	bal, _ := new(big.Int).SetString(n.svc.cfg.NativeBalanceWei, 10)
+	bal, _ := new(big.Int).SetString(n.svc.cfg.NativeBalanceWei, decimalBase)
 	return *bal, nil
 }
 
-func (n *nativeImpl) Transfer(ctx context.Context, from, to common.Address, amount big.Int) error {
+func (*nativeImpl) Transfer(_ context.Context, _, _ common.Address, _ big.Int) error {
 	return fmt.Errorf("native token transfer not supported")
 }

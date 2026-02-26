@@ -3,10 +3,11 @@ package service
 import (
 	"context"
 
-	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+
+	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 )
 
 // EthAPI implements the eth_* JSON-RPC namespace.
@@ -32,7 +33,7 @@ func (api *EthAPI) MaxPriorityFeePerGas() (*hexutil.Big, error) {
 	return api.svc.MaxPriorityFeePerGas()
 }
 
-func (api *EthAPI) EstimateGas(ctx context.Context, args ethrpc.CallArgs, _ *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
+func (api *EthAPI) EstimateGas(ctx context.Context, args *ethrpc.CallArgs, _ *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
 	return api.svc.EstimateGas(ctx, args)
 }
 
@@ -48,7 +49,7 @@ func (api *EthAPI) GetCode(ctx context.Context, address common.Address, _ ethrpc
 	return api.svc.GetCode(ctx, address)
 }
 
-func (api *EthAPI) Syncing() (interface{}, error) {
+func (api *EthAPI) Syncing() (any, error) {
 	return api.svc.Syncing(), nil
 }
 
@@ -64,7 +65,12 @@ func (api *EthAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (
 	return api.svc.GetTransactionByHash(ctx, hash)
 }
 
-func (api *EthAPI) Call(ctx context.Context, args ethrpc.CallArgs, _ ethrpc.BlockNumberOrHash, _ *map[common.Address]interface{}) (hexutil.Bytes, error) {
+func (api *EthAPI) Call(
+	ctx context.Context,
+	args *ethrpc.CallArgs,
+	_ ethrpc.BlockNumberOrHash,
+	_ *map[common.Address]any,
+) (hexutil.Bytes, error) {
 	return api.svc.Call(ctx, args)
 }
 

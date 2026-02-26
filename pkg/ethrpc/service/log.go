@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 )
 
 const ethServiceName = "EthService"
@@ -58,7 +59,7 @@ func (l *logService) MaxPriorityFeePerGas() (*hexutil.Big, error) {
 	return l.svc.MaxPriorityFeePerGas()
 }
 
-func (l *logService) EstimateGas(ctx context.Context, args ethrpc.CallArgs) (hexutil.Uint64, error) {
+func (l *logService) EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Uint64, error) {
 	return l.svc.EstimateGas(ctx, args)
 }
 
@@ -156,11 +157,11 @@ func (l *logService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 	return l.svc.GetTransactionByHash(ctx, hash)
 }
 
-func (l *logService) Call(ctx context.Context, args ethrpc.CallArgs) (result hexutil.Bytes, err error) {
+func (l *logService) Call(ctx context.Context, args *ethrpc.CallArgs) (result hexutil.Bytes, err error) {
 	start := time.Now()
 
 	to := ""
-	if args.To != nil {
+	if args != nil && args.To != nil {
 		to = args.To.Hex()
 	}
 
