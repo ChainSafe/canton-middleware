@@ -1,10 +1,14 @@
 package dao
 
-import "time"
+import (
+	"time"
+
+	"github.com/uptrace/bun"
+)
 
 // TransferDao is a data access object that maps directly to the 'transfers' table in PostgreSQL.
 type TransferDao struct {
-	tableName         struct{}   `bun:"table:transfers"` // nolint
+	bun.BaseModel     `bun:"table:transfers"`
 	ID                string     `json:"id" bun:",pk,type:varchar(255)"`
 	Direction         string     `json:"direction" bun:",notnull,type:varchar(50)"`
 	Status            string     `json:"status" bun:",notnull,type:varchar(50)"`

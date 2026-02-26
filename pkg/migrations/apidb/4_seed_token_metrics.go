@@ -19,7 +19,6 @@ func init() {
 				TokenSymbol: "PROMPT",
 				TotalSupply: "0",
 			}).
-			ModelTableExpr("token_metrics").
 			On("CONFLICT (token_symbol) DO NOTHING").
 			Exec(ctx)
 		if err != nil {
@@ -32,7 +31,6 @@ func init() {
 				TokenSymbol: "DEMO",
 				TotalSupply: "0",
 			}).
-			ModelTableExpr("token_metrics").
 			On("CONFLICT (token_symbol) DO NOTHING").
 			Exec(ctx)
 		if err != nil {
@@ -45,7 +43,6 @@ func init() {
 		// Only delete the seeded PROMPT and DEMO rows, not all data
 		_, err := db.NewDelete().
 			Model((*dao.TokenMetricsDao)(nil)).
-			ModelTableExpr("token_metrics").
 			Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 			Exec(ctx)
 		return err

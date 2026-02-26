@@ -8,24 +8,36 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/app/httpserver"
+	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
-	"github.com/chainsafe/canton-middleware/pkg/registration"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
-	"github.com/chainsafe/canton-middleware/pkg/service"
+	tokenservice "github.com/chainsafe/canton-middleware/pkg/token/service"
+	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 )
+
+const defaultRequestTimeout = 60
 
 // Server holds cfg to init the api server.
 type Server struct {
 	cfg *config.APIServerConfig
+}
+
+type userKeyStore interface {
+	GetUserKeyByCantonPartyID(ctx context.Context, decryptor userstore.KeyDecryptor, partyID string) ([]byte, error)
 }
 
 // NewServer initializes new api server.
@@ -59,13 +71,21 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = db.Close() }()
 
-	keyStore, err := s.openKeyStore(db)
+	masterKey, err := s.getMasterKey()
 	if err != nil {
 		return err
 	}
-	logger.Info("Custodial key management initialized")
 
-	cantonClient, err := s.openCantonClient(ctx, keyStore, logger)
+	dbBun, err := pgutil.ConnectDB(&cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer dbBun.Close()
+
+	userStore := userstore.NewStore(dbBun)
+	cipher := keys.NewMasterKeyCipher(masterKey)
+
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
 	if err != nil {
 		return err
 	}
@@ -73,27 +93,27 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton", zap.String("rpc_url", cfg.Canton.RPCURL))
 
-	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-	s.runInitialReconcile(ctx, reconciler, logger)
+	rec := reconciler.New(db, userStore, cantonClient.Token, logger)
+	s.runInitialReconcile(ctx, rec, logger)
 
-	stopReconcile := s.startPeriodicReconcile(reconciler, logger)
+	stopReconcile := s.startPeriodicReconcile(rec, logger)
 	// We will call stopReconcile explicitly after ServeAndWait returns for deterministic shutdown order.
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
-	tokenService := service.NewTokenService(cfg, db, cantonClient.Token, logger)
+	registrationService := userservice.NewService(
+		userStore,
+		cantonClient.Identity,
+		cipher,
+		logger,
+		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
+	)
 
-	ethHandler, err := s.maybeCreateEthHandler(db, tokenService, logger)
-	if err != nil {
-		return err
-	}
+	tokenService := tokenservice.NewTokenService(cfg, db, userStore, cantonClient.Token, logger)
 
-	mux := s.newRouter(db, cantonClient, keyStore, ethHandler, logger)
+	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(addr, mux, cfg.Server)
-
-	err = httpserver.ServeAndWait(ctx, logger, httpServer, cfg.Shutdown.Timeout)
+	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 
 	// Stop background work before deferred DB/client closes kick in.
 	stopReconcile()
@@ -114,7 +134,7 @@ func (s *Server) openDB(logger *zap.Logger) (*apidb.Store, error) {
 	return db, nil
 }
 
-func (s *Server) openKeyStore(db *apidb.Store) (*keys.PostgresKeyStore, error) {
+func (s *Server) getMasterKey() ([]byte, error) {
 	masterKeyStr := os.Getenv(s.cfg.KeyManagement.MasterKeyEnv)
 	if masterKeyStr == "" {
 		return nil, fmt.Errorf(
@@ -127,22 +147,24 @@ func (s *Server) openKeyStore(db *apidb.Store) (*keys.PostgresKeyStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid canton master key: %w", err)
 	}
-
-	keyStore, err := keys.NewPostgresKeyStore(db, masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("create keystore: %w", err)
-	}
-
-	return keyStore, nil
+	return masterKey, nil
 }
 
 func (s *Server) openCantonClient(
 	ctx context.Context,
-	keyStore *keys.PostgresKeyStore,
+	keyStore userKeyStore,
+	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (token.Signer, error) {
-		return keys.ResolveKeyPairByPartyID(keyStore, partyID)
+		privKey, err := keyStore.GetUserKeyByCantonPartyID(ctx, cipher.Decrypt, partyID)
+		if err != nil {
+			return nil, fmt.Errorf("key store lookup: %w", err)
+		}
+		if privKey == nil {
+			return nil, fmt.Errorf("no signing key found for party %s", partyID)
+		}
+		return keys.CantonKeyPairFromPrivateKey(privKey)
 	}
 
 	client, err := canton.NewFromAppConfig(
@@ -159,7 +181,7 @@ func (s *Server) openCantonClient(
 
 func (s *Server) runInitialReconcile(
 	ctx context.Context,
-	reconciler *apidb.Reconciler,
+	reconciler *reconciler.Reconciler,
 	logger *zap.Logger,
 ) {
 	if s.cfg.Reconciliation.InitialTimeout <= 0 {
@@ -182,7 +204,7 @@ func (s *Server) runInitialReconcile(
 }
 
 func (s *Server) startPeriodicReconcile(
-	reconciler *apidb.Reconciler,
+	reconciler *reconciler.Reconciler,
 	logger *zap.Logger,
 ) func() {
 	if s.cfg.Reconciliation.Interval <= 0 {
@@ -196,15 +218,53 @@ func (s *Server) startPeriodicReconcile(
 	return func() { reconciler.Stop() }
 }
 
-func (s *Server) maybeCreateEthHandler(
+func (s *Server) setupRouter(
 	db *apidb.Store,
-	tokenService *service.TokenService,
+	cantonClient *canton.Client,
+	tokenService *tokenservice.TokenService,
+	registrationService userservice.Service,
 	logger *zap.Logger,
-) (http.Handler, error) {
-	if !s.cfg.EthRPC.Enabled {
-		return nil, nil
+) chi.Router {
+	r := chi.NewRouter()
+
+	// Middleware stack
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+
+	// Health check
+	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	// Registration endpoints
+	userservice.RegisterRoutes(r, registrationService, logger)
+
+	registryHandler := registry.NewHandler(cantonClient.Token, logger)
+	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
+	logger.Info("Splice Registry API enabled",
+		zap.String("path", "/registry/transfer-instruction/v1/transfer-factory"))
+
+	// Ethereum JSON-RPC endpoints (if enabled)
+	if s.cfg.EthRPC.Enabled {
+		ethHandler, err := s.createEthHandler(db, tokenService, logger)
+		if err != nil {
+			logger.Error("Failed to create eth handler", zap.Error(err))
+		} else {
+			r.Mount("/eth", ethHandler)
+		}
 	}
 
+	return r
+}
+
+func (s *Server) createEthHandler(
+	db *apidb.Store,
+	tokenService *tokenservice.TokenService,
+	logger *zap.Logger,
+) (http.Handler, error) {
 	ethSrv, err := ethrpc.NewServer(s.cfg, db, tokenService, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create eth json-rpc server: %w", err)
@@ -217,47 +277,4 @@ func (s *Server) maybeCreateEthHandler(
 	)
 
 	return ethSrv, nil
-}
-
-func (s *Server) newRouter(
-	db *apidb.Store,
-	cantonClient *canton.Client,
-	keyStore *keys.PostgresKeyStore,
-	ethHandler http.Handler,
-	logger *zap.Logger,
-) *http.ServeMux {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write([]byte(`{"status":"ok"}`)); err != nil {
-			logger.Warn("failed to write health check response", zap.Error(err))
-		}
-	})
-
-	registrationHandler := registration.NewHandler(s.cfg, db, cantonClient.Identity, keyStore, logger)
-	mux.Handle("/register", registrationHandler)
-	logger.Info("Registration endpoint enabled", zap.String("path", "/register"))
-
-	registryHandler := registry.NewHandler(cantonClient.Token, logger)
-	mux.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
-	logger.Info("Splice Registry API enabled",
-		zap.String("path", "/registry/transfer-instruction/v1/transfer-factory"))
-
-	if ethHandler != nil {
-		mux.Handle("/eth", ethHandler)
-	}
-
-	return mux
-}
-
-func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
-	return &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  sc.ReadTimeout,
-		WriteTimeout: sc.WriteTimeout,
-		IdleTimeout:  sc.IdleTimeout,
-	}
 }

@@ -1,4 +1,4 @@
-package httpserver
+package http
 
 import (
 	"context"
@@ -8,23 +8,39 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
-// ServeAndWait starts srv in a goroutine and blocks until either:
+// ServeAndWait starts an HTTP server with the given handler and config in a goroutine
+// and blocks until either:
 //   - ctx is canceled, or
 //   - the server fails unexpectedly.
 //
-// It then performs a graceful shutdown with the given timeout.
+// It then performs a graceful shutdown with the configured timeout.
 //
 // Returns a non-nil error if:
 //   - the server exits unexpectedly (not ErrServerClosed), or
 //   - shutdown fails.
-func ServeAndWait(ctx context.Context, logger *zap.Logger, srv *http.Server, shutdownTimeout time.Duration) error {
-	if srv == nil {
-		return fmt.Errorf("nil http server")
+func ServeAndWait(ctx context.Context, handler http.Handler, logger *zap.Logger, cfg *config.ServerConfig) error {
+	if handler == nil {
+		return fmt.Errorf("nil handler")
 	}
+	if cfg == nil {
+		return fmt.Errorf("nil server config")
+	}
+
+	shutdownTimeout := cfg.ShutdownTimeout
 	if shutdownTimeout <= 0 {
 		shutdownTimeout = 30 * time.Second
+	}
+
+	srv := &http.Server{
+		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Handler:      handler,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
 	}
 
 	errCh := make(chan error, 1)

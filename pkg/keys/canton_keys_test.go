@@ -90,7 +90,7 @@ func TestEncryptDecryptPrivateKey(t *testing.T) {
 	}
 
 	// Encrypt
-	encrypted, err := EncryptPrivateKey(kp.PrivateKey, masterKey)
+	encrypted, err := encryptPrivateKey(kp.PrivateKey, masterKey)
 	if err != nil {
 		t.Fatalf("EncryptPrivateKey failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestEncryptDecryptPrivateKey(t *testing.T) {
 	}
 
 	// Decrypt
-	decrypted, err := DecryptPrivateKey(encrypted, masterKey)
+	decrypted, err := decryptPrivateKey(encrypted, masterKey)
 	if err != nil {
 		t.Fatalf("DecryptPrivateKey failed: %v", err)
 	}
@@ -139,13 +139,13 @@ func TestDecryptWithWrongKey(t *testing.T) {
 	masterKey2, _ := GenerateMasterKey()
 
 	// Encrypt with key 1
-	encrypted, err := EncryptPrivateKey(kp.PrivateKey, masterKey1)
+	encrypted, err := encryptPrivateKey(kp.PrivateKey, masterKey1)
 	if err != nil {
 		t.Fatalf("EncryptPrivateKey failed: %v", err)
 	}
 
 	// Try to decrypt with key 2 - should fail
-	_, err = DecryptPrivateKey(encrypted, masterKey2)
+	_, err = decryptPrivateKey(encrypted, masterKey2)
 	if err == nil {
 		t.Error("Expected error decrypting with wrong key, got nil")
 	}
@@ -156,14 +156,14 @@ func TestEncryptInvalidMasterKeySize(t *testing.T) {
 
 	// Master key too short
 	shortKey := make([]byte, 16)
-	_, err := EncryptPrivateKey(kp.PrivateKey, shortKey)
+	_, err := encryptPrivateKey(kp.PrivateKey, shortKey)
 	if err == nil {
 		t.Error("Expected error for short master key")
 	}
 
 	// Master key too long
 	longKey := make([]byte, 64)
-	_, err = EncryptPrivateKey(kp.PrivateKey, longKey)
+	_, err = encryptPrivateKey(kp.PrivateKey, longKey)
 	if err == nil {
 		t.Error("Expected error for long master key")
 	}

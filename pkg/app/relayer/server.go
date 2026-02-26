@@ -11,8 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
-	"github.com/chainsafe/canton-middleware/pkg/app/httpserver"
+	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
@@ -26,9 +25,8 @@ import (
 )
 
 const (
-	defaultGracefulShutdownTimeout = 30 * time.Second
-	defaultHTTPMiddlewareTimeout   = 60 * time.Second
-	defaultLimitForListTransfer    = 100
+	defaultHTTPMiddlewareTimeout = 60 * time.Second
+	defaultLimitForListTransfer  = 100
 )
 
 // Server holds configuration for the relayer process.
@@ -79,47 +77,19 @@ func (s *Server) Run() error {
 	}
 	ethClient.Close()
 
-	apiStore, cleanupAPIDB, err := s.maybeOpenAPIDB(logger)
-	if err != nil {
-		apiStore = nil
-	}
-	if cleanupAPIDB != nil {
-		defer cleanupAPIDB()
-	}
-
 	engine := relayer.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
-	if apiStore != nil {
-		engine.SetAPIDB(apiStore)
-	}
+	// TODO: disabled the api-db & balance cacher for now.
+	// The relayer should not be able to access the api database
+	// Find out a better solution for this relayer - api server communication
 
-	if err := engine.Start(ctx); err != nil {
+	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
 	}
 	defer engine.Stop()
 
 	router := s.newRouter(store, engine, logger)
 
-	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	httpServer := newHTTPServer(serverAddr, router, cfg.Server)
-
-	return httpserver.ServeAndWait(ctx, logger, httpServer, defaultGracefulShutdownTimeout)
-}
-
-func (s *Server) maybeOpenAPIDB(logger *zap.Logger) (*apidb.Store, func(), error) {
-	apiDBConnStr := s.cfg.Database.GetAPIConnectionString()
-	if apiDBConnStr == "" {
-		return nil, nil, nil
-	}
-
-	apiStore, err := apidb.NewStore(apiDBConnStr)
-	if err != nil {
-		logger.Warn("Failed to connect to API database (balance cache disabled)", zap.Error(err))
-		return nil, nil, err
-	}
-
-	logger.Info("API database connection established (balance cache enabled)")
-	cleanup := func() { _ = apiStore.Close() }
-	return apiStore, cleanup, nil
+	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 }
 
 func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.Logger) http.Handler {
@@ -162,16 +132,6 @@ func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.
 	})
 
 	return r
-}
-
-func newHTTPServer(addr string, handler http.Handler, sc config.ServerConfig) *http.Server {
-	return &http.Server{
-		Addr:         addr,
-		Handler:      handler,
-		ReadTimeout:  sc.ReadTimeout,
-		WriteTimeout: sc.WriteTimeout,
-		IdleTimeout:  sc.IdleTimeout,
-	}
 }
 
 func handleGetTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {

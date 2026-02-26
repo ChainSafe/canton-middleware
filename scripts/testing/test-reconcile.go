@@ -33,6 +33,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -144,12 +148,28 @@ func main() {
 	dsn := fmt.Sprintf("host=localhost port=%d user=%s password=%s dbname=erc20_api sslmode=disable",
 		cfg.Database.Port, cfg.Database.User, cfg.Database.Password)
 	printStep("Connecting to PostgreSQL...")
-	db, err := apidb.NewStore(dsn)
+	apiStore, err := apidb.NewStore(dsn)
 	if err != nil {
 		printError("Failed to connect to PostgreSQL: %v", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer apiStore.Close()
+
+	localDBCfg := config.DatabaseConfig{
+		Host:     "localhost",
+		Port:     cfg.Database.Port,
+		User:     cfg.Database.User,
+		Password: cfg.Database.Password,
+		Database: "erc20_api",
+		SSLMode:  "disable",
+	}
+	bunDB, err := pgutil.ConnectDB(&localDBCfg)
+	if err != nil {
+		printError("Failed to connect to PostgreSQL (bun): %v", err)
+		os.Exit(1)
+	}
+	defer bunDB.Close()
+	uStore := userstore.NewStore(bunDB)
 	printSuccess("Connected to PostgreSQL")
 
 	ctx := context.Background()
@@ -157,23 +177,24 @@ func main() {
 	// Show current state before reconciliation
 	printHeader("Current State (Before Reconciliation)")
 	showBridgeEventsFromCanton(ctx, cantonClient)
-	showStoredEvents(db)
-	showUserBalances(db)
+	showStoredEvents(apiStore)
+	users, _ := uStore.ListUsers(ctx)
+	showUserBalances(users)
 
 	// Create reconciler and run
 	printHeader("Running Reconciliation")
-	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
+	rec := reconciler.New(apiStore, uStore, cantonClient.Token, logger)
 
 	if *fullReconcile {
 		printStep("Performing FULL balance reconciliation (resetting all balances)...")
-		if err := reconciler.FullBalanceReconciliation(ctx); err != nil {
+		if err := rec.FullBalanceReconciliation(ctx); err != nil {
 			printError("Full reconciliation failed: %v", err)
 			os.Exit(1)
 		}
 		printSuccess("Full reconciliation completed")
 	} else {
 		printStep("Performing incremental reconciliation...")
-		if err := reconciler.ReconcileFromBridgeEvents(ctx); err != nil {
+		if err := rec.ReconcileFromBridgeEvents(ctx); err != nil {
 			printError("Reconciliation failed: %v", err)
 			os.Exit(1)
 		}
@@ -182,9 +203,10 @@ func main() {
 
 	// Show state after reconciliation
 	printHeader("State After Reconciliation")
-	showStoredEvents(db)
-	showUserBalances(db)
-	showReconciliationState(db)
+	showStoredEvents(apiStore)
+	afterUsers, _ := uStore.ListUsers(ctx)
+	showUserBalances(afterUsers)
+	showReconciliationState(apiStore)
 
 	printHeader("Reconciliation Test Completed Successfully!")
 }
@@ -251,14 +273,8 @@ func showStoredEvents(store *apidb.Store) {
 	}
 }
 
-func showUserBalances(store *apidb.Store) {
+func showUserBalances(users []*user.User) {
 	printStep("Checking user balances in PostgreSQL...")
-
-	users, err := store.GetAllUsers()
-	if err != nil {
-		printWarning("Failed to get users: %v", err)
-		return
-	}
 
 	if len(users) == 0 {
 		printInfo("No users registered yet")
