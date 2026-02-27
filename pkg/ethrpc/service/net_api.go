@@ -11,6 +11,10 @@ type NetAPI struct {
 	svc Service
 }
 
+func NewNetAPI(svc Service) *NetAPI {
+	return &NetAPI{svc: svc}
+}
+
 func (api *NetAPI) Version() string {
 	return fmt.Sprintf("%d", api.svc.ChainID())
 }

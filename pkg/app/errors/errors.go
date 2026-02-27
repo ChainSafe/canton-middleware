@@ -193,6 +193,21 @@ func UnAuthorizedError(err error, message string) error {
 	}
 }
 
+// DependencyError returns an error with category CategoryDependencyFailure.
+// Use when a downstream service or store returns an unexpected error.
+// The error message provided is returned to the user.
+// The error object provided is logged in logger.
+func DependencyError(err error, message string) error {
+	if err == nil {
+		err = errors.New("dependency failure: " + message)
+	}
+	return &ServiceError{
+		Category: CategoryDependencyFailure,
+		Message:  message,
+		Err:      err,
+	}
+}
+
 // ConflictError returns an error with category CategoryDataConflict
 // the error message provided is returned to the user
 // the error object provided is logged in logger
@@ -204,6 +219,20 @@ func ConflictError(err error, message string) error {
 		Category: CategoryDataConflict,
 		Message:  message,
 		Err:      err,
+	}
+}
+
+// ErrorCode returns the JSON-RPC error code for this error category.
+// This implements the rpc.Error interface from go-ethereum so that
+// ServiceError values are encoded with the correct code in JSON-RPC responses.
+func (err ServiceError) ErrorCode() int {
+	switch err.Category {
+	case CategoryDataError:
+		return -32602 // Invalid params — client sent malformed input
+	case CategoryNotSupported:
+		return -32601 // Method not found / not supported
+	default:
+		return -32000 // Generic server error (covers all remaining categories)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
+	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -22,6 +23,8 @@ import (
 )
 
 // Store is the narrow data-access interface consumed by the EthRPC service.
+//
+//go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
 	GetLatestEvmBlockNumber() (uint64, error)
 	GetEvmTransactionCount(fromAddress string) (uint64, error)
@@ -35,12 +38,18 @@ type Store interface {
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
+//
+//go:generate mockery --name TokenService --output mocks --outpkg mocks --filename mock_token_service.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/token --name ERC20 --output mocks --outpkg mocks --filename mock_erc20.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/token --name Native --output mocks --outpkg mocks --filename mock_native.go --with-expecter
 type TokenService interface {
-	ERC20(address common.Address) token.ERC20
+	ERC20(address common.Address) (token.ERC20, error)
 	Native() token.Native
 }
 
 // Service defines the Ethereum JSON-RPC business logic interface.
+//
+//go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
 type Service interface {
 	ChainID() hexutil.Uint64
 	BlockNumber() (hexutil.Uint64, error)
@@ -113,7 +122,7 @@ func (s *ethService) ChainID() hexutil.Uint64 {
 func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
 	n, err := s.store.GetLatestEvmBlockNumber()
 	if err != nil {
-		return 0, fmt.Errorf("get latest EVM block number: %w", err)
+		return 0, apperr.DependencyError(err, "get latest EVM block number")
 	}
 	// Add time-based block progression to simulate block production
 	// This ensures MetaMask sees confirmations accumulating over time
@@ -131,7 +140,7 @@ func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
 func (s *ethService) GasPrice() (*hexutil.Big, error) {
 	gasPrice := new(big.Int)
 	if _, ok := gasPrice.SetString(s.cfg.GasPriceWei, decimalStringBase); !ok {
-		return nil, fmt.Errorf("invalid gas price wei: %q", s.cfg.GasPriceWei)
+		return nil, apperr.GeneralError(fmt.Errorf("invalid gas price wei: %q", s.cfg.GasPriceWei))
 	}
 
 	return (*hexutil.Big)(gasPrice), nil
@@ -148,7 +157,7 @@ func (s *ethService) EstimateGas(_ context.Context, _ *ethrpc.CallArgs) (hexutil
 func (s *ethService) GetBalance(ctx context.Context, address common.Address) (*hexutil.Big, error) {
 	bal, err := s.tokenService.Native().GetBalance(ctx, address)
 	if err != nil {
-		return nil, err
+		return nil, apperr.DependencyError(err, "get balance")
 	}
 	return (*hexutil.Big)(&bal), nil
 }
@@ -156,7 +165,7 @@ func (s *ethService) GetBalance(ctx context.Context, address common.Address) (*h
 func (s *ethService) GetTransactionCount(_ context.Context, address common.Address) (hexutil.Uint64, error) {
 	count, err := s.store.GetEvmTransactionCount(address.Hex())
 	if err != nil {
-		return 0, fmt.Errorf("get transaction count for %s: %w", address.Hex(), err)
+		return 0, apperr.DependencyError(err, fmt.Sprintf("get transaction count for %s", address.Hex()))
 	}
 	return hexutil.Uint64(count), nil
 }
@@ -178,37 +187,46 @@ func (*ethService) Syncing() bool {
 func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error) {
 	var tx types.Transaction
 	if err := tx.UnmarshalBinary(data); err != nil {
-		return common.Hash{}, fmt.Errorf("invalid transaction: %w", err)
+		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction encoding")
 	}
 	tx.To()
 
 	signer := types.LatestSignerForChainID(s.chainID)
 	from, err := types.Sender(signer, &tx)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("invalid sender: %w", err)
+		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction signature")
 	}
 
 	contractAddress := tx.To()
 	if contractAddress == nil {
-		return common.Hash{}, fmt.Errorf("unsupported contract: empty 'contract' address")
+		// Contract deploy transactions have no To address and are not supported.
+		return common.Hash{}, apperr.BadRequestError(nil, "contract deploy transactions not supported")
 	}
 
 	if tx.Value().Sign() != 0 {
-		return common.Hash{}, fmt.Errorf("native ETH transfers not supported")
+		// Only zero-value ERC20 transfer calls are supported; native ETH sends are not.
+		return common.Hash{}, apperr.NotSupportedError(nil, "native ETH transfers not supported")
 	}
 
 	input := tx.Data()
 	toAddr, amount, err := s.decodeTransferCall(input)
 	if err != nil {
+		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction data")
+	}
+
+	erc20, err := s.tokenService.ERC20(*contractAddress)
+	if err != nil {
+		return common.Hash{}, apperr.BadRequestError(err, fmt.Sprintf("contract not supported: %s", contractAddress.Hex()))
+	}
+	if err = erc20.TransferFrom(ctx, from, toAddr, *amount); err != nil {
+		// Pass categorized errors from the token service through directly so
+		// callers receive the correct JSON-RPC error code (e.g. -32602 for
+		// "sender not found", not the generic -32000 dependency failure).
 		return common.Hash{}, err
 	}
 
-	if err := s.tokenService.ERC20(*contractAddress).TransferFrom(ctx, from, toAddr, *amount); err != nil {
-		return common.Hash{}, fmt.Errorf("transfer failed: %w", err)
-	}
-
 	txHash := tx.Hash()
-	if err := s.recordSyntheticTransfer(txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
+	if err = s.recordSyntheticTransfer(txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
 		return common.Hash{}, err
 	}
 
@@ -306,7 +324,7 @@ func (s *ethService) recordSyntheticTransfer(
 func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
 	row, err := s.store.GetEvmTransaction(hash.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("get transaction receipt for %s: %w", hash.Hex(), err)
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction receipt for %s", hash.Hex()))
 	}
 	if row == nil {
 		return nil, nil
@@ -390,7 +408,7 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 func (s *ethService) GetTransactionByHash(_ context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error) {
 	row, err := s.store.GetEvmTransaction(hash.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("get transaction by hash %s: %w", hash.Hex(), err)
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction by hash %s", hash.Hex()))
 	}
 	if row == nil {
 		return nil, nil
@@ -432,18 +450,21 @@ func (s *ethService) GetTransactionByHash(_ context.Context, hash common.Hash) (
 
 func (s *ethService) Call(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Bytes, error) {
 	if args == nil || args.To == nil {
-		return nil, fmt.Errorf("unsupported 'contract' address")
+		return nil, apperr.BadRequestError(nil, "unsupported 'contract' address")
 	}
-	erc20 := s.tokenService.ERC20(*args.To)
+	erc20, err := s.tokenService.ERC20(*args.To)
+	if err != nil {
+		return nil, apperr.BadRequestError(err, fmt.Sprintf("contract not supported: %s", args.To.Hex()))
+	}
 
 	input := args.GetData()
 	if len(input) < functionSelectorSize {
-		return nil, fmt.Errorf("missing function selector")
+		return nil, apperr.BadRequestError(nil, "missing function selector")
 	}
 
 	method, err := s.erc20ABI.MethodById(input[:functionSelectorSize])
 	if err != nil {
-		return nil, fmt.Errorf("unknown method")
+		return nil, apperr.BadRequestError(nil, "unknown method")
 	}
 
 	switch method.Name {
@@ -460,7 +481,7 @@ func (s *ethService) Call(ctx context.Context, args *ethrpc.CallArgs) (hexutil.B
 	case "allowance":
 		return s.callAllowance(ctx, input[functionSelectorSize:], erc20)
 	default:
-		return nil, fmt.Errorf("unsupported method: %s", method.Name)
+		return nil, apperr.NotSupportedError(nil, fmt.Sprintf("unsupported method: %s", method.Name))
 	}
 }
 
@@ -535,7 +556,7 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 	} else {
 		latest, err := s.store.GetLatestEvmBlockNumber()
 		if err != nil {
-			return nil, fmt.Errorf("get latest EVM block number for logs: %w", err)
+			return nil, apperr.DependencyError(err, "get latest EVM block number for logs")
 		}
 		toBlock, err = uint64ToInt64(latest, "latest block")
 		if err != nil {
@@ -565,7 +586,7 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 
 	dbLogs, err := s.store.GetEvmLogs(addressFilter, topic0Filter, fromBlock, toBlock)
 	if err != nil {
-		return nil, fmt.Errorf("get EVM logs: %w", err)
+		return nil, apperr.DependencyError(err, "get EVM logs")
 	}
 
 	var logs []*types.Log
@@ -608,7 +629,7 @@ func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumbe
 	} else {
 		latestBlockNum, err := s.BlockNumber()
 		if err != nil {
-			return nil, fmt.Errorf("resolve latest block number: %w", err)
+			return nil, err
 		}
 		blockNum = uint64(latestBlockNum)
 	}
@@ -650,7 +671,7 @@ func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumbe
 func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
 	blockNum, err := s.store.GetBlockNumberByHash(hash.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("get block number by hash %s: %w", hash.Hex(), err)
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get block number by hash %s", hash.Hex()))
 	}
 
 	if blockNum > 0 {

@@ -23,7 +23,7 @@ func RegisterRoutes(r chi.Router, svc Service, rpcRequestTimeout time.Duration, 
 	if err := rpcSrv.RegisterName("eth", &EthAPI{svc: svc}); err != nil {
 		panic(fmt.Sprintf("ethrpc: register eth API: %v", err))
 	}
-	if err := rpcSrv.RegisterName("net", &NetAPI{svc: svc}); err != nil {
+	if err := rpcSrv.RegisterName("net", NewNetAPI(svc)); err != nil {
 		panic(fmt.Sprintf("ethrpc: register net API: %v", err))
 	}
 	if err := rpcSrv.RegisterName("web3", NewWeb3API()); err != nil {
