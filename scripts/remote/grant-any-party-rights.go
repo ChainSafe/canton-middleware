@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2/admin"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -78,7 +78,11 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL,
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fatalf("Failed to connect: %v", err)

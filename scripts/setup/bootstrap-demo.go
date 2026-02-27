@@ -37,8 +37,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	expcreds "google.golang.org/grpc/experimental/credentials"
 	"google.golang.org/grpc/metadata"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
@@ -108,16 +108,18 @@ func main() {
 	var opts []grpc.DialOption
 	if cfg.Canton.TLS.Enabled {
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2"},
+			InsecureSkipVerify: true, //nolint:gosec // for testing only
 		}
-		creds := credentials.NewTLS(tlsConfig)
-		opts = append(opts, grpc.WithTransportCredentials(creds))
+		opts = append(opts, grpc.WithTransportCredentials(expcreds.NewTLSWithALPNDisabled(tlsConfig)))
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to Canton: %v", err)
 	}

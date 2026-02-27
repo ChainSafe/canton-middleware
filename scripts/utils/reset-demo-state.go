@@ -27,6 +27,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -61,11 +64,18 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to services...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
-		fatalf("Failed to connect to database: %v", err)
+		fatalf("Failed to connect to database (bun): %v", err)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	userStore := userstore.NewStore(bunDB)
+
+	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		fatalf("Failed to connect to database (apidb): %v", err)
+	}
+	defer apiStore.Close()
 	fmt.Println("    Connected to PostgreSQL")
 
 	// Connect to Canton
@@ -138,6 +148,23 @@ func main() {
 	}
 	fmt.Println()
 
+	// Get users from database (needed for fingerprint lookup and minting)
+	users, err := userStore.ListUsers(ctx)
+	if err != nil {
+		fatalf("Failed to get users: %v", err)
+	}
+
+	// Build party → fingerprint lookup from database users
+	fingerprintByParty := make(map[string]string)
+	for _, u := range users {
+		if u.CantonPartyID != "" {
+			fingerprintByParty[u.CantonPartyID] = u.Fingerprint
+		}
+		if u.CantonParty != "" {
+			fingerprintByParty[u.CantonParty] = u.Fingerprint
+		}
+	}
+
 	// Step 1: Archive all DEMO holdings using CIP56Manager.Burn
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Step 1: Archive All DEMO Holdings")
@@ -147,10 +174,15 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
+			// Look up fingerprint; use "archive" for orphaned parties from old sessions
+			fp := fingerprintByParty[h.Owner]
+			if fp == "" {
+				fp = "archive"
+			}
 			err = cantonClient.Token.Burn(ctx, &token.BurnRequest{
 				HoldingCID:      h.ContractID,
 				Amount:          h.Amount,
-				UserFingerprint: "",
+				UserFingerprint: fp,
 				TokenSymbol:     "DEMO",
 				EvmDestination:  "",
 			})
@@ -174,11 +206,6 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Get user fingerprints from database
-	users, err := db.GetAllUsers()
-	if err != nil {
-		fatalf("Failed to get users: %v", err)
-	}
 
 	// Find fingerprints for each user party
 	user1Fingerprint := ""
@@ -254,7 +281,7 @@ func main() {
 			} else {
 				fmt.Printf("    Created! CID: %s...\n", m.ContractID[:40])
 				// Update database with mapping CID
-				if err := db.UpdateUserMappingCID(u.EVMAddress, m.ContractID); err != nil {
+				if _, err := bunDB.NewUpdate().TableExpr("users").Set("mapping_cid = ?", m.ContractID).Where("evm_address = ?", u.EVMAddress).Exec(ctx); err != nil {
 					fmt.Printf("    WARNING: Failed to update database: %v\n", err)
 				}
 			}
@@ -273,7 +300,7 @@ func main() {
 	for _, nativeParty := range nativeParties {
 		fmt.Printf("    Removing %s from users table...\n", truncateParty(nativeParty))
 		if !*dryRun {
-			result, err := db.DB().Exec("DELETE FROM users WHERE canton_party = $1 OR canton_party_id = $1", nativeParty)
+			result, err := apiStore.DB().Exec("DELETE FROM users WHERE canton_party = $1 OR canton_party_id = $1", nativeParty)
 			if err != nil {
 				fmt.Printf("    ERROR: %v\n", err)
 			} else {
@@ -294,8 +321,8 @@ func main() {
 
 	if !*dryRun {
 		fmt.Println("    Running reconciliation...")
-		reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-		err = reconciler.ReconcileUserBalancesFromHoldings(ctx)
+		rec := reconciler.New(apiStore, userStore, cantonClient.Token, logger)
+		err = rec.ReconcileUserBalancesFromHoldings(ctx)
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
 		} else {
@@ -335,7 +362,7 @@ func main() {
 
 		// Show database users
 		fmt.Println(">>> Database Users:")
-		users, err = db.GetAllUsers()
+		users, err = userStore.ListUsers(ctx)
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
 		} else {

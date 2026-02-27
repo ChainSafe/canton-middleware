@@ -33,6 +33,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -69,12 +73,20 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
+		fmt.Printf("ERROR: Failed to connect to database (bun): %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	uStore := userstore.NewStore(bunDB)
+
+	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		fmt.Printf("ERROR: Failed to connect to database (apidb): %v\n", err)
+		os.Exit(1)
+	}
+	defer apiStore.Close()
 	fmt.Println("    Connected to PostgreSQL")
 	fmt.Println()
 
@@ -102,11 +114,12 @@ func main() {
 	fmt.Println("  Step 1: Current Balances (from database cache)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	showDatabaseBalances(db)
+	users, _ := uStore.ListUsers(ctx)
+	showDatabaseBalances(users)
 	fmt.Println()
 
 	// Create reconciler
-	reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
+	rec := reconciler.New(apiStore, uStore, cantonClient.Token, logger)
 
 	if *reconcileOnly {
 		// Just run reconciliation and show results
@@ -116,7 +129,7 @@ func main() {
 		fmt.Println()
 
 		fmt.Println(">>> Running balance reconciliation from Canton holdings...")
-		if err := reconciler.ReconcileUserBalancesFromHoldings(ctx); err != nil {
+		if err := rec.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 			fmt.Printf("ERROR: Reconciliation failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -127,7 +140,8 @@ func main() {
 		fmt.Println("  Updated Balances (after reconciliation)")
 		fmt.Println("══════════════════════════════════════════════════════════════════════")
 		fmt.Println()
-		showDatabaseBalances(db)
+		afterUsers, _ := uStore.ListUsers(ctx)
+		showDatabaseBalances(afterUsers)
 		return
 	}
 
@@ -163,8 +177,8 @@ func main() {
 		fmt.Println()
 
 		// Get fingerprints for the transfer
-		fromFingerprint := getFingerprint(db, *fromParty)
-		toFingerprint := getFingerprint(db, *toParty)
+		fromFingerprint := getFingerprint(ctx, uStore, *fromParty)
+		toFingerprint := getFingerprint(ctx, uStore, *toParty)
 
 		if fromFingerprint == "" {
 			fmt.Println("ERROR: Could not find sender's fingerprint. Is the user registered?")
@@ -203,7 +217,7 @@ func main() {
 
 	fmt.Println(">>> Running balance reconciliation...")
 	start := time.Now()
-	if err := reconciler.ReconcileUserBalancesFromHoldings(ctx); err != nil {
+	if err := rec.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 		fmt.Printf("ERROR: Reconciliation failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -215,7 +229,8 @@ func main() {
 	fmt.Println("  Step 4: Updated Balances (after reconciliation)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	showDatabaseBalances(db)
+	finalUsers, _ := uStore.ListUsers(ctx)
+	showDatabaseBalances(finalUsers)
 	fmt.Println()
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -228,26 +243,25 @@ func main() {
 	fmt.Println()
 }
 
-func showDatabaseBalances(db *apidb.Store) {
-	users, err := db.GetAllUsers()
-	if err != nil {
-		fmt.Printf("    ERROR: Failed to get users: %v\n", err)
+func showDatabaseBalances(users []*user.User) {
+	if len(users) == 0 {
+		fmt.Println("    No registered users found.")
 		return
 	}
 
 	fmt.Println("    Address                                     | PROMPT    | DEMO      | Canton Party")
 	fmt.Println("    --------------------------------------------|-----------|-----------|---------------------------")
 
-	for _, user := range users {
-		prompt := formatBalance(user.PromptBalance)
-		demo := formatBalance(user.DemoBalance)
-		party := truncateParty(user.CantonPartyID)
+	for _, u := range users {
+		prompt := formatBalance(u.PromptBalance)
+		demo := formatBalance(u.DemoBalance)
+		party := truncateParty(u.CantonPartyID)
 		if party == "" {
 			party = "(not allocated)"
 		}
 
 		fmt.Printf("    %s | %9s | %9s | %s\n",
-			user.EVMAddress, prompt, demo, party)
+			u.EVMAddress, prompt, demo, party)
 	}
 }
 
@@ -281,12 +295,12 @@ func showAllHoldings(ctx context.Context, client *canton.Client) {
 	}
 }
 
-func getFingerprint(db *apidb.Store, partyID string) string {
-	user, err := db.GetUserByCantonPartyID(partyID)
-	if err != nil || user == nil {
+func getFingerprint(ctx context.Context, uStore interface{ GetUserByCantonPartyID(context.Context, string) (*user.User, error) }, partyID string) string {
+	u, err := uStore.GetUserByCantonPartyID(ctx, partyID)
+	if err != nil || u == nil {
 		return ""
 	}
-	return user.Fingerprint
+	return u.Fingerprint
 }
 
 func formatBalance(bal string) string {

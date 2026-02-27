@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/canton/lapi/v2"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -84,7 +84,6 @@ func main() {
 	if cfg.Canton.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2"},
 		}
 		creds := credentials.NewTLS(tlsConfig)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
@@ -92,7 +91,11 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	target := cfg.Canton.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		fmt.Printf("Failed to connect to Canton: %v\n", err)
 		os.Exit(1)

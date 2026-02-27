@@ -24,6 +24,7 @@ go.work
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -95,6 +96,18 @@ native-user-info.json
 native-wallet-demo
 register-native-user
 1go
+
+# Script build artifacts
+bridge-activity
+bridge-deposit
+cleanup-withdrawals
+initiate-withdrawal
+get-holding-cid
+grant-any-party-rights
+upload-dars
+archive-cip56
+bootstrap-bridge
+bootstrap-demo
 
 # Local config variants
 config.docker-local.yaml

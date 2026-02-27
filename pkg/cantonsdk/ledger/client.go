@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,7 +120,12 @@ func New(cfg *Config, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 
-	conn, err := grpc.NewClient(cfg.RPCURL, dopts...)
+	target := cfg.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+
+	conn, err := grpc.NewClient(target, dopts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Canton client: %w", err)
 	}

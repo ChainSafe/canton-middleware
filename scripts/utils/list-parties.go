@@ -17,13 +17,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"os"
 	"strings"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -62,17 +63,18 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	uStore := userstore.NewStore(bunDB)
 	fmt.Println("    ✓ Connected")
 	fmt.Println()
 
 	// Get registered users
-	users, err := db.GetAllUsers()
+	users, err := uStore.ListUsers(context.Background())
 	if err != nil {
 		fmt.Printf("ERROR: Failed to get users: %v\n", err)
 		os.Exit(1)
@@ -83,11 +85,11 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	for _, user := range users {
-		hint := extractHint(user.CantonPartyID)
+	for _, u := range users {
+		hint := extractHint(u.CantonPartyID)
 		fmt.Printf("  [%s]\n", hint)
-		fmt.Printf("    EVM:   %s\n", user.EVMAddress)
-		fmt.Printf("    Party: %s\n", user.CantonPartyID)
+		fmt.Printf("    EVM:   %s\n", u.EVMAddress)
+		fmt.Printf("    Party: %s\n", u.CantonPartyID)
 		fmt.Println()
 	}
 

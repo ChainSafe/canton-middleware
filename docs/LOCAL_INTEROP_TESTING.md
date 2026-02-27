@@ -11,7 +11,7 @@ This guide walks you through running the full Canton-EVM interoperability test l
 ## Prerequisites
 
 - **Docker** with Docker Compose v2
-- **Go 1.23+** ([install guide](https://go.dev/doc/install))
+- **Go 1.24+** ([install guide](https://go.dev/doc/install))
 - **Foundry/Cast** ([install guide](https://book.getfoundry.sh/getting-started/installation)) -- used for EIP-191 signing and Ethereum interactions
 - **DAML SDK 3.4.8** (only needed to rebuild DARs; pre-built DARs are included)
 
@@ -114,8 +114,12 @@ This single command does everything from scratch:
 ## Step 2: Run the Interop Test
 
 ```bash
-go run scripts/testing/interop-demo.go
+go run scripts/testing/interop-demo.go                      # full test (DEMO + PROMPT)
+go run scripts/testing/interop-demo.go --skip-prompt         # DEMO only
+go run scripts/testing/interop-demo.go --skip-demo           # PROMPT bridge only
 ```
+
+> For DevNet testing (DEMO only, remote Canton), see [DEVNET_INTEROP_TESTING.md](DEVNET_INTEROP_TESTING.md).
 
 ## What the Test Covers
 
@@ -281,6 +285,7 @@ These are set automatically by `bootstrap-local.sh` and `docker-bootstrap.sh`. Y
 
 ## Related Documentation
 
+- [DevNet Interop Testing](DEVNET_INTEROP_TESTING.md) -- DEMO token testing against ChainSafe DevNet
 - [Architecture Design](architecture_design.md) -- System architecture and component overview
 - [Bridge Testing Guide](BRIDGE_TESTING_GUIDE.md) -- DAML contract-level testing
 - [Devnet Setup](DEVNET_SETUP.md) -- Deploying to a Canton devnet

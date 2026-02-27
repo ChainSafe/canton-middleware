@@ -12,12 +12,14 @@
 // API server's /eth JSON-RPC endpoint via cast send.
 //
 // Prerequisites:
-//   Run bootstrap-local.sh first (sets up Docker, registers users, mints DEMO)
+//   Run bootstrap-local.sh (local) or bootstrap-remote.sh (devnet) first.
 //
 // Usage:
-//   go run scripts/testing/interop-demo.go                      # auto-detect everything
-//   go run scripts/testing/interop-demo.go --skip-prompt         # skip PROMPT bridge tests
-//   go run scripts/testing/interop-demo.go --skip-demo           # skip DEMO interop tests
+//   go run scripts/testing/interop-demo.go                                          # local (default)
+//   go run scripts/testing/interop-demo.go --config config.api-server.devnet.yaml --skip-prompt  # devnet (DEMO only)
+//   go run scripts/testing/interop-demo.go --skip-prompt                             # skip PROMPT bridge tests
+//   go run scripts/testing/interop-demo.go --skip-demo                               # skip DEMO interop tests
+//   go run scripts/testing/interop-demo.go --api-url http://localhost:8082           # custom API URL
 //
 // What it tests:
 //
@@ -53,6 +55,10 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -64,10 +70,7 @@ const (
 	user2Key  = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 	user2Addr = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
-	anvilURL   = "http://localhost:8545"
-	apiURL     = "http://localhost:8081"
-	ethRPCURL  = "http://localhost:8081/eth"
-	configFile = "config.e2e-local.yaml"
+	anvilURL = "http://localhost:8545"
 
 	// Synthetic DEMO token address recognised by the /eth endpoint
 	demoTokenAddr = "0xDE30000000000000000000000000000000000001"
@@ -87,6 +90,8 @@ var (
 )
 
 var (
+	configFile    = flag.String("config", "config.e2e-local.yaml", "Path to API server config file")
+	apiBaseURL    = flag.String("api-url", "http://localhost:8081", "API server base URL")
 	demoAmount    = flag.String("demo-amount", "100", "DEMO amount per transfer step")
 	promptDeposit = flag.String("prompt-deposit", "100", "PROMPT deposit amount (whole tokens)")
 	promptXfer    = flag.String("prompt-transfer", "25", "PROMPT transfer amount (whole tokens)")
@@ -97,6 +102,7 @@ var (
 // ─── Test state ─────────────────────────────────────────────────────────────
 
 var (
+	ethRPCURL string
 	passCount int
 	failCount int
 )
@@ -105,12 +111,18 @@ func main() {
 	flag.Parse()
 
 	printBanner()
-	detectContractAddresses()
+
+	// Derive ethRPCURL from the base API URL
+	ethRPCURL = *apiBaseURL + "/eth"
+
+	if !*skipPrompt {
+		detectContractAddresses()
+	}
 
 	// Load config
-	cfg, err := config.LoadAPIServer(configFile)
+	cfg, err := config.LoadAPIServer(*configFile)
 	if err != nil {
-		fatalf("Failed to load config %s: %v\nDid you run bootstrap-local.sh first?", configFile, err)
+		fatalf("Failed to load config %s: %v\nDid you run bootstrap first?", *configFile, err)
 	}
 
 	logger, _ := zap.NewDevelopment()
@@ -118,11 +130,18 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to services...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
-		fatalf("Failed to connect to database: %v", err)
+		fatalf("Failed to connect to database (bun): %v", err)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	userStore := userstore.NewStore(bunDB)
+
+	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		fatalf("Failed to connect to database (apidb): %v", err)
+	}
+	defer apiStore.Close()
 	fmt.Println("    Database:  connected")
 
 	// Connect to Canton
@@ -135,7 +154,7 @@ func main() {
 	fmt.Println()
 
 	// Verify registered users
-	users, err := db.GetAllUsers()
+	users, err := userStore.ListUsers(ctx)
 	if err != nil || len(users) < 2 {
 		fatalf("Need at least 2 registered users. Run bootstrap-local.sh first.")
 	}
@@ -158,7 +177,7 @@ func main() {
 		showHoldings(ctx, cantonClient)
 
 		// Step 1: Allocate external native parties + register with API server
-		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, db)
+		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, apiStore)
 
 		// Step 2: MetaMask User 1 → Native User 1 (via /eth)
 		stepTransferDemoViaCast(2, "MetaMask User 1 → Native User 1",
@@ -177,8 +196,8 @@ func main() {
 
 		// Reconcile
 		fmt.Println(">>> Running reconciliation...")
-		reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-		if err := reconciler.ReconcileUserBalancesFromHoldings(ctx); err != nil {
+		rec := reconciler.New(apiStore, userStore, cantonClient.Token, logger)
+		if err := rec.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 			fmt.Printf("    WARNING: Reconciliation failed: %v\n", err)
 		}
 		fmt.Println()
@@ -242,7 +261,7 @@ func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *apid
 		fatalf("AllocateExternalParty %s: %v", hint, err)
 	}
 
-	nu, err := registerNativeUser(ctx, apiURL, party.PartyID, kp.PrivateKeyHex())
+	nu, err := registerNativeUser(ctx, *apiBaseURL, party.PartyID, kp.PrivateKeyHex())
 	if err != nil {
 		fatalf("Register native user %s: %v", hint, err)
 	}
@@ -282,7 +301,7 @@ func stepTransferDemoViaCast(stepNum int, title, senderKey, senderAddr, recipien
 
 // ─── Part B Steps ───────────────────────────────────────────────────────────
 
-func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
+func stepDepositPrompt(ctx context.Context, user1 *user.User) {
 	printStep(5, "Deposit PROMPT from Ethereum to Canton")
 
 	amountWei := toWei(*promptDeposit)
@@ -316,7 +335,7 @@ func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
 	fmt.Println()
 }
 
-func stepVerifyPromptBalance(ctx context.Context, stepNum int, user1 *apidb.User) {
+func stepVerifyPromptBalance(ctx context.Context, stepNum int, user1 *user.User) {
 	printStep(stepNum, "Verify Canton PROMPT Balance")
 	fmt.Println("    Waiting for relayer to process deposit...")
 
@@ -366,7 +385,7 @@ func stepTransferPromptViaCast(ctx context.Context, stepNum int, toAddr string) 
 	fmt.Println()
 }
 
-func stepVerifyFinalPromptBalances(ctx context.Context, stepNum int, user1, user2 *apidb.User) {
+func stepVerifyFinalPromptBalances(ctx context.Context, stepNum int, user1, user2 *user.User) {
 	printStep(stepNum, "Verify Final PROMPT Balances")
 
 	// Poll for User 2 balance

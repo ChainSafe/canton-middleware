@@ -22,13 +22,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"os"
 	"strings"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
@@ -223,15 +224,16 @@ func main() {
 
 		// Connect to database
 		fmt.Println(">>> Connecting to database...")
-		db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+		bunDB, err := pgutil.ConnectDB(&cfg.Database)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 			os.Exit(1)
 		}
-		defer db.Close()
+		defer bunDB.Close()
+		uStore := userstore.NewStore(bunDB)
 
 		// Get all users
-		users, err := db.GetAllUsers()
+		users, err := uStore.ListUsers(context.Background())
 		if err != nil {
 			fmt.Printf("ERROR: Failed to get users: %v\n", err)
 			os.Exit(1)
@@ -242,20 +244,20 @@ func main() {
 		fmt.Println("---------------------------------------------------|---------|-----------|-----------|------")
 
 		var mismatches int
-		for _, user := range users {
-			if user.CantonPartyID == "" {
+		for _, u := range users {
+			if u.CantonPartyID == "" {
 				continue
 			}
 
 			// Get Canton balance for this user
-			demoKey := BalanceKey{Owner: user.CantonPartyID, Symbol: "DEMO"}
-			promptKey := BalanceKey{Owner: user.CantonPartyID, Symbol: "PROMPT"}
+			demoKey := BalanceKey{Owner: u.CantonPartyID, Symbol: "DEMO"}
+			promptKey := BalanceKey{Owner: u.CantonPartyID, Symbol: "PROMPT"}
 
 			cantonDemo := balances[demoKey]
 			cantonPrompt := balances[promptKey]
 
-			dbDemo, _ := decimal.NewFromString(user.DemoBalance)
-			dbPrompt, _ := decimal.NewFromString(user.PromptBalance)
+			dbDemo, _ := decimal.NewFromString(u.DemoBalance)
+			dbPrompt, _ := decimal.NewFromString(u.PromptBalance)
 
 			// Compare DEMO
 			demoMatch := cantonDemo.Equal(dbDemo)
@@ -265,7 +267,7 @@ func main() {
 				mismatches++
 			}
 
-			userDisplay := user.EVMAddress
+			userDisplay := u.EVMAddress
 			if len(userDisplay) > 50 {
 				userDisplay = userDisplay[:47] + "..."
 			}

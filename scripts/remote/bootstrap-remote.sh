@@ -113,6 +113,8 @@ print_success "Master key generated"
 
 # Step 3: Stop existing services
 print_header "Step 3: Stop Existing Services"
+# Stop local stack first (may hold conflicting ports 5432, 8081)
+docker compose down -v 2>/dev/null || true
 docker compose -f docker-compose.remote.yaml down -v 2>/dev/null || true
 print_success "Services stopped"
 
@@ -177,7 +179,7 @@ for i in 1 2; do
     
     if echo "$RESPONSE" | grep -q "fingerprint"; then
         FINGERPRINT=$(echo "$RESPONSE" | jq -r '.fingerprint')
-        CANTON_PARTY=$(echo "$RESPONSE" | jq -r '.canton_party // empty')
+        CANTON_PARTY=$(echo "$RESPONSE" | jq -r '.party // empty')
         print_success "User $i registered: ${FINGERPRINT:0:20}..."
         if [ -n "$CANTON_PARTY" ]; then
             echo "    Canton Party: ${CANTON_PARTY:0:30}..."
@@ -202,10 +204,12 @@ done
 print_header "Step 8: Bootstrap DEMO Tokens"
 
 print_step "Minting DEMO tokens on ChainSafe $NETWORK..."
-go run scripts/setup/bootstrap-demo.go \
+DATABASE_HOST=localhost go run scripts/setup/bootstrap-demo.go \
     -config "$CONFIG_FILE" \
     -user1-fingerprint "$USER1_FINGERPRINT" \
     -user2-fingerprint "$USER2_FINGERPRINT" \
+    -user1-party "$USER1_CANTON_PARTY" \
+    -user2-party "$USER2_CANTON_PARTY" \
     -mint-amount "$DEMO_AMOUNT" 2>&1 | grep -E "^(>>>|✓|DEMO|User|Error|\[)" || {
         print_warning "DEMO bootstrap output above - check for errors"
     }

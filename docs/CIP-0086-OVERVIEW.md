@@ -15,7 +15,9 @@ This document describes how the Canton Middleware implements [CIP-0086: ERC-20 M
 | **Relayer (Deposits)** | ✅ Complete | Ethereum → Canton minting |
 | **Relayer (Withdrawals)** | ✅ Complete | Canton → Ethereum releases |
 | **Balance Reconciliation** | ✅ Complete | Periodic sync from Canton |
-| **Native User Support** | ✅ Complete | Canton party registration with EVM keypair |
+| **External Party Model** | ✅ Complete | All users allocated as external parties via Interactive Submission API |
+| **Native User Support** | ✅ Complete | Canton external party registration with EVM keypair |
+| **Splice Registry API** | ✅ Complete | TransferFactory discovery for Canton Loop / external wallets |
 | **Canton Loop Integration** | 🔜 Planned | Connect to global synchronizer |
 
 ---
@@ -135,9 +137,9 @@ The bridge uses a **custodial model** for key management while maintaining **use
 | Aspect | Description |
 |--------|-------------|
 | **Holdings Ownership** | Each CIP56Holding belongs to the user's Canton party |
-| **Key Management** | API server custodially holds Canton signing keys for users |
-| **User Parties** | Each registered user gets their own Canton party ID |
-| **Signing** | API server signs Canton transactions on behalf of users |
+| **Party Type** | All users are **external parties** (no ~200 internal party limit) |
+| **Key Management** | API server custodially holds secp256k1 Canton signing keys (AES-256-GCM encrypted) |
+| **Signing** | Transactions use the **Interactive Submission API** (PrepareSubmission/ExecuteSubmission) |
 
 ### Visibility
 
@@ -201,3 +203,5 @@ A single deployment can bridge **multiple EVM tokens**, with users holding asset
 - [CIP-0086: ERC-20 Middleware and Distributed Indexer](https://github.com/global-synchronizer-foundation/cips/commit/9a646bce15ec273bf728f18d18ba685f30f015ad)
 - [Global Synchronizer Foundation CIPs](https://github.com/global-synchronizer-foundation/cips)
 - [CIP-56 Token Standard](https://github.com/digital-asset/daml-finance)
+- [Architecture](./ARCHITECTURE.md) - System design and external party model
+- [API Documentation](./API_DOCUMENTATION.md) - Endpoint reference
