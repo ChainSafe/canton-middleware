@@ -255,10 +255,10 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, fromAddr.Hex()).Return(promptUser(), nil)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
-		userStore.EXPECT().TransferBalanceByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, mock.Anything, token.Prompt).Return(nil)
+		userStore.EXPECT().TransferBalanceByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", token.Prompt).Return(nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, mock.Anything, "PROMPT").Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT").Return(nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)

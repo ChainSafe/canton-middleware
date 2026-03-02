@@ -105,6 +105,6 @@ func decimalToBigInt(s string, decimals uint8) (big.Int, error) {
 }
 
 func bigIntToDecimal(amount big.Int, decimals uint8) string {
-	d := decimal.NewFromBigInt(&amount, int32(-decimals))
+	d := decimal.NewFromBigInt(&amount, -int32(decimals))
 	return d.String()
 }
