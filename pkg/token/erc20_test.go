@@ -130,10 +130,10 @@ func TestERC20_TotalSupply(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("supported contract returns scaled supply", func(t *testing.T) {
-		tokenStore := mocks.NewStore(t)
-		tokenStore.EXPECT().GetTotalSupply("PROMPT").Return("1000", nil)
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetTotalSupply(mock.Anything, "PROMPT").Return("1000", nil)
 
-		svc := token.NewTokenService(newCfg(), tokenStore, nil, nil)
+		svc := token.NewTokenService(newCfg(), provider, nil, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		supply := erc20.TotalSupply(ctx)
@@ -142,11 +142,11 @@ func TestERC20_TotalSupply(t *testing.T) {
 		assert.Equal(t, 0, expected.Cmp(&supply))
 	})
 
-	t.Run("store error returns zero big.Int", func(t *testing.T) {
-		tokenStore := mocks.NewStore(t)
-		tokenStore.EXPECT().GetTotalSupply("PROMPT").Return("", errors.New("db down"))
+	t.Run("provider error returns zero big.Int", func(t *testing.T) {
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetTotalSupply(mock.Anything, "PROMPT").Return("", errors.New("provider down"))
 
-		svc := token.NewTokenService(newCfg(), tokenStore, nil, nil)
+		svc := token.NewTokenService(newCfg(), provider, nil, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		// Silent failure
@@ -154,19 +154,18 @@ func TestERC20_TotalSupply(t *testing.T) {
 		assert.Equal(t, big.Int{}, supply)
 	})
 
-	t.Run("invalid decimal from store returns zero", func(t *testing.T) {
-		tokenStore := mocks.NewStore(t)
-		tokenStore.EXPECT().GetTotalSupply("PROMPT").Return("not-a-number", nil)
+	t.Run("invalid decimal from provider returns zero", func(t *testing.T) {
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetTotalSupply(mock.Anything, "PROMPT").Return("not-a-number", nil)
 
-		svc := token.NewTokenService(newCfg(), tokenStore, nil, nil)
+		svc := token.NewTokenService(newCfg(), provider, nil, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		supply := erc20.TotalSupply(ctx)
 		assert.Equal(t, big.Int{}, supply)
 	})
 
-	t.Run("unsupported contract returns zero (no store call)", func(t *testing.T) {
-		// No expectations on tokenStore — getToken fails before store is reached.
+	t.Run("unsupported contract returns zero when no provider configured", func(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, nil, nil)
 		erc20 := token.NewERC20(unsupportedAddr, svc)
 
@@ -181,11 +180,14 @@ func TestERC20_BalanceOf(t *testing.T) {
 	ctx := context.Background()
 	accountAddr := common.HexToAddress("0xAAAA000000000000000000000000000000000001")
 
-	t.Run("PROMPT token: registered user returns scaled balance", func(t *testing.T) {
+	t.Run("PROMPT token: provider balance is scaled", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
-		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("100", nil)
+
+		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		bal := erc20.BalanceOf(ctx, accountAddr)
@@ -194,11 +196,14 @@ func TestERC20_BalanceOf(t *testing.T) {
 		assert.Equal(t, 0, expected.Cmp(&bal))
 	})
 
-	t.Run("DEMO token: registered user returns scaled balance", func(t *testing.T) {
+	t.Run("DEMO token: provider balance is scaled", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(demoUser(), nil)
 
-		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetBalance(mock.Anything, "DEMO", demoUser().Fingerprint).Return("50", nil)
+
+		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(demoAddr, svc)
 
 		bal := erc20.BalanceOf(ctx, accountAddr)
@@ -207,34 +212,38 @@ func TestERC20_BalanceOf(t *testing.T) {
 		assert.Equal(t, 0, expected.Cmp(&bal))
 	})
 
-	t.Run("user not found returns zero balance (intentional)", func(t *testing.T) {
+	t.Run("user not found returns zero balance", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(nil, user.ErrUserNotFound)
 
-		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
+		provider := mocks.NewProvider(t)
+
+		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		bal := erc20.BalanceOf(ctx, accountAddr)
 		assert.Equal(t, big.Int{}, bal)
 	})
 
-	t.Run("DB error returns zero balance (silent failure)", func(t *testing.T) {
+	t.Run("provider error returns zero balance (silent failure)", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
-		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(nil, errors.New("timeout"))
+		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
-		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
+		provider := mocks.NewProvider(t)
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("0", errors.New("timeout"))
+
+		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
 		bal := erc20.BalanceOf(ctx, accountAddr)
 		assert.Equal(t, big.Int{}, bal)
 	})
 
-	t.Run("unsupported contract returns zero (getToken fails after user lookup)", func(t *testing.T) {
-		// getBalance calls GetUserByEVMAddress first, then cfg.getToken.
+	t.Run("unsupported contract returns zero (provider error)", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
-		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(&user.User{}, nil)
+		provider := mocks.NewProvider(t)
 
-		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
+		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(unsupportedAddr, svc)
 
 		bal := erc20.BalanceOf(ctx, accountAddr)
@@ -255,7 +264,6 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, fromAddr.Hex()).Return(promptUser(), nil)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
-		userStore.EXPECT().TransferBalanceByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", token.Prompt).Return(nil)
 
 		cantonToken := mocks.NewToken(t)
 		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT").Return(nil)
@@ -267,11 +275,10 @@ func TestERC20_TransferFrom(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("success: local sync error is swallowed", func(t *testing.T) {
+	t.Run("success: transfer does not require local balance sync", func(t *testing.T) {
 		userStore := mocks.NewUserStore(t)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, fromAddr.Hex()).Return(promptUser(), nil)
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
-		userStore.EXPECT().TransferBalanceByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("sync fail"))
 
 		cantonToken := mocks.NewToken(t)
 		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(nil)
@@ -279,7 +286,6 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		// Intentional: TransferBalanceByFingerprint error is discarded
 		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
 		require.NoError(t, err)
 	})

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -13,20 +12,20 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-//go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
-
 // UserStore defines user persistence required by Service.
+//
+//go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
 type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
-	TransferBalanceByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount string, tokenType Type) error
 }
 
-//go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
-
-// Store defines token persistence required by Service.
-type Store interface {
-	GetTotalSupply(tokenSymbol string) (string, error)
+// Provider defines token data provider.
+//
+//go:generate mockery --name Provider --output mocks --outpkg mocks --filename mock_provider.go --with-expecter
+type Provider interface {
+	GetTotalSupply(ctx context.Context, tokenSymbol string) (string, error)
+	GetBalance(ctx context.Context, tokenSymbol, fingerprint string) (string, error)
 }
 
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
@@ -34,7 +33,7 @@ type Store interface {
 // Service provides token operations shared by API and EthRPC endpoints.
 type Service struct {
 	cfg          *Config
-	tokenStore   Store
+	provider     Provider
 	userStore    UserStore
 	cantonClient canton.Token
 }
@@ -42,13 +41,13 @@ type Service struct {
 // NewTokenService creates a Service.
 func NewTokenService(
 	cfg *Config,
-	tokenStore Store,
+	provider Provider,
 	userStore UserStore,
 	cantonClient canton.Token,
 ) *Service {
 	return &Service{
 		cfg:          cfg,
-		tokenStore:   tokenStore,
+		provider:     provider,
 		userStore:    userStore,
 		cantonClient: cantonClient,
 	}
@@ -97,24 +96,16 @@ func (s *Service) transfer(ctx context.Context, contract, from, to common.Addres
 		return apperr.DependencyError(fmt.Errorf("canton transfer failed: %w", err), "canton transfer failed")
 	}
 
-	// TODO: if transfer doesn't happen through middleware the stored balance might not be correct.
-	_ = s.userStore.TransferBalanceByFingerprint(
-		ctx,
-		fromUser.Fingerprint,
-		toUser.Fingerprint,
-		amount,
-		Type(tkn.Symbol),
-	)
-
 	return nil
 }
 
 // getBalance returns the token balance for an EVM address.
 func (s *Service) getBalance(ctx context.Context, contract, address common.Address) (string, error) {
-	// TODO: implement balance provider - can be database or canton network
-	// For now we should be calling the cantonsdk until we implement a balance cacher.
-	// This call on db is dependent on the reconciler
-	// TODO: Also create a separate table for balance
+	tkn, err := s.cfg.getToken(contract)
+	if err != nil {
+		return "0", err
+	}
+
 	usr, err := s.userStore.GetUserByEVMAddress(ctx, address.Hex())
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {
@@ -122,23 +113,22 @@ func (s *Service) getBalance(ctx context.Context, contract, address common.Addre
 		}
 		return "0", fmt.Errorf("failed to get user: %w", err)
 	}
-	tkn, err := s.cfg.getToken(contract)
-	if err != nil {
-		return "0", err
-	}
-	if strings.EqualFold(tkn.Symbol, string(Demo)) {
-		return usr.DemoBalance, nil
-	}
-	return usr.PromptBalance, nil
+
+	return s.provider.GetBalance(ctx, tkn.Symbol, usr.Fingerprint)
 }
 
 // getTotalSupply returns the total supply for a specific token
-func (s *Service) getTotalSupply(_ context.Context, contract common.Address) (string, error) {
+func (s *Service) getTotalSupply(ctx context.Context, contract common.Address) (string, error) {
+	if s.provider == nil {
+		return "0", fmt.Errorf("token provider not configured")
+	}
+
 	tkn, err := s.cfg.getToken(contract)
 	if err != nil {
 		return "0", err
 	}
-	return s.tokenStore.GetTotalSupply(tkn.Symbol)
+
+	return s.provider.GetTotalSupply(ctx, tkn.Symbol)
 }
 
 // getTokenName returns the token name from config

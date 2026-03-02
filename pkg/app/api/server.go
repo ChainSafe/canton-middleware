@@ -21,6 +21,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
+	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -112,7 +113,8 @@ func (s *Server) Run() error {
 	tokenConfig := token.NewConfig(cfg.EthRPC.NativeBalanceWei)
 	tokenConfig.AddToken(cfg.EthRPC.TokenAddress, cfg.Token)
 	tokenConfig.AddToken(cfg.EthRPC.DemoTokenAddress, cfg.DemoToken)
-	tokenService := token.NewTokenService(tokenConfig, db, userStore, cantonClient.Token)
+	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
+	tokenService := token.NewTokenService(tokenConfig, tokenDataProvider, userStore, cantonClient.Token)
 
 	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
