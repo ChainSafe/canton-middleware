@@ -9,6 +9,39 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// RPCBlock represents a block in JSON-RPC format
+type RPCBlock struct {
+	Number           hexutil.Uint64   `json:"number"`
+	Hash             common.Hash      `json:"hash"`
+	ParentHash       common.Hash      `json:"parentHash"`
+	Nonce            types.BlockNonce `json:"nonce"`
+	Sha3Uncles       common.Hash      `json:"sha3Uncles"`
+	LogsBloom        types.Bloom      `json:"logsBloom"`
+	TransactionsRoot common.Hash      `json:"transactionsRoot"`
+	StateRoot        common.Hash      `json:"stateRoot"`
+	ReceiptsRoot     common.Hash      `json:"receiptsRoot"`
+	Miner            common.Address   `json:"miner"`
+	Difficulty       *hexutil.Big     `json:"difficulty"`
+	TotalDifficulty  *hexutil.Big     `json:"totalDifficulty"`
+	ExtraData        hexutil.Bytes    `json:"extraData"`
+	Size             hexutil.Uint64   `json:"size"`
+	GasLimit         hexutil.Uint64   `json:"gasLimit"`
+	GasUsed          hexutil.Uint64   `json:"gasUsed"`
+	Timestamp        hexutil.Uint64   `json:"timestamp"`
+	Transactions     []any            `json:"transactions"`
+	Uncles           []common.Hash    `json:"uncles"`
+	BaseFeePerGas    *hexutil.Big     `json:"baseFeePerGas,omitempty"`
+}
+
+// FilterQuery represents the filter for eth_getLogs
+type FilterQuery struct {
+	BlockHash *common.Hash    `json:"blockHash,omitempty"`
+	FromBlock *hexutil.Uint64 `json:"fromBlock,omitempty"`
+	ToBlock   *hexutil.Uint64 `json:"toBlock,omitempty"`
+	Address   any             `json:"address,omitempty"` // single address or array
+	Topics    []any           `json:"topics,omitempty"`
+}
+
 // CallArgs represents the arguments to eth_call and eth_estimateGas
 type CallArgs struct {
 	From                 *common.Address `json:"from"`

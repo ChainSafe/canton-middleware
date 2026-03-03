@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"gopkg.in/yaml.v3"
 )
 
@@ -150,8 +151,8 @@ type APIServerConfig struct {
 type EthRPCConfig struct {
 	Enabled          bool          `yaml:"enabled"`
 	ChainID          uint64        `yaml:"chain_id"`
-	TokenAddress     string        `yaml:"token_address"`      // PROMPT token address
-	DemoTokenAddress string        `yaml:"demo_token_address"` // DEMO token address (native)
+	TokenAddress     common.Address `yaml:"token_address"`      // PROMPT token address
+	DemoTokenAddress common.Address `yaml:"demo_token_address"` // DEMO token address (native)
 	GasPriceWei      string        `yaml:"gas_price_wei"`
 	GasLimit         uint64        `yaml:"gas_limit"`
 	NativeBalanceWei string        `yaml:"native_balance_wei"`
@@ -302,8 +303,8 @@ func setAPIServerDefaults(config *APIServerConfig) {
 		config.EthRPC.RequestTimeout = 30 * time.Second
 	}
 	// Default DEMO token address (synthetic address for native token)
-	if config.EthRPC.DemoTokenAddress == "" {
-		config.EthRPC.DemoTokenAddress = "0xDE30000000000000000000000000000000000001"
+	if config.EthRPC.DemoTokenAddress == (common.Address{}) {
+		config.EthRPC.DemoTokenAddress = common.HexToAddress("0xDE30000000000000000000000000000000000001")
 	}
 
 	// Logging defaults
