@@ -81,19 +81,21 @@ func (b *BurnRequest) validate() error {
 	return nil
 }
 
-// MintEvent is a decoded representation of a CIP56.Events.MintEvent.
-// See canton-erc20 repository:
-// daml/cip56-token/src/CIP56/Events.daml
-type MintEvent struct {
+// TokenTransferEvent is a decoded representation of a CIP56.Events.TokenTransferEvent.
+// Unified event for all token mutations (mint, burn, transfer).
+// See canton-erc20 repository: daml/cip56-token/src/CIP56/Events.daml
+type TokenTransferEvent struct {
 	ContractID      string
 	Issuer          string
-	Recipient       string
+	FromParty       string // empty = mint (no sender)
+	ToParty         string // empty = burn (no receiver)
 	Amount          string
-	HoldingCid      string
 	TokenSymbol     string
-	EvmTxHash       string
-	UserFingerprint string
+	EventType       string // "MINT" | "BURN" | "TRANSFER"
 	Timestamp       time.Time
+	EvmTxHash       string
+	EvmDestination  string
+	UserFingerprint string
 	AuditObservers  []string
 }
 
@@ -110,19 +112,4 @@ type TemplateIdentifier struct {
 	PackageID  string `json:"package_id"`
 	ModuleName string `json:"module_name"`
 	EntityName string `json:"entity_name"`
-}
-
-// BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
-// See canton-erc20 repository:
-// daml/cip56-token/src/CIP56/Events.daml
-type BurnEvent struct {
-	ContractID      string
-	Issuer          string
-	BurnedFrom      string
-	Amount          string
-	EvmDestination  string
-	TokenSymbol     string
-	UserFingerprint string
-	Timestamp       time.Time
-	AuditObservers  []string
 }

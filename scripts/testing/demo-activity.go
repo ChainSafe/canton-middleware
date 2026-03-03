@@ -9,8 +9,7 @@
 //
 // This script shows:
 //   - Active CIP56Holdings grouped by token (DEMO, PROMPT) and user
-//   - MintEvents (token minting history, unified CIP56.Events)
-//   - BurnEvents (token burning history, unified CIP56.Events)
+//   - TokenTransferEvents (mint/burn/transfer history, unified CIP56.Events)
 //   - TokenConfig (unified token configuration from CIP56.Config)
 
 package main
@@ -70,9 +69,9 @@ type Holding struct {
 	Offset      int64
 }
 
-// Event represents a token event (unified CIP56.Events)
+// Event represents a token event (CIP56.Events.TokenTransferEvent)
 type Event struct {
-	Type           string // MintEvent, BurnEvent
+	Type           string // MINT, BURN, TRANSFER
 	ContractID     string
 	Owner          string
 	From           string
@@ -164,9 +163,17 @@ func main() {
 	// Query token configs (unified CIP56.Config.TokenConfig)
 	tokenConfigs := queryTokenConfigs(ctx, stateClient, partyID, cip56Pkg, ledgerEnd)
 
-	// Query unified events (all tokens use CIP56.Events)
-	mintEvents := queryEvents(ctx, stateClient, partyID, cip56Pkg, "CIP56.Events", "MintEvent", ledgerEnd)
-	burnEvents := queryEvents(ctx, stateClient, partyID, cip56Pkg, "CIP56.Events", "BurnEvent", ledgerEnd)
+	// Query unified events (all tokens use CIP56.Events.TokenTransferEvent)
+	allEvents := queryEvents(ctx, stateClient, partyID, cip56Pkg, "CIP56.Events", "TokenTransferEvent", ledgerEnd)
+	var mintEvents, burnEvents []Event
+	for _, e := range allEvents {
+		switch e.Type {
+		case "MINT":
+			mintEvents = append(mintEvents, e)
+		case "BURN":
+			burnEvents = append(burnEvents, e)
+		}
+	}
 
 	// Print Token Config
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -250,7 +257,7 @@ func main() {
 	fmt.Printf("  Burn Events:     %d\n", len(burnEvents))
 	fmt.Println()
 
-	// Print all mint events (both native and bridged use the same MintEvent)
+	// Print all mint events
 	if len(mintEvents) > 0 {
 		fmt.Println("  Mint Events:")
 		fmt.Println("  ─────────────────────────────────────────────────────────────────")
@@ -264,7 +271,7 @@ func main() {
 		fmt.Println()
 	}
 
-	// Print all burn events (both native and bridged use the same BurnEvent)
+	// Print all burn events
 	if len(burnEvents) > 0 {
 		fmt.Println("  Burn Events:")
 		fmt.Println("  ─────────────────────────────────────────────────────────────────")
@@ -828,34 +835,24 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 		if resp.GetActiveContract() != nil {
 			created := resp.GetActiveContract().GetCreatedEvent()
 			if created != nil {
-				e := Event{
-					Type:       eventType,
-					ContractID: created.ContractId,
-					Offset:     created.Offset,
-				}
-
 				fm := values.RecordToMap(created.GetCreateArguments())
 
-				switch eventType {
-				case "MintEvent":
-					e.Owner = values.Party(fm["recipient"])
-					e.Amount = values.Numeric(fm["amount"])
-					e.Fingerprint = values.Text(fm["userFingerprint"])
-					if !values.IsNone(fm["evmTxHash"]) {
-						if opt, ok := fm["evmTxHash"].Sum.(*lapiv2.Value_Optional); ok && opt.Optional.Value != nil {
-							e.EvmTxHash = values.Text(opt.Optional.Value)
-						}
-					}
-				case "BurnEvent":
-					e.Owner = values.Party(fm["burnedFrom"])
-					e.Amount = values.Numeric(fm["amount"])
-					e.Fingerprint = values.Text(fm["userFingerprint"])
-					if !values.IsNone(fm["evmDestination"]) {
-						if opt, ok := fm["evmDestination"].Sum.(*lapiv2.Value_Optional); ok && opt.Optional.Value != nil {
-							e.EvmDestination = values.Text(opt.Optional.Value)
-						}
-					}
+				e := Event{
+					Type:       values.Text(fm["eventType"]),
+					ContractID: created.ContractId,
+					Offset:     created.Offset,
+					Amount:     values.Numeric(fm["amount"]),
 				}
+
+				e.Owner = values.OptionalParty(fm["toParty"])
+				if e.Owner == "" {
+					e.Owner = values.OptionalParty(fm["fromParty"])
+				}
+				e.From = values.OptionalParty(fm["fromParty"])
+				e.To = values.OptionalParty(fm["toParty"])
+				e.Fingerprint = values.OptionalText(fm["userFingerprint"])
+				e.EvmTxHash = values.OptionalText(fm["evmTxHash"])
+				e.EvmDestination = values.OptionalText(fm["evmDestination"])
 
 				if created.CreatedAt != nil {
 					e.CreatedAt = created.CreatedAt.AsTime()

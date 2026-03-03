@@ -23,7 +23,7 @@ type Config struct {
 	// If empty, BridgePackageID may be used as a fallback by some deployments.
 	CorePackageID string
 
-	// CIP56PackageID is the package id containing CIP56.Events templates (MintEvent/BurnEvent).
+	// CIP56PackageID is the package id containing CIP56.Events templates (TokenTransferEvent).
 	CIP56PackageID string
 }
 

@@ -115,32 +115,36 @@ func nullIfEmpty(s string) interface{} {
 	return s
 }
 
-// StoreMintEvent stores a mint event and updates user balance
-func (s *Store) StoreMintEvent(event *canton.MintEvent) error {
-	return s.storeBridgeEvent(bridgeEventParams{
-		eventType:   "mint",
-		contractID:  event.ContractID,
-		fingerprint: event.UserFingerprint,
-		amount:      event.Amount,
-		tokenSymbol: event.TokenSymbol,
-		timestamp:   event.Timestamp,
-		evmTxHash:   event.EvmTxHash,
-		isCredit:    true,
-	})
-}
-
-// StoreBurnEvent stores a burn event and updates user balance
-func (s *Store) StoreBurnEvent(event *canton.BurnEvent) error {
-	return s.storeBridgeEvent(bridgeEventParams{
-		eventType:      "burn",
-		contractID:     event.ContractID,
-		fingerprint:    event.UserFingerprint,
-		amount:         event.Amount,
-		tokenSymbol:    event.TokenSymbol,
-		timestamp:      event.Timestamp,
-		evmDestination: event.EvmDestination,
-		isCredit:       false,
-	})
+// StoreTokenTransferEvent stores a token transfer event and updates user balance.
+// For MINT events (credit), for BURN events (debit). TRANSFER events are not stored
+// as bridge events since they are internal Canton operations.
+func (s *Store) StoreTokenTransferEvent(event *canton.TokenTransferEvent) error {
+	switch event.EventType {
+	case "MINT":
+		return s.storeBridgeEvent(bridgeEventParams{
+			eventType:   "mint",
+			contractID:  event.ContractID,
+			fingerprint: event.UserFingerprint,
+			amount:      event.Amount,
+			tokenSymbol: event.TokenSymbol,
+			timestamp:   event.Timestamp,
+			evmTxHash:   event.EvmTxHash,
+			isCredit:    true,
+		})
+	case "BURN":
+		return s.storeBridgeEvent(bridgeEventParams{
+			eventType:      "burn",
+			contractID:     event.ContractID,
+			fingerprint:    event.UserFingerprint,
+			amount:         event.Amount,
+			tokenSymbol:    event.TokenSymbol,
+			timestamp:      event.Timestamp,
+			evmDestination: event.EvmDestination,
+			isCredit:       false,
+		})
+	default:
+		return nil // TRANSFER events don't affect bridge reconciliation
+	}
 }
 
 // =============================================================================

@@ -653,6 +653,7 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
+			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
 

@@ -78,7 +78,7 @@ var templatesByPackageType = map[string][]TemplateInfo{
 		{ModuleName: "Bridge.Contracts", EntityName: "MintCommand"},
 		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalRequest"},
 		{ModuleName: "Bridge.Contracts", EntityName: "WithdrawalEvent"},
-		// Note: MintEvent/BurnEvent are now in CIP56.Events (cip56 package)
+		// Note: TokenTransferEvent is in CIP56.Events (cip56 package)
 		// common module templates are compiled into bridge-core
 		{ModuleName: "Common.FingerprintAuth", EntityName: "FingerprintMapping"},
 		{ModuleName: "Common.FingerprintAuth", EntityName: "PendingDeposit"},
@@ -92,8 +92,7 @@ var templatesByPackageType = map[string][]TemplateInfo{
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceRules"},
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceProof"},
 		{ModuleName: "CIP56.Config", EntityName: "TokenConfig"},
-		{ModuleName: "CIP56.Events", EntityName: "MintEvent"},
-		{ModuleName: "CIP56.Events", EntityName: "BurnEvent"},
+		{ModuleName: "CIP56.Events", EntityName: "TokenTransferEvent"},
 	},
 }
 
@@ -283,7 +282,7 @@ func main() {
 	// Archive in reverse dependency order (holdings/events before managers/configs)
 	archiveOrder := []string{
 		// Audit events first (CIP56.Events)
-		"MintEvent", "BurnEvent",
+		"TokenTransferEvent",
 		// Holdings and locked assets (before managers)
 		"CIP56Holding", "LockedAsset",
 		// Compliance

@@ -247,15 +247,18 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 
 	var mintCount, burnCount int
 
-	// Get all mint events (CIP56.Events.MintEvent)
-	mintEvents, err := r.cantonClient.GetMintEvents(ctx)
+	// Get all token transfer events (CIP56.Events.TokenTransferEvent)
+	events, err := r.cantonClient.GetTokenTransferEvents(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get mint events: %w", err)
+		return fmt.Errorf("failed to get token transfer events: %w", err)
 	}
 
-	// Process mint events
-	for _, event := range mintEvents {
-		// Check if already processed
+	// Process events (only MINT and BURN affect bridge reconciliation)
+	for _, event := range events {
+		if event.EventType != "MINT" && event.EventType != "BURN" {
+			continue
+		}
+
 		processed, err := r.db.IsEventProcessed(event.ContractID)
 		if err != nil {
 			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(err))
@@ -265,48 +268,28 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.db.StoreMintEvent(event); err != nil {
-			r.logger.Warn("Failed to store mint event",
+		if err := r.db.StoreTokenTransferEvent(event); err != nil {
+			r.logger.Warn("Failed to store token transfer event",
 				zap.String("contract_id", event.ContractID),
+				zap.String("event_type", event.EventType),
 				zap.String("fingerprint", event.UserFingerprint),
 				zap.Error(err))
 			continue
 		}
-		mintCount++
-		r.logger.Debug("Processed mint event",
-			zap.String("fingerprint", event.UserFingerprint),
-			zap.String("amount", event.Amount),
-			zap.String("evm_tx_hash", event.EvmTxHash))
-	}
 
-	// Get all burn events (CIP56.Events.BurnEvent)
-	burnEvents, err := r.cantonClient.GetBurnEvents(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get burn events: %w", err)
-	}
-
-	// Process burn events
-	for _, event := range burnEvents {
-		processed, err := r.db.IsEventProcessed(event.ContractID)
-		if err != nil {
-			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(err))
-			continue
-		}
-		if processed {
-			continue
-		}
-
-		if err := r.db.StoreBurnEvent(event); err != nil {
-			r.logger.Warn("Failed to store burn event",
-				zap.String("contract_id", event.ContractID),
+		switch event.EventType {
+		case "MINT":
+			mintCount++
+			r.logger.Debug("Processed mint event",
 				zap.String("fingerprint", event.UserFingerprint),
-				zap.Error(err))
-			continue
+				zap.String("amount", event.Amount),
+				zap.String("evm_tx_hash", event.EvmTxHash))
+		case "BURN":
+			burnCount++
+			r.logger.Debug("Processed burn event",
+				zap.String("fingerprint", event.UserFingerprint),
+				zap.String("amount", event.Amount))
 		}
-		burnCount++
-		r.logger.Debug("Processed burn event",
-			zap.String("fingerprint", event.UserFingerprint),
-			zap.String("amount", event.Amount))
 	}
 
 	// Mark full reconcile complete
