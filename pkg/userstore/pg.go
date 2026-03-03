@@ -5,11 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/uptrace/bun"
 
-	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -100,102 +98,6 @@ func (s *pgStore) ListUsers(ctx context.Context) ([]*user.User, error) {
 	return users, nil
 }
 
-func (s *pgStore) UpdateBalanceByCantonPartyID(ctx context.Context, partyID, balance string, tokenType token.Type) error {
-	col := balanceCol(tokenType)
-	q := s.db.NewUpdate().
-		Model((*UserDao)(nil)).
-		Set(col+" = ?", balance).
-		Set("balance_updated_at = NOW()").
-		Where("canton_party_id = ?", partyID)
-
-	_, err := q.Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to update %s balance: %w", tokenType, err)
-	}
-	return nil
-}
-
-func (s *pgStore) IncrementBalanceByFingerprint(ctx context.Context, fingerprint, amount string, tokenType token.Type) error {
-	withPrefix, withoutPrefix := normalizeFP(fingerprint)
-	col := balanceCol(tokenType)
-
-	_, err := s.db.NewUpdate().
-		TableExpr("users").
-		Set(col+" = COALESCE("+col+", 0) + ?::DECIMAL", amount).
-		Set("balance_updated_at = NOW()").
-		Where("fingerprint = ? OR fingerprint = ?", withPrefix, withoutPrefix).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to increment %s balance: %w", tokenType, err)
-	}
-	return nil
-}
-
-func (s *pgStore) DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, amount string, tokenType token.Type) error {
-	col := balanceCol(tokenType)
-
-	_, err := s.db.NewUpdate().
-		TableExpr("users").
-		Set(col+" = COALESCE("+col+", 0) - ?::DECIMAL", amount).
-		Set("balance_updated_at = NOW()").
-		Where("evm_address = ?", evmAddress).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to decrement %s balance: %w", tokenType, err)
-	}
-	return nil
-}
-
-func (s *pgStore) TransferBalanceByFingerprint(
-	ctx context.Context,
-	fromFingerprint string,
-	toFingerprint string,
-	amount string,
-	tokenType token.Type,
-) error {
-	fromWithPrefix, fromWithoutPrefix := normalizeFP(fromFingerprint)
-	toWithPrefix, toWithoutPrefix := normalizeFP(toFingerprint)
-	col := balanceCol(tokenType)
-
-	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		_, err := tx.NewUpdate().
-			TableExpr("users").
-			Set(col+" = COALESCE("+col+", 0) - ?::DECIMAL", amount).
-			Set("balance_updated_at = NOW()").
-			Where("fingerprint = ? OR fingerprint = ?", fromWithPrefix, fromWithoutPrefix).
-			Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to decrement sender %s balance: %w", tokenType, err)
-		}
-
-		_, err = tx.NewUpdate().
-			TableExpr("users").
-			Set(col+" = COALESCE("+col+", 0) + ?::DECIMAL", amount).
-			Set("balance_updated_at = NOW()").
-			Where("fingerprint = ? OR fingerprint = ?", toWithPrefix, toWithoutPrefix).
-			Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to increment recipient %s balance: %w", tokenType, err)
-		}
-		return nil
-	})
-}
-
-func (s *pgStore) ResetBalances(ctx context.Context, tokenType token.Type) error {
-	col := balanceCol(tokenType)
-
-	_, err := s.db.NewUpdate().
-		TableExpr("users").
-		Set(col + " = '0'").
-		Set("balance_updated_at = NOW()").
-		Where("TRUE").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to reset %s balances: %w", tokenType, err)
-	}
-	return nil
-}
-
 func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	exists, err := s.db.NewSelect().
 		Model(&WhitelistDao{}).
@@ -244,20 +146,4 @@ func (s *pgStore) GetUserKeyByEVMAddress(ctx context.Context, decryptor KeyDecry
 
 func (s *pgStore) GetUserKeyByFingerprint(ctx context.Context, decryptor KeyDecryptor, fingerprint string) ([]byte, error) {
 	return s.getUserKeyBy(ctx, decryptor, "fingerprint", fingerprint)
-}
-
-// balanceCol returns the column name for a given token type.
-func balanceCol(tokenType token.Type) string {
-	if strings.EqualFold(string(tokenType), string(token.Demo)) {
-		return "demo_balance"
-	}
-	return "prompt_balance"
-}
-
-// normalizeFP returns (withPrefix, withoutPrefix) for fingerprint lookups.
-func normalizeFP(fingerprint string) (string, string) {
-	if strings.HasPrefix(fingerprint, "0x") {
-		return fingerprint, fingerprint[2:]
-	}
-	return "0x" + fingerprint, fingerprint
 }

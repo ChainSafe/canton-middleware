@@ -36,11 +36,11 @@ func newCfg() *token.Config {
 }
 
 func promptUser() *user.User {
-	return &user.User{Fingerprint: "fpA", PromptBalance: "100", DemoBalance: "0"}
+	return &user.User{Fingerprint: "fpA"}
 }
 
 func demoUser() *user.User {
-	return &user.User{Fingerprint: "fpB", PromptBalance: "0", DemoBalance: "50"}
+	return &user.User{Fingerprint: "fpB"}
 }
 
 // ─── TestERC20_Name ───────────────────────────────────────────────────────────

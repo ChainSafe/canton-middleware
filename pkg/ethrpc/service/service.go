@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
@@ -29,11 +28,11 @@ type Store interface {
 	GetLatestEvmBlockNumber() (uint64, error)
 	GetEvmTransactionCount(fromAddress string) (uint64, error)
 	NextEvmBlock(chainID uint64) (uint64, []byte, int, error)
-	SaveEvmTransaction(tx *apidb.EvmTransaction) error
-	SaveEvmLog(log *apidb.EvmLog) error
-	GetEvmTransaction(txHash []byte) (*apidb.EvmTransaction, error)
-	GetEvmLogsByTxHash(txHash []byte) ([]*apidb.EvmLog, error)
-	GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*apidb.EvmLog, error)
+	SaveEvmTransaction(tx *ethrpc.EvmTransaction) error
+	SaveEvmLog(log *ethrpc.EvmLog) error
+	GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error)
+	GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error)
+	GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error)
 	GetBlockNumberByHash(blockHash []byte) (uint64, error)
 }
 
@@ -285,7 +284,7 @@ func (s *ethService) recordSyntheticTransfer(
 		return err
 	}
 
-	evmTx := &apidb.EvmTransaction{
+	evmTx := &ethrpc.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: from.Hex(),
 		ToAddress:   contractAddress.Hex(),
@@ -305,7 +304,7 @@ func (s *ethService) recordSyntheticTransfer(
 	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), topicSizeBytes))
 	amountBytes := common.LeftPadBytes(amount.Bytes(), topicSizeBytes)
 
-	evmLog := &apidb.EvmLog{
+	evmLog := &ethrpc.EvmLog{
 		TxHash:      txHash.Bytes(),
 		LogIndex:    0,
 		Address:     contractAddress.Bytes(),

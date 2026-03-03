@@ -14,9 +14,6 @@ type User struct {
 	CantonPartyID             string
 	CantonKeyCreatedAt        *time.Time
 	CantonPrivateKeyEncrypted string
-	PromptBalance             string
-	DemoBalance               string
-	BalanceUpdatedAt          *time.Time
 }
 
 // New creates a User from the given parameters.

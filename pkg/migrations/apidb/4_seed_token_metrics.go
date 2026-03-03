@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 
 	"github.com/uptrace/bun"
 )
@@ -15,7 +15,7 @@ func init() {
 
 		// Insert PROMPT token with ON CONFLICT for idempotency
 		_, err := db.NewInsert().
-			Model(&dao.TokenMetricsDao{
+			Model(&reconcilerstore.TokenMetricsDao{
 				TokenSymbol: "PROMPT",
 				TotalSupply: "0",
 			}).
@@ -27,7 +27,7 @@ func init() {
 
 		// Insert DEMO token with ON CONFLICT for idempotency
 		_, err = db.NewInsert().
-			Model(&dao.TokenMetricsDao{
+			Model(&reconcilerstore.TokenMetricsDao{
 				TokenSymbol: "DEMO",
 				TotalSupply: "0",
 			}).
@@ -42,7 +42,7 @@ func init() {
 		log.Println("removing seed data from token_metrics table...")
 		// Only delete the seeded PROMPT and DEMO rows, not all data
 		_, err := db.NewDelete().
-			Model((*dao.TokenMetricsDao)(nil)).
+			Model((*reconcilerstore.TokenMetricsDao)(nil)).
 			Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 			Exec(ctx)
 		return err

@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 
 	"github.com/uptrace/bun"
 )
@@ -13,12 +13,12 @@ import (
 func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		log.Println("creating reconciliation_state table...")
-		if err := mghelper.CreateSchema(ctx, db, &dao.ReconciliationStateDao{}); err != nil {
+		if err := mghelper.CreateSchema(ctx, db, &reconcilerstore.ReconciliationStateDao{}); err != nil {
 			return err
 		}
 		// Add singleton constraint to ensure only one row with id=1
 		_, err := db.NewAddColumn().
-			Model((*dao.ReconciliationStateDao)(nil)).
+			Model((*reconcilerstore.ReconciliationStateDao)(nil)).
 			ColumnExpr("CONSTRAINT singleton_check CHECK (id = 1)").
 			Exec(ctx)
 		if err != nil {
@@ -26,7 +26,7 @@ func init() {
 		}
 		// Insert initial state row with ON CONFLICT for idempotency
 		_, err = db.NewInsert().
-			Model(&dao.ReconciliationStateDao{
+			Model(&reconcilerstore.ReconciliationStateDao{
 				ID:                  1,
 				LastProcessedOffset: 0,
 				EventsProcessed:     0,
@@ -39,6 +39,6 @@ func init() {
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping reconciliation_state table...")
-		return mghelper.DropTables(ctx, db, &dao.ReconciliationStateDao{})
+		return mghelper.DropTables(ctx, db, &reconcilerstore.ReconciliationStateDao{})
 	})
 }

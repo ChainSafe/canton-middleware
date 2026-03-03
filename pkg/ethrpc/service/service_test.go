@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -284,7 +283,7 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 	to := common.HexToAddress("0xBBBB000000000000000000000000000000000001")
 	blockHashBytes := common.HexToHash("0x1111000000000000000000000000000000000000000000000000000000000001").Bytes()
 
-	row := &apidb.EvmTransaction{
+	row := &ethrpc.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: from.Hex(),
 		ToAddress:   to.Hex(),
@@ -343,7 +342,7 @@ func TestService_GetTransactionByHash(t *testing.T) {
 	to := common.HexToAddress("0xBBBB000000000000000000000000000000000002")
 	blockHashBytes := common.HexToHash("0x2222000000000000000000000000000000000000000000000000000000000002").Bytes()
 
-	row := &apidb.EvmTransaction{
+	row := &ethrpc.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: from.Hex(),
 		ToAddress:   to.Hex(),
@@ -565,7 +564,7 @@ func TestService_GetLogs(t *testing.T) {
 	t.Run("logs are converted and returned", func(t *testing.T) {
 		txHash := common.HexToHash("0xaaaa000000000000000000000000000000000000000000000000000000000001")
 		blockHash := common.HexToHash("0xbbbb000000000000000000000000000000000000000000000000000000000001")
-		dbLog := &apidb.EvmLog{
+		dbLog := &ethrpc.EvmLog{
 			TxHash:      txHash.Bytes(),
 			LogIndex:    0,
 			Address:     contractAddr.Bytes(),
@@ -576,7 +575,7 @@ func TestService_GetLogs(t *testing.T) {
 
 		store := mocks.NewStore(t)
 		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, int64(0), int64(100)).
-			Return([]*apidb.EvmLog{dbLog}, nil)
+			Return([]*ethrpc.EvmLog{dbLog}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetLogs(context.Background(), query)

@@ -144,6 +144,35 @@ type RPCTransaction struct {
 	ChainID          *hexutil.Big    `json:"chainId,omitempty"`
 }
 
+// EvmTransaction represents a synthetic EVM transaction persisted for JSON-RPC responses.
+type EvmTransaction struct {
+	TxHash       []byte
+	FromAddress  string
+	ToAddress    string
+	Nonce        int64
+	Input        []byte
+	ValueWei     string
+	Status       int16
+	BlockNumber  int64
+	BlockHash    []byte
+	TxIndex      int
+	GasUsed      int64
+	ErrorMessage string
+}
+
+// EvmLog represents a synthetic EVM log persisted for JSON-RPC responses.
+type EvmLog struct {
+	TxHash      []byte
+	LogIndex    int
+	Address     []byte   // Contract address (20 bytes)
+	Topics      [][]byte // Topic hashes (each 32 bytes)
+	Data        []byte
+	BlockNumber int64
+	BlockHash   []byte
+	TxIndex     int
+	Removed     bool
+}
+
 // SyncStatus represents the syncing status response
 type SyncStatus struct {
 	StartingBlock hexutil.Uint64 `json:"startingBlock"`

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb/dao"
+	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 
 	"github.com/uptrace/bun"
@@ -13,12 +13,12 @@ import (
 func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		log.Println("creating evm_meta table...")
-		if err := mghelper.CreateSchema(ctx, db, &dao.EvmMetaDao{}); err != nil {
+		if err := mghelper.CreateSchema(ctx, db, &ethrpcstore.EvmMetaDao{}); err != nil {
 			return err
 		}
 		// Insert initial latest block number with ON CONFLICT for idempotency
 		_, err := db.NewInsert().
-			Model(&dao.EvmMetaDao{
+			Model(&ethrpcstore.EvmMetaDao{
 				Key:   "latest_block_number",
 				Value: "0",
 			}).
@@ -30,6 +30,6 @@ func init() {
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping evm_meta table...")
-		return mghelper.DropTables(ctx, db, &dao.EvmMetaDao{})
+		return mghelper.DropTables(ctx, db, &ethrpcstore.EvmMetaDao{})
 	})
 }

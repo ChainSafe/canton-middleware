@@ -10,12 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun/driver/pgdriver"
 
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
-	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -63,22 +61,6 @@ func requireDockerAccess(t *testing.T) {
 
 func newTestUser(evmAddress, partyID, fingerprint string) *user.User {
 	return user.New(evmAddress, partyID, fingerprint, "mapping-cid", "encrypted-key")
-}
-
-func assertDecimalEqual(t *testing.T, got, want string) {
-	t.Helper()
-
-	gotDec, err := decimal.NewFromString(got)
-	if err != nil {
-		t.Fatalf("failed to parse got decimal %q: %v", got, err)
-	}
-	wantDec, err := decimal.NewFromString(want)
-	if err != nil {
-		t.Fatalf("failed to parse want decimal %q: %v", want, err)
-	}
-	if !gotDec.Equal(wantDec) {
-		t.Fatalf("decimal mismatch: got %s want %s", gotDec.String(), wantDec.String())
-	}
 }
 
 func TestUserPGStore_CreateUserAndConstraints(t *testing.T) {
@@ -139,8 +121,6 @@ func TestUserPGStore_GetUserLookupsAndDelete(t *testing.T) {
 	ctx, s := setupStore(t)
 
 	u := newTestUser("0x3333333333333333333333333333333333333333", "party::carol", "0xf1")
-	u.PromptBalance = "12.5"
-	u.DemoBalance = "3"
 	if err := s.CreateUser(ctx, u); err != nil {
 		t.Fatalf("CreateUser() failed: %v", err)
 	}
@@ -203,85 +183,6 @@ func TestUserPGStore_ListUsers(t *testing.T) {
 	if len(got) != len(users) {
 		t.Fatalf("unexpected user count: got %d want %d", len(got), len(users))
 	}
-}
-
-func TestUserPGStore_BalanceOperations(t *testing.T) {
-	ctx, s := setupStore(t)
-
-	from := newTestUser("0x9999999999999999999999999999999999999999", "party::from", "0xabc123")
-	to := newTestUser("0x8888888888888888888888888888888888888888", "party::to", "def456")
-	if err := s.CreateUser(ctx, from); err != nil {
-		t.Fatalf("CreateUser(from) failed: %v", err)
-	}
-	if err := s.CreateUser(ctx, to); err != nil {
-		t.Fatalf("CreateUser(to) failed: %v", err)
-	}
-
-	if err := s.UpdateBalanceByCantonPartyID(ctx, from.CantonPartyID, "100", token.Prompt); err != nil {
-		t.Fatalf("UpdateBalanceByCantonPartyID(prompt) failed: %v", err)
-	}
-	if err := s.UpdateBalanceByCantonPartyID(ctx, from.CantonPartyID, "7", token.Demo); err != nil {
-		t.Fatalf("UpdateBalanceByCantonPartyID(demo) failed: %v", err)
-	}
-
-	updatedFrom, err := s.GetUserByCantonPartyID(ctx, from.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(from) failed: %v", err)
-	}
-	assertDecimalEqual(t, updatedFrom.PromptBalance, "100")
-	assertDecimalEqual(t, updatedFrom.DemoBalance, "7")
-
-	err = s.IncrementBalanceByFingerprint(ctx, "abc123", "25.5", token.Prompt)
-	if err != nil {
-		t.Fatalf("IncrementBalanceByFingerprint() failed: %v", err)
-	}
-	updatedFrom, err = s.GetUserByCantonPartyID(ctx, from.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(from) failed: %v", err)
-	}
-	assertDecimalEqual(t, updatedFrom.PromptBalance, "125.5")
-
-	err = s.DecrementBalanceByEVMAddress(ctx, from.EVMAddress, "5.5", token.Prompt)
-	if err != nil {
-		t.Fatalf("DecrementBalanceByEVMAddress() failed: %v", err)
-	}
-	updatedFrom, err = s.GetUserByCantonPartyID(ctx, from.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(from) failed: %v", err)
-	}
-	assertDecimalEqual(t, updatedFrom.PromptBalance, "120")
-
-	err = s.TransferBalanceByFingerprint(ctx, "abc123", "0xdef456", "20", token.Prompt)
-	if err != nil {
-		t.Fatalf("TransferBalanceByFingerprint() failed: %v", err)
-	}
-
-	updatedFrom, err = s.GetUserByCantonPartyID(ctx, from.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(from) failed: %v", err)
-	}
-	updatedTo, err := s.GetUserByCantonPartyID(ctx, to.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(to) failed: %v", err)
-	}
-	assertDecimalEqual(t, updatedFrom.PromptBalance, "100")
-	assertDecimalEqual(t, updatedTo.PromptBalance, "20")
-
-	err = s.ResetBalances(ctx, token.Prompt)
-	if err != nil {
-		t.Fatalf("ResetBalances(prompt) failed: %v", err)
-	}
-	updatedFrom, err = s.GetUserByCantonPartyID(ctx, from.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(from) failed: %v", err)
-	}
-	updatedTo, err = s.GetUserByCantonPartyID(ctx, to.CantonPartyID)
-	if err != nil {
-		t.Fatalf("GetUserByCantonPartyID(to) failed: %v", err)
-	}
-	assertDecimalEqual(t, updatedFrom.PromptBalance, "0")
-	assertDecimalEqual(t, updatedTo.PromptBalance, "0")
-	assertDecimalEqual(t, updatedFrom.DemoBalance, "7")
 }
 
 func TestUserPGStore_IsWhitelisted(t *testing.T) {

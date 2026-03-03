@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	apidb "github.com/chainsafe/canton-middleware/pkg/apidb"
+	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -77,23 +77,23 @@ func (_c *Store_GetBlockNumberByHash_Call) RunAndReturn(run func([]byte) (uint64
 }
 
 // GetEvmLogs provides a mock function with given fields: address, topic0, fromBlock, toBlock
-func (_m *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock int64, toBlock int64) ([]*apidb.EvmLog, error) {
+func (_m *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock int64, toBlock int64) ([]*ethrpc.EvmLog, error) {
 	ret := _m.Called(address, topic0, fromBlock, toBlock)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmLogs")
 	}
 
-	var r0 []*apidb.EvmLog
+	var r0 []*ethrpc.EvmLog
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) ([]*apidb.EvmLog, error)); ok {
+	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)); ok {
 		return rf(address, topic0, fromBlock, toBlock)
 	}
-	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) []*apidb.EvmLog); ok {
+	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) []*ethrpc.EvmLog); ok {
 		r0 = rf(address, topic0, fromBlock, toBlock)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*apidb.EvmLog)
+			r0 = ret.Get(0).([]*ethrpc.EvmLog)
 		}
 	}
 
@@ -127,34 +127,34 @@ func (_c *Store_GetEvmLogs_Call) Run(run func(address []byte, topic0 []byte, fro
 	return _c
 }
 
-func (_c *Store_GetEvmLogs_Call) Return(_a0 []*apidb.EvmLog, _a1 error) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) Return(_a0 []*ethrpc.EvmLog, _a1 error) *Store_GetEvmLogs_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func([]byte, []byte, int64, int64) ([]*apidb.EvmLog, error)) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func([]byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogs_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetEvmLogsByTxHash provides a mock function with given fields: txHash
-func (_m *Store) GetEvmLogsByTxHash(txHash []byte) ([]*apidb.EvmLog, error) {
+func (_m *Store) GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error) {
 	ret := _m.Called(txHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmLogsByTxHash")
 	}
 
-	var r0 []*apidb.EvmLog
+	var r0 []*ethrpc.EvmLog
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte) ([]*apidb.EvmLog, error)); ok {
+	if rf, ok := ret.Get(0).(func([]byte) ([]*ethrpc.EvmLog, error)); ok {
 		return rf(txHash)
 	}
-	if rf, ok := ret.Get(0).(func([]byte) []*apidb.EvmLog); ok {
+	if rf, ok := ret.Get(0).(func([]byte) []*ethrpc.EvmLog); ok {
 		r0 = rf(txHash)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*apidb.EvmLog)
+			r0 = ret.Get(0).([]*ethrpc.EvmLog)
 		}
 	}
 
@@ -185,34 +185,34 @@ func (_c *Store_GetEvmLogsByTxHash_Call) Run(run func(txHash []byte)) *Store_Get
 	return _c
 }
 
-func (_c *Store_GetEvmLogsByTxHash_Call) Return(_a0 []*apidb.EvmLog, _a1 error) *Store_GetEvmLogsByTxHash_Call {
+func (_c *Store_GetEvmLogsByTxHash_Call) Return(_a0 []*ethrpc.EvmLog, _a1 error) *Store_GetEvmLogsByTxHash_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Store_GetEvmLogsByTxHash_Call) RunAndReturn(run func([]byte) ([]*apidb.EvmLog, error)) *Store_GetEvmLogsByTxHash_Call {
+func (_c *Store_GetEvmLogsByTxHash_Call) RunAndReturn(run func([]byte) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogsByTxHash_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetEvmTransaction provides a mock function with given fields: txHash
-func (_m *Store) GetEvmTransaction(txHash []byte) (*apidb.EvmTransaction, error) {
+func (_m *Store) GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error) {
 	ret := _m.Called(txHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmTransaction")
 	}
 
-	var r0 *apidb.EvmTransaction
+	var r0 *ethrpc.EvmTransaction
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte) (*apidb.EvmTransaction, error)); ok {
+	if rf, ok := ret.Get(0).(func([]byte) (*ethrpc.EvmTransaction, error)); ok {
 		return rf(txHash)
 	}
-	if rf, ok := ret.Get(0).(func([]byte) *apidb.EvmTransaction); ok {
+	if rf, ok := ret.Get(0).(func([]byte) *ethrpc.EvmTransaction); ok {
 		r0 = rf(txHash)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*apidb.EvmTransaction)
+			r0 = ret.Get(0).(*ethrpc.EvmTransaction)
 		}
 	}
 
@@ -243,12 +243,12 @@ func (_c *Store_GetEvmTransaction_Call) Run(run func(txHash []byte)) *Store_GetE
 	return _c
 }
 
-func (_c *Store_GetEvmTransaction_Call) Return(_a0 *apidb.EvmTransaction, _a1 error) *Store_GetEvmTransaction_Call {
+func (_c *Store_GetEvmTransaction_Call) Return(_a0 *ethrpc.EvmTransaction, _a1 error) *Store_GetEvmTransaction_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Store_GetEvmTransaction_Call) RunAndReturn(run func([]byte) (*apidb.EvmTransaction, error)) *Store_GetEvmTransaction_Call {
+func (_c *Store_GetEvmTransaction_Call) RunAndReturn(run func([]byte) (*ethrpc.EvmTransaction, error)) *Store_GetEvmTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -437,7 +437,7 @@ func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(uint64) (uint64, []byte
 }
 
 // SaveEvmLog provides a mock function with given fields: log
-func (_m *Store) SaveEvmLog(log *apidb.EvmLog) error {
+func (_m *Store) SaveEvmLog(log *ethrpc.EvmLog) error {
 	ret := _m.Called(log)
 
 	if len(ret) == 0 {
@@ -445,7 +445,7 @@ func (_m *Store) SaveEvmLog(log *apidb.EvmLog) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*apidb.EvmLog) error); ok {
+	if rf, ok := ret.Get(0).(func(*ethrpc.EvmLog) error); ok {
 		r0 = rf(log)
 	} else {
 		r0 = ret.Error(0)
@@ -460,14 +460,14 @@ type Store_SaveEvmLog_Call struct {
 }
 
 // SaveEvmLog is a helper method to define mock.On call
-//   - log *apidb.EvmLog
+//   - log *ethrpc.EvmLog
 func (_e *Store_Expecter) SaveEvmLog(log interface{}) *Store_SaveEvmLog_Call {
 	return &Store_SaveEvmLog_Call{Call: _e.mock.On("SaveEvmLog", log)}
 }
 
-func (_c *Store_SaveEvmLog_Call) Run(run func(log *apidb.EvmLog)) *Store_SaveEvmLog_Call {
+func (_c *Store_SaveEvmLog_Call) Run(run func(log *ethrpc.EvmLog)) *Store_SaveEvmLog_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*apidb.EvmLog))
+		run(args[0].(*ethrpc.EvmLog))
 	})
 	return _c
 }
@@ -477,13 +477,13 @@ func (_c *Store_SaveEvmLog_Call) Return(_a0 error) *Store_SaveEvmLog_Call {
 	return _c
 }
 
-func (_c *Store_SaveEvmLog_Call) RunAndReturn(run func(*apidb.EvmLog) error) *Store_SaveEvmLog_Call {
+func (_c *Store_SaveEvmLog_Call) RunAndReturn(run func(*ethrpc.EvmLog) error) *Store_SaveEvmLog_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // SaveEvmTransaction provides a mock function with given fields: tx
-func (_m *Store) SaveEvmTransaction(tx *apidb.EvmTransaction) error {
+func (_m *Store) SaveEvmTransaction(tx *ethrpc.EvmTransaction) error {
 	ret := _m.Called(tx)
 
 	if len(ret) == 0 {
@@ -491,7 +491,7 @@ func (_m *Store) SaveEvmTransaction(tx *apidb.EvmTransaction) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*apidb.EvmTransaction) error); ok {
+	if rf, ok := ret.Get(0).(func(*ethrpc.EvmTransaction) error); ok {
 		r0 = rf(tx)
 	} else {
 		r0 = ret.Error(0)
@@ -506,14 +506,14 @@ type Store_SaveEvmTransaction_Call struct {
 }
 
 // SaveEvmTransaction is a helper method to define mock.On call
-//   - tx *apidb.EvmTransaction
+//   - tx *ethrpc.EvmTransaction
 func (_e *Store_Expecter) SaveEvmTransaction(tx interface{}) *Store_SaveEvmTransaction_Call {
 	return &Store_SaveEvmTransaction_Call{Call: _e.mock.On("SaveEvmTransaction", tx)}
 }
 
-func (_c *Store_SaveEvmTransaction_Call) Run(run func(tx *apidb.EvmTransaction)) *Store_SaveEvmTransaction_Call {
+func (_c *Store_SaveEvmTransaction_Call) Run(run func(tx *ethrpc.EvmTransaction)) *Store_SaveEvmTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*apidb.EvmTransaction))
+		run(args[0].(*ethrpc.EvmTransaction))
 	})
 	return _c
 }
@@ -523,7 +523,7 @@ func (_c *Store_SaveEvmTransaction_Call) Return(_a0 error) *Store_SaveEvmTransac
 	return _c
 }
 
-func (_c *Store_SaveEvmTransaction_Call) RunAndReturn(run func(*apidb.EvmTransaction) error) *Store_SaveEvmTransaction_Call {
+func (_c *Store_SaveEvmTransaction_Call) RunAndReturn(run func(*ethrpc.EvmTransaction) error) *Store_SaveEvmTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
