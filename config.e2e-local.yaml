@@ -70,10 +70,10 @@ canton:
   domain_id: "local::1220164ac9048924b69beb6ee8f91d3908f1af14ad02353d96f6f3e9fcad21fd1745"  # Auto-detected by bootstrap
   application_id: "canton-middleware"
   relayer_party: "BridgeIssuer::12203bc6f6e50a069f4588fcebd546185642c1f58bbcfab7f2541b6990926b27b15e"  # Auto-detected by bootstrap
-  bridge_package_id: "9667eddd7af2c352fb3e86e76f08195a61186177d1f5bcfec003692fe020f80c"
+  bridge_package_id: "d146f8c92a0794b374f49c4acbfc5bd2c0cc5d5ca195793f9be05d04df8d1f56"
   common_package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
-  core_package_id: "ef28ed8540f19b1fe6d16dfe54805d61b95177cdb357386d130fa1e7508b346a"
-  cip56_package_id: "6618fba4f767024fcefea4b6714006bf1e4b2aa256355ac6cd759247b335189d"
+  core_package_id: "8b41d7a0bd98daaa1530f4ae5929f2d6f3e3298c06f5f7cb33a4027a08d32507"
+  cip56_package_id: "e8105415a5323f86f9f3fcf295001c1801f0c5d8ba68cb57449b6dc3db40d76f"
   splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
   splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
   instrument_admin: "BridgeIssuer::12203bc6f6e50a069f4588fcebd546185642c1f58bbcfab7f2541b6990926b27b15e"  # Set by bootstrap (same as relayer_party)
