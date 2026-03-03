@@ -271,7 +271,10 @@ func (s *ethService) recordSyntheticTransfer(
 	toAddr common.Address,
 	amount *big.Int,
 ) error {
-	blockNumber, blockHash, txIndex, _ := s.store.NextEvmBlock(s.chainID.Uint64())
+	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(s.chainID.Uint64())
+	if err != nil {
+		return apperr.DependencyError(err, "get next EVM block")
+	}
 	txNonce, err := uint64ToInt64(nonce, "transaction nonce")
 	if err != nil {
 		return err
@@ -298,7 +301,9 @@ func (s *ethService) recordSyntheticTransfer(
 		TxIndex:     txIndex,
 		GasUsed:     gasUsedInt64,
 	}
-	_ = s.store.SaveEvmTransaction(evmTx)
+	if err = s.store.SaveEvmTransaction(evmTx); err != nil {
+		return apperr.DependencyError(err, "save EVM transaction")
+	}
 
 	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 	fromTopic := common.BytesToHash(common.LeftPadBytes(from.Bytes(), topicSizeBytes))
@@ -316,7 +321,9 @@ func (s *ethService) recordSyntheticTransfer(
 		TxIndex:     txIndex,
 		Removed:     false,
 	}
-	_ = s.store.SaveEvmLog(evmLog)
+	if err = s.store.SaveEvmLog(evmLog); err != nil {
+		return apperr.DependencyError(err, "save EVM log")
+	}
 
 	return nil
 }
@@ -335,7 +342,7 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 
 	dbLogs, err := s.store.GetEvmLogsByTxHash(hash.Bytes())
 	if err != nil {
-		dbLogs = nil
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get logs for transaction receipt %s", hash.Hex()))
 	}
 
 	logs := make([]*types.Log, 0)
@@ -683,19 +690,28 @@ func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullT
 }
 
 func encodeUint256(v *big.Int) (hexutil.Bytes, error) {
-	uint256Type, _ := abi.NewType("uint256", "", nil)
+	uint256Type, err := abi.NewType("uint256", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create uint256 ABI type: %w", err)
+	}
 	args := abi.Arguments{{Type: uint256Type}}
 	return args.Pack(v)
 }
 
 func encodeUint8(v uint8) (hexutil.Bytes, error) {
-	uint8Type, _ := abi.NewType("uint8", "", nil)
+	uint8Type, err := abi.NewType("uint8", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create uint8 ABI type: %w", err)
+	}
 	args := abi.Arguments{{Type: uint8Type}}
 	return args.Pack(v)
 }
 
 func encodeString(s string) (hexutil.Bytes, error) {
-	stringType, _ := abi.NewType("string", "", nil)
+	stringType, err := abi.NewType("string", "", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create string ABI type: %w", err)
+	}
 	args := abi.Arguments{{Type: stringType}}
 	return args.Pack(s)
 }
