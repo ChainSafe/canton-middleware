@@ -16,7 +16,6 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/chainsafe/canton-middleware/pkg/userstore"
 )
 
 // Constants for registration operations
@@ -230,7 +229,7 @@ func (s *registrationService) RegisterCantonNativeUser(
 
 	// Check if this exact party ID is already registered
 	existingUser, err := s.store.GetUserByCantonPartyID(ctx, req.CantonPartyID)
-	if err != nil && !errors.Is(err, userstore.ErrUserNotFound) {
+	if err != nil && !errors.Is(err, user.ErrUserNotFound) {
 		return nil, fmt.Errorf("failed to check user existence: %w", err)
 	}
 	if existingUser != nil {

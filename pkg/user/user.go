@@ -1,6 +1,9 @@
 package user
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // User represents the domain model for a registered user.
 type User struct {
@@ -57,3 +60,6 @@ type RegisterResponse struct {
 	EVMAddress  string `json:"evm_address,omitzero"` // Returned for Canton native users
 	PrivateKey  string `json:"private_key,omitzero"` // Returned for Canton native users (for MetaMask import)
 }
+
+var ErrKeyNotFound = errors.New("key not found")
+var ErrUserNotFound = errors.New("user not found")

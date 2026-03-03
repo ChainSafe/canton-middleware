@@ -13,9 +13,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-var ErrKeyNotFound = errors.New("key not found")
-var ErrUserNotFound = errors.New("user not found")
-
 // KeyDecryptor decrypts an encrypted private key string into raw bytes.
 type KeyDecryptor func(encryptedKey string) ([]byte, error)
 
@@ -48,7 +45,7 @@ func (s *pgStore) getUserBy(ctx context.Context, column string, value string) (*
 	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrUserNotFound
+			return nil, user.ErrUserNotFound
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -220,7 +217,7 @@ func (s *pgStore) getUserKeyBy(ctx context.Context, decryptor KeyDecryptor, colu
 	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrKeyNotFound
+			return nil, user.ErrKeyNotFound
 		}
 		return nil, fmt.Errorf("failed to get user key: %w", err)
 	}
@@ -251,7 +248,7 @@ func (s *pgStore) GetUserKeyByFingerprint(ctx context.Context, decryptor KeyDecr
 
 // balanceCol returns the column name for a given token type.
 func balanceCol(tokenType token.Type) string {
-	if tokenType == token.Demo {
+	if strings.EqualFold(string(tokenType), string(token.Demo)) {
 		return "demo_balance"
 	}
 	return "prompt_balance"

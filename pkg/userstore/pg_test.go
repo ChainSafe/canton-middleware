@@ -170,7 +170,7 @@ func TestUserPGStore_GetUserLookupsAndDelete(t *testing.T) {
 	}
 
 	_, err = s.GetUserByEVMAddress(ctx, "0x4444444444444444444444444444444444444444")
-	if !errors.Is(err, ErrUserNotFound) {
+	if !errors.Is(err, user.ErrUserNotFound) {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestUserPGStore_GetUserKeyMethods(t *testing.T) {
 	}
 
 	_, err = s.GetUserKeyByCantonPartyID(ctx, decryptor, "party::missing")
-	if !errors.Is(err, ErrKeyNotFound) {
+	if !errors.Is(err, user.ErrKeyNotFound) {
 		t.Fatalf("expected ErrKeyNotFound, got %v", err)
 	}
 
