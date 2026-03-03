@@ -1,10 +1,14 @@
 package dao
 
-import "time"
+import (
+	"time"
+
+	"github.com/uptrace/bun"
+)
 
 // BridgeEventDao is a data access object that maps directly to the 'bridge_events' table in PostgreSQL.
 type BridgeEventDao struct {
-	tableName            struct{}   `bun:"table:bridge_events"` // nolint
+	bun.BaseModel        `bun:"table:bridge_events"`
 	ID                   int64      `json:"id" bun:",pk,autoincrement"`
 	EventType            string     `json:"event_type" bun:",notnull,type:varchar(20)"`
 	ContractID           string     `json:"contract_id" bun:",unique,notnull,type:varchar(255)"`

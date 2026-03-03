@@ -3,6 +3,7 @@ package apidb
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -105,6 +106,12 @@ func (s *Store) storeBridgeEvent(params bridgeEventParams) error {
 	}
 
 	return tx.Commit()
+}
+
+// normalizeFingerprint returns both the 0x-prefixed and non-prefixed forms.
+func normalizeFingerprint(fingerprint string) (withPrefix, withoutPrefix string) {
+	fp := strings.TrimPrefix(fingerprint, "0x")
+	return "0x" + fp, fp
 }
 
 // nullIfEmpty returns nil for empty strings (for SQL NULL handling)

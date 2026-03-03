@@ -146,7 +146,6 @@ linters:
       - ^pkg/ethereum
       - ^pkg/ethrpc
       - ^pkg/keys
-      - ^pkg/registration
       - ^pkg/relayer
       - ^pkg/service
       - ^internal
@@ -181,7 +180,6 @@ formatters:
       - ^pkg/ethereum
       - ^pkg/ethrpc
       - ^pkg/keys
-      - ^pkg/registration
       - ^pkg/relayer
       - ^pkg/service
       - ^internal

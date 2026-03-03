@@ -14,6 +14,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
+	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/shopspring/decimal"
 )
@@ -151,20 +152,26 @@ func (s *EthereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 
 // CantonDestination implements Destination for Canton
 type CantonDestination struct {
-	client       canton.Bridge
-	config       *config.EthereumConfig
-	relayerParty string
-	chainID      string
-	apiDB        *apidb.Store // Optional: for updating balance cache
+	client            canton.Bridge
+	config            *config.EthereumConfig
+	relayerParty      string
+	chainID           string
+	apiDB             *apidb.Store      // Optional: for total supply cache updates
+	userBalanceCacher UserBalanceCacher // Optional: for user balance cache updates
 }
 
 func NewCantonDestination(client canton.Bridge, cfg *config.EthereumConfig, relayerParty string, chainID string) *CantonDestination {
 	return &CantonDestination{client: client, config: cfg, relayerParty: relayerParty, chainID: chainID}
 }
 
-// SetAPIDB sets the API database store for balance cache updates
+// SetAPIDB sets the API database store for total supply cache updates.
 func (d *CantonDestination) SetAPIDB(apiDB *apidb.Store) {
 	d.apiDB = apiDB
+}
+
+// SetUserBalanceCacher sets the user balance cache store.
+func (d *CantonDestination) SetUserBalanceCacher(ubc UserBalanceCacher) {
+	d.userBalanceCacher = ubc
 }
 
 func (d *CantonDestination) GetChainID() string {
@@ -212,14 +219,14 @@ func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (s
 		return "", fmt.Errorf("failed to process deposit and mint: %w", err)
 	}
 
-	// Step 3: Update balance cache if API DB is configured
-	if d.apiDB != nil {
-		// Increment user PROMPT balance
-		if err = d.apiDB.IncrementBalanceByFingerprint(pendingDeposit.Fingerprint, amountStr, apidb.TokenPrompt); err != nil {
+	// Step 3: Update balance cache if configured
+	if d.userBalanceCacher != nil {
+		if err = d.userBalanceCacher.IncrementBalanceByFingerprint(ctx, pendingDeposit.Fingerprint, amountStr, token.Prompt); err != nil {
 			// Log but don't fail - the deposit succeeded on Canton
 			fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", pendingDeposit.Fingerprint, err)
 		}
-		// Increment total supply for PROMPT
+	}
+	if d.apiDB != nil {
 		if err = d.apiDB.IncrementTotalSupply("PROMPT", amountStr); err != nil {
 			fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)
 		}
@@ -236,17 +243,23 @@ func bigIntToDecimal(amount *big.Int, decimals int) string {
 
 // EthereumDestination implements Destination for Ethereum
 type EthereumDestination struct {
-	client       EthereumBridgeClient
-	cantonClient canton.Bridge
-	chainID      string
-	apiDB        *apidb.Store // Optional: for updating balance cache
+	client            EthereumBridgeClient
+	cantonClient      canton.Bridge
+	chainID           string
+	apiDB             *apidb.Store      // Optional: for total supply cache updates
+	userBalanceCacher UserBalanceCacher // Optional: for user balance cache updates
 }
 
 func NewEthereumDestination(client EthereumBridgeClient, cantonClient canton.Bridge, chainID string) *EthereumDestination {
 	return &EthereumDestination{client: client, cantonClient: cantonClient, chainID: chainID}
 }
 
-// SetAPIDB sets the API database store for balance cache updates
+// SetUserBalanceCacher sets the user balance cache store.
+func (d *EthereumDestination) SetUserBalanceCacher(ubc UserBalanceCacher) {
+	d.userBalanceCacher = ubc
+}
+
+// SetAPIDB sets the API database store for total supply cache updates.
 func (d *EthereumDestination) SetAPIDB(apiDB *apidb.Store) {
 	d.apiDB = apiDB
 }
@@ -314,14 +327,16 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) 
 			fmt.Printf("WARN: Failed to mark withdrawal complete on Canton (EVM succeeded): %v\n", err)
 		}
 
-		// Update balance cache if API DB is configured
-		if d.apiDB != nil {
+		// Update balance cache if configured
+		if d.userBalanceCacher != nil {
 			// Decrement user PROMPT balance using EVM destination address from withdrawal event
 			// Note: withdrawal.Fingerprint is the Canton party fingerprint, not the user's EVM fingerprint
-			if err := d.apiDB.DecrementBalance(withdrawal.EvmDestination, event.Amount, apidb.TokenPrompt); err != nil {
+			if err := d.userBalanceCacher.DecrementBalanceByEVMAddress(ctx, withdrawal.EvmDestination, event.Amount, token.Prompt); err != nil {
 				// Log but don't fail - the withdrawal succeeded
 				fmt.Printf("WARN: Failed to update prompt balance cache for %s: %v\n", withdrawal.EvmDestination, err)
 			}
+		}
+		if d.apiDB != nil {
 			// Decrement total supply for PROMPT (tokens leaving Canton system)
 			if err := d.apiDB.DecrementTotalSupply("PROMPT", event.Amount); err != nil {
 				fmt.Printf("WARN: Failed to update total supply cache: %v\n", err)

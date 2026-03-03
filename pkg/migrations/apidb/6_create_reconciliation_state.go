@@ -17,7 +17,10 @@ func init() {
 			return err
 		}
 		// Add singleton constraint to ensure only one row with id=1
-		_, err := db.ExecContext(ctx, "ALTER TABLE reconciliation_state ADD CONSTRAINT singleton_check CHECK (id = 1)")
+		_, err := db.NewAddColumn().
+			Model((*dao.ReconciliationStateDao)(nil)).
+			ColumnExpr("CONSTRAINT singleton_check CHECK (id = 1)").
+			Exec(ctx)
 		if err != nil {
 			return err
 		}
@@ -28,7 +31,6 @@ func init() {
 				LastProcessedOffset: 0,
 				EventsProcessed:     0,
 			}).
-			ModelTableExpr("reconciliation_state").
 			On("CONFLICT (id) DO NOTHING").
 			Exec(ctx)
 		if err != nil {

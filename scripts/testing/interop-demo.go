@@ -55,6 +55,10 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -126,11 +130,18 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to services...")
-	db, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	bunDB, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
-		fatalf("Failed to connect to database: %v", err)
+		fatalf("Failed to connect to database (bun): %v", err)
 	}
-	defer db.Close()
+	defer bunDB.Close()
+	userStore := userstore.NewStore(bunDB)
+
+	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
+	if err != nil {
+		fatalf("Failed to connect to database (apidb): %v", err)
+	}
+	defer apiStore.Close()
 	fmt.Println("    Database:  connected")
 
 	// Connect to Canton
@@ -143,7 +154,7 @@ func main() {
 	fmt.Println()
 
 	// Verify registered users
-	users, err := db.GetAllUsers()
+	users, err := userStore.ListUsers(ctx)
 	if err != nil || len(users) < 2 {
 		fatalf("Need at least 2 registered users. Run bootstrap-local.sh first.")
 	}
@@ -166,7 +177,7 @@ func main() {
 		showHoldings(ctx, cantonClient)
 
 		// Step 1: Allocate external native parties + register with API server
-		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, db)
+		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, apiStore)
 
 		// Step 2: MetaMask User 1 → Native User 1 (via /eth)
 		stepTransferDemoViaCast(2, "MetaMask User 1 → Native User 1",
@@ -185,8 +196,8 @@ func main() {
 
 		// Reconcile
 		fmt.Println(">>> Running reconciliation...")
-		reconciler := apidb.NewReconciler(db, cantonClient.Token, logger)
-		if err := reconciler.ReconcileUserBalancesFromHoldings(ctx); err != nil {
+		rec := reconciler.New(apiStore, userStore, cantonClient.Token, logger)
+		if err := rec.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 			fmt.Printf("    WARNING: Reconciliation failed: %v\n", err)
 		}
 		fmt.Println()
@@ -290,7 +301,7 @@ func stepTransferDemoViaCast(stepNum int, title, senderKey, senderAddr, recipien
 
 // ─── Part B Steps ───────────────────────────────────────────────────────────
 
-func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
+func stepDepositPrompt(ctx context.Context, user1 *user.User) {
 	printStep(5, "Deposit PROMPT from Ethereum to Canton")
 
 	amountWei := toWei(*promptDeposit)
@@ -324,7 +335,7 @@ func stepDepositPrompt(ctx context.Context, user1 *apidb.User) {
 	fmt.Println()
 }
 
-func stepVerifyPromptBalance(ctx context.Context, stepNum int, user1 *apidb.User) {
+func stepVerifyPromptBalance(ctx context.Context, stepNum int, user1 *user.User) {
 	printStep(stepNum, "Verify Canton PROMPT Balance")
 	fmt.Println("    Waiting for relayer to process deposit...")
 
@@ -374,7 +385,7 @@ func stepTransferPromptViaCast(ctx context.Context, stepNum int, toAddr string) 
 	fmt.Println()
 }
 
-func stepVerifyFinalPromptBalances(ctx context.Context, stepNum int, user1, user2 *apidb.User) {
+func stepVerifyFinalPromptBalances(ctx context.Context, stepNum int, user1, user2 *user.User) {
 	printStep(stepNum, "Verify Final PROMPT Balances")
 
 	// Poll for User 2 balance

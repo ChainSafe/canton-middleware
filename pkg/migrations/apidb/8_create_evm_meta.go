@@ -22,7 +22,6 @@ func init() {
 				Key:   "latest_block_number",
 				Value: "0",
 			}).
-			ModelTableExpr("evm_meta").
 			On("CONFLICT (key) DO NOTHING").
 			Exec(ctx)
 		if err != nil {

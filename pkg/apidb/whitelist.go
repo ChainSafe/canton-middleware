@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// TODO: remove it and use from user store instead
+
 // WhitelistEntry represents an allowed EVM address
 type WhitelistEntry struct {
 	EVMAddress string    `json:"evm_address"`

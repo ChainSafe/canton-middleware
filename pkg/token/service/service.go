@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	"go.uber.org/zap"
+	"github.com/chainsafe/canton-middleware/pkg/token"
+	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 )
 
 var (
@@ -19,10 +23,23 @@ var (
 	ErrRecipientNotFound = errors.New("recipient not registered")
 )
 
+const (
+	tokenSymbolPrompt = "PROMPT"
+	tokenSymbolDemo   = "DEMO"
+)
+
+// UserStore defines the minimal user persistence behavior this service needs.
+type UserStore interface {
+	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
+	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
+	TransferBalanceByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount string, tokenType token.Type) error
+}
+
 // TokenService provides shared token operations for both RPC and EthRPC endpoints
 type TokenService struct {
 	config       *config.APIServerConfig
-	db           *apidb.Store
+	db           *apidb.Store // financial metrics: total supply
+	userStore    UserStore
 	cantonClient canton.Token
 	logger       *zap.Logger
 }
@@ -31,12 +48,14 @@ type TokenService struct {
 func NewTokenService(
 	cfg *config.APIServerConfig,
 	db *apidb.Store,
+	userStore UserStore,
 	cantonClient canton.Token,
 	logger *zap.Logger,
 ) *TokenService {
 	return &TokenService{
 		config:       cfg,
 		db:           db,
+		userStore:    userStore,
 		cantonClient: cantonClient,
 		logger:       logger,
 	}
@@ -65,28 +84,34 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 
 	tokenSymbol := req.TokenSymbol
 	if tokenSymbol == "" {
-		tokenSymbol = "PROMPT"
+		tokenSymbol = tokenSymbolPrompt
 	}
 
 	if !auth.ValidateEVMAddress(toAddress) {
 		return nil, ErrInvalidAddress
 	}
 
-	fromUser, err := s.db.GetUserByEVMAddress(fromAddress)
+	fromUser, err := s.userStore.GetUserByEVMAddress(ctx, fromAddress)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return nil, ErrUserNotRegistered
+		}
 		s.logger.Error("Failed to get sender", zap.Error(err))
 		return nil, fmt.Errorf("failed to get sender: %w", err)
 	}
-	if fromUser == nil || fromUser.Fingerprint == "" {
+	if fromUser.Fingerprint == "" {
 		return nil, ErrUserNotRegistered
 	}
 
-	toUser, err := s.db.GetUserByEVMAddress(toAddress)
+	toUser, err := s.userStore.GetUserByEVMAddress(ctx, toAddress)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return nil, ErrRecipientNotFound
+		}
 		s.logger.Error("Failed to get recipient", zap.Error(err))
 		return nil, fmt.Errorf("failed to get recipient: %w", err)
 	}
-	if toUser == nil || toUser.Fingerprint == "" {
+	if toUser.Fingerprint == "" {
 		return nil, ErrRecipientNotFound
 	}
 
@@ -109,13 +134,12 @@ func (s *TokenService) Transfer(ctx context.Context, req *TransferRequest) (*Tra
 		return nil, fmt.Errorf("canton transfer failed: %w", err)
 	}
 
-	// Determine DB token type from symbol
-	dbTokenType := apidb.TokenPrompt
-	if tokenSymbol == "DEMO" {
-		dbTokenType = apidb.TokenDemo
+	tokenType := token.Prompt
+	if tokenSymbol == tokenSymbolDemo {
+		tokenType = token.Demo
 	}
 
-	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, dbTokenType); err != nil {
+	if err := s.userStore.TransferBalanceByFingerprint(ctx, fromUser.Fingerprint, toUser.Fingerprint, req.Amount, tokenType); err != nil {
 		s.logger.Warn("Failed to update balance cache",
 			zap.String("token", tokenSymbol),
 			zap.String("from_fingerprint", fromUser.Fingerprint),
@@ -143,36 +167,34 @@ func (s *TokenService) GetBalance(ctx context.Context, evmAddress, tokenSymbol s
 	addr := auth.NormalizeAddress(evmAddress)
 
 	if tokenSymbol == "" {
-		tokenSymbol = "PROMPT"
+		tokenSymbol = tokenSymbolPrompt
 	}
 
-	user, err := s.db.GetUserByEVMAddress(addr)
+	user, err := s.userStore.GetUserByEVMAddress(ctx, addr)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return "0", nil
+		}
 		return "0", fmt.Errorf("failed to get user: %w", err)
 	}
-	if user == nil || user.Fingerprint == "" {
+	if user.Fingerprint == "" {
 		return "0", nil
 	}
 
-	dbTokenType := apidb.TokenPrompt
-	if tokenSymbol == "DEMO" {
-		dbTokenType = apidb.TokenDemo
+	if tokenSymbol == tokenSymbolDemo {
+		if user.DemoBalance == "" {
+			return "0", nil
+		}
+		return user.DemoBalance, nil
 	}
-
-	balance, err := s.db.GetBalanceByFingerprint(user.Fingerprint, dbTokenType)
-	if err != nil {
-		s.logger.Warn("Failed to get balance from cache, returning 0",
-			zap.String("token", tokenSymbol),
-			zap.String("fingerprint", user.Fingerprint),
-			zap.Error(err))
+	if user.PromptBalance == "" {
 		return "0", nil
 	}
-
-	return balance, nil
+	return user.PromptBalance, nil
 }
 
 // GetTotalSupply returns the total supply for a specific token
-func (s *TokenService) GetTotalSupply(ctx context.Context, tokenSymbol string) (string, error) {
+func (s *TokenService) GetTotalSupply(_ context.Context, tokenSymbol string) (string, error) {
 	return s.db.GetTotalSupply(tokenSymbol)
 }
 
@@ -192,13 +214,16 @@ func (s *TokenService) GetTokenDecimals() int {
 }
 
 // IsUserRegistered checks if an EVM address is registered
-func (s *TokenService) IsUserRegistered(evmAddress string) (bool, error) {
+func (s *TokenService) IsUserRegistered(ctx context.Context, evmAddress string) (bool, error) {
 	addr := auth.NormalizeAddress(evmAddress)
-	user, err := s.db.GetUserByEVMAddress(addr)
+	_, err := s.userStore.GetUserByEVMAddress(ctx, addr)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
-	return user != nil && user.Fingerprint != "", nil
+	return true, nil
 }
 
 func isInsufficientFunds(err error) bool {
@@ -230,34 +255,32 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 		return nil, fmt.Errorf("invalid recipient party ID: %w", err)
 	}
 
-	// Get sender user by party ID
-	fromUser, err := s.db.GetUserByCantonPartyID(req.FromPartyID)
+	fromUser, err := s.userStore.GetUserByCantonPartyID(ctx, req.FromPartyID)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return nil, ErrUserNotRegistered
+		}
 		s.logger.Error("Failed to get sender by party ID", zap.Error(err))
 		return nil, fmt.Errorf("failed to get sender: %w", err)
 	}
-	if fromUser == nil {
-		return nil, ErrUserNotRegistered
-	}
 
-	// Get recipient user by party ID
-	toUser, err := s.db.GetUserByCantonPartyID(req.ToPartyID)
+	toUser, err := s.userStore.GetUserByCantonPartyID(ctx, req.ToPartyID)
 	if err != nil {
+		if errors.Is(err, userstore.ErrUserNotFound) {
+			return nil, ErrRecipientNotFound
+		}
 		s.logger.Error("Failed to get recipient by party ID", zap.Error(err))
 		return nil, fmt.Errorf("failed to get recipient: %w", err)
-	}
-	if toUser == nil {
-		return nil, ErrRecipientNotFound
 	}
 
 	tokenSymbol := req.Token
 	if tokenSymbol == "" {
-		tokenSymbol = "DEMO"
+		tokenSymbol = tokenSymbolDemo
 	}
 
-	dbTokenType := apidb.TokenDemo
-	if tokenSymbol == "PROMPT" {
-		dbTokenType = apidb.TokenPrompt
+	tokenType := token.Demo
+	if tokenSymbol == tokenSymbolPrompt {
+		tokenType = token.Prompt
 	}
 
 	err = s.cantonClient.TransferByFingerprint(ctx,
@@ -279,7 +302,7 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 		return nil, fmt.Errorf("canton transfer failed: %w", err)
 	}
 
-	if err := s.db.TransferBalanceByFingerprint(fromUser.Fingerprint, toUser.Fingerprint, req.Amount, dbTokenType); err != nil {
+	if err := s.userStore.TransferBalanceByFingerprint(ctx, fromUser.Fingerprint, toUser.Fingerprint, req.Amount, tokenType); err != nil {
 		s.logger.Warn("Failed to update balance cache",
 			zap.String("from_fingerprint", fromUser.Fingerprint),
 			zap.String("to_fingerprint", toUser.Fingerprint),
@@ -301,6 +324,6 @@ func (s *TokenService) TransferByPartyID(ctx context.Context, req *CantonTransfe
 }
 
 // GetUserByPartyID retrieves user info by Canton party ID
-func (s *TokenService) GetUserByPartyID(partyID string) (*apidb.User, error) {
-	return s.db.GetUserByCantonPartyID(partyID)
+func (s *TokenService) GetUserByPartyID(ctx context.Context, partyID string) (*user.User, error) {
+	return s.userStore.GetUserByCantonPartyID(ctx, partyID)
 }

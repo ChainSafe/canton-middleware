@@ -22,11 +22,12 @@ type Config struct {
 
 // ServerConfig contains HTTP server settings
 type ServerConfig struct {
-	Host         string        `yaml:"host"`
-	Port         int           `yaml:"port"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
-	IdleTimeout  time.Duration `yaml:"idle_timeout"`
+	Host            string        `yaml:"host"`
+	Port            int           `yaml:"port"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	IdleTimeout     time.Duration `yaml:"idle_timeout"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 }
 
 // DatabaseConfig contains database connection settings
@@ -244,6 +245,9 @@ func setAPIServerDefaults(config *APIServerConfig) {
 	if config.Server.IdleTimeout == 0 {
 		config.Server.IdleTimeout = 60 * time.Second
 	}
+	if config.Server.ShutdownTimeout == 0 {
+		config.Server.ShutdownTimeout = 30 * time.Second
+	}
 
 	// Database defaults
 	if config.Database.Host == "" {
@@ -437,7 +441,9 @@ func setDefaults(config *Config) {
 	if config.Server.IdleTimeout == 0 {
 		config.Server.IdleTimeout = 60 * time.Second
 	}
-
+	if config.Server.ShutdownTimeout == 0 {
+		config.Server.ShutdownTimeout = 30 * time.Second
+	}
 	// Database defaults
 	if config.Database.Host == "" {
 		config.Database.Host = "localhost"
