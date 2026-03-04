@@ -101,13 +101,28 @@ func (e *TokenTransferEvent) EventType() string {
 }
 
 // EvmTxHash returns the bridge deposit tx hash from metadata.
-func (e *TokenTransferEvent) EvmTxHash() string { return e.Meta["bridge.externalTxId"] }
+func (e *TokenTransferEvent) EvmTxHash() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.externalTxId"]
+}
 
 // EvmDestination returns the bridge withdrawal address from metadata.
-func (e *TokenTransferEvent) EvmDestination() string { return e.Meta["bridge.externalAddress"] }
+func (e *TokenTransferEvent) EvmDestination() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.externalAddress"]
+}
 
 // UserFingerprint returns the bridge audit fingerprint from metadata.
-func (e *TokenTransferEvent) UserFingerprint() string { return e.Meta["bridge.fingerprint"] }
+func (e *TokenTransferEvent) UserFingerprint() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.fingerprint"]
+}
 
 // TransferFactoryInfo contains the CIP56TransferFactory contract details
 // required by external wallets for Splice-compliant explicit contract disclosure.

@@ -866,9 +866,11 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 				}
 				e.From = from
 				e.To = to
-				e.Fingerprint = meta["bridge.fingerprint"]
-				e.EvmTxHash = meta["bridge.externalTxId"]
-				e.EvmDestination = meta["bridge.externalAddress"]
+				if meta != nil {
+					e.Fingerprint = meta["bridge.fingerprint"]
+					e.EvmTxHash = meta["bridge.externalTxId"]
+					e.EvmDestination = meta["bridge.externalAddress"]
+				}
 
 				if created.CreatedAt != nil {
 					e.CreatedAt = created.CreatedAt.AsTime()
