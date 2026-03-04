@@ -32,12 +32,11 @@ type Holding struct {
 
 // MintRequest represents an issuer mint request via TokenConfig.
 type MintRequest struct {
-	RecipientParty  string
-	Amount          string
-	UserFingerprint string
-	TokenSymbol     string
-	ConfigCID       string
-	EvmTxHash       string
+	RecipientParty string
+	Amount         string
+	TokenSymbol    string // needed for GetTokenConfigCID lookup
+	ConfigCID      string
+	EventMeta      map[string]string // bridge context; nil for native mints
 }
 
 func (m *MintRequest) validate() error {
@@ -50,19 +49,15 @@ func (m *MintRequest) validate() error {
 	if m.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
 	}
-	if m.UserFingerprint == "" {
-		return fmt.Errorf("user_fingerprint is required")
-	}
 	return nil
 }
 
 // BurnRequest represents an issuer burn request via TokenConfig.
 type BurnRequest struct {
-	HoldingCID      string
-	Amount          string
-	UserFingerprint string
-	TokenSymbol     string
-	EvmDestination  string
+	HoldingCID  string
+	Amount      string
+	TokenSymbol string            // needed for GetTokenConfigCID lookup
+	EventMeta   map[string]string // bridge context; nil for native burns
 }
 
 func (b *BurnRequest) validate() error {
@@ -74,9 +69,6 @@ func (b *BurnRequest) validate() error {
 	}
 	if b.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
-	}
-	if b.UserFingerprint == "" {
-		return fmt.Errorf("user_fingerprint is required")
 	}
 	return nil
 }
@@ -90,14 +82,32 @@ type TokenTransferEvent struct {
 	FromParty       string // empty = mint (no sender)
 	ToParty         string // empty = burn (no receiver)
 	Amount          string
-	TokenSymbol     string
-	EventType       string // "MINT" | "BURN" | "TRANSFER"
+	InstrumentAdmin string
+	InstrumentID    string
 	Timestamp       time.Time
-	EvmTxHash       string
-	EvmDestination  string
-	UserFingerprint string
+	Meta            map[string]string // bridge context; nil for native ops
 	AuditObservers  []string
 }
+
+// EventType derives the event type from fromParty/toParty.
+func (e *TokenTransferEvent) EventType() string {
+	if e.FromParty == "" {
+		return "MINT"
+	}
+	if e.ToParty == "" {
+		return "BURN"
+	}
+	return "TRANSFER"
+}
+
+// EvmTxHash returns the bridge deposit tx hash from metadata.
+func (e *TokenTransferEvent) EvmTxHash() string { return e.Meta["bridge.externalTxId"] }
+
+// EvmDestination returns the bridge withdrawal address from metadata.
+func (e *TokenTransferEvent) EvmDestination() string { return e.Meta["bridge.externalAddress"] }
+
+// UserFingerprint returns the bridge audit fingerprint from metadata.
+func (e *TokenTransferEvent) UserFingerprint() string { return e.Meta["bridge.fingerprint"] }
 
 // TransferFactoryInfo contains the CIP56TransferFactory contract details
 // required by external wallets for Splice-compliant explicit contract disclosure.

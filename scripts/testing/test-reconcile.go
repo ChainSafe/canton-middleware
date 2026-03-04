@@ -222,18 +222,18 @@ func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 
 	var mintCount, burnCount, transferCount int
 	for _, e := range events {
-		switch e.EventType {
+		switch e.EventType() {
 		case "MINT":
 			mintCount++
 			if *verbose {
 				printInfo("  [MINT] Amount: %s, Fingerprint: %s, EvmTx: %s",
-					e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmTxHash, 20))
+					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmTxHash(), 20))
 			}
 		case "BURN":
 			burnCount++
 			if *verbose {
 				printInfo("  [BURN] Amount: %s, Fingerprint: %s, Destination: %s",
-					e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmDestination, 20))
+					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmDestination(), 20))
 			}
 		case "TRANSFER":
 			transferCount++

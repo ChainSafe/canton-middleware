@@ -25,6 +25,7 @@ func decodeHolding(ce *lapiv2.CreatedEvent) *Holding {
 
 func decodeTokenTransferEvent(ce *lapiv2.CreatedEvent) *TokenTransferEvent {
 	fields := values.RecordToMap(ce.CreateArguments)
+	admin, id := values.DecodeInstrumentId(fields["instrumentId"])
 
 	return &TokenTransferEvent{
 		ContractID:      ce.ContractId,
@@ -32,12 +33,10 @@ func decodeTokenTransferEvent(ce *lapiv2.CreatedEvent) *TokenTransferEvent {
 		FromParty:       values.OptionalParty(fields["fromParty"]),
 		ToParty:         values.OptionalParty(fields["toParty"]),
 		Amount:          values.Numeric(fields["amount"]),
-		TokenSymbol:     values.Text(fields["tokenSymbol"]),
-		EventType:       values.Text(fields["eventType"]),
+		InstrumentAdmin: admin,
+		InstrumentID:    id,
 		Timestamp:       values.Timestamp(fields["timestamp"]),
-		EvmTxHash:       values.OptionalText(fields["evmTxHash"]),
-		EvmDestination:  values.OptionalText(fields["evmDestination"]),
-		UserFingerprint: values.OptionalText(fields["userFingerprint"]),
+		Meta:            values.DecodeOptionalMetadata(fields["meta"]),
 		AuditObservers:  values.PartyList(fields["auditObservers"]),
 	}
 }

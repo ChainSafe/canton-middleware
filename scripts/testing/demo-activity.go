@@ -837,22 +837,38 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 			if created != nil {
 				fm := values.RecordToMap(created.GetCreateArguments())
 
+				from := values.OptionalParty(fm["fromParty"])
+				to := values.OptionalParty(fm["toParty"])
+
+				// Derive event type from fromParty/toParty
+				var eventType string
+				if from == "" {
+					eventType = "MINT"
+				} else if to == "" {
+					eventType = "BURN"
+				} else {
+					eventType = "TRANSFER"
+				}
+
+				// Decode optional metadata for bridge context
+				meta := values.DecodeOptionalMetadata(fm["meta"])
+
 				e := Event{
-					Type:       values.Text(fm["eventType"]),
+					Type:       eventType,
 					ContractID: created.ContractId,
 					Offset:     created.Offset,
 					Amount:     values.Numeric(fm["amount"]),
 				}
 
-				e.Owner = values.OptionalParty(fm["toParty"])
+				e.Owner = to
 				if e.Owner == "" {
-					e.Owner = values.OptionalParty(fm["fromParty"])
+					e.Owner = from
 				}
-				e.From = values.OptionalParty(fm["fromParty"])
-				e.To = values.OptionalParty(fm["toParty"])
-				e.Fingerprint = values.OptionalText(fm["userFingerprint"])
-				e.EvmTxHash = values.OptionalText(fm["evmTxHash"])
-				e.EvmDestination = values.OptionalText(fm["evmDestination"])
+				e.From = from
+				e.To = to
+				e.Fingerprint = meta["bridge.fingerprint"]
+				e.EvmTxHash = meta["bridge.externalTxId"]
+				e.EvmDestination = meta["bridge.externalAddress"]
 
 				if created.CreatedAt != nil {
 					e.CreatedAt = created.CreatedAt.AsTime()

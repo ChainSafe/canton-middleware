@@ -126,27 +126,27 @@ func nullIfEmpty(s string) interface{} {
 // For MINT events (credit), for BURN events (debit). TRANSFER events are not stored
 // as bridge events since they are internal Canton operations.
 func (s *Store) StoreTokenTransferEvent(event *canton.TokenTransferEvent) error {
-	switch event.EventType {
+	switch event.EventType() {
 	case "MINT":
 		return s.storeBridgeEvent(bridgeEventParams{
 			eventType:   "mint",
 			contractID:  event.ContractID,
-			fingerprint: event.UserFingerprint,
+			fingerprint: event.UserFingerprint(),
 			amount:      event.Amount,
-			tokenSymbol: event.TokenSymbol,
+			tokenSymbol: event.InstrumentID,
 			timestamp:   event.Timestamp,
-			evmTxHash:   event.EvmTxHash,
+			evmTxHash:   event.EvmTxHash(),
 			isCredit:    true,
 		})
 	case "BURN":
 		return s.storeBridgeEvent(bridgeEventParams{
 			eventType:      "burn",
 			contractID:     event.ContractID,
-			fingerprint:    event.UserFingerprint,
+			fingerprint:    event.UserFingerprint(),
 			amount:         event.Amount,
-			tokenSymbol:    event.TokenSymbol,
+			tokenSymbol:    event.InstrumentID,
 			timestamp:      event.Timestamp,
-			evmDestination: event.EvmDestination,
+			evmDestination: event.EvmDestination(),
 			isCredit:       false,
 		})
 	default:

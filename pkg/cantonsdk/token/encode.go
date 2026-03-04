@@ -8,35 +8,23 @@ import (
 )
 
 func encodeIssuerMintArgs(req *MintRequest) *lapiv2.Record {
-	evmTx := values.None()
-	if req.EvmTxHash != "" {
-		evmTx = values.Optional(values.TextValue(req.EvmTxHash))
-	}
-
 	return &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "recipient", Value: values.PartyValue(req.RecipientParty)},
 			{Label: "amount", Value: values.NumericValue(req.Amount)},
 			{Label: "eventTime", Value: values.TimestampValue(time.Now())},
-			{Label: "userFingerprint", Value: values.TextValue(req.UserFingerprint)},
-			{Label: "evmTxHash", Value: evmTx},
+			{Label: "eventMeta", Value: values.EncodeOptionalMetadata(req.EventMeta)},
 		},
 	}
 }
 
 func encodeIssuerBurnArgs(req *BurnRequest) *lapiv2.Record {
-	evmDest := values.None()
-	if req.EvmDestination != "" {
-		evmDest = values.Optional(values.TextValue(req.EvmDestination))
-	}
-
 	return &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "holdingCid", Value: values.ContractIDValue(req.HoldingCID)},
 			{Label: "amount", Value: values.NumericValue(req.Amount)},
 			{Label: "eventTime", Value: values.TimestampValue(time.Now())},
-			{Label: "userFingerprint", Value: values.TextValue(req.UserFingerprint)},
-			{Label: "evmDestination", Value: evmDest},
+			{Label: "eventMeta", Value: values.EncodeOptionalMetadata(req.EventMeta)},
 		},
 	}
 }

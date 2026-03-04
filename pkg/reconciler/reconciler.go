@@ -268,7 +268,8 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 
 	// Process events (only MINT and BURN affect bridge reconciliation)
 	for _, event := range events {
-		if event.EventType != "MINT" && event.EventType != "BURN" {
+		eventType := event.EventType()
+		if eventType != "MINT" && eventType != "BURN" {
 			continue
 		}
 
@@ -284,23 +285,23 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 		if err := r.db.StoreTokenTransferEvent(event); err != nil {
 			r.logger.Warn("Failed to store token transfer event",
 				zap.String("contract_id", event.ContractID),
-				zap.String("event_type", event.EventType),
-				zap.String("fingerprint", event.UserFingerprint),
+				zap.String("event_type", eventType),
+				zap.String("fingerprint", event.UserFingerprint()),
 				zap.Error(err))
 			continue
 		}
 
-		switch event.EventType {
+		switch eventType {
 		case "MINT":
 			mintCount++
 			r.logger.Debug("Processed mint event",
-				zap.String("fingerprint", event.UserFingerprint),
+				zap.String("fingerprint", event.UserFingerprint()),
 				zap.String("amount", event.Amount),
-				zap.String("evm_tx_hash", event.EvmTxHash))
+				zap.String("evm_tx_hash", event.EvmTxHash()))
 		case "BURN":
 			burnCount++
 			r.logger.Debug("Processed burn event",
-				zap.String("fingerprint", event.UserFingerprint),
+				zap.String("fingerprint", event.UserFingerprint()),
 				zap.String("amount", event.Amount))
 		}
 	}
