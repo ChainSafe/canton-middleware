@@ -71,6 +71,26 @@ DB_NAME="erc20_api"
 export CANTON_MASTER_KEY="${CANTON_MASTER_KEY:-$(openssl rand -base64 32)}"
 export SKIP_CANTON_SIG_VERIFY="${SKIP_CANTON_SIG_VERIFY:-true}"
 
+# ─── Step 0: Build DARs ─────────────────────────────────────────────────────
+build_dars() {
+    print_header "Step 0: Build Daml Packages (DARs)"
+
+    if ! command -v daml &> /dev/null; then
+        print_warning "daml not found — skipping DAR build (using pre-built DARs)"
+        return 0
+    fi
+
+    # Check if submodule is initialized
+    if [ ! -f "$PROJECT_ROOT/contracts/canton-erc20/daml/cip56-token/daml.yaml" ]; then
+        print_step "Initializing submodule..."
+        git -C "$PROJECT_ROOT" submodule update --init contracts/canton-erc20
+    fi
+
+    print_step "Building DARs and updating config package IDs..."
+    "$PROJECT_ROOT/scripts/setup/build-dars.sh"
+    print_success "DARs built and config package IDs updated"
+}
+
 # ─── Step 1: Docker ──────────────────────────────────────────────────────────
 start_docker() {
     print_header "Step 1: Start Docker Services"
@@ -346,6 +366,7 @@ main() {
     cd "$PROJECT_ROOT"
 
     if [ "$SKIP_DOCKER" = false ]; then
+        build_dars
         start_docker
     else
         print_step "Skipping Docker start (--skip-docker)"

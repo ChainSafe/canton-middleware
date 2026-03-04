@@ -69,11 +69,8 @@ type Token interface {
 	// TransferByPartyID transfers tokens by party IDs.
 	TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error
 
-	// GetMintEvents returns all active CIP56.Events.MintEvent contracts visible to relayerParty.
-	GetMintEvents(ctx context.Context) ([]*MintEvent, error)
-
-	// GetBurnEvents returns all active CIP56.Events.BurnEvent contracts visible to relayerParty.
-	GetBurnEvents(ctx context.Context) ([]*BurnEvent, error)
+	// GetTokenTransferEvents returns all active CIP56.Events.TokenTransferEvent contracts visible to relayerParty.
+	GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error)
 
 	// GetTransferFactory returns the active CIP56TransferFactory contract ID and its
 	// CreatedEventBlob for explicit contract disclosure by external wallets (Splice Registry API).
@@ -663,25 +660,14 @@ func selectHoldingsForTransfer(holdings []*Holding, requiredAmount string) (*sel
 		ErrInsufficientBalance, total, requiredAmount)
 }
 
-func (c *Client) GetMintEvents(ctx context.Context) ([]*MintEvent, error) {
+func (c *Client) GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error) {
 	return getEvents(
 		ctx,
 		c.ledger,
 		c.cfg.CIP56PackageID,
 		c.cfg.RelayerParty,
-		"MintEvent",
-		decodeMintEvent,
-	)
-}
-
-func (c *Client) GetBurnEvents(ctx context.Context) ([]*BurnEvent, error) {
-	return getEvents(
-		ctx,
-		c.ledger,
-		c.cfg.CIP56PackageID,
-		c.cfg.RelayerParty,
-		"BurnEvent",
-		decodeBurnEvent,
+		"TokenTransferEvent",
+		decodeTokenTransferEvent,
 	)
 }
 

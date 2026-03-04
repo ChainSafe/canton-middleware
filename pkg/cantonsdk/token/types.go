@@ -32,12 +32,11 @@ type Holding struct {
 
 // MintRequest represents an issuer mint request via TokenConfig.
 type MintRequest struct {
-	RecipientParty  string
-	Amount          string
-	UserFingerprint string
-	TokenSymbol     string
-	ConfigCID       string
-	EvmTxHash       string
+	RecipientParty string
+	Amount         string
+	TokenSymbol    string // needed for GetTokenConfigCID lookup
+	ConfigCID      string
+	EventMeta      map[string]string // bridge context; nil for native mints
 }
 
 func (m *MintRequest) validate() error {
@@ -50,19 +49,15 @@ func (m *MintRequest) validate() error {
 	if m.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
 	}
-	if m.UserFingerprint == "" {
-		return fmt.Errorf("user_fingerprint is required")
-	}
 	return nil
 }
 
 // BurnRequest represents an issuer burn request via TokenConfig.
 type BurnRequest struct {
-	HoldingCID      string
-	Amount          string
-	UserFingerprint string
-	TokenSymbol     string
-	EvmDestination  string
+	HoldingCID  string
+	Amount      string
+	TokenSymbol string            // needed for GetTokenConfigCID lookup
+	EventMeta   map[string]string // bridge context; nil for native burns
 }
 
 func (b *BurnRequest) validate() error {
@@ -75,26 +70,67 @@ func (b *BurnRequest) validate() error {
 	if b.TokenSymbol == "" {
 		return fmt.Errorf("token_symbol is required")
 	}
-	if b.UserFingerprint == "" {
-		return fmt.Errorf("user_fingerprint is required")
-	}
 	return nil
 }
 
-// MintEvent is a decoded representation of a CIP56.Events.MintEvent.
-// See canton-erc20 repository:
-// daml/cip56-token/src/CIP56/Events.daml
-type MintEvent struct {
+// TokenTransferEvent is a decoded representation of a CIP56.Events.TokenTransferEvent.
+// Unified event for all token mutations (mint, burn, transfer).
+// See canton-erc20 repository: daml/cip56-token/src/CIP56/Events.daml
+type TokenTransferEvent struct {
 	ContractID      string
 	Issuer          string
-	Recipient       string
+	FromParty       string // empty = mint (no sender)
+	ToParty         string // empty = burn (no receiver)
 	Amount          string
-	HoldingCid      string
-	TokenSymbol     string
-	EvmTxHash       string
-	UserFingerprint string
+	InstrumentAdmin string
+	InstrumentID    string
 	Timestamp       time.Time
+	Meta            map[string]string // bridge context; nil for native ops
 	AuditObservers  []string
+}
+
+// EventType represents the kind of token mutation.
+type EventType string
+
+const (
+	EventTypeMint     EventType = "MINT"
+	EventTypeBurn     EventType = "BURN"
+	EventTypeTransfer EventType = "TRANSFER"
+)
+
+// EventType derives the event type from fromParty/toParty.
+func (e *TokenTransferEvent) EventType() EventType {
+	if e.FromParty == "" {
+		return EventTypeMint
+	}
+	if e.ToParty == "" {
+		return EventTypeBurn
+	}
+	return EventTypeTransfer
+}
+
+// EvmTxHash returns the bridge deposit tx hash from metadata.
+func (e *TokenTransferEvent) EvmTxHash() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.externalTxId"]
+}
+
+// EvmDestination returns the bridge withdrawal address from metadata.
+func (e *TokenTransferEvent) EvmDestination() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.externalAddress"]
+}
+
+// UserFingerprint returns the bridge audit fingerprint from metadata.
+func (e *TokenTransferEvent) UserFingerprint() string {
+	if e.Meta == nil {
+		return ""
+	}
+	return e.Meta["bridge.fingerprint"]
 }
 
 // TransferFactoryInfo contains the CIP56TransferFactory contract details
@@ -110,19 +146,4 @@ type TemplateIdentifier struct {
 	PackageID  string `json:"package_id"`
 	ModuleName string `json:"module_name"`
 	EntityName string `json:"entity_name"`
-}
-
-// BurnEvent is a decoded representation of a CIP56.Events.BurnEvent.
-// See canton-erc20 repository:
-// daml/cip56-token/src/CIP56/Events.daml
-type BurnEvent struct {
-	ContractID      string
-	Issuer          string
-	BurnedFrom      string
-	Amount          string
-	EvmDestination  string
-	TokenSymbol     string
-	UserFingerprint string
-	Timestamp       time.Time
-	AuditObservers  []string
 }

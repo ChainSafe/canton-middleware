@@ -154,17 +154,6 @@ func main() {
 		fatalf("Failed to get users: %v", err)
 	}
 
-	// Build party → fingerprint lookup from database users
-	fingerprintByParty := make(map[string]string)
-	for _, u := range users {
-		if u.CantonPartyID != "" {
-			fingerprintByParty[u.CantonPartyID] = u.Fingerprint
-		}
-		if u.CantonParty != "" {
-			fingerprintByParty[u.CantonParty] = u.Fingerprint
-		}
-	}
-
 	// Step 1: Archive all DEMO holdings using CIP56Manager.Burn
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Step 1: Archive All DEMO Holdings")
@@ -174,17 +163,10 @@ func main() {
 	if !*dryRun {
 		for i, h := range allDemoHoldings {
 			fmt.Printf("    [%d/%d] Archiving %s DEMO from %s...\n", i+1, len(allDemoHoldings), h.Amount, truncateParty(h.Owner))
-			// Look up fingerprint; use "archive" for orphaned parties from old sessions
-			fp := fingerprintByParty[h.Owner]
-			if fp == "" {
-				fp = "archive"
-			}
 			err = cantonClient.Token.Burn(ctx, &token.BurnRequest{
-				HoldingCID:      h.ContractID,
-				Amount:          h.Amount,
-				UserFingerprint: fp,
-				TokenSymbol:     "DEMO",
-				EvmDestination:  "",
+				HoldingCID:  h.ContractID,
+				Amount:      h.Amount,
+				TokenSymbol: "DEMO",
 			})
 			if err != nil {
 				fmt.Printf("    ERROR: %v\n", err)
@@ -206,25 +188,12 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-
-	// Find fingerprints for each user party
-	user1Fingerprint := ""
-	user2Fingerprint := ""
-	for _, u := range users {
-		if u.CantonPartyID == user1Party || u.CantonParty == user1Party {
-			user1Fingerprint = u.Fingerprint
-		} else if u.CantonPartyID == user2Party || u.CantonParty == user2Party {
-			user2Fingerprint = u.Fingerprint
-		}
-	}
-
 	fmt.Printf("    Minting %s DEMO to User 1 (%s)...\n", *mintAmount, truncateParty(user1Party))
 	if !*dryRun && user1Party != "" {
 		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
-			RecipientParty:  user1Party,
-			Amount:          *mintAmount,
-			UserFingerprint: user1Fingerprint,
-			TokenSymbol:     "DEMO",
+			RecipientParty: user1Party,
+			Amount:         *mintAmount,
+			TokenSymbol:    "DEMO",
 		})
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)
@@ -238,10 +207,9 @@ func main() {
 	fmt.Printf("    Minting %s DEMO to User 2 (%s)...\n", *mintAmount, truncateParty(user2Party))
 	if !*dryRun && user2Party != "" {
 		_, err := cantonClient.Token.Mint(ctx, &token.MintRequest{
-			RecipientParty:  user2Party,
-			Amount:          *mintAmount,
-			UserFingerprint: user2Fingerprint,
-			TokenSymbol:     "DEMO",
+			RecipientParty: user2Party,
+			Amount:         *mintAmount,
+			TokenSymbol:    "DEMO",
 		})
 		if err != nil {
 			fmt.Printf("    ERROR: %v\n", err)

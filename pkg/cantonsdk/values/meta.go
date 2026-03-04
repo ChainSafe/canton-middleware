@@ -135,6 +135,26 @@ func EncodeExtraArgs() *lapiv2.Value {
 	}
 }
 
+// EncodeOptionalMetadata encodes Optional Metadata — None if nil/empty, Some if populated.
+func EncodeOptionalMetadata(kvs map[string]string) *lapiv2.Value {
+	if len(kvs) == 0 {
+		return None()
+	}
+	return Optional(EncodeMetadata(kvs))
+}
+
+// DecodeOptionalMetadata decodes Optional Metadata from Daml. Returns nil for None.
+func DecodeOptionalMetadata(v *lapiv2.Value) map[string]string {
+	if IsNone(v) {
+		return nil
+	}
+	opt, ok := v.Sum.(*lapiv2.Value_Optional)
+	if !ok || opt.Optional == nil || opt.Optional.Value == nil {
+		return nil
+	}
+	return DecodeMetadata(opt.Optional.Value)
+}
+
 // MetaSymbolFromRecord extracts the token symbol from a contract's CreateArguments record
 // by finding the "meta" field and decoding its Splice Metadata.
 func MetaSymbolFromRecord(args *lapiv2.Record) string {

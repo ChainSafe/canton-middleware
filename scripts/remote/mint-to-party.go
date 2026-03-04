@@ -258,8 +258,7 @@ func mintTokens(ctx context.Context, client lapiv2.CommandServiceClient, cip56Pk
 			{Label: "recipient", Value: values.PartyValue(recipient)},
 			{Label: "amount", Value: &lapiv2.Value{Sum: &lapiv2.Value_Numeric{Numeric: amt}}},
 			{Label: "eventTime", Value: &lapiv2.Value{Sum: &lapiv2.Value_Timestamp{Timestamp: time.Now().UnixMicro()}}},
-			{Label: "userFingerprint", Value: values.TextValue("external-party")},
-			{Label: "evmTxHash", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{}}}},
+			{Label: "eventMeta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
 		},
 	}
 

@@ -185,64 +185,6 @@ func (_c *Token_GetBalanceByFingerprint_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// GetBurnEvents provides a mock function with given fields: ctx
-func (_m *Token) GetBurnEvents(ctx context.Context) ([]*token.BurnEvent, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetBurnEvents")
-	}
-
-	var r0 []*token.BurnEvent
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]*token.BurnEvent, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []*token.BurnEvent); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*token.BurnEvent)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Token_GetBurnEvents_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBurnEvents'
-type Token_GetBurnEvents_Call struct {
-	*mock.Call
-}
-
-// GetBurnEvents is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *Token_Expecter) GetBurnEvents(ctx interface{}) *Token_GetBurnEvents_Call {
-	return &Token_GetBurnEvents_Call{Call: _e.mock.On("GetBurnEvents", ctx)}
-}
-
-func (_c *Token_GetBurnEvents_Call) Run(run func(ctx context.Context)) *Token_GetBurnEvents_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *Token_GetBurnEvents_Call) Return(_a0 []*token.BurnEvent, _a1 error) *Token_GetBurnEvents_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Token_GetBurnEvents_Call) RunAndReturn(run func(context.Context) ([]*token.BurnEvent, error)) *Token_GetBurnEvents_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetHoldings provides a mock function with given fields: ctx, ownerParty, tokenSymbol
 func (_m *Token) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*token.Holding, error) {
 	ret := _m.Called(ctx, ownerParty, tokenSymbol)
@@ -303,64 +245,6 @@ func (_c *Token_GetHoldings_Call) RunAndReturn(run func(context.Context, string,
 	return _c
 }
 
-// GetMintEvents provides a mock function with given fields: ctx
-func (_m *Token) GetMintEvents(ctx context.Context) ([]*token.MintEvent, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetMintEvents")
-	}
-
-	var r0 []*token.MintEvent
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]*token.MintEvent, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []*token.MintEvent); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*token.MintEvent)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Token_GetMintEvents_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMintEvents'
-type Token_GetMintEvents_Call struct {
-	*mock.Call
-}
-
-// GetMintEvents is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *Token_Expecter) GetMintEvents(ctx interface{}) *Token_GetMintEvents_Call {
-	return &Token_GetMintEvents_Call{Call: _e.mock.On("GetMintEvents", ctx)}
-}
-
-func (_c *Token_GetMintEvents_Call) Run(run func(ctx context.Context)) *Token_GetMintEvents_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *Token_GetMintEvents_Call) Return(_a0 []*token.MintEvent, _a1 error) *Token_GetMintEvents_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Token_GetMintEvents_Call) RunAndReturn(run func(context.Context) ([]*token.MintEvent, error)) *Token_GetMintEvents_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetTokenConfigCID provides a mock function with given fields: ctx, tokenSymbol
 func (_m *Token) GetTokenConfigCID(ctx context.Context, tokenSymbol string) (string, error) {
 	ret := _m.Called(ctx, tokenSymbol)
@@ -414,6 +298,64 @@ func (_c *Token_GetTokenConfigCID_Call) Return(_a0 string, _a1 error) *Token_Get
 }
 
 func (_c *Token_GetTokenConfigCID_Call) RunAndReturn(run func(context.Context, string) (string, error)) *Token_GetTokenConfigCID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetTokenTransferEvents provides a mock function with given fields: ctx
+func (_m *Token) GetTokenTransferEvents(ctx context.Context) ([]*token.TokenTransferEvent, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTokenTransferEvents")
+	}
+
+	var r0 []*token.TokenTransferEvent
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*token.TokenTransferEvent, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*token.TokenTransferEvent); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*token.TokenTransferEvent)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_GetTokenTransferEvents_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTokenTransferEvents'
+type Token_GetTokenTransferEvents_Call struct {
+	*mock.Call
+}
+
+// GetTokenTransferEvents is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Token_Expecter) GetTokenTransferEvents(ctx interface{}) *Token_GetTokenTransferEvents_Call {
+	return &Token_GetTokenTransferEvents_Call{Call: _e.mock.On("GetTokenTransferEvents", ctx)}
+}
+
+func (_c *Token_GetTokenTransferEvents_Call) Run(run func(ctx context.Context)) *Token_GetTokenTransferEvents_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Token_GetTokenTransferEvents_Call) Return(_a0 []*token.TokenTransferEvent, _a1 error) *Token_GetTokenTransferEvents_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_GetTokenTransferEvents_Call) RunAndReturn(run func(context.Context) ([]*token.TokenTransferEvent, error)) *Token_GetTokenTransferEvents_Call {
 	_c.Call.Return(run)
 	return _c
 }

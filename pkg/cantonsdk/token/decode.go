@@ -23,35 +23,20 @@ func decodeHolding(ce *lapiv2.CreatedEvent) *Holding {
 	}
 }
 
-func decodeMintEvent(ce *lapiv2.CreatedEvent) *MintEvent {
+func decodeTokenTransferEvent(ce *lapiv2.CreatedEvent) *TokenTransferEvent {
 	fields := values.RecordToMap(ce.CreateArguments)
+	admin, id := values.DecodeInstrumentId(fields["instrumentId"])
 
-	return &MintEvent{
+	return &TokenTransferEvent{
 		ContractID:      ce.ContractId,
 		Issuer:          values.Party(fields["issuer"]),
-		Recipient:       values.Party(fields["recipient"]),
+		FromParty:       values.OptionalParty(fields["fromParty"]),
+		ToParty:         values.OptionalParty(fields["toParty"]),
 		Amount:          values.Numeric(fields["amount"]),
-		HoldingCid:      values.ContractID(fields["holdingCid"]),
-		TokenSymbol:     values.Text(fields["tokenSymbol"]),
-		EvmTxHash:       values.Text(fields["evmTxHash"]),
-		UserFingerprint: values.Text(fields["userFingerprint"]),
+		InstrumentAdmin: admin,
+		InstrumentID:    id,
 		Timestamp:       values.Timestamp(fields["timestamp"]),
-		AuditObservers:  values.PartyList(fields["auditObservers"]),
-	}
-}
-
-func decodeBurnEvent(ce *lapiv2.CreatedEvent) *BurnEvent {
-	fields := values.RecordToMap(ce.CreateArguments)
-
-	return &BurnEvent{
-		ContractID:      ce.ContractId,
-		Issuer:          values.Party(fields["issuer"]),
-		BurnedFrom:      values.Party(fields["burnedFrom"]),
-		Amount:          values.Numeric(fields["amount"]),
-		EvmDestination:  values.Text(fields["evmDestination"]),
-		TokenSymbol:     values.Text(fields["tokenSymbol"]),
-		UserFingerprint: values.Text(fields["userFingerprint"]),
-		Timestamp:       values.Timestamp(fields["timestamp"]),
+		Meta:            values.DecodeOptionalMetadata(fields["meta"]),
 		AuditObservers:  values.PartyList(fields["auditObservers"]),
 	}
 }
