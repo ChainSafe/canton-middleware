@@ -89,15 +89,24 @@ type TokenTransferEvent struct {
 	AuditObservers  []string
 }
 
+// EventType represents the kind of token mutation.
+type EventType string
+
+const (
+	EventTypeMint     EventType = "MINT"
+	EventTypeBurn     EventType = "BURN"
+	EventTypeTransfer EventType = "TRANSFER"
+)
+
 // EventType derives the event type from fromParty/toParty.
-func (e *TokenTransferEvent) EventType() string {
+func (e *TokenTransferEvent) EventType() EventType {
 	if e.FromParty == "" {
-		return "MINT"
+		return EventTypeMint
 	}
 	if e.ToParty == "" {
-		return "BURN"
+		return EventTypeBurn
 	}
-	return "TRANSFER"
+	return EventTypeTransfer
 }
 
 // EvmTxHash returns the bridge deposit tx hash from metadata.

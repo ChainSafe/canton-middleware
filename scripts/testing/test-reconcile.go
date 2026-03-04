@@ -32,6 +32,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
@@ -223,19 +224,19 @@ func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 	var mintCount, burnCount, transferCount int
 	for _, e := range events {
 		switch e.EventType() {
-		case "MINT":
+		case token.EventTypeMint:
 			mintCount++
 			if *verbose {
 				printInfo("  [MINT] Amount: %s, Fingerprint: %s, EvmTx: %s",
 					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmTxHash(), 20))
 			}
-		case "BURN":
+		case token.EventTypeBurn:
 			burnCount++
 			if *verbose {
 				printInfo("  [BURN] Amount: %s, Fingerprint: %s, Destination: %s",
 					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmDestination(), 20))
 			}
-		case "TRANSFER":
+		case token.EventTypeTransfer:
 			transferCount++
 		}
 	}

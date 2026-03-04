@@ -31,6 +31,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
@@ -71,7 +72,7 @@ type Holding struct {
 
 // Event represents a token event (CIP56.Events.TokenTransferEvent)
 type Event struct {
-	Type           string // MINT, BURN, TRANSFER
+	Type           token.EventType // MINT, BURN, TRANSFER
 	ContractID     string
 	Owner          string
 	From           string
@@ -168,9 +169,9 @@ func main() {
 	var mintEvents, burnEvents []Event
 	for _, e := range allEvents {
 		switch e.Type {
-		case "MINT":
+		case token.EventTypeMint:
 			mintEvents = append(mintEvents, e)
-		case "BURN":
+		case token.EventTypeBurn:
 			burnEvents = append(burnEvents, e)
 		}
 	}
@@ -841,13 +842,13 @@ func queryEvents(ctx context.Context, client lapiv2.StateServiceClient, party, p
 				to := values.OptionalParty(fm["toParty"])
 
 				// Derive event type from fromParty/toParty
-				var eventType string
+				var eventType token.EventType
 				if from == "" {
-					eventType = "MINT"
+					eventType = token.EventTypeMint
 				} else if to == "" {
-					eventType = "BURN"
+					eventType = token.EventTypeBurn
 				} else {
-					eventType = "TRANSFER"
+					eventType = token.EventTypeTransfer
 				}
 
 				// Decode optional metadata for bridge context

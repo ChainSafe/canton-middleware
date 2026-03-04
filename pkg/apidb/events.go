@@ -127,7 +127,7 @@ func nullIfEmpty(s string) interface{} {
 // as bridge events since they are internal Canton operations.
 func (s *Store) StoreTokenTransferEvent(event *canton.TokenTransferEvent) error {
 	switch event.EventType() {
-	case "MINT":
+	case canton.EventTypeMint:
 		return s.storeBridgeEvent(bridgeEventParams{
 			eventType:   "mint",
 			contractID:  event.ContractID,
@@ -138,7 +138,7 @@ func (s *Store) StoreTokenTransferEvent(event *canton.TokenTransferEvent) error 
 			evmTxHash:   event.EvmTxHash(),
 			isCredit:    true,
 		})
-	case "BURN":
+	case canton.EventTypeBurn:
 		return s.storeBridgeEvent(bridgeEventParams{
 			eventType:      "burn",
 			contractID:     event.ContractID,
