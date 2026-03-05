@@ -116,7 +116,7 @@ func TestEthAPI_ChainId(t *testing.T) {
 
 	t.Run("returns configured chain id", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().ChainID().Return(hexutil.Uint64(31337))
+		svc.EXPECT().ChainID(mock.Anything).Return(hexutil.Uint64(31337))
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -127,7 +127,7 @@ func TestEthAPI_ChainId(t *testing.T) {
 
 	t.Run("returns mainnet chain id", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().ChainID().Return(hexutil.Uint64(1))
+		svc.EXPECT().ChainID(mock.Anything).Return(hexutil.Uint64(1))
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -142,7 +142,7 @@ func TestEthAPI_ChainId(t *testing.T) {
 func TestEthAPI_BlockNumber(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().BlockNumber().Return(hexutil.Uint64(1012), nil)
+		svc.EXPECT().BlockNumber(mock.Anything).Return(hexutil.Uint64(1012), nil)
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -153,7 +153,7 @@ func TestEthAPI_BlockNumber(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().BlockNumber().Return(hexutil.Uint64(0), errors.New("db unavailable"))
+		svc.EXPECT().BlockNumber(mock.Anything).Return(hexutil.Uint64(0), errors.New("db unavailable"))
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -169,7 +169,7 @@ func TestEthAPI_GasPrice(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		want := big.NewInt(1_000_000_000)
 		svc := mocks.NewService(t)
-		svc.EXPECT().GasPrice().Return((*hexutil.Big)(want), nil)
+		svc.EXPECT().GasPrice(mock.Anything).Return((*hexutil.Big)(want), nil)
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -180,7 +180,7 @@ func TestEthAPI_GasPrice(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().GasPrice().Return(nil, errors.New("invalid gas price config"))
+		svc.EXPECT().GasPrice(mock.Anything).Return(nil, errors.New("invalid gas price config"))
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -195,7 +195,7 @@ func TestEthAPI_MaxPriorityFeePerGas(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		want := big.NewInt(1_500_000_000)
 		svc := mocks.NewService(t)
-		svc.EXPECT().MaxPriorityFeePerGas().Return((*hexutil.Big)(want), nil)
+		svc.EXPECT().MaxPriorityFeePerGas(mock.Anything).Return((*hexutil.Big)(want), nil)
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -206,7 +206,7 @@ func TestEthAPI_MaxPriorityFeePerGas(t *testing.T) {
 
 	t.Run("service error", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().MaxPriorityFeePerGas().Return(nil, errors.New("fee error"))
+		svc.EXPECT().MaxPriorityFeePerGas(mock.Anything).Return(nil, errors.New("fee error"))
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 
@@ -366,7 +366,7 @@ func TestEthAPI_Syncing(t *testing.T) {
 
 	t.Run("not syncing returns nil progress", func(t *testing.T) {
 		svc := mocks.NewService(t)
-		svc.EXPECT().Syncing().Return(false)
+		svc.EXPECT().Syncing(mock.Anything).Return(false)
 		ethClient, _, cleanup := newTestServer(t, svc)
 		defer cleanup()
 

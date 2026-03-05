@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,7 +17,7 @@ func NewNetAPI(svc Service) *NetAPI {
 }
 
 func (api *NetAPI) Version() string {
-	return fmt.Sprintf("%d", api.svc.ChainID())
+	return fmt.Sprintf("%d", api.svc.ChainID(context.Background()))
 }
 
 func (*NetAPI) Listening() bool {

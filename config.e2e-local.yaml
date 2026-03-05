@@ -143,4 +143,3 @@ local:
   anvil_url: "http://localhost:8545"
   # Canton HTTP URL
   canton_url: "http://localhost:5013"
-

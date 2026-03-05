@@ -7,11 +7,12 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
 
-	apidbdao "github.com/chainsafe/canton-middleware/pkg/apidb/dao"
 	"github.com/chainsafe/canton-middleware/pkg/db/dao"
+	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/relayerdb"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 )
 
@@ -46,12 +47,13 @@ func TestAPIDBMigrations_Apply(t *testing.T) {
 
 	modelCount(t, ctx, db, &userstore.UserDao{})
 	modelCount(t, ctx, db, &userstore.WhitelistDao{})
-	modelCount(t, ctx, db, &apidbdao.TokenMetricsDao{})
-	modelCount(t, ctx, db, &apidbdao.BridgeEventDao{})
-	modelCount(t, ctx, db, &apidbdao.ReconciliationStateDao{})
-	modelCount(t, ctx, db, &apidbdao.EvmTransactionDao{})
-	modelCount(t, ctx, db, &apidbdao.EvmMetaDao{})
-	modelCount(t, ctx, db, &apidbdao.EvmLogDao{})
+	modelCount(t, ctx, db, &reconcilerstore.TokenMetricsDao{})
+	modelCount(t, ctx, db, &reconcilerstore.BridgeEventDao{})
+	modelCount(t, ctx, db, &reconcilerstore.ReconciliationStateDao{})
+	modelCount(t, ctx, db, &ethrpcstore.EvmTransactionDao{})
+	modelCount(t, ctx, db, &ethrpcstore.EvmStateDao{})
+	modelCount(t, ctx, db, &ethrpcstore.EvmLogDao{})
+	modelCount(t, ctx, db, &reconcilerstore.UserTokenBalanceDao{})
 }
 
 func TestRelayerDBMigrations_Apply(t *testing.T) {
@@ -141,7 +143,7 @@ func TestSeedData_Applied(t *testing.T) {
 	}
 
 	count, err := db.NewSelect().
-		Model((*apidbdao.TokenMetricsDao)(nil)).
+		Model((*reconcilerstore.TokenMetricsDao)(nil)).
 		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
@@ -151,7 +153,7 @@ func TestSeedData_Applied(t *testing.T) {
 		t.Errorf("expected 2 seeded tokens (PROMPT, DEMO), got %d", count)
 	}
 
-	var tokens []apidbdao.TokenMetricsDao
+	var tokens []reconcilerstore.TokenMetricsDao
 	if err = db.NewSelect().
 		Model(&tokens).
 		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
@@ -177,12 +179,12 @@ func TestSingletonConstraint_Applied(t *testing.T) {
 		t.Fatalf("Migrate() failed: %v", err)
 	}
 
-	if got := modelCount(t, ctx, db, &apidbdao.ReconciliationStateDao{}); got != 1 {
+	if got := modelCount(t, ctx, db, &reconcilerstore.ReconciliationStateDao{}); got != 1 {
 		t.Fatalf("expected one reconciliation state row, got %d", got)
 	}
 
 	_, err := db.NewInsert().
-		Model(&apidbdao.ReconciliationStateDao{
+		Model(&reconcilerstore.ReconciliationStateDao{
 			ID:                  2,
 			LastProcessedOffset: 0,
 			EventsProcessed:     0,
@@ -192,7 +194,7 @@ func TestSingletonConstraint_Applied(t *testing.T) {
 		t.Fatal("expected singleton constraint violation, insert succeeded")
 	}
 
-	if got := modelCount(t, ctx, db, &apidbdao.ReconciliationStateDao{}); got != 1 {
+	if got := modelCount(t, ctx, db, &reconcilerstore.ReconciliationStateDao{}); got != 1 {
 		t.Fatalf("expected one reconciliation state row after violation, got %d", got)
 	}
 }
@@ -211,7 +213,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 	}
 
 	_, err := db.NewInsert().
-		Model(&apidbdao.TokenMetricsDao{
+		Model(&reconcilerstore.TokenMetricsDao{
 			TokenSymbol: "TEST",
 			TotalSupply: "100",
 		}).
@@ -225,7 +227,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 	}
 
 	count, err := db.NewSelect().
-		Model((*apidbdao.TokenMetricsDao)(nil)).
+		Model((*reconcilerstore.TokenMetricsDao)(nil)).
 		Where("token_symbol IN (?)", bun.List([]string{"PROMPT", "DEMO"})).
 		Count(ctx)
 	if err != nil {
@@ -236,7 +238,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 	}
 }
 
-func TestEvmMeta_InitialData(t *testing.T) {
+func TestEvmState_InitialData(t *testing.T) {
 	db, cleanup := mghelper.SetupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -249,16 +251,12 @@ func TestEvmMeta_InitialData(t *testing.T) {
 		t.Fatalf("Migrate() failed: %v", err)
 	}
 
-	var meta apidbdao.EvmMetaDao
-	err := db.NewSelect().
-		Model(&meta).
-		Where(`"key" = ?`, "latest_block_number").
-		Limit(1).
-		Scan(ctx)
+	var state ethrpcstore.EvmStateDao
+	err := db.NewSelect().Model(&state).Where("id = 1").Scan(ctx)
 	if err != nil {
-		t.Fatalf("failed to query evm_meta row: %v", err)
+		t.Fatalf("failed to query evm_state row: %v", err)
 	}
-	if meta.Value != "0" {
-		t.Errorf("expected latest_block_number = '0', got %q", meta.Value)
+	if state.LatestBlock != 0 {
+		t.Errorf("expected latest_block = 0, got %d", state.LatestBlock)
 	}
 }

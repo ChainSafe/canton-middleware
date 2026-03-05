@@ -9,22 +9,20 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/ethereum/go-ethereum/common"
 
 	"go.uber.org/zap"
 )
 
 // UserBalanceCacher defines balance-cache operations the relayer needs for registered users.
-// Satisfied implicitly by registration/store/pg.Store.
+// Satisfied by the reconciler balance store.
 type UserBalanceCacher interface {
-	IncrementBalanceByFingerprint(ctx context.Context, fingerprint, amount string, token token.Type) error
-	DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, amount string, token token.Type) error
+	IncrementBalanceByFingerprint(ctx context.Context, fingerprint, amount, tokenSymbol string) error
+	DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, amount, tokenSymbol string) error
 }
 
 // EthereumBridgeClient defines the interface for Ethereum interactions
@@ -54,7 +52,6 @@ type Engine struct {
 	cantonClient      canton.Bridge
 	ethClient         EthereumBridgeClient
 	store             BridgeStore
-	apiDB             *apidb.Store      // Optional: for total supply cache updates
 	userBalanceCacher UserBalanceCacher // Optional: for user balance cache updates
 	logger            *zap.Logger
 
@@ -89,12 +86,6 @@ func NewEngine(
 	}
 }
 
-// SetAPIDB sets the API database store for total supply cache updates.
-// TODO: make it as option of NewEngine
-func (e *Engine) SetAPIDB(apiDB *apidb.Store) {
-	e.apiDB = apiDB
-}
-
 // SetUserBalanceCacher sets the user balance cache store.
 func (e *Engine) SetUserBalanceCacher(ubc UserBalanceCacher) {
 	e.userBalanceCacher = ubc
@@ -112,9 +103,6 @@ func (e *Engine) Start(ctx context.Context) error {
 	// Initialize processors with offset persistence callbacks
 	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonChainKey())
 	ethDest := NewEthereumDestination(e.ethClient, e.cantonClient, e.ethereumChainKey())
-	if e.apiDB != nil {
-		ethDest.SetAPIDB(e.apiDB)
-	}
 	if e.userBalanceCacher != nil {
 		ethDest.SetUserBalanceCacher(e.userBalanceCacher)
 	}
@@ -123,9 +111,6 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumChainKey())
 	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum, e.config.Canton.RelayerParty, e.cantonChainKey())
-	if e.apiDB != nil {
-		cantonDest.SetAPIDB(e.apiDB)
-	}
 	if e.userBalanceCacher != nil {
 		cantonDest.SetUserBalanceCacher(e.userBalanceCacher)
 	}

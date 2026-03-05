@@ -9,22 +9,35 @@ import (
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
-	tokentype "github.com/chainsafe/canton-middleware/pkg/token"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
+	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-// UserStore provides user identity and balance operations for reconciliation.
+// UserStore provides user identity operations for reconciliation.
 type UserStore interface {
 	ListUsers(ctx context.Context) ([]*user.User, error)
-	UpdateBalanceByCantonPartyID(ctx context.Context, partyID, balance string, token tokentype.Type) error
-	ResetBalances(ctx context.Context, token tokentype.Type) error
+}
+
+// Store provides reconciler data operations.
+type Store interface {
+	SetBalanceByCantonPartyID(ctx context.Context, partyID, tokenSymbol, balance string) error
+	ResetBalancesByTokenSymbol(ctx context.Context, tokenSymbol string) error
+	SetTotalSupply(ctx context.Context, tokenSymbol, value string) error
+	UpdateLastReconciled(ctx context.Context, tokenSymbol string) error
+
+	GetReconciliationState(ctx context.Context) (*reconcilerstore.ReconciliationState, error)
+	MarkFullReconcileComplete(ctx context.Context) error
+
+	IsEventProcessed(ctx context.Context, contractID string) (bool, error)
+	StoreTokenTransferEvent(ctx context.Context, event *canton.TokenTransferEvent) error
+	ClearBridgeEvents(ctx context.Context) error
 }
 
 // Reconciler handles synchronization between Canton ledger state and DB cache
 type Reconciler struct {
-	db           *apidb.Store
+	store        Store
 	userStore    UserStore
 	cantonClient canton.Token
 	logger       *zap.Logger
@@ -34,9 +47,14 @@ type Reconciler struct {
 }
 
 // New creates a new Reconciler
-func New(db *apidb.Store, userStore UserStore, cantonClient canton.Token, logger *zap.Logger) *Reconciler {
+func New(
+	store Store,
+	userStore UserStore,
+	cantonClient canton.Token,
+	logger *zap.Logger,
+) *Reconciler {
 	return &Reconciler{
-		db:           db,
+		store:        store,
 		userStore:    userStore,
 		cantonClient: cantonClient,
 		logger:       logger,
@@ -64,7 +82,8 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 	// Calculate total supply per token symbol
 	supplyByToken := make(map[string]decimal.Decimal)
 	for _, holding := range holdings {
-		amount, err := decimal.NewFromString(holding.Amount)
+		var amount decimal.Decimal
+		amount, err = decimal.NewFromString(holding.Amount)
 		if err != nil {
 			r.logger.Warn("Failed to parse holding amount",
 				zap.String("owner", holding.Owner),
@@ -81,10 +100,10 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) error {
 
 	// Update per-token total supply from Canton (this is authoritative)
 	for symbol, supply := range supplyByToken {
-		if err := r.db.SetTotalSupply(symbol, supply.String()); err != nil {
+		if err = r.store.SetTotalSupply(ctx, symbol, supply.String()); err != nil {
 			return fmt.Errorf("failed to update total supply for %s: %w", symbol, err)
 		}
-		if err := r.db.UpdateLastReconciled(symbol); err != nil {
+		if err = r.store.UpdateLastReconciled(ctx, symbol); err != nil {
 			r.logger.Warn("Failed to update last reconciled timestamp",
 				zap.String("token", symbol), zap.Error(err))
 		}
@@ -211,7 +230,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 				demoBalance = bal
 			}
 		}
-		if err := r.userStore.UpdateBalanceByCantonPartyID(ctx, user.CantonPartyID, demoBalance.String(), tokentype.Demo); err != nil {
+		if err = r.store.SetBalanceByCantonPartyID(ctx, user.CantonPartyID, "DEMO", demoBalance.String()); err != nil {
 			r.logger.Warn("Failed to update DEMO balance",
 				zap.String("party_id", user.CantonPartyID),
 				zap.Error(err))
@@ -224,7 +243,7 @@ func (r *Reconciler) ReconcileUserBalancesFromHoldings(ctx context.Context) erro
 				promptBalance = bal
 			}
 		}
-		if err := r.userStore.UpdateBalanceByCantonPartyID(ctx, user.CantonPartyID, promptBalance.String(), tokentype.Prompt); err != nil {
+		if err = r.store.SetBalanceByCantonPartyID(ctx, user.CantonPartyID, "PROMPT", promptBalance.String()); err != nil {
 			r.logger.Warn("Failed to update PROMPT balance",
 				zap.String("party_id", user.CantonPartyID),
 				zap.Error(err))
@@ -273,7 +292,7 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		processed, err := r.db.IsEventProcessed(event.ContractID)
+		processed, err := r.store.IsEventProcessed(ctx, event.ContractID)
 		if err != nil {
 			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(err))
 			continue
@@ -282,7 +301,7 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.db.StoreTokenTransferEvent(event); err != nil {
+		if err = r.store.StoreTokenTransferEvent(ctx, event); err != nil {
 			r.logger.Warn("Failed to store token transfer event",
 				zap.String("contract_id", event.ContractID),
 				zap.String("event_type", string(eventType)),
@@ -307,7 +326,7 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 	}
 
 	// Mark full reconcile complete
-	if err := r.db.MarkFullReconcileComplete(); err != nil {
+	if err := r.store.MarkFullReconcileComplete(ctx); err != nil {
 		r.logger.Warn("Failed to mark reconcile complete", zap.Error(err))
 	}
 
@@ -334,14 +353,14 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 	start := time.Now()
 
 	// Step 1: Reset all user balances to 0
-	if err := r.userStore.ResetBalances(ctx, tokentype.Prompt); err != nil {
+	if err := r.store.ResetBalancesByTokenSymbol(ctx, string(token.Prompt)); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
 	r.logger.Debug("Reset all user balances to 0")
 
 	// Step 2: Clear the bridge_events table to prevent double-counting
 	// when ReconcileFromBridgeEvents runs
-	if err := r.db.ClearBridgeEvents(); err != nil {
+	if err := r.store.ClearBridgeEvents(ctx); err != nil {
 		return fmt.Errorf("failed to clear bridge events: %w", err)
 	}
 	r.logger.Debug("Cleared bridge_events table")
@@ -361,6 +380,6 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 }
 
 // GetReconciliationStatus returns the current reconciliation state
-func (r *Reconciler) GetReconciliationStatus(_ context.Context) (*apidb.ReconciliationState, error) {
-	return r.db.GetReconciliationState()
+func (r *Reconciler) GetReconciliationStatus(ctx context.Context) (*reconcilerstore.ReconciliationState, error) {
+	return r.store.GetReconciliationState(ctx)
 }

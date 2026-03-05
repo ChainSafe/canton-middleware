@@ -10,17 +10,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
+	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
+	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -65,12 +67,6 @@ func (s *Server) Run() error {
 		zap.Int("port", cfg.Server.Port),
 	)
 
-	db, err := s.openDB(logger)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-
 	masterKey, err := s.getMasterKey()
 	if err != nil {
 		return err
@@ -93,7 +89,8 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton", zap.String("rpc_url", cfg.Canton.RPCURL))
 
-	rec := reconciler.New(db, userStore, cantonClient.Token, logger)
+	recStore := reconcilerstore.NewStore(dbBun)
+	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
 	s.runInitialReconcile(ctx, rec, logger)
 
 	stopReconcile := s.startPeriodicReconcile(rec, logger)
@@ -112,9 +109,11 @@ func (s *Server) Run() error {
 	tokenConfig := token.NewConfig(cfg.EthRPC.NativeBalanceWei)
 	tokenConfig.AddToken(cfg.EthRPC.TokenAddress, cfg.Token)
 	tokenConfig.AddToken(cfg.EthRPC.DemoTokenAddress, cfg.DemoToken)
-	tokenService := token.NewTokenService(tokenConfig, db, userStore, cantonClient.Token)
+	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
+	tokenService := token.NewTokenService(tokenConfig, tokenDataProvider, userStore, cantonClient.Token)
+	evmStore := ethrpcstore.NewStore(dbBun)
 
-	router := s.setupRouter(db, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
+	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 
@@ -122,19 +121,6 @@ func (s *Server) Run() error {
 	stopReconcile()
 
 	return err
-}
-
-func (s *Server) openDB(logger *zap.Logger) (*apidb.Store, error) {
-	dbConnStr := s.cfg.Database.GetConnectionString()
-	db, err := apidb.NewStore(dbConnStr)
-	if err != nil {
-		return nil, fmt.Errorf("connect db: %w", err)
-	}
-	logger.Info("Connected to database",
-		zap.String("host", s.cfg.Database.Host),
-		zap.String("database", s.cfg.Database.Database),
-	)
-	return db, nil
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {
@@ -222,7 +208,7 @@ func (s *Server) startPeriodicReconcile(
 }
 
 func (s *Server) setupRouter(
-	db *apidb.Store,
+	evmStore ethrpc.Store,
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
@@ -252,7 +238,7 @@ func (s *Server) setupRouter(
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
-		coreEthSvc := ethrpc.NewService(&s.cfg.EthRPC, db, tokenService)
+		coreEthSvc := ethrpc.NewService(&s.cfg.EthRPC, evmStore, tokenService)
 		ethrpc.RegisterRoutes(r, ethrpc.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
 	}
 

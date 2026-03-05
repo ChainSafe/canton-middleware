@@ -16,9 +16,6 @@ type UserDao struct {
 	CantonParty               string     `bun:"canton_party,notnull,type:varchar(255)"`
 	Fingerprint               string     `bun:"fingerprint,notnull,type:varchar(128)"`
 	MappingCID                *string    `bun:"mapping_cid,type:varchar(255)"`
-	PromptBalance             *string    `bun:"prompt_balance,nullzero,type:numeric(38,18)"`
-	DemoBalance               *string    `bun:"demo_balance,nullzero,type:numeric(38,18)"`
-	BalanceUpdatedAt          *time.Time `bun:"balance_updated_at"`
 	CreatedAt                 time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
 	CantonPartyID             *string    `bun:"canton_party_id,type:varchar(255)"`
 	CantonPrivateKeyEncrypted *string    `bun:"canton_private_key_encrypted,type:text"`
@@ -45,15 +42,6 @@ func toUserDao(usr *user.User) *UserDao {
 	if usr.CantonPrivateKeyEncrypted != "" {
 		dao.CantonPrivateKeyEncrypted = &usr.CantonPrivateKeyEncrypted
 	}
-	if usr.PromptBalance != "" {
-		dao.PromptBalance = &usr.PromptBalance
-	}
-	if usr.DemoBalance != "" {
-		dao.DemoBalance = &usr.DemoBalance
-	}
-	if usr.BalanceUpdatedAt != nil {
-		dao.BalanceUpdatedAt = usr.BalanceUpdatedAt
-	}
 
 	return dao
 }
@@ -77,15 +65,6 @@ func toUser(dao *UserDao) *user.User {
 	}
 	if dao.CantonPrivateKeyEncrypted != nil {
 		usr.CantonPrivateKeyEncrypted = *dao.CantonPrivateKeyEncrypted
-	}
-	if dao.PromptBalance != nil {
-		usr.PromptBalance = *dao.PromptBalance
-	}
-	if dao.DemoBalance != nil {
-		usr.DemoBalance = *dao.DemoBalance
-	}
-	if dao.BalanceUpdatedAt != nil {
-		usr.BalanceUpdatedAt = dao.BalanceUpdatedAt
 	}
 
 	return usr

@@ -29,7 +29,7 @@ func NewLog(svc Service, logger *zap.Logger) Service {
 	return &logService{svc: svc, logger: logger}
 }
 
-func (l *logService) ChainID() (chainID hexutil.Uint64) {
+func (l *logService) ChainID(ctx context.Context) (chainID hexutil.Uint64) {
 	start := time.Now()
 	defer func() {
 		l.logger.Info("ChainID completed",
@@ -39,11 +39,11 @@ func (l *logService) ChainID() (chainID hexutil.Uint64) {
 			zap.Duration("duration", time.Since(start)),
 		)
 	}()
-	chainID = l.svc.ChainID()
+	chainID = l.svc.ChainID(ctx)
 	return chainID
 }
 
-func (l *logService) BlockNumber() (n hexutil.Uint64, err error) {
+func (l *logService) BlockNumber(ctx context.Context) (n hexutil.Uint64, err error) {
 	start := time.Now()
 	defer func() {
 		fields := []zap.Field{
@@ -58,10 +58,10 @@ func (l *logService) BlockNumber() (n hexutil.Uint64, err error) {
 		}
 		l.logger.Info("BlockNumber completed", fields...)
 	}()
-	return l.svc.BlockNumber()
+	return l.svc.BlockNumber(ctx)
 }
 
-func (l *logService) GasPrice() (price *hexutil.Big, err error) {
+func (l *logService) GasPrice(ctx context.Context) (price *hexutil.Big, err error) {
 	start := time.Now()
 	defer func() {
 		fields := []zap.Field{
@@ -76,10 +76,10 @@ func (l *logService) GasPrice() (price *hexutil.Big, err error) {
 		}
 		l.logger.Info("GasPrice completed", fields...)
 	}()
-	return l.svc.GasPrice()
+	return l.svc.GasPrice(ctx)
 }
 
-func (l *logService) MaxPriorityFeePerGas() (fee *hexutil.Big, err error) {
+func (l *logService) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, err error) {
 	start := time.Now()
 	defer func() {
 		fields := []zap.Field{
@@ -94,7 +94,7 @@ func (l *logService) MaxPriorityFeePerGas() (fee *hexutil.Big, err error) {
 		}
 		l.logger.Info("MaxPriorityFeePerGas completed", fields...)
 	}()
-	return l.svc.MaxPriorityFeePerGas()
+	return l.svc.MaxPriorityFeePerGas(ctx)
 }
 
 func (l *logService) EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (gas hexutil.Uint64, err error) {
@@ -177,7 +177,7 @@ func (l *logService) GetCode(ctx context.Context, address common.Address) (code 
 	return l.svc.GetCode(ctx, address)
 }
 
-func (l *logService) Syncing() (syncing bool) {
+func (l *logService) Syncing(ctx context.Context) (syncing bool) {
 	start := time.Now()
 	defer func() {
 		l.logger.Info("Syncing completed",
@@ -187,7 +187,7 @@ func (l *logService) Syncing() (syncing bool) {
 			zap.Duration("duration", time.Since(start)),
 		)
 	}()
-	syncing = l.svc.Syncing()
+	syncing = l.svc.Syncing(ctx)
 	return syncing
 }
 

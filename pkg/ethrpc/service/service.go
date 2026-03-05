@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
@@ -26,15 +24,15 @@ import (
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
-	GetLatestEvmBlockNumber() (uint64, error)
-	GetEvmTransactionCount(fromAddress string) (uint64, error)
-	NextEvmBlock(chainID uint64) (uint64, []byte, int, error)
-	SaveEvmTransaction(tx *apidb.EvmTransaction) error
-	SaveEvmLog(log *apidb.EvmLog) error
-	GetEvmTransaction(txHash []byte) (*apidb.EvmTransaction, error)
-	GetEvmLogsByTxHash(txHash []byte) ([]*apidb.EvmLog, error)
-	GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*apidb.EvmLog, error)
-	GetBlockNumberByHash(blockHash []byte) (uint64, error)
+	GetLatestEvmBlockNumber(ctx context.Context) (uint64, error)
+	GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error)
+	NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error)
+	SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error
+	SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error
+	GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error)
+	GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error)
+	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error)
+	GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error)
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
@@ -51,15 +49,15 @@ type TokenService interface {
 //
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
 type Service interface {
-	ChainID() hexutil.Uint64
-	BlockNumber() (hexutil.Uint64, error)
-	GasPrice() (*hexutil.Big, error)
-	MaxPriorityFeePerGas() (*hexutil.Big, error)
+	ChainID(ctx context.Context) hexutil.Uint64
+	BlockNumber(ctx context.Context) (hexutil.Uint64, error)
+	GasPrice(ctx context.Context) (*hexutil.Big, error)
+	MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error)
 	EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Uint64, error)
 	GetBalance(ctx context.Context, address common.Address) (*hexutil.Big, error)
 	GetTransactionCount(ctx context.Context, address common.Address) (hexutil.Uint64, error)
 	GetCode(ctx context.Context, address common.Address) (hexutil.Bytes, error)
-	Syncing() bool
+	Syncing(ctx context.Context) bool
 	SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error)
 	GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error)
 	GetTransactionByHash(ctx context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error)
@@ -115,12 +113,12 @@ func NewService(
 	}
 }
 
-func (s *ethService) ChainID() hexutil.Uint64 {
+func (s *ethService) ChainID(_ context.Context) hexutil.Uint64 {
 	return hexutil.Uint64(s.cfg.ChainID)
 }
 
-func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
-	n, err := s.store.GetLatestEvmBlockNumber()
+func (s *ethService) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
+	n, err := s.store.GetLatestEvmBlockNumber(ctx)
 	if err != nil {
 		return 0, apperr.DependencyError(err, "get latest EVM block number")
 	}
@@ -137,7 +135,7 @@ func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
 	return hexutil.Uint64(max(baseBlock, timeBasedBlocks)), nil
 }
 
-func (s *ethService) GasPrice() (*hexutil.Big, error) {
+func (s *ethService) GasPrice(_ context.Context) (*hexutil.Big, error) {
 	gasPrice := new(big.Int)
 	if _, ok := gasPrice.SetString(s.cfg.GasPriceWei, decimalStringBase); !ok {
 		return nil, apperr.GeneralError(fmt.Errorf("invalid gas price wei: %q", s.cfg.GasPriceWei))
@@ -146,7 +144,7 @@ func (s *ethService) GasPrice() (*hexutil.Big, error) {
 	return (*hexutil.Big)(gasPrice), nil
 }
 
-func (*ethService) MaxPriorityFeePerGas() (*hexutil.Big, error) {
+func (*ethService) MaxPriorityFeePerGas(_ context.Context) (*hexutil.Big, error) {
 	return (*hexutil.Big)(big.NewInt(defaultGasPriceWeiInt64)), nil
 }
 
@@ -162,8 +160,8 @@ func (s *ethService) GetBalance(ctx context.Context, address common.Address) (*h
 	return (*hexutil.Big)(&bal), nil
 }
 
-func (s *ethService) GetTransactionCount(_ context.Context, address common.Address) (hexutil.Uint64, error) {
-	count, err := s.store.GetEvmTransactionCount(address.Hex())
+func (s *ethService) GetTransactionCount(ctx context.Context, address common.Address) (hexutil.Uint64, error) {
+	count, err := s.store.GetEvmTransactionCount(ctx, address.Hex())
 	if err != nil {
 		return 0, apperr.DependencyError(err, fmt.Sprintf("get transaction count for %s", address.Hex()))
 	}
@@ -180,7 +178,7 @@ func (s *ethService) GetCode(_ context.Context, address common.Address) (hexutil
 	}
 }
 
-func (*ethService) Syncing() bool {
+func (*ethService) Syncing(_ context.Context) bool {
 	return false
 }
 
@@ -226,7 +224,7 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	}
 
 	txHash := tx.Hash()
-	if err = s.recordSyntheticTransfer(txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
+	if err = s.recordSyntheticTransfer(ctx, txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
 		return common.Hash{}, err
 	}
 
@@ -263,6 +261,7 @@ func (s *ethService) decodeTransferCall(input []byte) (common.Address, *big.Int,
 }
 
 func (s *ethService) recordSyntheticTransfer(
+	ctx context.Context,
 	txHash common.Hash,
 	input []byte,
 	nonce uint64,
@@ -271,37 +270,25 @@ func (s *ethService) recordSyntheticTransfer(
 	toAddr common.Address,
 	amount *big.Int,
 ) error {
-	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(s.chainID.Uint64())
+	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(ctx, s.chainID.Uint64())
 	if err != nil {
 		return apperr.DependencyError(err, "get next EVM block")
 	}
-	txNonce, err := uint64ToInt64(nonce, "transaction nonce")
-	if err != nil {
-		return err
-	}
-	blockNumberInt64, err := uint64ToInt64(blockNumber, "block number")
-	if err != nil {
-		return err
-	}
-	gasUsedInt64, err := uint64ToInt64(s.cfg.GasLimit, "gas limit")
-	if err != nil {
-		return err
-	}
 
-	evmTx := &apidb.EvmTransaction{
+	evmTx := &ethrpc.EvmTransaction{
 		TxHash:      txHash.Bytes(),
 		FromAddress: from.Hex(),
 		ToAddress:   contractAddress.Hex(),
-		Nonce:       txNonce,
+		Nonce:       nonce,
 		Input:       input,
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: blockNumberInt64,
+		BlockNumber: blockNumber,
 		BlockHash:   blockHash,
 		TxIndex:     txIndex,
-		GasUsed:     gasUsedInt64,
+		GasUsed:     s.cfg.GasLimit,
 	}
-	if err = s.store.SaveEvmTransaction(evmTx); err != nil {
+	if err = s.store.SaveEvmTransaction(ctx, evmTx); err != nil {
 		return apperr.DependencyError(err, "save EVM transaction")
 	}
 
@@ -310,26 +297,26 @@ func (s *ethService) recordSyntheticTransfer(
 	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), topicSizeBytes))
 	amountBytes := common.LeftPadBytes(amount.Bytes(), topicSizeBytes)
 
-	evmLog := &apidb.EvmLog{
+	evmLog := &ethrpc.EvmLog{
 		TxHash:      txHash.Bytes(),
 		LogIndex:    0,
 		Address:     contractAddress.Bytes(),
 		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:        amountBytes,
-		BlockNumber: blockNumberInt64,
+		BlockNumber: blockNumber,
 		BlockHash:   blockHash,
 		TxIndex:     txIndex,
 		Removed:     false,
 	}
-	if err = s.store.SaveEvmLog(evmLog); err != nil {
+	if err = s.store.SaveEvmLog(ctx, evmLog); err != nil {
 		return apperr.DependencyError(err, "save EVM log")
 	}
 
 	return nil
 }
 
-func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
-	row, err := s.store.GetEvmTransaction(hash.Bytes())
+func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
+	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction receipt for %s", hash.Hex()))
 	}
@@ -340,34 +327,21 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 	from := common.HexToAddress(row.FromAddress)
 	to := common.HexToAddress(row.ToAddress)
 
-	dbLogs, err := s.store.GetEvmLogsByTxHash(hash.Bytes())
+	dbLogs, err := s.store.GetEvmLogsByTxHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get logs for transaction receipt %s", hash.Hex()))
 	}
 
 	logs := make([]*types.Log, 0)
 	for _, dbLog := range dbLogs {
-		logBlockNumber, convErr := int64ToUint64(dbLog.BlockNumber, "log block number")
-		if convErr != nil {
-			return nil, convErr
-		}
-		logTxIndex, convErr := intToUint(dbLog.TxIndex, "log transaction index")
-		if convErr != nil {
-			return nil, convErr
-		}
-		logIndex, convErr := intToUint(dbLog.LogIndex, "log index")
-		if convErr != nil {
-			return nil, convErr
-		}
-
 		log := &types.Log{
 			Address:     common.BytesToAddress(dbLog.Address),
 			Data:        dbLog.Data,
-			BlockNumber: logBlockNumber,
+			BlockNumber: dbLog.BlockNumber,
 			TxHash:      hash,
-			TxIndex:     logTxIndex,
+			TxIndex:     dbLog.TxIndex,
 			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       logIndex,
+			Index:       dbLog.LogIndex,
 			Removed:     dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
@@ -377,43 +351,26 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 	}
 	bloom := types.CreateBloom(&types.Receipt{Logs: logs})
 
-	txIndex, err := intToHexUint(row.TxIndex, "transaction index")
-	if err != nil {
-		return nil, err
-	}
-	blockNumber, err := int64ToHexUint64(row.BlockNumber, "block number")
-	if err != nil {
-		return nil, err
-	}
-	gasUsed, err := int64ToHexUint64(row.GasUsed, "gas used")
-	if err != nil {
-		return nil, err
-	}
-	status, err := int16ToHexUint64(row.Status, "status")
-	if err != nil {
-		return nil, err
-	}
-
 	return &ethrpc.RPCReceipt{
 		TransactionHash:   hash,
-		TransactionIndex:  txIndex,
+		TransactionIndex:  hexutil.Uint(row.TxIndex),
 		BlockHash:         common.BytesToHash(row.BlockHash),
-		BlockNumber:       blockNumber,
+		BlockNumber:       hexutil.Uint64(row.BlockNumber),
 		From:              from,
 		To:                &to,
-		CumulativeGasUsed: gasUsed,
-		GasUsed:           gasUsed,
+		CumulativeGasUsed: hexutil.Uint64(row.GasUsed),
+		GasUsed:           hexutil.Uint64(row.GasUsed),
 		ContractAddress:   nil,
 		Logs:              logs,
 		LogsBloom:         bloom,
-		Status:            status,
+		Status:            hexutil.Uint64(row.Status),
 		EffectiveGasPrice: hexutil.Uint64(defaultGasPriceWeiUint64),
 		Type:              hexutil.Uint64(2),
 	}, nil
 }
 
-func (s *ethService) GetTransactionByHash(_ context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error) {
-	row, err := s.store.GetEvmTransaction(hash.Bytes())
+func (s *ethService) GetTransactionByHash(ctx context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error) {
+	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction by hash %s", hash.Hex()))
 	}
@@ -424,23 +381,13 @@ func (s *ethService) GetTransactionByHash(_ context.Context, hash common.Hash) (
 	from := common.HexToAddress(row.FromAddress)
 	to := common.HexToAddress(row.ToAddress)
 	blockHash := common.BytesToHash(row.BlockHash)
-	blockNum, err := int64ToHexUint64(row.BlockNumber, "block number")
-	if err != nil {
-		return nil, err
-	}
-	txIndex, err := intToHexUint(row.TxIndex, "transaction index")
-	if err != nil {
-		return nil, err
-	}
-	nonce, err := int64ToHexUint64(row.Nonce, "nonce")
-	if err != nil {
-		return nil, err
-	}
+	blockNum := hexutil.Uint64(row.BlockNumber)
+	txIndex := hexutil.Uint(row.TxIndex)
 	gasPrice := big.NewInt(defaultGasPriceWeiInt64)
 
 	return &ethrpc.RPCTransaction{
 		Hash:             hash,
-		Nonce:            nonce,
+		Nonce:            hexutil.Uint64(row.Nonce),
 		BlockHash:        &blockHash,
 		BlockNumber:      &blockNum,
 		TransactionIndex: &txIndex,
@@ -545,29 +492,18 @@ func (s *ethService) callAllowance(ctx context.Context, data []byte, erc20 token
 	return encodeUint256(&allowance)
 }
 
-func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*types.Log, error) {
-	var fromBlock, toBlock int64
+func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*types.Log, error) {
+	var fromBlock, toBlock uint64
 	if query.FromBlock != nil {
-		var err error
-		fromBlock, err = uint64ToInt64(uint64(*query.FromBlock), "from block")
-		if err != nil {
-			return nil, err
-		}
+		fromBlock = uint64(*query.FromBlock)
 	}
 	if query.ToBlock != nil {
-		var err error
-		toBlock, err = uint64ToInt64(uint64(*query.ToBlock), "to block")
-		if err != nil {
-			return nil, err
-		}
+		toBlock = uint64(*query.ToBlock)
 	} else {
-		latest, err := s.store.GetLatestEvmBlockNumber()
+		var err error
+		toBlock, err = s.store.GetLatestEvmBlockNumber(ctx)
 		if err != nil {
 			return nil, apperr.DependencyError(err, "get latest EVM block number for logs")
-		}
-		toBlock, err = uint64ToInt64(latest, "latest block")
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -591,34 +527,21 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 		}
 	}
 
-	dbLogs, err := s.store.GetEvmLogs(addressFilter, topic0Filter, fromBlock, toBlock)
+	dbLogs, err := s.store.GetEvmLogs(ctx, addressFilter, topic0Filter, fromBlock, toBlock)
 	if err != nil {
 		return nil, apperr.DependencyError(err, "get EVM logs")
 	}
 
 	var logs []*types.Log
 	for _, dbLog := range dbLogs {
-		logBlockNumber, convErr := int64ToUint64(dbLog.BlockNumber, "log block number")
-		if convErr != nil {
-			return nil, convErr
-		}
-		logTxIndex, convErr := intToUint(dbLog.TxIndex, "log transaction index")
-		if convErr != nil {
-			return nil, convErr
-		}
-		logIndex, convErr := intToUint(dbLog.LogIndex, "log index")
-		if convErr != nil {
-			return nil, convErr
-		}
-
 		log := &types.Log{
 			Address:     common.BytesToAddress(dbLog.Address),
 			Data:        dbLog.Data,
-			BlockNumber: logBlockNumber,
+			BlockNumber: dbLog.BlockNumber,
 			TxHash:      common.BytesToHash(dbLog.TxHash),
-			TxIndex:     logTxIndex,
+			TxIndex:     dbLog.TxIndex,
 			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       logIndex,
+			Index:       dbLog.LogIndex,
 			Removed:     dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
@@ -629,12 +552,12 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 	return logs, nil
 }
 
-func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
+func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
 	var blockNum uint64
 	if block.BlockNumber != nil {
 		blockNum = uint64(*block.BlockNumber)
 	} else {
-		latestBlockNum, err := s.BlockNumber()
+		latestBlockNum, err := s.BlockNumber(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -676,7 +599,7 @@ func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumbe
 }
 
 func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
-	blockNum, err := s.store.GetBlockNumberByHash(hash.Bytes())
+	blockNum, err := s.store.GetBlockNumberByHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get block number by hash %s", hash.Hex()))
 	}
@@ -714,49 +637,4 @@ func encodeString(s string) (hexutil.Bytes, error) {
 	}
 	args := abi.Arguments{{Type: stringType}}
 	return args.Pack(s)
-}
-
-func uint64ToInt64(v uint64, fieldName string) (int64, error) {
-	if v > math.MaxInt64 {
-		return 0, fmt.Errorf("%s overflows int64: %d", fieldName, v)
-	}
-	return int64(v), nil
-}
-
-func int64ToUint64(v int64, fieldName string) (uint64, error) {
-	if v < 0 {
-		return 0, fmt.Errorf("%s must be non-negative: %d", fieldName, v)
-	}
-	return uint64(v), nil
-}
-
-func intToUint(v int, fieldName string) (uint, error) {
-	if v < 0 {
-		return 0, fmt.Errorf("%s must be non-negative: %d", fieldName, v)
-	}
-	return uint(v), nil
-}
-
-func intToHexUint(v int, fieldName string) (hexutil.Uint, error) {
-	parsed, err := intToUint(v, fieldName)
-	if err != nil {
-		return 0, err
-	}
-	return hexutil.Uint(parsed), nil
-}
-
-func int64ToHexUint64(v int64, fieldName string) (hexutil.Uint64, error) {
-	parsed, err := int64ToUint64(v, fieldName)
-	if err != nil {
-		return 0, err
-	}
-	return hexutil.Uint64(parsed), nil
-}
-
-func int16ToHexUint64(v int16, fieldName string) (hexutil.Uint64, error) {
-	parsed, err := int64ToUint64(int64(v), fieldName)
-	if err != nil {
-		return 0, err
-	}
-	return hexutil.Uint64(parsed), nil
 }

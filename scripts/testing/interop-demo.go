@@ -51,12 +51,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
@@ -81,6 +81,10 @@ type nativeUser struct {
 	CantonPartyID string
 	EVMAddress    string
 	EVMPrivateKey string // hex, no 0x prefix
+}
+
+type whitelistStore interface {
+	AddToWhitelist(ctx context.Context, evmAddress, note string) error
 }
 
 // Contract addresses - auto-detected from Docker deployer logs
@@ -136,12 +140,7 @@ func main() {
 	}
 	defer bunDB.Close()
 	userStore := userstore.NewStore(bunDB)
-
-	apiStore, err := apidb.NewStore(cfg.Database.GetConnectionString())
-	if err != nil {
-		fatalf("Failed to connect to database (apidb): %v", err)
-	}
-	defer apiStore.Close()
+	recStore := reconcilerstore.NewStore(bunDB)
 	fmt.Println("    Database:  connected")
 
 	// Connect to Canton
@@ -162,8 +161,8 @@ func main() {
 	user2 := users[1]
 
 	printHeader("Registered Users")
-	fmt.Printf("    User 1: %s  Party: %s  DEMO: %s\n", user1.EVMAddress, trunc(user1.CantonPartyID), fmtBal(user1.DemoBalance))
-	fmt.Printf("    User 2: %s  Party: %s  DEMO: %s\n", user2.EVMAddress, trunc(user2.CantonPartyID), fmtBal(user2.DemoBalance))
+	fmt.Printf("    User 1: %s  Party: %s  FP: %s\n", user1.EVMAddress, trunc(user1.CantonPartyID), trunc(user1.Fingerprint))
+	fmt.Printf("    User 2: %s  Party: %s  FP: %s\n", user2.EVMAddress, trunc(user2.CantonPartyID), trunc(user2.Fingerprint))
 	fmt.Println()
 
 	// ═══════════════════════════════════════════════════════════════════════
@@ -177,7 +176,7 @@ func main() {
 		showHoldings(ctx, cantonClient)
 
 		// Step 1: Allocate external native parties + register with API server
-		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, apiStore)
+		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, userStore)
 
 		// Step 2: MetaMask User 1 → Native User 1 (via /eth)
 		stepTransferDemoViaCast(2, "MetaMask User 1 → Native User 1",
@@ -196,7 +195,7 @@ func main() {
 
 		// Reconcile
 		fmt.Println(">>> Running reconciliation...")
-		rec := reconciler.New(apiStore, userStore, cantonClient.Token, logger)
+		rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
 		if err := rec.ReconcileUserBalancesFromHoldings(ctx); err != nil {
 			fmt.Printf("    WARNING: Reconciliation failed: %v\n", err)
 		}
@@ -230,15 +229,15 @@ func main() {
 
 // ─── Part A Steps ───────────────────────────────────────────────────────────
 
-func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, db *apidb.Store) (nativeUser, nativeUser) {
+func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, store whitelistStore) (nativeUser, nativeUser) {
 	printStep(1, "Allocate External Parties + Register Native Users")
 	fmt.Println("    Creating 2 external parties and registering with API server...")
 	fmt.Println()
 
-	native1 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_1")
+	native1 := allocateAndRegisterNative(ctx, sdk, store, "native_interop_1")
 	fmt.Printf("    Native User 1: party=%s  evm=%s\n", trunc(native1.CantonPartyID), native1.EVMAddress)
 
-	native2 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_2")
+	native2 := allocateAndRegisterNative(ctx, sdk, store, "native_interop_2")
 	fmt.Printf("    Native User 2: party=%s  evm=%s\n", trunc(native2.CantonPartyID), native2.EVMAddress)
 	fmt.Println()
 
@@ -246,7 +245,7 @@ func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, db
 	return native1, native2
 }
 
-func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *apidb.Store, hint string) nativeUser {
+func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, store whitelistStore, hint string) nativeUser {
 	kp, err := keys.GenerateCantonKeyPair()
 	if err != nil {
 		fatalf("Generate Canton keypair for %s: %v", hint, err)
@@ -267,7 +266,7 @@ func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *apid
 	}
 	nu.CantonPartyID = party.PartyID
 
-	if err := db.AddToWhitelist(nu.EVMAddress, "interop-demo native user"); err != nil {
+	if err = store.AddToWhitelist(ctx, nu.EVMAddress, "interop-demo native user"); err != nil {
 		fatalf("Whitelist native user %s (%s): %v", hint, nu.EVMAddress, err)
 	}
 
