@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -20,9 +22,9 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
-// GetBlockNumberByHash provides a mock function with given fields: blockHash
-func (_m *Store) GetBlockNumberByHash(blockHash []byte) (uint64, error) {
-	ret := _m.Called(blockHash)
+// GetBlockNumberByHash provides a mock function with given fields: ctx, blockHash
+func (_m *Store) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error) {
+	ret := _m.Called(ctx, blockHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetBlockNumberByHash")
@@ -30,17 +32,17 @@ func (_m *Store) GetBlockNumberByHash(blockHash []byte) (uint64, error) {
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte) (uint64, error)); ok {
-		return rf(blockHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) (uint64, error)); ok {
+		return rf(ctx, blockHash)
 	}
-	if rf, ok := ret.Get(0).(func([]byte) uint64); ok {
-		r0 = rf(blockHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) uint64); ok {
+		r0 = rf(ctx, blockHash)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func([]byte) error); ok {
-		r1 = rf(blockHash)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, blockHash)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -54,14 +56,15 @@ type Store_GetBlockNumberByHash_Call struct {
 }
 
 // GetBlockNumberByHash is a helper method to define mock.On call
+//   - ctx context.Context
 //   - blockHash []byte
-func (_e *Store_Expecter) GetBlockNumberByHash(blockHash interface{}) *Store_GetBlockNumberByHash_Call {
-	return &Store_GetBlockNumberByHash_Call{Call: _e.mock.On("GetBlockNumberByHash", blockHash)}
+func (_e *Store_Expecter) GetBlockNumberByHash(ctx interface{}, blockHash interface{}) *Store_GetBlockNumberByHash_Call {
+	return &Store_GetBlockNumberByHash_Call{Call: _e.mock.On("GetBlockNumberByHash", ctx, blockHash)}
 }
 
-func (_c *Store_GetBlockNumberByHash_Call) Run(run func(blockHash []byte)) *Store_GetBlockNumberByHash_Call {
+func (_c *Store_GetBlockNumberByHash_Call) Run(run func(ctx context.Context, blockHash []byte)) *Store_GetBlockNumberByHash_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte))
+		run(args[0].(context.Context), args[1].([]byte))
 	})
 	return _c
 }
@@ -71,14 +74,14 @@ func (_c *Store_GetBlockNumberByHash_Call) Return(_a0 uint64, _a1 error) *Store_
 	return _c
 }
 
-func (_c *Store_GetBlockNumberByHash_Call) RunAndReturn(run func([]byte) (uint64, error)) *Store_GetBlockNumberByHash_Call {
+func (_c *Store_GetBlockNumberByHash_Call) RunAndReturn(run func(context.Context, []byte) (uint64, error)) *Store_GetBlockNumberByHash_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetEvmLogs provides a mock function with given fields: address, topic0, fromBlock, toBlock
-func (_m *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock int64, toBlock int64) ([]*ethrpc.EvmLog, error) {
-	ret := _m.Called(address, topic0, fromBlock, toBlock)
+// GetEvmLogs provides a mock function with given fields: ctx, address, topic0, fromBlock, toBlock
+func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock int64, toBlock int64) ([]*ethrpc.EvmLog, error) {
+	ret := _m.Called(ctx, address, topic0, fromBlock, toBlock)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmLogs")
@@ -86,19 +89,19 @@ func (_m *Store) GetEvmLogs(address []byte, topic0 []byte, fromBlock int64, toBl
 
 	var r0 []*ethrpc.EvmLog
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)); ok {
-		return rf(address, topic0, fromBlock, toBlock)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)); ok {
+		return rf(ctx, address, topic0, fromBlock, toBlock)
 	}
-	if rf, ok := ret.Get(0).(func([]byte, []byte, int64, int64) []*ethrpc.EvmLog); ok {
-		r0 = rf(address, topic0, fromBlock, toBlock)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, int64, int64) []*ethrpc.EvmLog); ok {
+		r0 = rf(ctx, address, topic0, fromBlock, toBlock)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*ethrpc.EvmLog)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func([]byte, []byte, int64, int64) error); ok {
-		r1 = rf(address, topic0, fromBlock, toBlock)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, []byte, int64, int64) error); ok {
+		r1 = rf(ctx, address, topic0, fromBlock, toBlock)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -112,17 +115,18 @@ type Store_GetEvmLogs_Call struct {
 }
 
 // GetEvmLogs is a helper method to define mock.On call
+//   - ctx context.Context
 //   - address []byte
 //   - topic0 []byte
 //   - fromBlock int64
 //   - toBlock int64
-func (_e *Store_Expecter) GetEvmLogs(address interface{}, topic0 interface{}, fromBlock interface{}, toBlock interface{}) *Store_GetEvmLogs_Call {
-	return &Store_GetEvmLogs_Call{Call: _e.mock.On("GetEvmLogs", address, topic0, fromBlock, toBlock)}
+func (_e *Store_Expecter) GetEvmLogs(ctx interface{}, address interface{}, topic0 interface{}, fromBlock interface{}, toBlock interface{}) *Store_GetEvmLogs_Call {
+	return &Store_GetEvmLogs_Call{Call: _e.mock.On("GetEvmLogs", ctx, address, topic0, fromBlock, toBlock)}
 }
 
-func (_c *Store_GetEvmLogs_Call) Run(run func(address []byte, topic0 []byte, fromBlock int64, toBlock int64)) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) Run(run func(ctx context.Context, address []byte, topic0 []byte, fromBlock int64, toBlock int64)) *Store_GetEvmLogs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte), args[1].([]byte), args[2].(int64), args[3].(int64))
+		run(args[0].(context.Context), args[1].([]byte), args[2].([]byte), args[3].(int64), args[4].(int64))
 	})
 	return _c
 }
@@ -132,14 +136,14 @@ func (_c *Store_GetEvmLogs_Call) Return(_a0 []*ethrpc.EvmLog, _a1 error) *Store_
 	return _c
 }
 
-func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func([]byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func(context.Context, []byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogs_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetEvmLogsByTxHash provides a mock function with given fields: txHash
-func (_m *Store) GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error) {
-	ret := _m.Called(txHash)
+// GetEvmLogsByTxHash provides a mock function with given fields: ctx, txHash
+func (_m *Store) GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error) {
+	ret := _m.Called(ctx, txHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmLogsByTxHash")
@@ -147,19 +151,19 @@ func (_m *Store) GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error) {
 
 	var r0 []*ethrpc.EvmLog
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte) ([]*ethrpc.EvmLog, error)); ok {
-		return rf(txHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) ([]*ethrpc.EvmLog, error)); ok {
+		return rf(ctx, txHash)
 	}
-	if rf, ok := ret.Get(0).(func([]byte) []*ethrpc.EvmLog); ok {
-		r0 = rf(txHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) []*ethrpc.EvmLog); ok {
+		r0 = rf(ctx, txHash)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*ethrpc.EvmLog)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func([]byte) error); ok {
-		r1 = rf(txHash)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, txHash)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -173,14 +177,15 @@ type Store_GetEvmLogsByTxHash_Call struct {
 }
 
 // GetEvmLogsByTxHash is a helper method to define mock.On call
+//   - ctx context.Context
 //   - txHash []byte
-func (_e *Store_Expecter) GetEvmLogsByTxHash(txHash interface{}) *Store_GetEvmLogsByTxHash_Call {
-	return &Store_GetEvmLogsByTxHash_Call{Call: _e.mock.On("GetEvmLogsByTxHash", txHash)}
+func (_e *Store_Expecter) GetEvmLogsByTxHash(ctx interface{}, txHash interface{}) *Store_GetEvmLogsByTxHash_Call {
+	return &Store_GetEvmLogsByTxHash_Call{Call: _e.mock.On("GetEvmLogsByTxHash", ctx, txHash)}
 }
 
-func (_c *Store_GetEvmLogsByTxHash_Call) Run(run func(txHash []byte)) *Store_GetEvmLogsByTxHash_Call {
+func (_c *Store_GetEvmLogsByTxHash_Call) Run(run func(ctx context.Context, txHash []byte)) *Store_GetEvmLogsByTxHash_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte))
+		run(args[0].(context.Context), args[1].([]byte))
 	})
 	return _c
 }
@@ -190,14 +195,14 @@ func (_c *Store_GetEvmLogsByTxHash_Call) Return(_a0 []*ethrpc.EvmLog, _a1 error)
 	return _c
 }
 
-func (_c *Store_GetEvmLogsByTxHash_Call) RunAndReturn(run func([]byte) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogsByTxHash_Call {
+func (_c *Store_GetEvmLogsByTxHash_Call) RunAndReturn(run func(context.Context, []byte) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogsByTxHash_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetEvmTransaction provides a mock function with given fields: txHash
-func (_m *Store) GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error) {
-	ret := _m.Called(txHash)
+// GetEvmTransaction provides a mock function with given fields: ctx, txHash
+func (_m *Store) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error) {
+	ret := _m.Called(ctx, txHash)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmTransaction")
@@ -205,19 +210,19 @@ func (_m *Store) GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error
 
 	var r0 *ethrpc.EvmTransaction
 	var r1 error
-	if rf, ok := ret.Get(0).(func([]byte) (*ethrpc.EvmTransaction, error)); ok {
-		return rf(txHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) (*ethrpc.EvmTransaction, error)); ok {
+		return rf(ctx, txHash)
 	}
-	if rf, ok := ret.Get(0).(func([]byte) *ethrpc.EvmTransaction); ok {
-		r0 = rf(txHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) *ethrpc.EvmTransaction); ok {
+		r0 = rf(ctx, txHash)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*ethrpc.EvmTransaction)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func([]byte) error); ok {
-		r1 = rf(txHash)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, txHash)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -231,14 +236,15 @@ type Store_GetEvmTransaction_Call struct {
 }
 
 // GetEvmTransaction is a helper method to define mock.On call
+//   - ctx context.Context
 //   - txHash []byte
-func (_e *Store_Expecter) GetEvmTransaction(txHash interface{}) *Store_GetEvmTransaction_Call {
-	return &Store_GetEvmTransaction_Call{Call: _e.mock.On("GetEvmTransaction", txHash)}
+func (_e *Store_Expecter) GetEvmTransaction(ctx interface{}, txHash interface{}) *Store_GetEvmTransaction_Call {
+	return &Store_GetEvmTransaction_Call{Call: _e.mock.On("GetEvmTransaction", ctx, txHash)}
 }
 
-func (_c *Store_GetEvmTransaction_Call) Run(run func(txHash []byte)) *Store_GetEvmTransaction_Call {
+func (_c *Store_GetEvmTransaction_Call) Run(run func(ctx context.Context, txHash []byte)) *Store_GetEvmTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte))
+		run(args[0].(context.Context), args[1].([]byte))
 	})
 	return _c
 }
@@ -248,14 +254,14 @@ func (_c *Store_GetEvmTransaction_Call) Return(_a0 *ethrpc.EvmTransaction, _a1 e
 	return _c
 }
 
-func (_c *Store_GetEvmTransaction_Call) RunAndReturn(run func([]byte) (*ethrpc.EvmTransaction, error)) *Store_GetEvmTransaction_Call {
+func (_c *Store_GetEvmTransaction_Call) RunAndReturn(run func(context.Context, []byte) (*ethrpc.EvmTransaction, error)) *Store_GetEvmTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetEvmTransactionCount provides a mock function with given fields: fromAddress
-func (_m *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
-	ret := _m.Called(fromAddress)
+// GetEvmTransactionCount provides a mock function with given fields: ctx, fromAddress
+func (_m *Store) GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error) {
+	ret := _m.Called(ctx, fromAddress)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetEvmTransactionCount")
@@ -263,17 +269,17 @@ func (_m *Store) GetEvmTransactionCount(fromAddress string) (uint64, error) {
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (uint64, error)); ok {
-		return rf(fromAddress)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (uint64, error)); ok {
+		return rf(ctx, fromAddress)
 	}
-	if rf, ok := ret.Get(0).(func(string) uint64); ok {
-		r0 = rf(fromAddress)
+	if rf, ok := ret.Get(0).(func(context.Context, string) uint64); ok {
+		r0 = rf(ctx, fromAddress)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(fromAddress)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, fromAddress)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -287,14 +293,15 @@ type Store_GetEvmTransactionCount_Call struct {
 }
 
 // GetEvmTransactionCount is a helper method to define mock.On call
+//   - ctx context.Context
 //   - fromAddress string
-func (_e *Store_Expecter) GetEvmTransactionCount(fromAddress interface{}) *Store_GetEvmTransactionCount_Call {
-	return &Store_GetEvmTransactionCount_Call{Call: _e.mock.On("GetEvmTransactionCount", fromAddress)}
+func (_e *Store_Expecter) GetEvmTransactionCount(ctx interface{}, fromAddress interface{}) *Store_GetEvmTransactionCount_Call {
+	return &Store_GetEvmTransactionCount_Call{Call: _e.mock.On("GetEvmTransactionCount", ctx, fromAddress)}
 }
 
-func (_c *Store_GetEvmTransactionCount_Call) Run(run func(fromAddress string)) *Store_GetEvmTransactionCount_Call {
+func (_c *Store_GetEvmTransactionCount_Call) Run(run func(ctx context.Context, fromAddress string)) *Store_GetEvmTransactionCount_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -304,14 +311,14 @@ func (_c *Store_GetEvmTransactionCount_Call) Return(_a0 uint64, _a1 error) *Stor
 	return _c
 }
 
-func (_c *Store_GetEvmTransactionCount_Call) RunAndReturn(run func(string) (uint64, error)) *Store_GetEvmTransactionCount_Call {
+func (_c *Store_GetEvmTransactionCount_Call) RunAndReturn(run func(context.Context, string) (uint64, error)) *Store_GetEvmTransactionCount_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetLatestEvmBlockNumber provides a mock function with no fields
-func (_m *Store) GetLatestEvmBlockNumber() (uint64, error) {
-	ret := _m.Called()
+// GetLatestEvmBlockNumber provides a mock function with given fields: ctx
+func (_m *Store) GetLatestEvmBlockNumber(ctx context.Context) (uint64, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetLatestEvmBlockNumber")
@@ -319,17 +326,17 @@ func (_m *Store) GetLatestEvmBlockNumber() (uint64, error) {
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (uint64, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) (uint64, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() uint64); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) uint64); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -343,13 +350,14 @@ type Store_GetLatestEvmBlockNumber_Call struct {
 }
 
 // GetLatestEvmBlockNumber is a helper method to define mock.On call
-func (_e *Store_Expecter) GetLatestEvmBlockNumber() *Store_GetLatestEvmBlockNumber_Call {
-	return &Store_GetLatestEvmBlockNumber_Call{Call: _e.mock.On("GetLatestEvmBlockNumber")}
+//   - ctx context.Context
+func (_e *Store_Expecter) GetLatestEvmBlockNumber(ctx interface{}) *Store_GetLatestEvmBlockNumber_Call {
+	return &Store_GetLatestEvmBlockNumber_Call{Call: _e.mock.On("GetLatestEvmBlockNumber", ctx)}
 }
 
-func (_c *Store_GetLatestEvmBlockNumber_Call) Run(run func()) *Store_GetLatestEvmBlockNumber_Call {
+func (_c *Store_GetLatestEvmBlockNumber_Call) Run(run func(ctx context.Context)) *Store_GetLatestEvmBlockNumber_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -359,14 +367,14 @@ func (_c *Store_GetLatestEvmBlockNumber_Call) Return(_a0 uint64, _a1 error) *Sto
 	return _c
 }
 
-func (_c *Store_GetLatestEvmBlockNumber_Call) RunAndReturn(run func() (uint64, error)) *Store_GetLatestEvmBlockNumber_Call {
+func (_c *Store_GetLatestEvmBlockNumber_Call) RunAndReturn(run func(context.Context) (uint64, error)) *Store_GetLatestEvmBlockNumber_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// NextEvmBlock provides a mock function with given fields: chainID
-func (_m *Store) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
-	ret := _m.Called(chainID)
+// NextEvmBlock provides a mock function with given fields: ctx, chainID
+func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, int, error) {
+	ret := _m.Called(ctx, chainID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for NextEvmBlock")
@@ -376,31 +384,31 @@ func (_m *Store) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
 	var r1 []byte
 	var r2 int
 	var r3 error
-	if rf, ok := ret.Get(0).(func(uint64) (uint64, []byte, int, error)); ok {
-		return rf(chainID)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (uint64, []byte, int, error)); ok {
+		return rf(ctx, chainID)
 	}
-	if rf, ok := ret.Get(0).(func(uint64) uint64); ok {
-		r0 = rf(chainID)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) uint64); ok {
+		r0 = rf(ctx, chainID)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64) []byte); ok {
-		r1 = rf(chainID)
+	if rf, ok := ret.Get(1).(func(context.Context, uint64) []byte); ok {
+		r1 = rf(ctx, chainID)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]byte)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(uint64) int); ok {
-		r2 = rf(chainID)
+	if rf, ok := ret.Get(2).(func(context.Context, uint64) int); ok {
+		r2 = rf(ctx, chainID)
 	} else {
 		r2 = ret.Get(2).(int)
 	}
 
-	if rf, ok := ret.Get(3).(func(uint64) error); ok {
-		r3 = rf(chainID)
+	if rf, ok := ret.Get(3).(func(context.Context, uint64) error); ok {
+		r3 = rf(ctx, chainID)
 	} else {
 		r3 = ret.Error(3)
 	}
@@ -414,14 +422,15 @@ type Store_NextEvmBlock_Call struct {
 }
 
 // NextEvmBlock is a helper method to define mock.On call
+//   - ctx context.Context
 //   - chainID uint64
-func (_e *Store_Expecter) NextEvmBlock(chainID interface{}) *Store_NextEvmBlock_Call {
-	return &Store_NextEvmBlock_Call{Call: _e.mock.On("NextEvmBlock", chainID)}
+func (_e *Store_Expecter) NextEvmBlock(ctx interface{}, chainID interface{}) *Store_NextEvmBlock_Call {
+	return &Store_NextEvmBlock_Call{Call: _e.mock.On("NextEvmBlock", ctx, chainID)}
 }
 
-func (_c *Store_NextEvmBlock_Call) Run(run func(chainID uint64)) *Store_NextEvmBlock_Call {
+func (_c *Store_NextEvmBlock_Call) Run(run func(ctx context.Context, chainID uint64)) *Store_NextEvmBlock_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64))
+		run(args[0].(context.Context), args[1].(uint64))
 	})
 	return _c
 }
@@ -431,22 +440,22 @@ func (_c *Store_NextEvmBlock_Call) Return(_a0 uint64, _a1 []byte, _a2 int, _a3 e
 	return _c
 }
 
-func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(uint64) (uint64, []byte, int, error)) *Store_NextEvmBlock_Call {
+func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(context.Context, uint64) (uint64, []byte, int, error)) *Store_NextEvmBlock_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// SaveEvmLog provides a mock function with given fields: log
-func (_m *Store) SaveEvmLog(log *ethrpc.EvmLog) error {
-	ret := _m.Called(log)
+// SaveEvmLog provides a mock function with given fields: ctx, log
+func (_m *Store) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
+	ret := _m.Called(ctx, log)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SaveEvmLog")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*ethrpc.EvmLog) error); ok {
-		r0 = rf(log)
+	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmLog) error); ok {
+		r0 = rf(ctx, log)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -460,14 +469,15 @@ type Store_SaveEvmLog_Call struct {
 }
 
 // SaveEvmLog is a helper method to define mock.On call
+//   - ctx context.Context
 //   - log *ethrpc.EvmLog
-func (_e *Store_Expecter) SaveEvmLog(log interface{}) *Store_SaveEvmLog_Call {
-	return &Store_SaveEvmLog_Call{Call: _e.mock.On("SaveEvmLog", log)}
+func (_e *Store_Expecter) SaveEvmLog(ctx interface{}, log interface{}) *Store_SaveEvmLog_Call {
+	return &Store_SaveEvmLog_Call{Call: _e.mock.On("SaveEvmLog", ctx, log)}
 }
 
-func (_c *Store_SaveEvmLog_Call) Run(run func(log *ethrpc.EvmLog)) *Store_SaveEvmLog_Call {
+func (_c *Store_SaveEvmLog_Call) Run(run func(ctx context.Context, log *ethrpc.EvmLog)) *Store_SaveEvmLog_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*ethrpc.EvmLog))
+		run(args[0].(context.Context), args[1].(*ethrpc.EvmLog))
 	})
 	return _c
 }
@@ -477,22 +487,22 @@ func (_c *Store_SaveEvmLog_Call) Return(_a0 error) *Store_SaveEvmLog_Call {
 	return _c
 }
 
-func (_c *Store_SaveEvmLog_Call) RunAndReturn(run func(*ethrpc.EvmLog) error) *Store_SaveEvmLog_Call {
+func (_c *Store_SaveEvmLog_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmLog) error) *Store_SaveEvmLog_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// SaveEvmTransaction provides a mock function with given fields: tx
-func (_m *Store) SaveEvmTransaction(tx *ethrpc.EvmTransaction) error {
-	ret := _m.Called(tx)
+// SaveEvmTransaction provides a mock function with given fields: ctx, tx
+func (_m *Store) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
+	ret := _m.Called(ctx, tx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SaveEvmTransaction")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*ethrpc.EvmTransaction) error); ok {
-		r0 = rf(tx)
+	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmTransaction) error); ok {
+		r0 = rf(ctx, tx)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -506,14 +516,15 @@ type Store_SaveEvmTransaction_Call struct {
 }
 
 // SaveEvmTransaction is a helper method to define mock.On call
+//   - ctx context.Context
 //   - tx *ethrpc.EvmTransaction
-func (_e *Store_Expecter) SaveEvmTransaction(tx interface{}) *Store_SaveEvmTransaction_Call {
-	return &Store_SaveEvmTransaction_Call{Call: _e.mock.On("SaveEvmTransaction", tx)}
+func (_e *Store_Expecter) SaveEvmTransaction(ctx interface{}, tx interface{}) *Store_SaveEvmTransaction_Call {
+	return &Store_SaveEvmTransaction_Call{Call: _e.mock.On("SaveEvmTransaction", ctx, tx)}
 }
 
-func (_c *Store_SaveEvmTransaction_Call) Run(run func(tx *ethrpc.EvmTransaction)) *Store_SaveEvmTransaction_Call {
+func (_c *Store_SaveEvmTransaction_Call) Run(run func(ctx context.Context, tx *ethrpc.EvmTransaction)) *Store_SaveEvmTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*ethrpc.EvmTransaction))
+		run(args[0].(context.Context), args[1].(*ethrpc.EvmTransaction))
 	})
 	return _c
 }
@@ -523,7 +534,7 @@ func (_c *Store_SaveEvmTransaction_Call) Return(_a0 error) *Store_SaveEvmTransac
 	return _c
 }
 
-func (_c *Store_SaveEvmTransaction_Call) RunAndReturn(run func(*ethrpc.EvmTransaction) error) *Store_SaveEvmTransaction_Call {
+func (_c *Store_SaveEvmTransaction_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmTransaction) error) *Store_SaveEvmTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }

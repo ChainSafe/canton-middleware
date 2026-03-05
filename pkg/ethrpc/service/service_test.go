@@ -50,7 +50,7 @@ func TestService_ChainID(t *testing.T) {
 func TestService_BlockNumber(t *testing.T) {
 	t.Run("adds 12-block confirmation buffer to latest", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber().Return(uint64(100), nil)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(100), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.BlockNumber()
@@ -60,7 +60,7 @@ func TestService_BlockNumber(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber().Return(uint64(0), errors.New("db down"))
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.BlockNumber()
@@ -151,7 +151,7 @@ func TestService_GetTransactionCount(t *testing.T) {
 
 	t.Run("returns nonce from store", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransactionCount(addr.Hex()).Return(uint64(5), nil)
+		store.EXPECT().GetEvmTransactionCount(mock.Anything, addr.Hex()).Return(uint64(5), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionCount(context.Background(), addr)
@@ -161,7 +161,7 @@ func TestService_GetTransactionCount(t *testing.T) {
 
 	t.Run("zero for new account", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransactionCount(addr.Hex()).Return(uint64(0), nil)
+		store.EXPECT().GetEvmTransactionCount(mock.Anything, addr.Hex()).Return(uint64(0), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionCount(context.Background(), addr)
@@ -171,7 +171,7 @@ func TestService_GetTransactionCount(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransactionCount(addr.Hex()).Return(uint64(0), errors.New("db down"))
+		store.EXPECT().GetEvmTransactionCount(mock.Anything, addr.Hex()).Return(uint64(0), errors.New("db down"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetTransactionCount(context.Background(), addr)
@@ -231,9 +231,9 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything).Return(nil)
+		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
+		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -283,7 +283,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(uint64(31337)).Return(uint64(0), nil, 0, errors.New("next block failed"))
+		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(0), nil, 0, errors.New("next block failed"))
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -303,8 +303,8 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything).Return(errors.New("save tx failed"))
+		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
+		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(errors.New("save tx failed"))
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -324,9 +324,9 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything).Return(errors.New("save log failed"))
+		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
+		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(errors.New("save log failed"))
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -360,8 +360,8 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 
 	t.Run("found returns receipt with correct fields", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(row, nil)
-		store.EXPECT().GetEvmLogsByTxHash(txHash.Bytes()).Return(nil, nil)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(row, nil)
+		store.EXPECT().GetEvmLogsByTxHash(mock.Anything, txHash.Bytes()).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionReceipt(context.Background(), txHash)
@@ -378,7 +378,7 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 
 	t.Run("not found returns nil", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(nil, nil)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionReceipt(context.Background(), txHash)
@@ -388,7 +388,7 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(nil, errors.New("db error"))
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetTransactionReceipt(context.Background(), txHash)
@@ -398,8 +398,8 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 
 	t.Run("GetEvmLogsByTxHash error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(row, nil)
-		store.EXPECT().GetEvmLogsByTxHash(txHash.Bytes()).Return(nil, errors.New("db error"))
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(row, nil)
+		store.EXPECT().GetEvmLogsByTxHash(mock.Anything, txHash.Bytes()).Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetTransactionReceipt(context.Background(), txHash)
@@ -431,7 +431,7 @@ func TestService_GetTransactionByHash(t *testing.T) {
 
 	t.Run("found returns transaction with correct fields", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(row, nil)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(row, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionByHash(context.Background(), txHash)
@@ -446,7 +446,7 @@ func TestService_GetTransactionByHash(t *testing.T) {
 
 	t.Run("not found returns nil", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(nil, nil)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetTransactionByHash(context.Background(), txHash)
@@ -456,7 +456,7 @@ func TestService_GetTransactionByHash(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmTransaction(txHash.Bytes()).Return(nil, errors.New("db error"))
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetTransactionByHash(context.Background(), txHash)
@@ -627,7 +627,7 @@ func TestService_GetLogs(t *testing.T) {
 
 	t.Run("empty result", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, int64(0), int64(100)).Return(nil, nil)
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetLogs(context.Background(), query)
@@ -648,7 +648,7 @@ func TestService_GetLogs(t *testing.T) {
 		}
 
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, int64(0), int64(100)).
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).
 			Return([]*ethrpc.EvmLog{dbLog}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
@@ -662,7 +662,7 @@ func TestService_GetLogs(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, int64(0), int64(100)).
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).
 			Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
@@ -698,7 +698,7 @@ func TestService_GetBlockByNumber(t *testing.T) {
 
 	t.Run("nil block number resolves to latest with confirmation buffer", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber().Return(uint64(77), nil)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(77), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{}, false)
@@ -709,7 +709,7 @@ func TestService_GetBlockByNumber(t *testing.T) {
 
 	t.Run("store error when resolving latest", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber().Return(uint64(0), errors.New("db down"))
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{}, false)
@@ -725,7 +725,7 @@ func TestService_GetBlockByHash(t *testing.T) {
 
 	t.Run("found returns block for stored number", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(blockHash.Bytes()).Return(uint64(55), nil)
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(55), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetBlockByHash(context.Background(), blockHash, false)
@@ -737,8 +737,8 @@ func TestService_GetBlockByHash(t *testing.T) {
 	t.Run("hash not in store falls back to latest block", func(t *testing.T) {
 		// blockNum=0 means not found; service falls back to GetBlockByNumber("latest")
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(blockHash.Bytes()).Return(uint64(0), nil)
-		store.EXPECT().GetLatestEvmBlockNumber().Return(uint64(50), nil)
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(0), nil)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetBlockByHash(context.Background(), blockHash, false)
@@ -749,7 +749,7 @@ func TestService_GetBlockByHash(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(blockHash.Bytes()).Return(uint64(0), errors.New("db error"))
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(0), errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetBlockByHash(context.Background(), blockHash, false)

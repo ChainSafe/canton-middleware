@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/uptrace/bun"
 
@@ -107,6 +108,29 @@ func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, e
 		return false, fmt.Errorf("failed to check whitelist: %w", err)
 	}
 	return exists, nil
+}
+
+func (s *pgStore) AddToWhitelist(ctx context.Context, evmAddress, note string) error {
+	evmAddress = strings.TrimSpace(evmAddress)
+	if evmAddress == "" {
+		return fmt.Errorf("evm address is required")
+	}
+
+	entry := &WhitelistDao{EVMAddress: evmAddress}
+	if strings.TrimSpace(note) != "" {
+		entry.Note = &note
+	}
+
+	_, err := s.db.NewInsert().
+		Model(entry).
+		On("CONFLICT (evm_address) DO UPDATE").
+		Set("note = EXCLUDED.note").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to add whitelist entry: %w", err)
+	}
+
+	return nil
 }
 
 func (s *pgStore) getUserKeyBy(ctx context.Context, decryptor KeyDecryptor, column string, value string) ([]byte, error) {

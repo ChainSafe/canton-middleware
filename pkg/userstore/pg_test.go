@@ -198,12 +198,8 @@ func TestUserPGStore_IsWhitelisted(t *testing.T) {
 	}
 
 	note := "test"
-	entry := &WhitelistDao{
-		EVMAddress: addr,
-		Note:       &note,
-	}
-	if _, err = s.db.NewInsert().Model(entry).Exec(ctx); err != nil {
-		t.Fatalf("failed to insert whitelist entry: %v", err)
+	if err = s.AddToWhitelist(ctx, addr, note); err != nil {
+		t.Fatalf("AddToWhitelist() failed: %v", err)
 	}
 
 	ok, err = s.IsWhitelisted(ctx, addr)
@@ -212,6 +208,18 @@ func TestUserPGStore_IsWhitelisted(t *testing.T) {
 	}
 	if !ok {
 		t.Fatalf("expected address to be whitelisted")
+	}
+
+	updatedNote := "updated"
+	if err = s.AddToWhitelist(ctx, addr, updatedNote); err != nil {
+		t.Fatalf("AddToWhitelist(update) failed: %v", err)
+	}
+	dao := new(WhitelistDao)
+	if err = s.db.NewSelect().Model(dao).Where("evm_address = ?", addr).Limit(1).Scan(ctx); err != nil {
+		t.Fatalf("query whitelist entry failed: %v", err)
+	}
+	if dao.Note == nil || *dao.Note != updatedNote {
+		t.Fatalf("unexpected whitelist note: got %v want %q", dao.Note, updatedNote)
 	}
 }
 

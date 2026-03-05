@@ -25,15 +25,15 @@ import (
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
-	GetLatestEvmBlockNumber() (uint64, error)
-	GetEvmTransactionCount(fromAddress string) (uint64, error)
-	NextEvmBlock(chainID uint64) (uint64, []byte, int, error)
-	SaveEvmTransaction(tx *ethrpc.EvmTransaction) error
-	SaveEvmLog(log *ethrpc.EvmLog) error
-	GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error)
-	GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error)
-	GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error)
-	GetBlockNumberByHash(blockHash []byte) (uint64, error)
+	GetLatestEvmBlockNumber(ctx context.Context) (uint64, error)
+	GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error)
+	NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, int, error)
+	SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error
+	SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error
+	GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error)
+	GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error)
+	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error)
+	GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error)
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
@@ -119,7 +119,7 @@ func (s *ethService) ChainID() hexutil.Uint64 {
 }
 
 func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
-	n, err := s.store.GetLatestEvmBlockNumber()
+	n, err := s.store.GetLatestEvmBlockNumber(context.Background())
 	if err != nil {
 		return 0, apperr.DependencyError(err, "get latest EVM block number")
 	}
@@ -161,8 +161,8 @@ func (s *ethService) GetBalance(ctx context.Context, address common.Address) (*h
 	return (*hexutil.Big)(&bal), nil
 }
 
-func (s *ethService) GetTransactionCount(_ context.Context, address common.Address) (hexutil.Uint64, error) {
-	count, err := s.store.GetEvmTransactionCount(address.Hex())
+func (s *ethService) GetTransactionCount(ctx context.Context, address common.Address) (hexutil.Uint64, error) {
+	count, err := s.store.GetEvmTransactionCount(ctx, address.Hex())
 	if err != nil {
 		return 0, apperr.DependencyError(err, fmt.Sprintf("get transaction count for %s", address.Hex()))
 	}
@@ -225,7 +225,7 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	}
 
 	txHash := tx.Hash()
-	if err = s.recordSyntheticTransfer(txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
+	if err = s.recordSyntheticTransfer(ctx, txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
 		return common.Hash{}, err
 	}
 
@@ -262,6 +262,7 @@ func (s *ethService) decodeTransferCall(input []byte) (common.Address, *big.Int,
 }
 
 func (s *ethService) recordSyntheticTransfer(
+	ctx context.Context,
 	txHash common.Hash,
 	input []byte,
 	nonce uint64,
@@ -270,7 +271,7 @@ func (s *ethService) recordSyntheticTransfer(
 	toAddr common.Address,
 	amount *big.Int,
 ) error {
-	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(s.chainID.Uint64())
+	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(ctx, s.chainID.Uint64())
 	if err != nil {
 		return apperr.DependencyError(err, "get next EVM block")
 	}
@@ -300,7 +301,7 @@ func (s *ethService) recordSyntheticTransfer(
 		TxIndex:     txIndex,
 		GasUsed:     gasUsedInt64,
 	}
-	if err = s.store.SaveEvmTransaction(evmTx); err != nil {
+	if err = s.store.SaveEvmTransaction(ctx, evmTx); err != nil {
 		return apperr.DependencyError(err, "save EVM transaction")
 	}
 
@@ -320,15 +321,15 @@ func (s *ethService) recordSyntheticTransfer(
 		TxIndex:     txIndex,
 		Removed:     false,
 	}
-	if err = s.store.SaveEvmLog(evmLog); err != nil {
+	if err = s.store.SaveEvmLog(ctx, evmLog); err != nil {
 		return apperr.DependencyError(err, "save EVM log")
 	}
 
 	return nil
 }
 
-func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
-	row, err := s.store.GetEvmTransaction(hash.Bytes())
+func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
+	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction receipt for %s", hash.Hex()))
 	}
@@ -339,7 +340,7 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 	from := common.HexToAddress(row.FromAddress)
 	to := common.HexToAddress(row.ToAddress)
 
-	dbLogs, err := s.store.GetEvmLogsByTxHash(hash.Bytes())
+	dbLogs, err := s.store.GetEvmLogsByTxHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get logs for transaction receipt %s", hash.Hex()))
 	}
@@ -411,8 +412,8 @@ func (s *ethService) GetTransactionReceipt(_ context.Context, hash common.Hash) 
 	}, nil
 }
 
-func (s *ethService) GetTransactionByHash(_ context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error) {
-	row, err := s.store.GetEvmTransaction(hash.Bytes())
+func (s *ethService) GetTransactionByHash(ctx context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error) {
+	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get transaction by hash %s", hash.Hex()))
 	}
@@ -544,7 +545,7 @@ func (s *ethService) callAllowance(ctx context.Context, data []byte, erc20 token
 	return encodeUint256(&allowance)
 }
 
-func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*types.Log, error) {
+func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*types.Log, error) {
 	var fromBlock, toBlock int64
 	if query.FromBlock != nil {
 		var err error
@@ -560,7 +561,7 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 			return nil, err
 		}
 	} else {
-		latest, err := s.store.GetLatestEvmBlockNumber()
+		latest, err := s.store.GetLatestEvmBlockNumber(ctx)
 		if err != nil {
 			return nil, apperr.DependencyError(err, "get latest EVM block number for logs")
 		}
@@ -590,7 +591,7 @@ func (s *ethService) GetLogs(_ context.Context, query ethrpc.FilterQuery) ([]*ty
 		}
 	}
 
-	dbLogs, err := s.store.GetEvmLogs(addressFilter, topic0Filter, fromBlock, toBlock)
+	dbLogs, err := s.store.GetEvmLogs(ctx, addressFilter, topic0Filter, fromBlock, toBlock)
 	if err != nil {
 		return nil, apperr.DependencyError(err, "get EVM logs")
 	}
@@ -675,7 +676,7 @@ func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumbe
 }
 
 func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
-	blockNum, err := s.store.GetBlockNumberByHash(hash.Bytes())
+	blockNum, err := s.store.GetBlockNumberByHash(ctx, hash.Bytes())
 	if err != nil {
 		return nil, apperr.DependencyError(err, fmt.Sprintf("get block number by hash %s", hash.Hex()))
 	}

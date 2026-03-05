@@ -60,7 +60,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	_ "github.com/lib/pq"
-	"github.com/uptrace/bun"
 	"go.uber.org/zap"
 )
 
@@ -82,6 +81,10 @@ type nativeUser struct {
 	CantonPartyID string
 	EVMAddress    string
 	EVMPrivateKey string // hex, no 0x prefix
+}
+
+type whitelistStore interface {
+	AddToWhitelist(ctx context.Context, evmAddress, note string) error
 }
 
 // Contract addresses - auto-detected from Docker deployer logs
@@ -173,7 +176,7 @@ func main() {
 		showHoldings(ctx, cantonClient)
 
 		// Step 1: Allocate external native parties + register with API server
-		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, bunDB)
+		native1, native2 := stepRegisterExternalNativeUsers(ctx, cantonClient, userStore)
 
 		// Step 2: MetaMask User 1 → Native User 1 (via /eth)
 		stepTransferDemoViaCast(2, "MetaMask User 1 → Native User 1",
@@ -226,15 +229,15 @@ func main() {
 
 // ─── Part A Steps ───────────────────────────────────────────────────────────
 
-func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, db *bun.DB) (nativeUser, nativeUser) {
+func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, store whitelistStore) (nativeUser, nativeUser) {
 	printStep(1, "Allocate External Parties + Register Native Users")
 	fmt.Println("    Creating 2 external parties and registering with API server...")
 	fmt.Println()
 
-	native1 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_1")
+	native1 := allocateAndRegisterNative(ctx, sdk, store, "native_interop_1")
 	fmt.Printf("    Native User 1: party=%s  evm=%s\n", trunc(native1.CantonPartyID), native1.EVMAddress)
 
-	native2 := allocateAndRegisterNative(ctx, sdk, db, "native_interop_2")
+	native2 := allocateAndRegisterNative(ctx, sdk, store, "native_interop_2")
 	fmt.Printf("    Native User 2: party=%s  evm=%s\n", trunc(native2.CantonPartyID), native2.EVMAddress)
 	fmt.Println()
 
@@ -242,7 +245,7 @@ func stepRegisterExternalNativeUsers(ctx context.Context, sdk *canton.Client, db
 	return native1, native2
 }
 
-func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *bun.DB, hint string) nativeUser {
+func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, store whitelistStore, hint string) nativeUser {
 	kp, err := keys.GenerateCantonKeyPair()
 	if err != nil {
 		fatalf("Generate Canton keypair for %s: %v", hint, err)
@@ -263,7 +266,7 @@ func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, db *bun.
 	}
 	nu.CantonPartyID = party.PartyID
 
-	if err := addToWhitelist(ctx, db, nu.EVMAddress, "interop-demo native user"); err != nil {
+	if err := store.AddToWhitelist(ctx, nu.EVMAddress, "interop-demo native user"); err != nil {
 		fatalf("Whitelist native user %s (%s): %v", hint, nu.EVMAddress, err)
 	}
 
@@ -472,24 +475,6 @@ func showHoldings(ctx context.Context, sdk *canton.Client) {
 		}
 		fmt.Printf("    %-40s | %-6s | %s\n", trunc(h.Owner), sym, fmtBal(h.Amount))
 	}
-}
-
-func addToWhitelist(ctx context.Context, db *bun.DB, evmAddress, note string) error {
-	entry := &userstore.WhitelistDao{EVMAddress: evmAddress}
-	if strings.TrimSpace(note) != "" {
-		entry.Note = &note
-	}
-
-	_, err := db.NewInsert().
-		Model(entry).
-		On("CONFLICT (evm_address) DO UPDATE").
-		Set("note = EXCLUDED.note").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("upsert whitelist entry: %w", err)
-	}
-
-	return nil
 }
 
 // ─── Auto-detection ─────────────────────────────────────────────────────────

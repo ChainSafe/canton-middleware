@@ -27,7 +27,7 @@ func NewStore(db *bun.DB) *PGStore {
 }
 
 // SaveEvmTransaction stores a synthetic EVM transaction.
-func (s *PGStore) SaveEvmTransaction(tx *ethrpc.EvmTransaction) error {
+func (s *PGStore) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
 	if tx == nil {
 		return fmt.Errorf("evm transaction is required")
 	}
@@ -37,7 +37,7 @@ func (s *PGStore) SaveEvmTransaction(tx *ethrpc.EvmTransaction) error {
 	_, err := s.db.NewInsert().
 		Model(dao).
 		On("CONFLICT (tx_hash) DO NOTHING").
-		Exec(context.Background())
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("save evm transaction: %w", err)
 	}
@@ -45,13 +45,13 @@ func (s *PGStore) SaveEvmTransaction(tx *ethrpc.EvmTransaction) error {
 }
 
 // GetEvmTransaction retrieves an EVM transaction by hash.
-func (s *PGStore) GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, error) {
+func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error) {
 	dao := new(EvmTransactionDao)
 	err := s.db.NewSelect().
 		Model(dao).
 		Where("tx_hash = ?", txHash).
 		Limit(1).
-		Scan(context.Background())
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -63,14 +63,14 @@ func (s *PGStore) GetEvmTransaction(txHash []byte) (*ethrpc.EvmTransaction, erro
 }
 
 // GetLatestEvmBlockNumber returns the latest synthetic EVM block number.
-func (s *PGStore) GetLatestEvmBlockNumber() (uint64, error) {
+func (s *PGStore) GetLatestEvmBlockNumber(ctx context.Context) (uint64, error) {
 	meta := new(EvmMetaDao)
 	err := s.db.NewSelect().
 		Model(meta).
 		Column("value").
 		Where(`"key" = ?`, latestBlockNumberKey).
 		Limit(1).
-		Scan(context.Background())
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -87,9 +87,7 @@ func (s *PGStore) GetLatestEvmBlockNumber() (uint64, error) {
 
 // NextEvmBlock allocates the next synthetic EVM block number.
 // Returns block number, block hash, and tx index (always 0).
-func (s *PGStore) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
-	ctx := context.Background()
-
+func (s *PGStore) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, int, error) {
 	var nextBlock uint64
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		meta := new(EvmMetaDao)
@@ -132,14 +130,14 @@ func (s *PGStore) NextEvmBlock(chainID uint64) (uint64, []byte, int, error) {
 }
 
 // GetBlockNumberByHash returns the block number for a block hash.
-func (s *PGStore) GetBlockNumberByHash(blockHash []byte) (uint64, error) {
+func (s *PGStore) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error) {
 	dao := new(EvmTransactionDao)
 	err := s.db.NewSelect().
 		Model(dao).
 		Column("block_number").
 		Where("block_hash = ?", blockHash).
 		Limit(1).
-		Scan(context.Background())
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -153,13 +151,13 @@ func (s *PGStore) GetBlockNumberByHash(blockHash []byte) (uint64, error) {
 }
 
 // GetEvmTransactionCount returns the next nonce for the from address.
-func (s *PGStore) GetEvmTransactionCount(fromAddress string) (uint64, error) {
+func (s *PGStore) GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error) {
 	var maxNonce sql.NullInt64
 	err := s.db.NewSelect().
 		Model((*EvmTransactionDao)(nil)).
 		ColumnExpr("MAX(nonce)").
 		Where("from_address = ?", fromAddress).
-		Scan(context.Background(), &maxNonce)
+		Scan(ctx, &maxNonce)
 	if err != nil {
 		return 0, fmt.Errorf("get transaction count for %s: %w", fromAddress, err)
 	}
@@ -177,7 +175,7 @@ func (s *PGStore) GetEvmTransactionCount(fromAddress string) (uint64, error) {
 }
 
 // SaveEvmLog stores a synthetic EVM log entry.
-func (s *PGStore) SaveEvmLog(log *ethrpc.EvmLog) error {
+func (s *PGStore) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
 	if log == nil {
 		return fmt.Errorf("evm log is required")
 	}
@@ -187,7 +185,7 @@ func (s *PGStore) SaveEvmLog(log *ethrpc.EvmLog) error {
 	_, err := s.db.NewInsert().
 		Model(dao).
 		On("CONFLICT (tx_hash, log_index) DO NOTHING").
-		Exec(context.Background())
+		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("save evm log: %w", err)
 	}
@@ -195,13 +193,13 @@ func (s *PGStore) SaveEvmLog(log *ethrpc.EvmLog) error {
 }
 
 // GetEvmLogsByTxHash retrieves all logs for a transaction hash.
-func (s *PGStore) GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error) {
+func (s *PGStore) GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error) {
 	var daos []EvmLogDao
 	err := s.db.NewSelect().
 		Model(&daos).
 		Where("tx_hash = ?", txHash).
 		OrderExpr("log_index ASC").
-		Scan(context.Background())
+		Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get evm logs by tx hash: %w", err)
 	}
@@ -214,7 +212,7 @@ func (s *PGStore) GetEvmLogsByTxHash(txHash []byte) ([]*ethrpc.EvmLog, error) {
 }
 
 // GetEvmLogs retrieves logs matching address/topic0 and block range.
-func (s *PGStore) GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error) {
+func (s *PGStore) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error) {
 	var daos []EvmLogDao
 	query := s.db.NewSelect().
 		Model(&daos).
@@ -230,7 +228,7 @@ func (s *PGStore) GetEvmLogs(address []byte, topic0 []byte, fromBlock, toBlock i
 		query = query.Where("topic0 = ?", topic0)
 	}
 
-	err := query.Scan(context.Background())
+	err := query.Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get evm logs: %w", err)
 	}
