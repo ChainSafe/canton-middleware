@@ -627,7 +627,7 @@ func TestService_GetLogs(t *testing.T) {
 
 	t.Run("empty result", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).Return(nil, nil)
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.GetLogs(context.Background(), query)
@@ -648,7 +648,7 @@ func TestService_GetLogs(t *testing.T) {
 		}
 
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).
 			Return([]*ethrpc.EvmLog{dbLog}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
@@ -662,7 +662,7 @@ func TestService_GetLogs(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, int64(0), int64(100)).
+		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).
 			Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 

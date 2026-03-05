@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -13,7 +12,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-const latestBlockNumberKey = "latest_block_number"
 const evmLogsQueryLimit = 10000
 
 // PGStore is a PostgreSQL-backed EVM store for EthRPC.
@@ -64,69 +62,33 @@ func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc
 
 // GetLatestEvmBlockNumber returns the latest synthetic EVM block number.
 func (s *PGStore) GetLatestEvmBlockNumber(ctx context.Context) (uint64, error) {
-	meta := new(EvmMetaDao)
-	err := s.db.NewSelect().
-		Model(meta).
-		Column("value").
-		Where(`"key" = ?`, latestBlockNumberKey).
-		Limit(1).
-		Scan(ctx)
+	state := new(EvmStateDao)
+	err := s.db.NewSelect().Model(state).Where("id = 1").Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, fmt.Errorf("get latest block number: %w", err)
 	}
-
-	n, err := strconv.ParseUint(meta.Value, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse latest block number %q: %w", meta.Value, err)
-	}
-	return n, nil
+	return state.LatestBlock, nil
 }
 
 // NextEvmBlock allocates the next synthetic EVM block number.
 // Returns block number, block hash, and tx index (always 0).
-func (s *PGStore) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, int, error) {
-	var nextBlock uint64
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		meta := new(EvmMetaDao)
-		err := tx.NewSelect().
-			Model(meta).
-			Where(`"key" = ?`, latestBlockNumberKey).
-			For("UPDATE").
-			Limit(1).
-			Scan(ctx)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("select current block number: %w", err)
-			}
-			meta.Value = "0"
-		}
-
-		currentBlock, parseErr := strconv.ParseUint(meta.Value, 10, 64)
-		if parseErr != nil {
-			return fmt.Errorf("parse current block number %q: %w", meta.Value, parseErr)
-		}
-		nextBlock = currentBlock + 1
-
-		_, err = tx.NewInsert().
-			Model(&EvmMetaDao{Key: latestBlockNumberKey, Value: strconv.FormatUint(nextBlock, 10)}).
-			On("CONFLICT (key) DO UPDATE").
-			Set("value = EXCLUDED.value").
-			Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("upsert latest block number: %w", err)
-		}
-
-		return nil
-	})
+func (s *PGStore) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error) {
+	state := new(EvmStateDao)
+	err := s.db.NewInsert().
+		Model(&EvmStateDao{ID: 1, LatestBlock: 1}).
+		On("CONFLICT (id) DO UPDATE").
+		Set("latest_block = evm_state.latest_block + 1").
+		Returning("*").
+		Scan(ctx, state)
 	if err != nil {
 		return 0, nil, 0, fmt.Errorf("allocate next evm block: %w", err)
 	}
 
-	blockHash := ethereum.ComputeBlockHash(chainID, nextBlock)
-	return nextBlock, blockHash, 0, nil
+	blockHash := ethereum.ComputeBlockHash(chainID, state.LatestBlock)
+	return state.LatestBlock, blockHash, 0, nil
 }
 
 // GetBlockNumberByHash returns the block number for a block hash.
@@ -144,10 +106,7 @@ func (s *PGStore) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (u
 		}
 		return 0, fmt.Errorf("get block number by hash: %w", err)
 	}
-	if dao.BlockNumber < 0 {
-		return 0, fmt.Errorf("invalid negative block number: %d", dao.BlockNumber)
-	}
-	return uint64(dao.BlockNumber), nil
+	return dao.BlockNumber, nil
 }
 
 // GetEvmTransactionCount returns the next nonce for the from address.
@@ -161,17 +120,10 @@ func (s *PGStore) GetEvmTransactionCount(ctx context.Context, fromAddress string
 	if err != nil {
 		return 0, fmt.Errorf("get transaction count for %s: %w", fromAddress, err)
 	}
-	if !maxNonce.Valid {
-		return 0, nil
-	}
-	if maxNonce.Int64 < 0 {
+	if maxNonce.Valid || maxNonce.Int64 < 0 {
 		return 0, fmt.Errorf("invalid nonce for %s: %d", fromAddress, maxNonce.Int64)
 	}
-	nonce, convErr := strconv.ParseUint(strconv.FormatInt(maxNonce.Int64, 10), 10, 64)
-	if convErr != nil {
-		return 0, fmt.Errorf("parse max nonce for %s: %w", fromAddress, convErr)
-	}
-	return nonce + 1, nil
+	return uint64(maxNonce.Int64) + 1, nil
 }
 
 // SaveEvmLog stores a synthetic EVM log entry.
@@ -212,7 +164,7 @@ func (s *PGStore) GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*eth
 }
 
 // GetEvmLogs retrieves logs matching address/topic0 and block range.
-func (s *PGStore) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock int64) ([]*ethrpc.EvmLog, error) {
+func (s *PGStore) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error) {
 	var daos []EvmLogDao
 	query := s.db.NewSelect().
 		Model(&daos).

@@ -149,27 +149,27 @@ type EvmTransaction struct {
 	TxHash       []byte
 	FromAddress  string
 	ToAddress    string
-	Nonce        int64
+	Nonce        uint64
 	Input        []byte
 	ValueWei     string
-	Status       int16
-	BlockNumber  int64
+	Status       uint8
+	BlockNumber  uint64
 	BlockHash    []byte
-	TxIndex      int
-	GasUsed      int64
+	TxIndex      uint
+	GasUsed      uint64
 	ErrorMessage string
 }
 
 // EvmLog represents a synthetic EVM log persisted for JSON-RPC responses.
 type EvmLog struct {
 	TxHash      []byte
-	LogIndex    int
+	LogIndex    uint
 	Address     []byte   // Contract address (20 bytes)
 	Topics      [][]byte // Topic hashes (each 32 bytes)
 	Data        []byte
-	BlockNumber int64
+	BlockNumber uint64
 	BlockHash   []byte
-	TxIndex     int
+	TxIndex     uint
 	Removed     bool
 }
 

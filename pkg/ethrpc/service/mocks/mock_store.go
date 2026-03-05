@@ -80,7 +80,7 @@ func (_c *Store_GetBlockNumberByHash_Call) RunAndReturn(run func(context.Context
 }
 
 // GetEvmLogs provides a mock function with given fields: ctx, address, topic0, fromBlock, toBlock
-func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock int64, toBlock int64) ([]*ethrpc.EvmLog, error) {
+func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock uint64, toBlock uint64) ([]*ethrpc.EvmLog, error) {
 	ret := _m.Called(ctx, address, topic0, fromBlock, toBlock)
 
 	if len(ret) == 0 {
@@ -89,10 +89,10 @@ func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, 
 
 	var r0 []*ethrpc.EvmLog
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, uint64, uint64) ([]*ethrpc.EvmLog, error)); ok {
 		return rf(ctx, address, topic0, fromBlock, toBlock)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, int64, int64) []*ethrpc.EvmLog); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, []byte, uint64, uint64) []*ethrpc.EvmLog); ok {
 		r0 = rf(ctx, address, topic0, fromBlock, toBlock)
 	} else {
 		if ret.Get(0) != nil {
@@ -100,7 +100,7 @@ func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, 
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []byte, []byte, int64, int64) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, []byte, uint64, uint64) error); ok {
 		r1 = rf(ctx, address, topic0, fromBlock, toBlock)
 	} else {
 		r1 = ret.Error(1)
@@ -118,15 +118,15 @@ type Store_GetEvmLogs_Call struct {
 //   - ctx context.Context
 //   - address []byte
 //   - topic0 []byte
-//   - fromBlock int64
-//   - toBlock int64
+//   - fromBlock uint64
+//   - toBlock uint64
 func (_e *Store_Expecter) GetEvmLogs(ctx interface{}, address interface{}, topic0 interface{}, fromBlock interface{}, toBlock interface{}) *Store_GetEvmLogs_Call {
 	return &Store_GetEvmLogs_Call{Call: _e.mock.On("GetEvmLogs", ctx, address, topic0, fromBlock, toBlock)}
 }
 
-func (_c *Store_GetEvmLogs_Call) Run(run func(ctx context.Context, address []byte, topic0 []byte, fromBlock int64, toBlock int64)) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) Run(run func(ctx context.Context, address []byte, topic0 []byte, fromBlock uint64, toBlock uint64)) *Store_GetEvmLogs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].([]byte), args[3].(int64), args[4].(int64))
+		run(args[0].(context.Context), args[1].([]byte), args[2].([]byte), args[3].(uint64), args[4].(uint64))
 	})
 	return _c
 }
@@ -136,7 +136,7 @@ func (_c *Store_GetEvmLogs_Call) Return(_a0 []*ethrpc.EvmLog, _a1 error) *Store_
 	return _c
 }
 
-func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func(context.Context, []byte, []byte, int64, int64) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogs_Call {
+func (_c *Store_GetEvmLogs_Call) RunAndReturn(run func(context.Context, []byte, []byte, uint64, uint64) ([]*ethrpc.EvmLog, error)) *Store_GetEvmLogs_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -373,7 +373,7 @@ func (_c *Store_GetLatestEvmBlockNumber_Call) RunAndReturn(run func(context.Cont
 }
 
 // NextEvmBlock provides a mock function with given fields: ctx, chainID
-func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, int, error) {
+func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error) {
 	ret := _m.Called(ctx, chainID)
 
 	if len(ret) == 0 {
@@ -382,9 +382,9 @@ func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []by
 
 	var r0 uint64
 	var r1 []byte
-	var r2 int
+	var r2 uint
 	var r3 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64) (uint64, []byte, int, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (uint64, []byte, uint, error)); ok {
 		return rf(ctx, chainID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint64) uint64); ok {
@@ -401,10 +401,10 @@ func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []by
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, uint64) int); ok {
+	if rf, ok := ret.Get(2).(func(context.Context, uint64) uint); ok {
 		r2 = rf(ctx, chainID)
 	} else {
-		r2 = ret.Get(2).(int)
+		r2 = ret.Get(2).(uint)
 	}
 
 	if rf, ok := ret.Get(3).(func(context.Context, uint64) error); ok {
@@ -435,12 +435,12 @@ func (_c *Store_NextEvmBlock_Call) Run(run func(ctx context.Context, chainID uin
 	return _c
 }
 
-func (_c *Store_NextEvmBlock_Call) Return(_a0 uint64, _a1 []byte, _a2 int, _a3 error) *Store_NextEvmBlock_Call {
+func (_c *Store_NextEvmBlock_Call) Return(_a0 uint64, _a1 []byte, _a2 uint, _a3 error) *Store_NextEvmBlock_Call {
 	_c.Call.Return(_a0, _a1, _a2, _a3)
 	return _c
 }
 
-func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(context.Context, uint64) (uint64, []byte, int, error)) *Store_NextEvmBlock_Call {
+func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(context.Context, uint64) (uint64, []byte, uint, error)) *Store_NextEvmBlock_Call {
 	_c.Call.Return(run)
 	return _c
 }

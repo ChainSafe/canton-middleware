@@ -26,7 +26,7 @@ func setupEVMStore(t *testing.T) (*PGStore, *bun.DB) {
 	db, cleanup := pgutil.SetupTestDB(t)
 	t.Cleanup(cleanup)
 
-	if err := mghelper.CreateSchema(ctx, db, &EvmTransactionDao{}, &EvmMetaDao{}, &EvmLogDao{}); err != nil {
+	if err := mghelper.CreateSchema(ctx, db, &EvmTransactionDao{}, &EvmStateDao{}, &EvmLogDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
 

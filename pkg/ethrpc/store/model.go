@@ -14,14 +14,14 @@ type EvmTransactionDao struct {
 	TxHash        []byte    `bun:"tx_hash,pk,notnull,type:bytea"`
 	FromAddress   string    `bun:"from_address,notnull,type:text"`
 	ToAddress     string    `bun:"to_address,notnull,type:text"`
-	Nonce         int64     `bun:"nonce,notnull"`
+	Nonce         uint64    `bun:"nonce,notnull"`
 	Input         []byte    `bun:"input,notnull,type:bytea"`
 	ValueWei      string    `bun:"value_wei,notnull,default:'0',type:text"`
-	Status        int16     `bun:"status,notnull,default:1,type:smallint"`
-	BlockNumber   int64     `bun:"block_number,notnull"`
+	Status        uint8     `bun:"status,notnull,default:1,type:smallint"`
+	BlockNumber   uint64    `bun:"block_number,notnull"`
 	BlockHash     []byte    `bun:"block_hash,notnull,type:bytea"`
-	TxIndex       int       `bun:"tx_index,notnull,default:0"`
-	GasUsed       int64     `bun:"gas_used,notnull,default:21000"`
+	TxIndex       uint      `bun:"tx_index,notnull,default:0"`
+	GasUsed       uint64    `bun:"gas_used,notnull,default:21000"`
 	ErrorMessage  *string   `bun:"error_message,type:text"`
 	CreatedAt     time.Time `bun:"created_at,notnull,default:current_timestamp"`
 }
@@ -72,27 +72,27 @@ func fromEvmTransactionDao(dao *EvmTransactionDao) *ethrpc.EvmTransaction {
 	return tx
 }
 
-// EvmMetaDao maps to the evm_meta table.
-type EvmMetaDao struct {
-	bun.BaseModel `bun:"table:evm_meta"`
-	Key           string `bun:",pk,notnull,type:text"`
-	Value         string `bun:",notnull,type:text"`
+// EvmStateDao maps to the evm_state table — a singleton row holding EVM chain state.
+type EvmStateDao struct {
+	bun.BaseModel `bun:"table:evm_state"`
+	ID            int    `bun:"id,pk"`
+	LatestBlock   uint64 `bun:"latest_block,notnull,default:0"`
 }
 
 // EvmLogDao maps to the evm_logs table.
 type EvmLogDao struct {
 	bun.BaseModel `bun:"table:evm_logs"`
 	TxHash        []byte  `bun:"tx_hash,pk,notnull,type:bytea"`
-	LogIndex      int     `bun:"log_index,pk,notnull"`
+	LogIndex      uint    `bun:"log_index,pk,notnull"`
 	Address       []byte  `bun:"address,notnull,type:bytea"`
 	Topic0        *[]byte `bun:"topic0,type:bytea"`
 	Topic1        *[]byte `bun:"topic1,type:bytea"`
 	Topic2        *[]byte `bun:"topic2,type:bytea"`
 	Topic3        *[]byte `bun:"topic3,type:bytea"`
 	Data          *[]byte `bun:"data,type:bytea"`
-	BlockNumber   int64   `bun:"block_number,notnull"`
+	BlockNumber   uint64  `bun:"block_number,notnull"`
 	BlockHash     []byte  `bun:"block_hash,notnull,type:bytea"`
-	TxIndex       int     `bun:"tx_index,notnull,default:0"`
+	TxIndex       uint    `bun:"tx_index,notnull,default:0"`
 	Removed       bool    `bun:"removed,notnull,default:false"`
 }
 

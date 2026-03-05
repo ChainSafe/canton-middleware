@@ -51,7 +51,7 @@ func TestAPIDBMigrations_Apply(t *testing.T) {
 	modelCount(t, ctx, db, &reconcilerstore.BridgeEventDao{})
 	modelCount(t, ctx, db, &reconcilerstore.ReconciliationStateDao{})
 	modelCount(t, ctx, db, &ethrpcstore.EvmTransactionDao{})
-	modelCount(t, ctx, db, &ethrpcstore.EvmMetaDao{})
+	modelCount(t, ctx, db, &ethrpcstore.EvmStateDao{})
 	modelCount(t, ctx, db, &ethrpcstore.EvmLogDao{})
 	modelCount(t, ctx, db, &reconcilerstore.UserTokenBalanceDao{})
 }
@@ -238,7 +238,7 @@ func TestSeedData_Idempotency(t *testing.T) {
 	}
 }
 
-func TestEvmMeta_InitialData(t *testing.T) {
+func TestEvmState_InitialData(t *testing.T) {
 	db, cleanup := mghelper.SetupTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -251,16 +251,12 @@ func TestEvmMeta_InitialData(t *testing.T) {
 		t.Fatalf("Migrate() failed: %v", err)
 	}
 
-	var meta ethrpcstore.EvmMetaDao
-	err := db.NewSelect().
-		Model(&meta).
-		Where(`"key" = ?`, "latest_block_number").
-		Limit(1).
-		Scan(ctx)
+	var state ethrpcstore.EvmStateDao
+	err := db.NewSelect().Model(&state).Where("id = 1").Scan(ctx)
 	if err != nil {
-		t.Fatalf("failed to query evm_meta row: %v", err)
+		t.Fatalf("failed to query evm_state row: %v", err)
 	}
-	if meta.Value != "0" {
-		t.Errorf("expected latest_block_number = '0', got %q", meta.Value)
+	if state.LatestBlock != 0 {
+		t.Errorf("expected latest_block = 0, got %d", state.LatestBlock)
 	}
 }

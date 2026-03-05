@@ -11,6 +11,7 @@ import (
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
+	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -352,7 +353,7 @@ func (r *Reconciler) FullBalanceReconciliation(ctx context.Context) error {
 	start := time.Now()
 
 	// Step 1: Reset all user balances to 0
-	if err := r.store.ResetBalancesByTokenSymbol(ctx, "PROMPT"); err != nil {
+	if err := r.store.ResetBalancesByTokenSymbol(ctx, string(token.Prompt)); err != nil {
 		return fmt.Errorf("failed to reset user balances: %w", err)
 	}
 	r.logger.Debug("Reset all user balances to 0")
