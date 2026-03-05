@@ -17,20 +17,20 @@ type EthAPI struct {
 	svc Service
 }
 
-func (api *EthAPI) ChainId() hexutil.Uint64 {
-	return api.svc.ChainID()
+func (api *EthAPI) ChainId(ctx context.Context) hexutil.Uint64 {
+	return api.svc.ChainID(ctx)
 }
 
-func (api *EthAPI) BlockNumber() (hexutil.Uint64, error) {
-	return api.svc.BlockNumber()
+func (api *EthAPI) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
+	return api.svc.BlockNumber(ctx)
 }
 
-func (api *EthAPI) GasPrice() (*hexutil.Big, error) {
-	return api.svc.GasPrice()
+func (api *EthAPI) GasPrice(ctx context.Context) (*hexutil.Big, error) {
+	return api.svc.GasPrice(ctx)
 }
 
-func (api *EthAPI) MaxPriorityFeePerGas() (*hexutil.Big, error) {
-	return api.svc.MaxPriorityFeePerGas()
+func (api *EthAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	return api.svc.MaxPriorityFeePerGas(ctx)
 }
 
 func (api *EthAPI) EstimateGas(ctx context.Context, args *ethrpc.CallArgs, _ *ethrpc.BlockNumberOrHash) (hexutil.Uint64, error) {
@@ -49,8 +49,8 @@ func (api *EthAPI) GetCode(ctx context.Context, address common.Address, _ ethrpc
 	return api.svc.GetCode(ctx, address)
 }
 
-func (api *EthAPI) Syncing() (any, error) {
-	return api.svc.Syncing(), nil
+func (api *EthAPI) Syncing(ctx context.Context) (any, error) {
+	return api.svc.Syncing(ctx), nil
 }
 
 func (api *EthAPI) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error) {

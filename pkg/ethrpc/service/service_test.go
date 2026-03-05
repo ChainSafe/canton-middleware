@@ -42,7 +42,7 @@ func TestService_ChainID(t *testing.T) {
 	cfg := defaultCfg()
 	cfg.ChainID = 12345
 	svc := newSvc(t, cfg, nil, nil)
-	assert.Equal(t, hexutil.Uint64(12345), svc.ChainID())
+	assert.Equal(t, hexutil.Uint64(12345), svc.ChainID(context.Background()))
 }
 
 // ─── BlockNumber ──────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ func TestService_BlockNumber(t *testing.T) {
 		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(100), nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		got, err := svc.BlockNumber()
+		got, err := svc.BlockNumber(context.Background())
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, uint64(got), uint64(112)) // 100 + confirmationBufferBlocks
 	})
@@ -63,7 +63,7 @@ func TestService_BlockNumber(t *testing.T) {
 		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		_, err := svc.BlockNumber()
+		_, err := svc.BlockNumber(context.Background())
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
 	})
@@ -75,7 +75,7 @@ func TestService_GasPrice(t *testing.T) {
 	t.Run("valid config returns configured price", func(t *testing.T) {
 		svc := newSvc(t, defaultCfg(), nil, nil)
 
-		got, err := svc.GasPrice()
+		got, err := svc.GasPrice(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, big.NewInt(1_000_000_000), got.ToInt())
 	})
@@ -85,7 +85,7 @@ func TestService_GasPrice(t *testing.T) {
 		cfg.GasPriceWei = "not-a-number"
 		svc := newSvc(t, cfg, nil, nil)
 
-		_, err := svc.GasPrice()
+		_, err := svc.GasPrice(context.Background())
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryGeneralError))
 	})
@@ -96,7 +96,7 @@ func TestService_GasPrice(t *testing.T) {
 func TestService_MaxPriorityFeePerGas(t *testing.T) {
 	svc := newSvc(t, defaultCfg(), nil, nil)
 
-	got, err := svc.MaxPriorityFeePerGas()
+	got, err := svc.MaxPriorityFeePerGas(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, big.NewInt(1_000_000_000), got.ToInt())
 }
@@ -210,7 +210,7 @@ func TestService_GetCode(t *testing.T) {
 
 func TestService_Syncing(t *testing.T) {
 	svc := newSvc(t, defaultCfg(), nil, nil)
-	assert.False(t, svc.Syncing())
+	assert.False(t, svc.Syncing(context.Background()))
 }
 
 // ─── SendRawTransaction ───────────────────────────────────────────────────────

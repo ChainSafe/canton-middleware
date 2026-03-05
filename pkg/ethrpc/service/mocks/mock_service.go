@@ -29,9 +29,9 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
-// BlockNumber provides a mock function with no fields
-func (_m *Service) BlockNumber() (hexutil.Uint64, error) {
-	ret := _m.Called()
+// BlockNumber provides a mock function with given fields: ctx
+func (_m *Service) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for BlockNumber")
@@ -39,17 +39,17 @@ func (_m *Service) BlockNumber() (hexutil.Uint64, error) {
 
 	var r0 hexutil.Uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (hexutil.Uint64, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) (hexutil.Uint64, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() hexutil.Uint64); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) hexutil.Uint64); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(hexutil.Uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -63,13 +63,14 @@ type Service_BlockNumber_Call struct {
 }
 
 // BlockNumber is a helper method to define mock.On call
-func (_e *Service_Expecter) BlockNumber() *Service_BlockNumber_Call {
-	return &Service_BlockNumber_Call{Call: _e.mock.On("BlockNumber")}
+//   - ctx context.Context
+func (_e *Service_Expecter) BlockNumber(ctx interface{}) *Service_BlockNumber_Call {
+	return &Service_BlockNumber_Call{Call: _e.mock.On("BlockNumber", ctx)}
 }
 
-func (_c *Service_BlockNumber_Call) Run(run func()) *Service_BlockNumber_Call {
+func (_c *Service_BlockNumber_Call) Run(run func(ctx context.Context)) *Service_BlockNumber_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -79,7 +80,7 @@ func (_c *Service_BlockNumber_Call) Return(_a0 hexutil.Uint64, _a1 error) *Servi
 	return _c
 }
 
-func (_c *Service_BlockNumber_Call) RunAndReturn(run func() (hexutil.Uint64, error)) *Service_BlockNumber_Call {
+func (_c *Service_BlockNumber_Call) RunAndReturn(run func(context.Context) (hexutil.Uint64, error)) *Service_BlockNumber_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -143,17 +144,17 @@ func (_c *Service_Call_Call) RunAndReturn(run func(context.Context, *ethrpc.Call
 	return _c
 }
 
-// ChainID provides a mock function with no fields
-func (_m *Service) ChainID() hexutil.Uint64 {
-	ret := _m.Called()
+// ChainID provides a mock function with given fields: ctx
+func (_m *Service) ChainID(ctx context.Context) hexutil.Uint64 {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ChainID")
 	}
 
 	var r0 hexutil.Uint64
-	if rf, ok := ret.Get(0).(func() hexutil.Uint64); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) hexutil.Uint64); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(hexutil.Uint64)
 	}
@@ -167,13 +168,14 @@ type Service_ChainID_Call struct {
 }
 
 // ChainID is a helper method to define mock.On call
-func (_e *Service_Expecter) ChainID() *Service_ChainID_Call {
-	return &Service_ChainID_Call{Call: _e.mock.On("ChainID")}
+//   - ctx context.Context
+func (_e *Service_Expecter) ChainID(ctx interface{}) *Service_ChainID_Call {
+	return &Service_ChainID_Call{Call: _e.mock.On("ChainID", ctx)}
 }
 
-func (_c *Service_ChainID_Call) Run(run func()) *Service_ChainID_Call {
+func (_c *Service_ChainID_Call) Run(run func(ctx context.Context)) *Service_ChainID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -183,7 +185,7 @@ func (_c *Service_ChainID_Call) Return(_a0 hexutil.Uint64) *Service_ChainID_Call
 	return _c
 }
 
-func (_c *Service_ChainID_Call) RunAndReturn(run func() hexutil.Uint64) *Service_ChainID_Call {
+func (_c *Service_ChainID_Call) RunAndReturn(run func(context.Context) hexutil.Uint64) *Service_ChainID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -245,9 +247,9 @@ func (_c *Service_EstimateGas_Call) RunAndReturn(run func(context.Context, *ethr
 	return _c
 }
 
-// GasPrice provides a mock function with no fields
-func (_m *Service) GasPrice() (*hexutil.Big, error) {
-	ret := _m.Called()
+// GasPrice provides a mock function with given fields: ctx
+func (_m *Service) GasPrice(ctx context.Context) (*hexutil.Big, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GasPrice")
@@ -255,19 +257,19 @@ func (_m *Service) GasPrice() (*hexutil.Big, error) {
 
 	var r0 *hexutil.Big
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (*hexutil.Big, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) (*hexutil.Big, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() *hexutil.Big); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) *hexutil.Big); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*hexutil.Big)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -281,13 +283,14 @@ type Service_GasPrice_Call struct {
 }
 
 // GasPrice is a helper method to define mock.On call
-func (_e *Service_Expecter) GasPrice() *Service_GasPrice_Call {
-	return &Service_GasPrice_Call{Call: _e.mock.On("GasPrice")}
+//   - ctx context.Context
+func (_e *Service_Expecter) GasPrice(ctx interface{}) *Service_GasPrice_Call {
+	return &Service_GasPrice_Call{Call: _e.mock.On("GasPrice", ctx)}
 }
 
-func (_c *Service_GasPrice_Call) Run(run func()) *Service_GasPrice_Call {
+func (_c *Service_GasPrice_Call) Run(run func(ctx context.Context)) *Service_GasPrice_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -297,7 +300,7 @@ func (_c *Service_GasPrice_Call) Return(_a0 *hexutil.Big, _a1 error) *Service_Ga
 	return _c
 }
 
-func (_c *Service_GasPrice_Call) RunAndReturn(run func() (*hexutil.Big, error)) *Service_GasPrice_Call {
+func (_c *Service_GasPrice_Call) RunAndReturn(run func(context.Context) (*hexutil.Big, error)) *Service_GasPrice_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -774,9 +777,9 @@ func (_c *Service_GetTransactionReceipt_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// MaxPriorityFeePerGas provides a mock function with no fields
-func (_m *Service) MaxPriorityFeePerGas() (*hexutil.Big, error) {
-	ret := _m.Called()
+// MaxPriorityFeePerGas provides a mock function with given fields: ctx
+func (_m *Service) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MaxPriorityFeePerGas")
@@ -784,19 +787,19 @@ func (_m *Service) MaxPriorityFeePerGas() (*hexutil.Big, error) {
 
 	var r0 *hexutil.Big
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (*hexutil.Big, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) (*hexutil.Big, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() *hexutil.Big); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) *hexutil.Big); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*hexutil.Big)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -810,13 +813,14 @@ type Service_MaxPriorityFeePerGas_Call struct {
 }
 
 // MaxPriorityFeePerGas is a helper method to define mock.On call
-func (_e *Service_Expecter) MaxPriorityFeePerGas() *Service_MaxPriorityFeePerGas_Call {
-	return &Service_MaxPriorityFeePerGas_Call{Call: _e.mock.On("MaxPriorityFeePerGas")}
+//   - ctx context.Context
+func (_e *Service_Expecter) MaxPriorityFeePerGas(ctx interface{}) *Service_MaxPriorityFeePerGas_Call {
+	return &Service_MaxPriorityFeePerGas_Call{Call: _e.mock.On("MaxPriorityFeePerGas", ctx)}
 }
 
-func (_c *Service_MaxPriorityFeePerGas_Call) Run(run func()) *Service_MaxPriorityFeePerGas_Call {
+func (_c *Service_MaxPriorityFeePerGas_Call) Run(run func(ctx context.Context)) *Service_MaxPriorityFeePerGas_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -826,7 +830,7 @@ func (_c *Service_MaxPriorityFeePerGas_Call) Return(_a0 *hexutil.Big, _a1 error)
 	return _c
 }
 
-func (_c *Service_MaxPriorityFeePerGas_Call) RunAndReturn(run func() (*hexutil.Big, error)) *Service_MaxPriorityFeePerGas_Call {
+func (_c *Service_MaxPriorityFeePerGas_Call) RunAndReturn(run func(context.Context) (*hexutil.Big, error)) *Service_MaxPriorityFeePerGas_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -890,17 +894,17 @@ func (_c *Service_SendRawTransaction_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// Syncing provides a mock function with no fields
-func (_m *Service) Syncing() bool {
-	ret := _m.Called()
+// Syncing provides a mock function with given fields: ctx
+func (_m *Service) Syncing(ctx context.Context) bool {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Syncing")
 	}
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) bool); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
@@ -914,13 +918,14 @@ type Service_Syncing_Call struct {
 }
 
 // Syncing is a helper method to define mock.On call
-func (_e *Service_Expecter) Syncing() *Service_Syncing_Call {
-	return &Service_Syncing_Call{Call: _e.mock.On("Syncing")}
+//   - ctx context.Context
+func (_e *Service_Expecter) Syncing(ctx interface{}) *Service_Syncing_Call {
+	return &Service_Syncing_Call{Call: _e.mock.On("Syncing", ctx)}
 }
 
-func (_c *Service_Syncing_Call) Run(run func()) *Service_Syncing_Call {
+func (_c *Service_Syncing_Call) Run(run func(ctx context.Context)) *Service_Syncing_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -930,7 +935,7 @@ func (_c *Service_Syncing_Call) Return(_a0 bool) *Service_Syncing_Call {
 	return _c
 }
 
-func (_c *Service_Syncing_Call) RunAndReturn(run func() bool) *Service_Syncing_Call {
+func (_c *Service_Syncing_Call) RunAndReturn(run func(context.Context) bool) *Service_Syncing_Call {
 	_c.Call.Return(run)
 	return _c
 }

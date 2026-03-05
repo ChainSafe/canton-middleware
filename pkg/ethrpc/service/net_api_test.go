@@ -8,11 +8,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestNetAPI_Version(t *testing.T) {
 	mockSvc := mocks.NewService(t)
-	mockSvc.EXPECT().ChainID().Return(hexutil.Uint64(42))
+	mockSvc.EXPECT().ChainID(mock.Anything).Return(hexutil.Uint64(42))
 	api := service.NewNetAPI(mockSvc)
 	assert.Equal(t, "42", api.Version())
 }

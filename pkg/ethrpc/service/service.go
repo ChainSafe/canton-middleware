@@ -50,15 +50,15 @@ type TokenService interface {
 //
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
 type Service interface {
-	ChainID() hexutil.Uint64
-	BlockNumber() (hexutil.Uint64, error)
-	GasPrice() (*hexutil.Big, error)
-	MaxPriorityFeePerGas() (*hexutil.Big, error)
+	ChainID(ctx context.Context) hexutil.Uint64
+	BlockNumber(ctx context.Context) (hexutil.Uint64, error)
+	GasPrice(ctx context.Context) (*hexutil.Big, error)
+	MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error)
 	EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Uint64, error)
 	GetBalance(ctx context.Context, address common.Address) (*hexutil.Big, error)
 	GetTransactionCount(ctx context.Context, address common.Address) (hexutil.Uint64, error)
 	GetCode(ctx context.Context, address common.Address) (hexutil.Bytes, error)
-	Syncing() bool
+	Syncing(ctx context.Context) bool
 	SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error)
 	GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error)
 	GetTransactionByHash(ctx context.Context, hash common.Hash) (*ethrpc.RPCTransaction, error)
@@ -114,12 +114,12 @@ func NewService(
 	}
 }
 
-func (s *ethService) ChainID() hexutil.Uint64 {
+func (s *ethService) ChainID(_ context.Context) hexutil.Uint64 {
 	return hexutil.Uint64(s.cfg.ChainID)
 }
 
-func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
-	n, err := s.store.GetLatestEvmBlockNumber(context.Background())
+func (s *ethService) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
+	n, err := s.store.GetLatestEvmBlockNumber(ctx)
 	if err != nil {
 		return 0, apperr.DependencyError(err, "get latest EVM block number")
 	}
@@ -136,7 +136,7 @@ func (s *ethService) BlockNumber() (hexutil.Uint64, error) {
 	return hexutil.Uint64(max(baseBlock, timeBasedBlocks)), nil
 }
 
-func (s *ethService) GasPrice() (*hexutil.Big, error) {
+func (s *ethService) GasPrice(_ context.Context) (*hexutil.Big, error) {
 	gasPrice := new(big.Int)
 	if _, ok := gasPrice.SetString(s.cfg.GasPriceWei, decimalStringBase); !ok {
 		return nil, apperr.GeneralError(fmt.Errorf("invalid gas price wei: %q", s.cfg.GasPriceWei))
@@ -145,7 +145,7 @@ func (s *ethService) GasPrice() (*hexutil.Big, error) {
 	return (*hexutil.Big)(gasPrice), nil
 }
 
-func (*ethService) MaxPriorityFeePerGas() (*hexutil.Big, error) {
+func (*ethService) MaxPriorityFeePerGas(_ context.Context) (*hexutil.Big, error) {
 	return (*hexutil.Big)(big.NewInt(defaultGasPriceWeiInt64)), nil
 }
 
@@ -179,7 +179,7 @@ func (s *ethService) GetCode(_ context.Context, address common.Address) (hexutil
 	}
 }
 
-func (*ethService) Syncing() bool {
+func (*ethService) Syncing(_ context.Context) bool {
 	return false
 }
 
@@ -629,12 +629,12 @@ func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*
 	return logs, nil
 }
 
-func (s *ethService) GetBlockByNumber(_ context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
+func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
 	var blockNum uint64
 	if block.BlockNumber != nil {
 		blockNum = uint64(*block.BlockNumber)
 	} else {
-		latestBlockNum, err := s.BlockNumber()
+		latestBlockNum, err := s.BlockNumber(ctx)
 		if err != nil {
 			return nil, err
 		}
