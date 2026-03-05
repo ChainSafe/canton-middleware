@@ -1,4 +1,4 @@
-it package store
+package store
 
 import (
 	"bytes"
