@@ -26,10 +26,6 @@ func NewStore(db *bun.DB) *PGStore {
 
 // SaveEvmTransaction stores a synthetic EVM transaction.
 func (s *PGStore) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
-	if tx == nil {
-		return fmt.Errorf("evm transaction is required")
-	}
-
 	dao := toEvmTransactionDao(tx)
 
 	_, err := s.db.NewInsert().
@@ -80,7 +76,7 @@ func (s *PGStore) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []b
 	err := s.db.NewInsert().
 		Model(&EvmStateDao{ID: 1, LatestBlock: 1}).
 		On("CONFLICT (id) DO UPDATE").
-		Set("latest_block = evm_state.latest_block + 1").
+		Set("latest_block = ?TableAlias.latest_block + 1").
 		Returning("*").
 		Scan(ctx, state)
 	if err != nil {
@@ -111,27 +107,20 @@ func (s *PGStore) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (u
 
 // GetEvmTransactionCount returns the next nonce for the from address.
 func (s *PGStore) GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error) {
-	var maxNonce sql.NullInt64
+	var nextNonce uint64
 	err := s.db.NewSelect().
 		Model((*EvmTransactionDao)(nil)).
-		ColumnExpr("MAX(nonce)").
+		ColumnExpr("COALESCE(MAX(nonce) + 1, 0)").
 		Where("from_address = ?", fromAddress).
-		Scan(ctx, &maxNonce)
+		Scan(ctx, &nextNonce)
 	if err != nil {
 		return 0, fmt.Errorf("get transaction count for %s: %w", fromAddress, err)
 	}
-	if maxNonce.Valid || maxNonce.Int64 < 0 {
-		return 0, fmt.Errorf("invalid nonce for %s: %d", fromAddress, maxNonce.Int64)
-	}
-	return uint64(maxNonce.Int64) + 1, nil
+	return nextNonce, nil
 }
 
 // SaveEvmLog stores a synthetic EVM log entry.
 func (s *PGStore) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
-	if log == nil {
-		return fmt.Errorf("evm log is required")
-	}
-
 	dao := toEvmLogDao(log)
 
 	_, err := s.db.NewInsert().
