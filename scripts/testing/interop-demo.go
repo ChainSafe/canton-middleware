@@ -266,7 +266,7 @@ func allocateAndRegisterNative(ctx context.Context, sdk *canton.Client, store wh
 	}
 	nu.CantonPartyID = party.PartyID
 
-	if err := store.AddToWhitelist(ctx, nu.EVMAddress, "interop-demo native user"); err != nil {
+	if err = store.AddToWhitelist(ctx, nu.EVMAddress, "interop-demo native user"); err != nil {
 		fatalf("Whitelist native user %s (%s): %v", hint, nu.EVMAddress, err)
 	}
 
