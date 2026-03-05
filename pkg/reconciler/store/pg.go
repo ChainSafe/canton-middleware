@@ -249,40 +249,35 @@ func (s *PGStore) IsEventProcessed(ctx context.Context, contractID string) (bool
 	return exists, nil
 }
 
-// StoreMintEvent stores a mint event and updates user balances atomically.
-func (s *PGStore) StoreMintEvent(ctx context.Context, event *canton.MintEvent) error {
+// StoreTokenTransferEvent stores a token transfer event and updates user balances atomically.
+// MINT events credit balances, BURN events debit balances, TRANSFER events are ignored.
+func (s *PGStore) StoreTokenTransferEvent(ctx context.Context, event *canton.TokenTransferEvent) error {
 	if event == nil {
-		return fmt.Errorf("mint event is required")
+		return fmt.Errorf("token transfer event is required")
 	}
 
-	return s.storeBridgeEvent(ctx, &bridgeEventParams{
-		eventType:   "mint",
+	params := &bridgeEventParams{
 		contractID:  event.ContractID,
-		fingerprint: event.UserFingerprint,
+		fingerprint: event.UserFingerprint(),
 		amount:      event.Amount,
-		tokenSymbol: event.TokenSymbol,
+		tokenSymbol: event.InstrumentID,
 		timestamp:   event.Timestamp,
-		evmTxHash:   event.EvmTxHash,
-		isCredit:    true,
-	})
-}
-
-// StoreBurnEvent stores a burn event and updates user balances atomically.
-func (s *PGStore) StoreBurnEvent(ctx context.Context, event *canton.BurnEvent) error {
-	if event == nil {
-		return fmt.Errorf("burn event is required")
 	}
 
-	return s.storeBridgeEvent(ctx, &bridgeEventParams{
-		eventType:      "burn",
-		contractID:     event.ContractID,
-		fingerprint:    event.UserFingerprint,
-		amount:         event.Amount,
-		tokenSymbol:    event.TokenSymbol,
-		timestamp:      event.Timestamp,
-		evmDestination: event.EvmDestination,
-		isCredit:       false,
-	})
+	switch event.EventType() {
+	case canton.EventTypeMint:
+		params.eventType = "mint"
+		params.evmTxHash = event.EvmTxHash()
+		params.isCredit = true
+	case canton.EventTypeBurn:
+		params.eventType = "burn"
+		params.evmDestination = event.EvmDestination()
+		params.isCredit = false
+	default:
+		return nil
+	}
+
+	return s.storeBridgeEvent(ctx, params)
 }
 
 // MarkFullReconcileComplete marks reconciliation completion timestamp.

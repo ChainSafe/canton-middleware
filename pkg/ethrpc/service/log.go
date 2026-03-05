@@ -29,8 +29,18 @@ func NewLog(svc Service, logger *zap.Logger) Service {
 	return &logService{svc: svc, logger: logger}
 }
 
-func (l *logService) ChainID() hexutil.Uint64 {
-	return l.svc.ChainID()
+func (l *logService) ChainID() (chainID hexutil.Uint64) {
+	start := time.Now()
+	defer func() {
+		l.logger.Info("ChainID completed",
+			zap.String("service", ethServiceName),
+			zap.String("method", "ChainID"),
+			zap.Uint64("chain_id", uint64(chainID)),
+			zap.Duration("duration", time.Since(start)),
+		)
+	}()
+	chainID = l.svc.ChainID()
+	return chainID
 }
 
 func (l *logService) BlockNumber() (n hexutil.Uint64, err error) {
@@ -46,20 +56,68 @@ func (l *logService) BlockNumber() (n hexutil.Uint64, err error) {
 			l.logger.Error("BlockNumber failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("BlockNumber completed", fields...)
+		l.logger.Info("BlockNumber completed", fields...)
 	}()
 	return l.svc.BlockNumber()
 }
 
-func (l *logService) GasPrice() (*hexutil.Big, error) {
+func (l *logService) GasPrice() (price *hexutil.Big, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "GasPrice"),
+			zap.Bool("has_price", price != nil),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("GasPrice failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("GasPrice completed", fields...)
+	}()
 	return l.svc.GasPrice()
 }
 
-func (l *logService) MaxPriorityFeePerGas() (*hexutil.Big, error) {
+func (l *logService) MaxPriorityFeePerGas() (fee *hexutil.Big, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "MaxPriorityFeePerGas"),
+			zap.Bool("has_fee", fee != nil),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("MaxPriorityFeePerGas failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("MaxPriorityFeePerGas completed", fields...)
+	}()
 	return l.svc.MaxPriorityFeePerGas()
 }
 
-func (l *logService) EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Uint64, error) {
+func (l *logService) EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (gas hexutil.Uint64, err error) {
+	start := time.Now()
+	to := ""
+	if args != nil && args.To != nil {
+		to = args.To.Hex()
+	}
+
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "EstimateGas"),
+			zap.String("to", to),
+			zap.Uint64("gas", uint64(gas)),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("EstimateGas failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("EstimateGas completed", fields...)
+	}()
 	return l.svc.EstimateGas(ctx, args)
 }
 
@@ -68,39 +126,73 @@ func (l *logService) GetBalance(ctx context.Context, address common.Address) (ba
 	defer func() {
 		fields := []zap.Field{
 			zap.String("service", ethServiceName),
-			zap.String("method", "getBalance"),
+			zap.String("method", "GetBalance"),
 			zap.String("address", address.Hex()),
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("getBalance failed", append(fields, zap.Error(err))...)
+			l.logger.Error("GetBalance failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("getBalance completed", fields...)
+		l.logger.Info("GetBalance completed", fields...)
 	}()
 	return l.svc.GetBalance(ctx, address)
 }
 
-func (l *logService) GetTransactionCount(ctx context.Context, address common.Address) (hexutil.Uint64, error) {
+func (l *logService) GetTransactionCount(ctx context.Context, address common.Address) (count hexutil.Uint64, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "GetTransactionCount"),
+			zap.String("address", address.Hex()),
+			zap.Uint64("count", uint64(count)),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("GetTransactionCount failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("GetTransactionCount completed", fields...)
+	}()
 	return l.svc.GetTransactionCount(ctx, address)
 }
 
-func (l *logService) GetCode(ctx context.Context, address common.Address) (hexutil.Bytes, error) {
+func (l *logService) GetCode(ctx context.Context, address common.Address) (code hexutil.Bytes, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "GetCode"),
+			zap.String("address", address.Hex()),
+			zap.Int("code_len", len(code)),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("GetCode failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("GetCode completed", fields...)
+	}()
 	return l.svc.GetCode(ctx, address)
 }
 
-func (l *logService) Syncing() bool {
-	return l.svc.Syncing()
+func (l *logService) Syncing() (syncing bool) {
+	start := time.Now()
+	defer func() {
+		l.logger.Info("Syncing completed",
+			zap.String("service", ethServiceName),
+			zap.String("method", "Syncing"),
+			zap.Bool("syncing", syncing),
+			zap.Duration("duration", time.Since(start)),
+		)
+	}()
+	syncing = l.svc.Syncing()
+	return syncing
 }
 
 func (l *logService) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (hash common.Hash, err error) {
 	start := time.Now()
-
-	l.logger.Info("SendRawTransaction started",
-		zap.String("service", ethServiceName),
-		zap.String("method", "SendRawTransaction"),
-		zap.Int("data_len", len(data)),
-	)
 
 	defer func() {
 		fields := []zap.Field{
@@ -133,7 +225,7 @@ func (l *logService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 			l.logger.Error("GetTransactionReceipt failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("GetTransactionReceipt completed", fields...)
+		l.logger.Info("GetTransactionReceipt completed", fields...)
 	}()
 	return l.svc.GetTransactionReceipt(ctx, hash)
 }
@@ -152,7 +244,7 @@ func (l *logService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 			l.logger.Error("GetTransactionByHash failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("GetTransactionByHash completed", fields...)
+		l.logger.Info("GetTransactionByHash completed", fields...)
 	}()
 	return l.svc.GetTransactionByHash(ctx, hash)
 }
@@ -176,7 +268,7 @@ func (l *logService) Call(ctx context.Context, args *ethrpc.CallArgs) (result he
 			l.logger.Error("Call failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("Call completed", fields...)
+		l.logger.Info("Call completed", fields...)
 	}()
 
 	return l.svc.Call(ctx, args)
@@ -195,15 +287,60 @@ func (l *logService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) (log
 			l.logger.Error("GetLogs failed", append(fields, zap.Error(err))...)
 			return
 		}
-		l.logger.Debug("GetLogs completed", fields...)
+		l.logger.Info("GetLogs completed", fields...)
 	}()
 	return l.svc.GetLogs(ctx, query)
 }
 
-func (l *logService) GetBlockByNumber(ctx context.Context, blockNr ethrpc.BlockNumberOrHash, fullTx bool) (*ethrpc.RPCBlock, error) {
+func (l *logService) GetBlockByNumber(
+	ctx context.Context,
+	blockNr ethrpc.BlockNumberOrHash,
+	fullTx bool,
+) (block *ethrpc.RPCBlock, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "GetBlockByNumber"),
+			zap.Bool("full_tx", fullTx),
+			zap.Bool("found", block != nil),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if blockNr.BlockNumber != nil {
+			fields = append(fields, zap.Uint64("block_number", uint64(*blockNr.BlockNumber)))
+		}
+		if blockNr.BlockHash != nil {
+			fields = append(fields, zap.String("block_hash", blockNr.BlockHash.Hex()))
+		}
+		if err != nil {
+			l.logger.Error("GetBlockByNumber failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("GetBlockByNumber completed", fields...)
+	}()
 	return l.svc.GetBlockByNumber(ctx, blockNr, fullTx)
 }
 
-func (l *logService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
+func (l *logService) GetBlockByHash(
+	ctx context.Context,
+	hash common.Hash,
+	fullTx bool,
+) (block *ethrpc.RPCBlock, err error) {
+	start := time.Now()
+	defer func() {
+		fields := []zap.Field{
+			zap.String("service", ethServiceName),
+			zap.String("method", "GetBlockByHash"),
+			zap.String("block_hash", hash.Hex()),
+			zap.Bool("full_tx", fullTx),
+			zap.Bool("found", block != nil),
+			zap.Duration("duration", time.Since(start)),
+		}
+		if err != nil {
+			l.logger.Error("GetBlockByHash failed", append(fields, zap.Error(err))...)
+			return
+		}
+		l.logger.Info("GetBlockByHash completed", fields...)
+	}()
 	return l.svc.GetBlockByHash(ctx, hash, fullTx)
 }

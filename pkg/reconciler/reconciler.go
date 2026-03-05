@@ -30,8 +30,7 @@ type Store interface {
 	MarkFullReconcileComplete(ctx context.Context) error
 
 	IsEventProcessed(ctx context.Context, contractID string) (bool, error)
-	StoreMintEvent(ctx context.Context, event *canton.MintEvent) error
-	StoreBurnEvent(ctx context.Context, event *canton.BurnEvent) error
+	StoreTokenTransferEvent(ctx context.Context, event *canton.TokenTransferEvent) error
 	ClearBridgeEvents(ctx context.Context) error
 }
 
@@ -279,47 +278,19 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 
 	var mintCount, burnCount int
 
-	// Get all mint events (CIP56.Events.MintEvent)
-	mintEvents, err := r.cantonClient.GetMintEvents(ctx)
+	// Get all token transfer events (CIP56.Events.TokenTransferEvent)
+	events, err := r.cantonClient.GetTokenTransferEvents(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get mint events: %w", err)
+		return fmt.Errorf("failed to get token transfer events: %w", err)
 	}
 
-	// Process mint events
-	for _, event := range mintEvents {
-		// Check if already processed
-		processed, checkErr := r.store.IsEventProcessed(ctx, event.ContractID)
-		if checkErr != nil {
-			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(checkErr))
-			continue
-		}
-		if processed {
+	// Process events (only MINT and BURN affect bridge reconciliation)
+	for _, event := range events {
+		eventType := event.EventType()
+		if eventType != canton.EventTypeMint && eventType != canton.EventTypeBurn {
 			continue
 		}
 
-		storeErr := r.store.StoreMintEvent(ctx, event)
-		if storeErr != nil {
-			r.logger.Warn("Failed to store mint event",
-				zap.String("contract_id", event.ContractID),
-				zap.String("fingerprint", event.UserFingerprint),
-				zap.Error(storeErr))
-			continue
-		}
-		mintCount++
-		r.logger.Debug("Processed mint event",
-			zap.String("fingerprint", event.UserFingerprint),
-			zap.String("amount", event.Amount),
-			zap.String("evm_tx_hash", event.EvmTxHash))
-	}
-
-	// Get all burn events (CIP56.Events.BurnEvent)
-	burnEvents, err := r.cantonClient.GetBurnEvents(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get burn events: %w", err)
-	}
-
-	// Process burn events
-	for _, event := range burnEvents {
 		processed, err := r.store.IsEventProcessed(ctx, event.ContractID)
 		if err != nil {
 			r.logger.Warn("Failed to check if event processed", zap.String("contract_id", event.ContractID), zap.Error(err))
@@ -329,18 +300,28 @@ func (r *Reconciler) ReconcileFromBridgeEvents(ctx context.Context) error {
 			continue
 		}
 
-		storeErr := r.store.StoreBurnEvent(ctx, event)
-		if storeErr != nil {
-			r.logger.Warn("Failed to store burn event",
+		if err = r.store.StoreTokenTransferEvent(ctx, event); err != nil {
+			r.logger.Warn("Failed to store token transfer event",
 				zap.String("contract_id", event.ContractID),
-				zap.String("fingerprint", event.UserFingerprint),
-				zap.Error(storeErr))
+				zap.String("event_type", string(eventType)),
+				zap.String("fingerprint", event.UserFingerprint()),
+				zap.Error(err))
 			continue
 		}
-		burnCount++
-		r.logger.Debug("Processed burn event",
-			zap.String("fingerprint", event.UserFingerprint),
-			zap.String("amount", event.Amount))
+
+		switch eventType {
+		case canton.EventTypeMint:
+			mintCount++
+			r.logger.Debug("Processed mint event",
+				zap.String("fingerprint", event.UserFingerprint()),
+				zap.String("amount", event.Amount),
+				zap.String("evm_tx_hash", event.EvmTxHash()))
+		case canton.EventTypeBurn:
+			burnCount++
+			r.logger.Debug("Processed burn event",
+				zap.String("fingerprint", event.UserFingerprint()),
+				zap.String("amount", event.Amount))
+		}
 	}
 
 	// Mark full reconcile complete

@@ -79,6 +79,28 @@ func IsNone(v *lapiv2.Value) bool {
 	return opt.Optional == nil || opt.Optional.Value == nil
 }
 
+// OptionalText extracts a Daml Optional Text value. Returns "" for None.
+func OptionalText(v *lapiv2.Value) string {
+	if IsNone(v) {
+		return ""
+	}
+	if opt, ok := v.Sum.(*lapiv2.Value_Optional); ok {
+		return Text(opt.Optional.Value)
+	}
+	return ""
+}
+
+// OptionalParty extracts a Daml Optional Party value. Returns "" for None.
+func OptionalParty(v *lapiv2.Value) string {
+	if IsNone(v) {
+		return ""
+	}
+	if opt, ok := v.Sum.(*lapiv2.Value_Optional); ok {
+		return Party(opt.Optional.Value)
+	}
+	return ""
+}
+
 // Timestamp extracts timestamp.
 func Timestamp(v *lapiv2.Value) time.Time {
 	if v == nil {

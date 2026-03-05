@@ -243,7 +243,7 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 	fmt.Println(">>> Step 4: Minting DEMO to User 1...")
 	fmt.Printf("    Party: %s\n", user1Party)
 	holding1, err := mintDemoTokens(ctx, commandService, cip56PackageID, nativeConfigCid,
-		user1Party, mintAmount, user1Fingerprint, issuer, domainID)
+		user1Party, mintAmount, issuer, domainID)
 	if err != nil {
 		log.Fatalf("Failed to mint to User 1: %v", err)
 	}
@@ -254,7 +254,7 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 	fmt.Println(">>> Step 5: Minting DEMO to User 2...")
 	fmt.Printf("    Party: %s\n", user2Party)
 	holding2, err := mintDemoTokens(ctx, commandService, cip56PackageID, nativeConfigCid,
-		user2Party, mintAmount, user2Fingerprint, issuer, domainID)
+		user2Party, mintAmount, issuer, domainID)
 	if err != nil {
 		log.Fatalf("Failed to mint to User 2: %v", err)
 	}
@@ -519,7 +519,7 @@ func createTokenConfig(ctx context.Context, client lapiv2.CommandServiceClient, 
 	return "", fmt.Errorf("TokenConfig not found in response")
 }
 
-func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, cip56PackageID, nativeConfigCid, recipientParty, amount, fingerprint, issuer, domainID string) (string, error) {
+func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, cip56PackageID, nativeConfigCid, recipientParty, amount, issuer, domainID string) (string, error) {
 	cmdID := fmt.Sprintf("mint-demo-%d", time.Now().UnixNano())
 
 	mintArgs := &lapiv2.Record{
@@ -527,8 +527,7 @@ func mintDemoTokens(ctx context.Context, client lapiv2.CommandServiceClient, cip
 			{Label: "recipient", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: recipientParty}}},
 			{Label: "amount", Value: &lapiv2.Value{Sum: &lapiv2.Value_Numeric{Numeric: amount}}},
 			{Label: "eventTime", Value: &lapiv2.Value{Sum: &lapiv2.Value_Timestamp{Timestamp: time.Now().UnixMicro()}}},
-			{Label: "userFingerprint", Value: &lapiv2.Value{Sum: &lapiv2.Value_Text{Text: fingerprint}}},
-			{Label: "evmTxHash", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
+			{Label: "eventMeta", Value: &lapiv2.Value{Sum: &lapiv2.Value_Optional{Optional: &lapiv2.Optional{Value: nil}}}},
 		},
 	}
 
@@ -653,6 +652,7 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 	createArgs := &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
 			{Label: "admin", Value: &lapiv2.Value{Sum: &lapiv2.Value_Party{Party: issuer}}},
+			{Label: "auditObservers", Value: &lapiv2.Value{Sum: &lapiv2.Value_List{List: &lapiv2.List{Elements: []*lapiv2.Value{}}}}},
 		},
 	}
 

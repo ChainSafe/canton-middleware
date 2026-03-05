@@ -293,16 +293,20 @@ func TestPGStore_ReconcilerDataOperations(t *testing.T) {
 	}
 
 	now := time.Now()
-	mint := &canton.MintEvent{
-		ContractID:      "mint-contract-1",
-		Amount:          "10",
-		TokenSymbol:     "PROMPT",
-		UserFingerprint: fingerprint,
-		EvmTxHash:       "0xabc",
-		Timestamp:       now,
+	mint := &canton.TokenTransferEvent{
+		ContractID:   "mint-contract-1",
+		FromParty:    "",
+		ToParty:      "party::receiver",
+		Amount:       "10",
+		InstrumentID: "PROMPT",
+		Timestamp:    now,
+		Meta: map[string]string{
+			"bridge.fingerprint":  fingerprint,
+			"bridge.externalTxId": "0xabc",
+		},
 	}
-	if err = store.StoreMintEvent(ctx, mint); err != nil {
-		t.Fatalf("StoreMintEvent() failed: %v", err)
+	if err = store.StoreTokenTransferEvent(ctx, mint); err != nil {
+		t.Fatalf("StoreTokenTransferEvent(mint) failed: %v", err)
 	}
 
 	processed, err = store.IsEventProcessed(ctx, mint.ContractID)
@@ -328,8 +332,8 @@ func TestPGStore_ReconcilerDataOperations(t *testing.T) {
 	}
 
 	// Duplicate contract ID should be ignored (idempotent).
-	if err = store.StoreMintEvent(ctx, mint); err != nil {
-		t.Fatalf("StoreMintEvent(duplicate) failed: %v", err)
+	if err = store.StoreTokenTransferEvent(ctx, mint); err != nil {
+		t.Fatalf("StoreTokenTransferEvent(duplicate mint) failed: %v", err)
 	}
 	state, err = store.GetReconciliationState(ctx)
 	if err != nil {
@@ -339,16 +343,20 @@ func TestPGStore_ReconcilerDataOperations(t *testing.T) {
 		t.Fatalf("duplicate mint should not increment counter: got %d want 1", state.EventsProcessed)
 	}
 
-	burn := &canton.BurnEvent{
-		ContractID:      "burn-contract-1",
-		Amount:          "3",
-		TokenSymbol:     "PROMPT",
-		UserFingerprint: fingerprint,
-		EvmDestination:  "0xdef",
-		Timestamp:       now.Add(time.Second),
+	burn := &canton.TokenTransferEvent{
+		ContractID:   "burn-contract-1",
+		FromParty:    "party::sender",
+		ToParty:      "",
+		Amount:       "3",
+		InstrumentID: "PROMPT",
+		Timestamp:    now.Add(time.Second),
+		Meta: map[string]string{
+			"bridge.fingerprint":     fingerprint,
+			"bridge.externalAddress": "0xdef",
+		},
 	}
-	if err = store.StoreBurnEvent(ctx, burn); err != nil {
-		t.Fatalf("StoreBurnEvent() failed: %v", err)
+	if err = store.StoreTokenTransferEvent(ctx, burn); err != nil {
+		t.Fatalf("StoreTokenTransferEvent(burn) failed: %v", err)
 	}
 
 	bal, err = store.GetBalanceByFingerprint(ctx, fingerprint, "PROMPT")

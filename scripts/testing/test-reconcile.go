@@ -2,8 +2,8 @@
 
 // test-reconcile.go - Test event-based reconciliation using bridge audit events
 //
-// This script tests the reconciliation functionality that uses MintEvent
-// and BurnEvent contracts (CIP56.Events) from Canton to reconcile user balances in PostgreSQL.
+// This script tests the reconciliation functionality that uses TokenTransferEvent
+// contracts (CIP56.Events) from Canton to reconcile user balances in PostgreSQL.
 // Note: Transfers are internal Canton operations and don't create bridge events.
 //
 // Prerequisites:
@@ -32,6 +32,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/apidb"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
@@ -214,33 +215,33 @@ func main() {
 func showBridgeEventsFromCanton(ctx context.Context, client *canton.Client) {
 	printStep("Fetching bridge events from Canton...")
 
-	// Get mint events
-	mintEvents, err := client.Token.GetMintEvents(ctx)
+	events, err := client.Token.GetTokenTransferEvents(ctx)
 	if err != nil {
-		printWarning("Failed to get mint events: %v", err)
-	} else {
-		printInfo("Found %d MintEvent contracts:", len(mintEvents))
-		for i, e := range mintEvents {
-			if *verbose {
-				printInfo("  [%d] Amount: %s, Fingerprint: %s, EvmTx: %s",
-					i+1, e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmTxHash, 20))
-			}
-		}
+		printWarning("Failed to get token transfer events: %v", err)
+		return
 	}
 
-	// Get burn events
-	burnEvents, err := client.Token.GetBurnEvents(ctx)
-	if err != nil {
-		printWarning("Failed to get burn events: %v", err)
-	} else {
-		printInfo("Found %d BurnEvent contracts:", len(burnEvents))
-		for i, e := range burnEvents {
+	var mintCount, burnCount, transferCount int
+	for _, e := range events {
+		switch e.EventType() {
+		case token.EventTypeMint:
+			mintCount++
 			if *verbose {
-				printInfo("  [%d] Amount: %s, Fingerprint: %s, Destination: %s",
-					i+1, e.Amount, truncate(e.UserFingerprint, 20), truncate(e.EvmDestination, 20))
+				printInfo("  [MINT] Amount: %s, Fingerprint: %s, EvmTx: %s",
+					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmTxHash(), 20))
 			}
+		case token.EventTypeBurn:
+			burnCount++
+			if *verbose {
+				printInfo("  [BURN] Amount: %s, Fingerprint: %s, Destination: %s",
+					e.Amount, truncate(e.UserFingerprint(), 20), truncate(e.EvmDestination(), 20))
+			}
+		case token.EventTypeTransfer:
+			transferCount++
 		}
 	}
+	printInfo("Found %d TokenTransferEvent contracts (mint: %d, burn: %d, transfer: %d)",
+		len(events), mintCount, burnCount, transferCount)
 }
 
 func showStoredEvents(store *apidb.Store) {
