@@ -124,6 +124,45 @@ func (ls *logService) RegisterCantonNativeUser(
 	return ls.svc.RegisterCantonNativeUser(ctx, req)
 }
 
+// PrepareExternalRegistration wraps the service method with logging
+func (ls *logService) PrepareExternalRegistration(
+	ctx context.Context,
+	req *user.RegisterRequest,
+) (resp *user.PrepareTopologyResponse, err error) {
+	start := time.Now()
+
+	ls.logger.Info("PrepareExternalRegistration started",
+		zap.String("service", serviceName),
+		zap.String("method", "PrepareExternalRegistration"),
+		zap.String("message", truncateString(req.Message, logMessageMaxLen)),
+		zap.String("signature", redactSignature(req.Signature)),
+		zap.Bool("has_public_key", req.CantonPublicKey != ""),
+	)
+
+	defer func() {
+		duration := time.Since(start)
+
+		if err != nil {
+			ls.logger.Error("PrepareExternalRegistration failed",
+				zap.String("service", serviceName),
+				zap.String("method", "PrepareExternalRegistration"),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("PrepareExternalRegistration completed",
+				zap.String("service", serviceName),
+				zap.String("method", "PrepareExternalRegistration"),
+				zap.String("registration_token", redactToken(resp.RegistrationToken)),
+				zap.String("fingerprint", resp.PublicKeyFingerprint),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+
+	return ls.svc.PrepareExternalRegistration(ctx, req)
+}
+
 // Helper functions for sensitive data redaction
 
 // truncateString limits string length for logging to prevent log spam
@@ -132,6 +171,16 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// redactToken redacts a bearer token (e.g. registration token) to prevent log exposure.
+// Shows only the first few characters and length.
+func redactToken(token string) string {
+	const tokenPrefixLen = 8
+	if len(token) <= tokenPrefixLen {
+		return "<redacted>"
+	}
+	return fmt.Sprintf("%s...(%d chars)", token[:tokenPrefixLen], len(token))
 }
 
 // redactSignature redacts signature data to show only metadata

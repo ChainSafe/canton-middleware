@@ -38,6 +38,15 @@ type Identity interface {
 	GetFingerprintMapping(ctx context.Context, fingerprint string) (*FingerprintMapping, error)
 
 	GrantActAsParty(ctx context.Context, partyID string) error
+
+	// GenerateExternalPartyTopology generates the topology transactions and multi-hash
+	// needed for external party allocation. The multi-hash must be signed by the party's
+	// private key and submitted via AllocateExternalPartyWithSignature.
+	GenerateExternalPartyTopology(ctx context.Context, hint string, spkiPublicKey []byte) (*ExternalPartyTopology, error)
+
+	// AllocateExternalPartyWithSignature completes external party allocation using
+	// a client-provided DER signature of the topology multi-hash.
+	AllocateExternalPartyWithSignature(ctx context.Context, topology *ExternalPartyTopology, derSignature []byte) (*Party, error)
 }
 
 // Client implements the Identity interface.
@@ -135,6 +144,69 @@ func (c *Client) AllocateExternalParty(ctx context.Context, hint string, spkiPub
 		zap.String("party_id", allocResp.PartyId),
 		zap.String("hint", hint),
 		zap.String("key_fingerprint", topoResp.PublicKeyFingerprint))
+
+	return &Party{
+		PartyID: allocResp.PartyId,
+		IsLocal: false,
+	}, nil
+}
+
+func (c *Client) GenerateExternalPartyTopology(ctx context.Context, hint string, spkiPublicKey []byte) (*ExternalPartyTopology, error) {
+	authCtx := c.ledger.AuthContext(ctx)
+
+	pubKey := &lapiv2.SigningPublicKey{
+		Format:  lapiv2.CryptoKeyFormat_CRYPTO_KEY_FORMAT_DER_X509_SUBJECT_PUBLIC_KEY_INFO,
+		KeyData: spkiPublicKey,
+		KeySpec: lapiv2.SigningKeySpec_SIGNING_KEY_SPEC_EC_SECP256K1,
+	}
+
+	topoResp, err := c.ledger.PartyAdmin().GenerateExternalPartyTopology(authCtx, &adminv2.GenerateExternalPartyTopologyRequest{
+		Synchronizer: c.cfg.DomainID,
+		PartyHint:    hint,
+		PublicKey:    pubKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("generate external party topology: %w", err)
+	}
+
+	return &ExternalPartyTopology{
+		TopologyTransactions: topoResp.TopologyTransactions,
+		MultiHash:            topoResp.MultiHash,
+		Fingerprint:          topoResp.PublicKeyFingerprint,
+	}, nil
+}
+
+func (c *Client) AllocateExternalPartyWithSignature(
+	ctx context.Context, topology *ExternalPartyTopology, derSignature []byte,
+) (*Party, error) {
+	authCtx := c.ledger.AuthContext(ctx)
+
+	multiHashSig := &lapiv2.Signature{
+		Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+		Signature:            derSignature,
+		SignedBy:             topology.Fingerprint,
+		SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
+	}
+
+	signedTxs := make([]*adminv2.AllocateExternalPartyRequest_SignedTransaction, len(topology.TopologyTransactions))
+	for i, tx := range topology.TopologyTransactions {
+		signedTxs[i] = &adminv2.AllocateExternalPartyRequest_SignedTransaction{
+			Transaction: tx,
+		}
+	}
+
+	allocResp, err := c.ledger.PartyAdmin().AllocateExternalParty(authCtx, &adminv2.AllocateExternalPartyRequest{
+		Synchronizer:           c.cfg.DomainID,
+		OnboardingTransactions: signedTxs,
+		MultiHashSignatures:    []*lapiv2.Signature{multiHashSig},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("allocate external party: %w", err)
+	}
+
+	c.logger.Info("Allocated external party with client signature",
+		zap.String("party_id", allocResp.PartyId),
+		zap.String("key_fingerprint", topology.Fingerprint))
 
 	return &Party{
 		PartyID: allocResp.PartyId,
