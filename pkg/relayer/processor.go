@@ -17,6 +17,8 @@ type OffsetUpdateFunc func(ctx context.Context, chainID string, offset string) e
 type PostSubmitHook func(ctx context.Context, event *Event, destTxHash string) error
 
 // Source defines the interface for streaming events from a chain.
+//
+//go:generate mockery --name Source --output mocks --outpkg mocks --filename mock_source.go --with-expecter
 type Source interface {
 	StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error)
 	GetChainID() string
@@ -28,6 +30,8 @@ type Source interface {
 // Destination defines the interface for submitting transfers to a chain.
 // SubmitTransfer returns (destTxHash, skipped, err). skipped=true means the transfer
 // was already processed on the destination chain (idempotent, treat as success).
+//
+//go:generate mockery --name Destination --output mocks --outpkg mocks --filename mock_destination.go --with-expecter
 type Destination interface {
 	SubmitTransfer(ctx context.Context, event *Event) (destTxHash string, skipped bool, err error)
 	GetChainID() string
