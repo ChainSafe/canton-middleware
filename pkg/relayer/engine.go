@@ -8,67 +8,87 @@ import (
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/chainsafe/canton-middleware/internal/metrics"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	"github.com/ethereum/go-ethereum/common"
-
-	"go.uber.org/zap"
 )
 
-// UserBalanceCacher defines balance-cache operations the relayer needs for registered users.
-// Satisfied by the reconciler balance store.
-type UserBalanceCacher interface {
-	IncrementBalanceByFingerprint(ctx context.Context, fingerprint, amount, tokenSymbol string) error
-	DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, amount, tokenSymbol string) error
-}
+// stuckTransferThreshold is the age beyond which a pending transfer is considered stuck
+// and eligible for retry during reconciliation.
+const stuckTransferThreshold = 15 * time.Minute
 
-// EthereumBridgeClient defines the interface for Ethereum interactions
+// EthereumBridgeClient defines the interface for Ethereum interactions.
+//
+//go:generate mockery --name EthereumBridgeClient --output mocks --outpkg mocks --filename mock_ethereum_bridge_client.go --with-expecter
 type EthereumBridgeClient interface {
 	GetLatestBlockNumber(ctx context.Context) (uint64, error)
-	WithdrawFromCanton(ctx context.Context, token common.Address, recipient common.Address, amount *big.Int, nonce *big.Int, cantonTxHash [32]byte) (common.Hash, error)
+	WithdrawFromCanton(
+		ctx context.Context,
+		token common.Address,
+		recipient common.Address,
+		amount *big.Int,
+		nonce *big.Int,
+		cantonTxHash [32]byte,
+	) (common.Hash, error)
 	WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
 	IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error)
-	// GetLastScannedBlock returns how far the poller has scanned (for readiness checks)
 	GetLastScannedBlock() uint64
 }
 
-// BridgeStore defines the interface for database operations
+// BridgeStore defines the narrow data-access interface consumed by the relayer.
+//
+//go:generate mockery --name BridgeStore --output mocks --outpkg mocks --filename mock_bridge_store.go --with-expecter
 type BridgeStore interface {
-	GetTransfer(id string) (*db.Transfer, error)
-	CreateTransfer(transfer *db.Transfer) error
-	UpdateTransferStatus(id string, status db.TransferStatus, destTxHash *string) error
-	GetChainState(chainID string) (*db.ChainState, error)
-	SetChainState(chainID string, blockNumber int64, blockHash string) error
-	GetPendingTransfers(direction db.TransferDirection) ([]*db.Transfer, error)
-	ListTransfers(limit int) ([]*db.Transfer, error)
+	// CreateTransfer inserts a new transfer record. Returns true if the record was newly
+	// inserted, false if it already existed (idempotent via ON CONFLICT DO NOTHING).
+	CreateTransfer(ctx context.Context, transfer *Transfer) (bool, error)
+	GetTransfer(ctx context.Context, id string) (*Transfer, error)
+	// UpdateTransferStatus updates status, destination tx hash, and optionally error message.
+	UpdateTransferStatus(ctx context.Context, id string, status TransferStatus, destTxHash *string, errMsg *string) error
+	// IncrementRetryCount atomically increments the retry_count for a transfer.
+	IncrementRetryCount(ctx context.Context, id string) error
+	GetChainState(ctx context.Context, chainID string) (*ChainState, error)
+	SetChainState(ctx context.Context, chainID string, blockNumber int64, offset string) error
+	GetPendingTransfers(ctx context.Context, direction TransferDirection) ([]*Transfer, error)
+	ListTransfers(ctx context.Context, limit int) ([]*Transfer, error)
 }
 
-// Engine orchestrates the bridge relayer operations
+// Engine orchestrates the bridge relayer operations.
 type Engine struct {
-	config            *config.Config
-	cantonClient      canton.Bridge
-	ethClient         EthereumBridgeClient
-	store             BridgeStore
-	userBalanceCacher UserBalanceCacher // Optional: for user balance cache updates
-	logger            *zap.Logger
+	config       *config.Config
+	cantonClient canton.Bridge
+	ethClient    EthereumBridgeClient
+	store        BridgeStore
+	logger       *zap.Logger
+
+	// Cached chain keys (computed once from config).
+	cantonKey   string
+	ethereumKey string
 
 	cantonOffset string
 	ethLastBlock uint64
 
-	stopCh chan struct{}
+	// Destinations held for reconciliation retries.
+	ethDest    Destination
+	cantonDest Destination
+
+	// cancel stops all internal goroutines; set by Start.
+	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Readiness tracking - protected by mu
+	// Readiness tracking — protected by mu.
 	mu                  sync.RWMutex
 	cantonSynced        bool
 	ethereumSynced      bool
 	cantonStreamStarted time.Time
 }
 
-// NewEngine creates a new relayer engine
+// NewEngine creates a new relayer engine.
 func NewEngine(
 	cfg *config.Config,
 	cantonClient canton.Bridge,
@@ -76,80 +96,89 @@ func NewEngine(
 	store BridgeStore,
 	logger *zap.Logger,
 ) *Engine {
+	cantonKey := ChainCanton
+	if cfg.Canton.ChainID != "" {
+		cantonKey = cfg.Canton.ChainID
+	}
+
+	ethereumKey := ChainEthereum
+	if cfg.Ethereum.ChainID != 0 {
+		ethereumKey = strconv.FormatInt(cfg.Ethereum.ChainID, 10)
+	}
+
 	return &Engine{
 		config:       cfg,
 		cantonClient: cantonClient,
 		ethClient:    ethClient,
 		store:        store,
 		logger:       logger,
-		stopCh:       make(chan struct{}),
+		cantonKey:    cantonKey,
+		ethereumKey:  ethereumKey,
 	}
 }
 
-// SetUserBalanceCacher sets the user balance cache store.
-func (e *Engine) SetUserBalanceCacher(ubc UserBalanceCacher) {
-	e.userBalanceCacher = ubc
-}
-
-// Start starts the relayer engine
+// Start starts the relayer engine. It wraps ctx so that Stop() can cancel all goroutines.
 func (e *Engine) Start(ctx context.Context) error {
 	e.logger.Info("Starting relayer engine")
+	ctx, e.cancel = context.WithCancel(ctx)
 
-	// Initialize offsets from database
 	if err := e.loadOffsets(ctx); err != nil {
 		return fmt.Errorf("failed to load offsets: %w", err)
 	}
 
-	// Initialize processors with offset persistence callbacks
-	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonChainKey())
-	ethDest := NewEthereumDestination(e.ethClient, e.cantonClient, e.ethereumChainKey())
-	if e.userBalanceCacher != nil {
-		ethDest.SetUserBalanceCacher(e.userBalanceCacher)
+	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonKey)
+	e.ethDest = NewEthereumDestination(e.ethClient, e.ethereumKey)
+
+	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumKey)
+	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey)
+
+	// After each Canton→Ethereum withdrawal is submitted on EVM, mark it complete on Canton.
+	completeWithdrawal := func(ctx context.Context, event *Event, destTxHash string) error {
+		if event.SourceContractID == "" || e.cantonClient == nil {
+			return nil
+		}
+		if err := e.cantonClient.CompleteWithdrawal(ctx, canton.CompleteWithdrawalRequest{
+			WithdrawalEventCID: event.SourceContractID,
+			EvmTxHash:          destTxHash,
+		}); err != nil {
+			e.logger.Warn("Failed to complete withdrawal on Canton (EVM tx succeeded, reconcile later)",
+				zap.String("contract_id", event.SourceContractID), zap.Error(err))
+		}
+		return nil // best-effort: do not fail the transfer
 	}
-	cantonProcessor := NewProcessor(cantonSource, ethDest, e.store, e.logger, "canton_processor").
+
+	cantonProcessor := NewProcessor(cantonSource, e.ethDest, e.store, e.logger, "canton_processor", DirectionCantonToEthereum).
+		WithOffsetUpdate(e.saveChainOffset).
+		WithPostSubmit(completeWithdrawal)
+	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.logger, "ethereum_processor", DirectionEthereumToCanton).
 		WithOffsetUpdate(e.saveChainOffset)
 
-	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumChainKey())
-	cantonDest := NewCantonDestination(e.cantonClient, &e.config.Ethereum, e.config.Canton.RelayerParty, e.cantonChainKey())
-	if e.userBalanceCacher != nil {
-		cantonDest.SetUserBalanceCacher(e.userBalanceCacher)
-	}
-	ethProcessor := NewProcessor(ethSource, cantonDest, e.store, e.logger, "ethereum_processor").
-		WithOffsetUpdate(e.saveChainOffset)
-
-	// Start Canton processor
-	e.mu.Lock()
-	e.cantonStreamStarted = time.Now()
-	e.mu.Unlock()
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
+		// Record when the Canton stream actually starts (not when Start() was called).
+		e.mu.Lock()
+		e.cantonStreamStarted = time.Now()
+		e.mu.Unlock()
 		if err := cantonProcessor.Start(ctx, e.cantonOffset); err != nil {
-			// Canton streaming may fail due to protobuf version mismatch with Canton 3.4.8
-			// The update_format field is required but not in our generated protos
-			// This is a known issue - regenerate protos from Canton 3.4.8 to fix
-			e.logger.Warn("Canton processor stopped (protobuf update needed for Canton 3.4.8)",
+			e.logger.Warn("Canton processor stopped",
 				zap.Error(err),
 				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
 		}
 	}()
 
-	// Start Ethereum processor
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		// Convert uint64 block to string offset
-		ethOffset := fmt.Sprintf("%d", e.ethLastBlock)
+		ethOffset := strconv.FormatUint(e.ethLastBlock, 10)
 		if err := ethProcessor.Start(ctx, ethOffset); err != nil {
 			e.logger.Warn("Ethereum processor stopped", zap.Error(err))
 		}
 	}()
 
-	// Start periodic reconciliation
 	e.wg.Add(1)
-	go e.reconcile(ctx)
+	go e.reconcileLoop(ctx)
 
-	// Start readiness checker
 	e.wg.Add(1)
 	go e.readinessLoop(ctx)
 
@@ -157,166 +186,205 @@ func (e *Engine) Start(ctx context.Context) error {
 	return nil
 }
 
-// IsReady returns true once both Canton and Ethereum processors have
-// caught up to head at least once.
+// IsReady returns true once both Canton and Ethereum processors have caught up to head.
 func (e *Engine) IsReady() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.cantonSynced && e.ethereumSynced
 }
 
-// Stop stops the relayer engine
+// Stop cancels all goroutines started by Start and waits for them to finish.
 func (e *Engine) Stop() {
 	e.logger.Info("Stopping relayer engine")
-	close(e.stopCh)
+	if e.cancel != nil {
+		e.cancel()
+	}
 	e.wg.Wait()
 	e.logger.Info("Relayer engine stopped")
 }
 
-// loadOffsets loads last processed offsets from database
-// TODO: refactor the method and simplify
+// loadOffsets loads last processed offsets from the database for both chains.
 func (e *Engine) loadOffsets(ctx context.Context) error {
-	// Load Canton offset
-	cantonState, err := e.store.GetChainState(e.cantonChainKey())
+	if err := e.loadCantonOffset(ctx); err != nil {
+		return err
+	}
+	return e.loadEthereumOffset(ctx)
+}
+
+func (e *Engine) loadCantonOffset(ctx context.Context) error {
+	state, err := e.store.GetChainState(ctx, e.cantonKey)
 	if err != nil {
-		return fmt.Errorf("failed to get Canton state: %w", err)
-	}
-	if cantonState != nil {
-		storedOffset := cantonState.LastBlockHash
-		// Validate stored offset is not ahead of ledger end
-		ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
-		if err != nil {
-			e.logger.Warn("Failed to validate Canton offset against ledger end, using stored offset",
-				zap.String("stored_offset", storedOffset),
-				zap.Error(err))
-			e.cantonOffset = storedOffset
-		} else {
-			storedNum, err1 := strconv.ParseInt(storedOffset, 10, 64)
-			endNum := ledgerEnd
-			if err1 == nil && storedNum > endNum {
-				lookback := e.config.Canton.LookbackBlocks
-				if lookback <= 0 {
-					lookback = 1
-				}
-				var safeOffset string
-				if endNum > lookback {
-					safeOffset = strconv.FormatInt(endNum-lookback, 10)
-				} else {
-					safeOffset = "BEGIN"
-				}
-				e.logger.Warn("Stored Canton offset is ahead of ledger end, resetting to safe offset",
-					zap.String("stored_offset", storedOffset),
-					zap.Int64("ledger_end", ledgerEnd),
-					zap.String("safe_offset", safeOffset))
-				e.cantonOffset = safeOffset
-				if err = e.store.SetChainState(e.cantonChainKey(), 0, safeOffset); err != nil {
-					return fmt.Errorf("failed to persist corrected Canton offset: %w", err)
-				}
-			} else {
-				e.cantonOffset = storedOffset
-				e.logger.Info("Loaded Canton offset", zap.String("offset", e.cantonOffset))
-			}
-		}
-	} else {
-		// No stored state for Canton
-		// 1) Backwards-compatible override: explicit start_block wins
-		if e.config.Canton.StartBlock > 0 {
-			e.cantonOffset = strconv.FormatInt(e.config.Canton.StartBlock, 10)
-			e.logger.Info("Starting Canton stream from configured start_block",
-				zap.String("offset", e.cantonOffset))
-		} else {
-			// 2) Use ledger end minus lookback_blocks
-			ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
-			if err != nil || ledgerEnd == 0 {
-				e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN",
-					zap.Error(err))
-				e.cantonOffset = "BEGIN"
-			} else {
-				lookback := e.config.Canton.LookbackBlocks
-				if lookback <= 0 {
-					// lookback <= 0: preserve old behavior (start at tip, no replay)
-					e.cantonOffset = strconv.FormatInt(ledgerEnd, 10)
-					e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
-						zap.String("ledger_end", e.cantonOffset))
-				} else {
-					endOffset := ledgerEnd
-					if endOffset <= lookback {
-						// Not enough history to look back fully; start from BEGIN
-						e.cantonOffset = "BEGIN"
-					} else {
-						e.cantonOffset = strconv.FormatInt(endOffset-lookback, 10)
-					}
-					e.logger.Info("Starting Canton stream from ledger end with lookback",
-						zap.Int64("ledger_end", ledgerEnd),
-						zap.Int64("lookback_blocks", lookback),
-						zap.String("start_offset", e.cantonOffset))
-
-				}
-			}
-		}
+		return fmt.Errorf("get canton chain state: %w", err)
 	}
 
-	// Load Ethereum last block
-	ethState, err := e.store.GetChainState(e.ethereumChainKey())
+	if state != nil {
+		return e.validateStoredCantonOffset(ctx, state.Offset)
+	}
+
+	// No stored state — determine start offset from config.
+	if e.config.Canton.StartBlock > 0 {
+		e.cantonOffset = strconv.FormatInt(e.config.Canton.StartBlock, 10)
+		e.logger.Info("Starting Canton stream from configured start_block", zap.String("offset", e.cantonOffset))
+		return nil
+	}
+
+	return e.cantonOffsetFromLedgerEnd(ctx)
+}
+
+func (e *Engine) validateStoredCantonOffset(ctx context.Context, storedOffset string) error {
+	ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get Ethereum state: %w", err)
-	}
-	if ethState != nil {
-		e.ethLastBlock = uint64(ethState.LastBlock)
-		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
-	} else {
-		// No stored state for Ethereum
-		// 1) Backwards-compatible override: explicit start_block wins
-		if e.config.Ethereum.StartBlock > 0 {
-			e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
-			e.logger.Info("Starting Ethereum from configured start_block",
-				zap.Uint64("block", e.ethLastBlock))
-		} else {
-			lookback := e.config.Ethereum.LookbackBlocks
-			if lookback <= 0 {
-				// lookback <= 0: preserve old behavior (start from genesis)
-				e.ethLastBlock = 0
-				e.logger.Info("Starting Ethereum from genesis (lookback disabled)",
-					zap.Uint64("block", e.ethLastBlock))
-			} else {
-				headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
-				if err != nil {
-					// Fallback to previous behavior if we can't query head
-					e.ethLastBlock = uint64(e.config.Ethereum.StartBlock)
-					e.logger.Warn("Failed to get Ethereum latest block, falling back to configured start_block",
-						zap.Error(err),
-						zap.Uint64("start_block", e.ethLastBlock))
-				} else {
-					if uint64(lookback) >= headBlock {
-						// Lookback larger than chain height; start from genesis
-						e.ethLastBlock = 0
-					} else {
-						e.ethLastBlock = headBlock - uint64(lookback)
-					}
-					e.logger.Info("Starting Ethereum from latest block with lookback",
-						zap.Uint64("head_block", headBlock),
-						zap.Int64("lookback_blocks", lookback),
-						zap.Uint64("start_block", e.ethLastBlock))
-				}
-			}
-		}
+		e.logger.Warn("Failed to validate Canton offset against ledger end, using stored offset",
+			zap.String("stored_offset", storedOffset), zap.Error(err))
+		e.cantonOffset = storedOffset
+		return nil
 	}
 
+	storedNum, parseErr := strconv.ParseInt(storedOffset, 10, 64)
+	if parseErr != nil || storedNum <= ledgerEnd {
+		e.cantonOffset = storedOffset
+		e.logger.Info("Loaded Canton offset", zap.String("offset", e.cantonOffset))
+		return nil
+	}
+
+	// Stored offset is ahead of ledger end — reset to a safe position.
+	safeOffset := e.safeCantonOffset(ledgerEnd)
+	e.logger.Warn("Stored Canton offset is ahead of ledger end, resetting",
+		zap.String("stored_offset", storedOffset),
+		zap.Int64("ledger_end", ledgerEnd),
+		zap.String("safe_offset", safeOffset))
+	e.cantonOffset = safeOffset
+	if err = e.store.SetChainState(ctx, e.cantonKey, 0, safeOffset); err != nil {
+		return fmt.Errorf("persist corrected Canton offset: %w", err)
+	}
 	return nil
 }
 
-// reconcile periodically reconciles bridge state
-func (e *Engine) reconcile(ctx context.Context) {
+func (e *Engine) cantonOffsetFromLedgerEnd(ctx context.Context) error {
+	ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
+	if err != nil || ledgerEnd == 0 {
+		e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN", zap.Error(err))
+		e.cantonOffset = OffsetBegin
+		return nil
+	}
+
+	lookback := e.config.Canton.LookbackBlocks
+	if lookback <= 0 {
+		e.cantonOffset = strconv.FormatInt(ledgerEnd, 10)
+		e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
+			zap.String("offset", e.cantonOffset))
+		return nil
+	}
+
+	e.cantonOffset = e.safeCantonOffset(ledgerEnd)
+	e.logger.Info("Starting Canton stream from ledger end with lookback",
+		zap.Int64("ledger_end", ledgerEnd),
+		zap.Int64("lookback_blocks", lookback),
+		zap.String("start_offset", e.cantonOffset))
+	return nil
+}
+
+func (e *Engine) safeCantonOffset(ledgerEnd int64) string {
+	lookback := e.config.Canton.LookbackBlocks
+	if lookback <= 0 {
+		lookback = 1
+	}
+	if ledgerEnd <= lookback {
+		return OffsetBegin
+	}
+	return strconv.FormatInt(ledgerEnd-lookback, 10)
+}
+
+func (e *Engine) loadEthereumOffset(ctx context.Context) error {
+	state, err := e.store.GetChainState(ctx, e.ethereumKey)
+	if err != nil {
+		return fmt.Errorf("get ethereum chain state: %w", err)
+	}
+
+	if state != nil {
+		e.ethLastBlock = uint64(state.LastBlock) //nolint:gosec // LastBlock is always non-negative
+		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
+		return nil
+	}
+
+	// No stored state — determine start block from config.
+	if e.config.Ethereum.StartBlock > 0 {
+		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock) //nolint:gosec // StartBlock is always non-negative
+		e.logger.Info("Starting Ethereum from configured start_block", zap.Uint64("block", e.ethLastBlock))
+		return nil
+	}
+
+	return e.ethBlockFromChainHead(ctx)
+}
+
+func (e *Engine) ethBlockFromChainHead(ctx context.Context) error {
+	lookback := e.config.Ethereum.LookbackBlocks
+	if lookback <= 0 {
+		e.ethLastBlock = 0
+		e.logger.Info("Starting Ethereum from genesis (lookback disabled)")
+		return nil
+	}
+
+	headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
+	if err != nil {
+		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock) //nolint:gosec // StartBlock is always non-negative
+		e.logger.Warn("Failed to get Ethereum latest block, falling back to configured start_block",
+			zap.Error(err), zap.Uint64("start_block", e.ethLastBlock))
+		return nil
+	}
+
+	if uint64(lookback) >= headBlock {
+		e.ethLastBlock = 0
+	} else {
+		e.ethLastBlock = headBlock - uint64(lookback)
+	}
+	e.logger.Info("Starting Ethereum from latest block with lookback",
+		zap.Uint64("head_block", headBlock),
+		zap.Int64("lookback_blocks", lookback),
+		zap.Uint64("start_block", e.ethLastBlock))
+	return nil
+}
+
+// saveChainOffset persists the last processed offset for a chain.
+// The DB write happens first; in-memory state is only updated on success.
+func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset string) error {
+	var blockNumber int64
+
+	if chainID == e.ethereumKey {
+		n, err := strconv.ParseInt(offset, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid ethereum offset %q: %w", offset, err)
+		}
+		blockNumber = n
+	}
+
+	if err := e.store.SetChainState(ctx, chainID, blockNumber, offset); err != nil {
+		return fmt.Errorf("save chain state for %s: %w", chainID, err)
+	}
+
+	// Update in-memory state only after the DB write succeeds.
+	e.mu.Lock()
+	if chainID == e.ethereumKey {
+		e.ethLastBlock = uint64(blockNumber) //nolint:gosec // block number parsed from our own offset string, always non-negative
+	} else {
+		e.cantonOffset = offset
+	}
+	e.mu.Unlock()
+
+	e.logger.Debug("Saved chain offset", zap.String("chain", chainID), zap.String("offset", offset))
+	return nil
+}
+
+// reconcileLoop periodically checks for stuck transfers and retries them.
+func (e *Engine) reconcileLoop(ctx context.Context) {
 	defer e.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute) //nolint:mnd // 5 minutes is a well-known reconciliation interval
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-e.stopCh:
 			return
 		case <-ticker.C:
 			if err := e.runReconciliation(ctx); err != nil {
@@ -326,82 +394,128 @@ func (e *Engine) reconcile(ctx context.Context) {
 	}
 }
 
-// saveChainOffset persists the last processed offset for a chain
-func (e *Engine) saveChainOffset(chainID string, offset string) error {
-	// For Canton, we store offset in LastBlockHash (it's a string offset like "12345")
-	// For Ethereum, we parse the block number
-	var blockNumber int64
-	if chainID == e.ethereumChainKey() {
-		if n, err := fmt.Sscanf(offset, "%d", &blockNumber); err != nil || n != 1 {
-			return fmt.Errorf("invalid ethereum offset: %s", offset)
-		}
-		// Update the engine's ethLastBlock for readiness tracking
-		e.mu.Lock()
-		e.ethLastBlock = uint64(blockNumber)
-		e.mu.Unlock()
-	} else {
-		// Update Canton offset for readiness tracking
-		e.mu.Lock()
-		e.cantonOffset = offset
-		e.mu.Unlock()
-	}
-
-	if err := e.store.SetChainState(chainID, blockNumber, offset); err != nil {
-		return fmt.Errorf("failed to save chain state for %s: %w", chainID, err)
-	}
-
-	e.logger.Debug("Saved chain offset",
-		zap.String("chain", chainID),
-		zap.String("offset", offset))
-
-	return nil
-}
-
-// runReconciliation checks for stuck transfers and retries
-func (e *Engine) runReconciliation(_ context.Context) error {
+// runReconciliation checks pending transfers, emits metrics, and retries stuck ones.
+func (e *Engine) runReconciliation(ctx context.Context) error {
 	e.logger.Info("Running reconciliation")
 
-	// Get pending Canton->Ethereum transfers
-	cantonPending, err := e.store.GetPendingTransfers(db.DirectionCantonToEthereum)
+	cantonPending, err := e.store.GetPendingTransfers(ctx, DirectionCantonToEthereum)
 	if err != nil {
-		return fmt.Errorf("failed to get pending Canton transfers: %w", err)
+		return fmt.Errorf("get pending canton transfers: %w", err)
 	}
 
-	// Get pending Ethereum->Canton transfers
-	ethPending, err := e.store.GetPendingTransfers(db.DirectionEthereumToCanton)
+	ethPending, err := e.store.GetPendingTransfers(ctx, DirectionEthereumToCanton)
 	if err != nil {
-		return fmt.Errorf("failed to get pending Ethereum transfers: %w", err)
+		return fmt.Errorf("get pending ethereum transfers: %w", err)
 	}
 
 	e.logger.Info("Reconciliation summary",
 		zap.Int("canton_pending", len(cantonPending)),
 		zap.Int("ethereum_pending", len(ethPending)))
 
-	// TODO: Retry failed transfers
-	// TODO: Alert on stuck transfers
-
 	metrics.PendingTransfers.WithLabelValues("canton_to_ethereum").Set(float64(len(cantonPending)))
 	metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
+
+	// Retry transfers stuck longer than RetryDelay, up to MaxRetries attempts.
+	maxRetries := e.config.Bridge.MaxRetries
+	retryDelay := e.config.Bridge.RetryDelay
+	if retryDelay <= 0 {
+		retryDelay = stuckTransferThreshold
+	}
+
+	for _, t := range cantonPending {
+		e.maybeRetryTransfer(ctx, t, e.ethDest, maxRetries, retryDelay)
+	}
+	for _, t := range ethPending {
+		e.maybeRetryTransfer(ctx, t, e.cantonDest, maxRetries, retryDelay)
+	}
 
 	return nil
 }
 
-// readinessLoop periodically checks if the engine has caught up to head
+// maybeRetryTransfer checks whether a pending transfer should be retried or given up on.
+func (e *Engine) maybeRetryTransfer(ctx context.Context, t *Transfer, dest Destination, maxRetries int, retryDelay time.Duration) {
+	if maxRetries > 0 && t.RetryCount >= maxRetries {
+		e.logger.Warn("Transfer exceeded max retries, marking as failed",
+			zap.String("id", t.ID),
+			zap.Int("retry_count", t.RetryCount),
+			zap.Int("max_retries", maxRetries))
+		errMsg := fmt.Sprintf("max retries (%d) exceeded", maxRetries)
+		if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, TransferStatusFailed, nil, &errMsg); updateErr != nil {
+			e.logger.Warn("Failed to mark transfer as failed after max retries", zap.String("id", t.ID), zap.Error(updateErr))
+		}
+		return
+	}
+
+	// Retry only after enough time has elapsed since last attempt.
+	nextRetryAt := t.UpdatedAt.Add(retryDelay)
+	if time.Now().Before(nextRetryAt) {
+		return
+	}
+
+	e.retryStuckTransfer(ctx, t, dest)
+}
+
+// retryStuckTransfer attempts to resubmit a pending transfer that has been stuck.
+// The Raw field is not available for reconstructed events; best-effort side effects
+// (CompleteWithdrawal) are skipped on this path.
+func (e *Engine) retryStuckTransfer(ctx context.Context, t *Transfer, dest Destination) {
+	if dest == nil {
+		e.logger.Error("No destination available for stuck transfer retry", zap.String("id", t.ID))
+		return
+	}
+
+	e.logger.Warn("Retrying stuck transfer",
+		zap.String("id", t.ID),
+		zap.String("direction", string(t.Direction)),
+		zap.Int("retry_count", t.RetryCount),
+		zap.Duration("age", time.Since(t.CreatedAt)))
+
+	event := &Event{
+		ID:                t.ID,
+		SourceChain:       t.SourceChain,
+		DestinationChain:  t.DestinationChain,
+		SourceTxHash:      t.SourceTxHash,
+		TokenAddress:      t.TokenAddress,
+		Amount:            t.Amount,
+		Sender:            t.Sender,
+		Recipient:         t.Recipient,
+		Nonce:             t.Nonce,
+		SourceBlockNumber: t.SourceBlockNumber,
+	}
+
+	destTxHash, skipped, err := dest.SubmitTransfer(ctx, event)
+	if err != nil {
+		e.logger.Error("Stuck transfer retry failed", zap.String("id", t.ID), zap.Error(err))
+		if incrErr := e.store.IncrementRetryCount(ctx, t.ID); incrErr != nil {
+			e.logger.Warn("Failed to increment retry count", zap.String("id", t.ID), zap.Error(incrErr))
+		}
+		return
+	}
+
+	var txHashPtr *string
+	if !skipped {
+		txHashPtr = &destTxHash
+	}
+	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
+		e.logger.Warn("Failed to mark retried transfer as completed", zap.String("id", t.ID), zap.Error(updateErr))
+	} else {
+		e.logger.Info("Stuck transfer retried successfully", zap.String("id", t.ID), zap.Bool("skipped", skipped))
+	}
+}
+
+// readinessLoop polls both chains until the engine has caught up.
 func (e *Engine) readinessLoop(ctx context.Context) {
 	defer e.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Second) //nolint:mnd // 5 second readiness poll interval
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-e.stopCh:
-			return
 		case <-ticker.C:
 			e.checkReadiness(ctx)
-			// Stop checking once fully ready
 			if e.IsReady() {
 				e.logger.Info("Relayer is fully synced and ready")
 				return
@@ -410,105 +524,101 @@ func (e *Engine) readinessLoop(ctx context.Context) {
 	}
 }
 
-// checkReadiness checks if both chains have caught up to their respective heads
+// checkReadiness checks if both chains have caught up to their respective heads.
 func (e *Engine) checkReadiness(ctx context.Context) {
-	// Check Ethereum readiness
+	e.checkEthereumReadiness(ctx)
+	e.checkCantonReadiness(ctx)
+}
+
+func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 	headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
 	if err != nil {
 		e.logger.Warn("Failed to get Ethereum latest block for readiness check", zap.Error(err))
-	} else {
-		// Use the poller's scan progress, which advances even when there are no events
-		scannedBlock := e.ethClient.GetLastScannedBlock()
-
-		e.mu.Lock()
-		// Use the higher of scanned block or persisted ethLastBlock
-		lastProcessed := e.ethLastBlock
-		if scannedBlock > lastProcessed {
-			lastProcessed = scannedBlock
-		}
-
-		if !e.ethereumSynced {
-			// Allow 1 block lag tolerance
-			if lastProcessed+1 >= headBlock {
-				e.ethereumSynced = true
-				e.logger.Info("Ethereum processor initial sync complete",
-					zap.Uint64("last_block", lastProcessed),
-					zap.Uint64("head_block", headBlock))
-			} else {
-				e.logger.Debug("Ethereum processor catching up",
-					zap.Uint64("last_block", lastProcessed),
-					zap.Uint64("head_block", headBlock),
-					zap.Uint64("blocks_behind", headBlock-lastProcessed))
-			}
-		}
-		e.mu.Unlock()
+		return
 	}
 
-	// Check Canton readiness
+	scannedBlock := e.ethClient.GetLastScannedBlock()
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.ethereumSynced {
+		return
+	}
+
+	lastProcessed := e.ethLastBlock
+	if scannedBlock > lastProcessed {
+		lastProcessed = scannedBlock
+	}
+
+	const lagTolerance = uint64(1)
+	if lastProcessed+lagTolerance >= headBlock {
+		e.ethereumSynced = true
+		e.logger.Info("Ethereum processor initial sync complete",
+			zap.Uint64("last_block", lastProcessed),
+			zap.Uint64("head_block", headBlock))
+	} else {
+		e.logger.Debug("Ethereum processor catching up",
+			zap.Uint64("last_block", lastProcessed),
+			zap.Uint64("head_block", headBlock),
+			zap.Uint64("blocks_behind", headBlock-lastProcessed))
+	}
+}
+
+func (e *Engine) checkCantonReadiness(ctx context.Context) {
 	ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
 	if err != nil {
 		e.logger.Warn("Failed to get Canton ledger end for readiness check", zap.Error(err))
-	} else {
-		e.mu.Lock()
-		if !e.cantonSynced {
-			ledgerEndString := strconv.FormatInt(ledgerEnd, 10)
-			// If we started from ledger end or have no offset, consider synced
-			if e.cantonOffset == "" || e.cantonOffset == ledgerEndString {
-				e.cantonSynced = true
-				e.logger.Info("Canton processor initial sync complete (at ledger end)",
-					zap.String("offset", e.cantonOffset))
-			} else if e.cantonOffset == "BEGIN" {
-				// "BEGIN" means starting from the beginning - consider synced if we can reach the ledger
-				// (Canton streaming may fail due to protobuf issues, but we can still be ready)
-				e.cantonSynced = true
-				e.logger.Info("Canton processor initial sync complete (BEGIN offset, ledger reachable)",
-					zap.String("ledger_end", ledgerEndString))
-			} else {
-				// Try numeric comparison for Canton offsets
-				currentOffset, err1 := strconv.ParseInt(e.cantonOffset, 10, 64)
-				endOffset, err2 := strconv.ParseInt(ledgerEndString, 10, 64)
-				if err1 == nil && err2 == nil {
-					if currentOffset >= endOffset {
-						e.cantonSynced = true
-						e.logger.Info("Canton processor initial sync complete",
-							zap.String("offset", e.cantonOffset),
-							zap.String("ledger_end", ledgerEndString))
-					} else {
-						// Canton offset only advances when matching events are processed.
-						// If the stream has been running for 10+ seconds without errors,
-						// consider it synced even if offset < ledger_end (no matching events).
-						const streamGracePeriod = 10 * time.Second
-						if !e.cantonStreamStarted.IsZero() && time.Since(e.cantonStreamStarted) >= streamGracePeriod {
-							e.cantonSynced = true
-							e.logger.Info("Canton processor synced (stream healthy, no pending withdrawals)",
-								zap.String("offset", e.cantonOffset),
-								zap.String("ledger_end", ledgerEndString))
-						} else {
-							e.logger.Debug("Canton processor catching up",
-								zap.String("offset", e.cantonOffset),
-								zap.String("ledger_end", ledgerEndString),
-								zap.Int64("behind", endOffset-currentOffset))
-						}
-					}
-				}
-			}
-		}
-		e.mu.Unlock()
+		return
 	}
-}
 
-// cantonChainKey returns the canonical chain key for Canton state storage
-func (e *Engine) cantonChainKey() string {
-	if e.config.Canton.ChainID != "" {
-		return e.config.Canton.ChainID
-	}
-	return "canton"
-}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 
-// ethereumChainKey returns the canonical chain key for Ethereum state storage
-func (e *Engine) ethereumChainKey() string {
-	if e.config.Ethereum.ChainID != 0 {
-		return strconv.FormatInt(e.config.Ethereum.ChainID, 10)
+	if e.cantonSynced {
+		return
 	}
-	return "ethereum"
+
+	ledgerEndStr := strconv.FormatInt(ledgerEnd, 10)
+
+	switch e.cantonOffset {
+	case "", ledgerEndStr:
+		e.cantonSynced = true
+		e.logger.Info("Canton processor initial sync complete (at ledger end)", zap.String("offset", e.cantonOffset))
+		return
+	case OffsetBegin:
+		// If starting from the beginning and the ledger is reachable, consider synced.
+		e.cantonSynced = true
+		e.logger.Info("Canton processor initial sync complete (BEGIN offset, ledger reachable)",
+			zap.String("ledger_end", ledgerEndStr))
+		return
+	}
+
+	currentOffset, err1 := strconv.ParseInt(e.cantonOffset, 10, 64)
+	if err1 != nil {
+		return
+	}
+
+	if currentOffset >= ledgerEnd {
+		e.cantonSynced = true
+		e.logger.Info("Canton processor initial sync complete",
+			zap.String("offset", e.cantonOffset),
+			zap.String("ledger_end", ledgerEndStr))
+		return
+	}
+
+	// If the stream has been healthy long enough with no matching events, consider synced.
+	const streamGracePeriod = 10 * time.Second
+	if !e.cantonStreamStarted.IsZero() && time.Since(e.cantonStreamStarted) >= streamGracePeriod {
+		e.cantonSynced = true
+		e.logger.Info("Canton processor synced (stream healthy, no pending withdrawals)",
+			zap.String("offset", e.cantonOffset),
+			zap.String("ledger_end", ledgerEndStr))
+		return
+	}
+
+	e.logger.Debug("Canton processor catching up",
+		zap.String("offset", e.cantonOffset),
+		zap.String("ledger_end", ledgerEndStr),
+		zap.Int64("behind", ledgerEnd-currentOffset))
 }
