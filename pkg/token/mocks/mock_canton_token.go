@@ -632,6 +632,54 @@ func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// PrepareTransfer provides a mock function with given fields: ctx, req
+func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareTransfer")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *token.PrepareTransferRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ExecuteTransfer provides a mock function with given fields: ctx, req
+func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteTransfer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.ExecuteTransferRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // NewToken creates a new instance of Token. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewToken(t interface {

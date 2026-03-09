@@ -5,18 +5,26 @@ import (
 	"time"
 )
 
+// Key mode constants for user registration type.
+const (
+	KeyModeCustodial = "custodial"
+	KeyModeExternal  = "external"
+)
+
 // User represents the domain model for a registered user.
 type User struct {
-	EVMAddress                string
-	CantonParty               string
-	Fingerprint               string
-	MappingCID                string
-	CantonPartyID             string
-	CantonKeyCreatedAt        *time.Time
-	CantonPrivateKeyEncrypted string
+	EVMAddress                 string
+	CantonParty                string
+	Fingerprint                string
+	MappingCID                 string
+	CantonPartyID              string
+	CantonKeyCreatedAt         *time.Time
+	CantonPrivateKeyEncrypted  string
+	KeyMode                    string // "custodial" or "external"
+	CantonPublicKeyFingerprint string // For external users: Canton multihash fingerprint
 }
 
-// New creates a User from the given parameters.
+// New creates a custodial User from the given parameters.
 func New(evmAddress, cantonPartyID, fingerprint, mappingCID, encryptedPKey string) *User {
 	now := time.Now()
 	return &User{
@@ -27,6 +35,20 @@ func New(evmAddress, cantonPartyID, fingerprint, mappingCID, encryptedPKey strin
 		CantonPartyID:             cantonPartyID,
 		CantonKeyCreatedAt:        &now,
 		CantonPrivateKeyEncrypted: encryptedPKey,
+		KeyMode:                   KeyModeCustodial,
+	}
+}
+
+// NewExternal creates a non-custodial (external) User. No private key is stored.
+func NewExternal(evmAddress, cantonPartyID, fingerprint, mappingCID, publicKeyFingerprint string) *User {
+	return &User{
+		EVMAddress:                 evmAddress,
+		CantonParty:                cantonPartyID,
+		Fingerprint:                fingerprint,
+		MappingCID:                 mappingCID,
+		CantonPartyID:              cantonPartyID,
+		KeyMode:                    KeyModeExternal,
+		CantonPublicKeyFingerprint: publicKeyFingerprint,
 	}
 }
 
