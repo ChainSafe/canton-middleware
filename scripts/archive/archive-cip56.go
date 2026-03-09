@@ -89,6 +89,7 @@ var templatesByPackageType = map[string][]TemplateInfo{
 		{ModuleName: "CIP56.Token", EntityName: "CIP56Manager"},
 		{ModuleName: "CIP56.Token", EntityName: "CIP56Holding"},
 		{ModuleName: "CIP56.Token", EntityName: "LockedAsset"},
+		{ModuleName: "CIP56.TransferFactory", EntityName: "CIP56TransferFactory"},
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceRules"},
 		{ModuleName: "CIP56.Compliance", EntityName: "ComplianceProof"},
 		{ModuleName: "CIP56.Config", EntityName: "TokenConfig"},
@@ -292,6 +293,8 @@ func main() {
 		"DepositReceipt", "PendingDeposit",
 		// Fingerprint mappings
 		"FingerprintMapping",
+		// Transfer factories (before managers since they reference managers)
+		"CIP56TransferFactory",
 		// Managers/configs last (they are referenced by other contracts)
 		"CIP56Manager",
 		"TokenConfig",

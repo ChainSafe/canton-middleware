@@ -842,15 +842,15 @@ func transferTokens(ethRPCURL string, tokenAddress string, chainID uint64, priva
 	gasPrice := new(big.Int).SetBytes(gasPriceBytes)
 
 	// Create transaction
+	contractAddr := common.HexToAddress(tokenAddress)
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
-		To:       &common.Address{},
+		To:       &contractAddr,
 		Value:    big.NewInt(0),
 		Gas:      100000,
 		GasPrice: gasPrice,
 		Data:     data,
 	})
-	*tx.To() = common.HexToAddress(tokenAddress)
 
 	// Sign transaction
 	signer := types.NewEIP155Signer(big.NewInt(int64(chainID)))
