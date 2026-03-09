@@ -10,14 +10,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	bridgesdk "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	bridgemocks "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge/mocks"
 	relayer "github.com/chainsafe/canton-middleware/pkg/relayer"
 	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/mocks"
 )
 
 func TestCantonDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
 	ctx := context.Background()
-	bridgeClient := bridgemocks.NewBridgeMock(t)
+	bridgeClient := relayermocks.NewCantonBridge(t)
 	bridgeClient.EXPECT().IsDepositProcessed(ctx, "0xsource").Return(true, nil)
 
 	destination := relayer.NewCantonDestination(bridgeClient, relayer.ChainCanton)
@@ -39,7 +38,7 @@ func TestCantonDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
 
 func TestCantonDestination_SubmitTransfer_Success(t *testing.T) {
 	ctx := context.Background()
-	bridgeClient := bridgemocks.NewBridgeMock(t)
+	bridgeClient := relayermocks.NewCantonBridge(t)
 
 	event := &relayer.Event{
 		SourceTxHash: "0xsource",
@@ -74,7 +73,7 @@ func TestCantonDestination_SubmitTransfer_Success(t *testing.T) {
 
 func TestCantonDestination_SubmitTransfer_CreatePendingDepositError(t *testing.T) {
 	ctx := context.Background()
-	bridgeClient := bridgemocks.NewBridgeMock(t)
+	bridgeClient := relayermocks.NewCantonBridge(t)
 
 	bridgeClient.EXPECT().IsDepositProcessed(ctx, "0xsource").Return(false, nil)
 	bridgeClient.EXPECT().

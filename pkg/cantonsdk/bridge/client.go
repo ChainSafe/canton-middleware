@@ -30,8 +30,6 @@ const (
 )
 
 // Bridge defines bridge operations.
-//
-//go:generate mockery --name Bridge --output mocks --outpkg mocks --filename mock_bridge.go --structname BridgeMock --with-expecter
 type Bridge interface {
 	// IsDepositProcessed returns true if a deposit with the given EVM tx hash already exists as an active
 	// PendingDeposit or DepositReceipt contract.

@@ -43,6 +43,7 @@ type EthereumBridgeClient interface {
 // BridgeStore defines the narrow data-access interface consumed by the relayer.
 //
 //go:generate mockery --name BridgeStore --output mocks --outpkg mocks --filename mock_bridge_store.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge --name Bridge --output mocks --outpkg mocks --filename mock_canton_bridge.go --structname CantonBridge --with-expecter
 type BridgeStore interface {
 	// CreateTransfer inserts a new transfer record. Returns true if the record was newly
 	// inserted, false if it already existed (idempotent via ON CONFLICT DO NOTHING).

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	bridgesdk "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	bridgemocks "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	relayer "github.com/chainsafe/canton-middleware/pkg/relayer"
@@ -30,7 +29,7 @@ func TestCantonSource_ExtractOffset(t *testing.T) {
 
 func TestCantonSource_StreamEvents_MapsWithdrawalAndSignalsUnexpectedClose(t *testing.T) {
 	ctx := context.Background()
-	bridgeClient := bridgemocks.NewBridgeMock(t)
+	bridgeClient := relayermocks.NewCantonBridge(t)
 	withdrawalCh := make(chan *bridgesdk.WithdrawalEvent, 1)
 
 	bridgeClient.EXPECT().StreamWithdrawalEvents(ctx, "50").Return((<-chan *bridgesdk.WithdrawalEvent)(withdrawalCh))
@@ -75,7 +74,7 @@ func TestCantonSource_StreamEvents_MapsWithdrawalAndSignalsUnexpectedClose(t *te
 
 func TestCantonSource_StreamEvents_ContextCancellationDoesNotReportCloseError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	bridgeClient := bridgemocks.NewBridgeMock(t)
+	bridgeClient := relayermocks.NewCantonBridge(t)
 	withdrawalCh := make(chan *bridgesdk.WithdrawalEvent)
 
 	bridgeClient.EXPECT().StreamWithdrawalEvents(ctx, "").Return((<-chan *bridgesdk.WithdrawalEvent)(withdrawalCh))
