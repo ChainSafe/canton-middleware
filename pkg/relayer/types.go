@@ -11,9 +11,6 @@ const (
 // OffsetBegin is the special Canton ledger offset meaning "start from the beginning".
 const OffsetBegin = "BEGIN"
 
-// decimalPlaces is the number of decimal places used for ERC-20 token amounts.
-const decimalPlaces = 18
-
 // TransferStatus represents the current state of a cross-chain transfer.
 type TransferStatus string
 

@@ -15,7 +15,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	relayerengine "github.com/chainsafe/canton-middleware/pkg/relayer/engine"
 	relayersvc "github.com/chainsafe/canton-middleware/pkg/relayer/service"
 	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
 
@@ -77,7 +77,7 @@ func (s *Server) Run() error {
 	}
 	ethClient.Close()
 
-	engine := relayer.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
+	engine := relayerengine.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
 
 	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
@@ -89,7 +89,7 @@ func (s *Server) Run() error {
 	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 }
 
-func (s *Server) newRouter(store relayer.BridgeStore, engine *relayer.Engine, logger *zap.Logger) http.Handler {
+func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
 	cfg := s.cfg
 
 	r := chi.NewRouter()

@@ -1,4 +1,4 @@
-package relayer
+package engine
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
 // stuckTransferThreshold is the age beyond which a pending transfer is considered stuck
@@ -40,29 +41,35 @@ type EthereumBridgeClient interface {
 	GetLastScannedBlock() uint64
 }
 
+// CantonBridgeClient defines the Canton bridge interactions consumed by Engine.
+//
+//go:generate mockery --name CantonBridgeClient --output mocks --outpkg mocks --filename mock_canton_bridge.go --structname CantonBridge --with-expecter
+type CantonBridgeClient interface {
+	canton.Bridge
+}
+
 // BridgeStore defines the narrow data-access interface consumed by the relayer.
 //
 //go:generate mockery --name BridgeStore --output mocks --outpkg mocks --filename mock_bridge_store.go --with-expecter
-//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge --name Bridge --output mocks --outpkg mocks --filename mock_canton_bridge.go --structname CantonBridge --with-expecter
 type BridgeStore interface {
 	// CreateTransfer inserts a new transfer record. Returns true if the record was newly
 	// inserted, false if it already existed (idempotent via ON CONFLICT DO NOTHING).
-	CreateTransfer(ctx context.Context, transfer *Transfer) (bool, error)
-	GetTransfer(ctx context.Context, id string) (*Transfer, error)
+	CreateTransfer(ctx context.Context, transfer *relayer.Transfer) (bool, error)
+	GetTransfer(ctx context.Context, id string) (*relayer.Transfer, error)
 	// UpdateTransferStatus updates status, destination tx hash, and optionally error message.
-	UpdateTransferStatus(ctx context.Context, id string, status TransferStatus, destTxHash *string, errMsg *string) error
+	UpdateTransferStatus(ctx context.Context, id string, status relayer.TransferStatus, destTxHash *string, errMsg *string) error
 	// IncrementRetryCount atomically increments the retry_count for a transfer.
 	IncrementRetryCount(ctx context.Context, id string) error
-	GetChainState(ctx context.Context, chainID string) (*ChainState, error)
+	GetChainState(ctx context.Context, chainID string) (*relayer.ChainState, error)
 	SetChainState(ctx context.Context, chainID string, blockNumber int64, offset string) error
-	GetPendingTransfers(ctx context.Context, direction TransferDirection) ([]*Transfer, error)
-	ListTransfers(ctx context.Context, limit int) ([]*Transfer, error)
+	GetPendingTransfers(ctx context.Context, direction relayer.TransferDirection) ([]*relayer.Transfer, error)
+	ListTransfers(ctx context.Context, limit int) ([]*relayer.Transfer, error)
 }
 
 // Engine orchestrates the bridge relayer operations.
 type Engine struct {
 	config       *config.Config
-	cantonClient canton.Bridge
+	cantonClient CantonBridgeClient
 	ethClient    EthereumBridgeClient
 	store        BridgeStore
 	logger       *zap.Logger
@@ -92,17 +99,17 @@ type Engine struct {
 // NewEngine creates a new relayer engine.
 func NewEngine(
 	cfg *config.Config,
-	cantonClient canton.Bridge,
+	cantonClient CantonBridgeClient,
 	ethClient EthereumBridgeClient,
 	store BridgeStore,
 	logger *zap.Logger,
 ) *Engine {
-	cantonKey := ChainCanton
+	cantonKey := relayer.ChainCanton
 	if cfg.Canton.ChainID != "" {
 		cantonKey = cfg.Canton.ChainID
 	}
 
-	ethereumKey := ChainEthereum
+	ethereumKey := relayer.ChainEthereum
 	if cfg.Ethereum.ChainID != 0 {
 		ethereumKey = strconv.FormatInt(cfg.Ethereum.ChainID, 10)
 	}
@@ -134,7 +141,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey)
 
 	// After each Canton→Ethereum withdrawal is submitted on EVM, mark it complete on Canton.
-	completeWithdrawal := func(ctx context.Context, event *Event, destTxHash string) error {
+	completeWithdrawal := func(ctx context.Context, event *relayer.Event, destTxHash string) error {
 		if event.SourceContractID == "" || e.cantonClient == nil {
 			return nil
 		}
@@ -148,10 +155,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		return nil // best-effort: do not fail the transfer
 	}
 
-	cantonProcessor := NewProcessor(cantonSource, e.ethDest, e.store, e.logger, "canton_processor", DirectionCantonToEthereum).
+	cantonProcessor := NewProcessor(cantonSource, e.ethDest, e.store, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(e.saveChainOffset).
 		WithPostSubmit(completeWithdrawal)
-	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.logger, "ethereum_processor", DirectionEthereumToCanton).
+	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.logger, "ethereum_processor", relayer.DirectionEthereumToCanton).
 		WithOffsetUpdate(e.saveChainOffset)
 
 	e.wg.Add(1)
@@ -265,7 +272,7 @@ func (e *Engine) cantonOffsetFromLedgerEnd(ctx context.Context) error {
 	ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx)
 	if err != nil || ledgerEnd == 0 {
 		e.logger.Warn("Failed to get Canton ledger end, falling back to BEGIN", zap.Error(err))
-		e.cantonOffset = OffsetBegin
+		e.cantonOffset = relayer.OffsetBegin
 		return nil
 	}
 
@@ -291,7 +298,7 @@ func (e *Engine) safeCantonOffset(ledgerEnd int64) string {
 		lookback = 1
 	}
 	if ledgerEnd <= lookback {
-		return OffsetBegin
+		return relayer.OffsetBegin
 	}
 	return strconv.FormatInt(ledgerEnd-lookback, 10)
 }
@@ -380,7 +387,7 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 func (e *Engine) reconcileLoop(ctx context.Context) {
 	defer e.wg.Done()
 
-	ticker := time.NewTicker(5 * time.Minute) //nolint:mnd // 5 minutes is a well-known reconciliation interval
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {
@@ -399,12 +406,12 @@ func (e *Engine) reconcileLoop(ctx context.Context) {
 func (e *Engine) runReconciliation(ctx context.Context) error {
 	e.logger.Info("Running reconciliation")
 
-	cantonPending, err := e.store.GetPendingTransfers(ctx, DirectionCantonToEthereum)
+	cantonPending, err := e.store.GetPendingTransfers(ctx, relayer.DirectionCantonToEthereum)
 	if err != nil {
 		return fmt.Errorf("get pending canton transfers: %w", err)
 	}
 
-	ethPending, err := e.store.GetPendingTransfers(ctx, DirectionEthereumToCanton)
+	ethPending, err := e.store.GetPendingTransfers(ctx, relayer.DirectionEthereumToCanton)
 	if err != nil {
 		return fmt.Errorf("get pending ethereum transfers: %w", err)
 	}
@@ -434,14 +441,14 @@ func (e *Engine) runReconciliation(ctx context.Context) error {
 }
 
 // maybeRetryTransfer checks whether a pending transfer should be retried or given up on.
-func (e *Engine) maybeRetryTransfer(ctx context.Context, t *Transfer, dest Destination, maxRetries int, retryDelay time.Duration) {
+func (e *Engine) maybeRetryTransfer(ctx context.Context, t *relayer.Transfer, dest Destination, maxRetries int, retryDelay time.Duration) {
 	if maxRetries > 0 && t.RetryCount >= maxRetries {
 		e.logger.Warn("Transfer exceeded max retries, marking as failed",
 			zap.String("id", t.ID),
 			zap.Int("retry_count", t.RetryCount),
 			zap.Int("max_retries", maxRetries))
 		errMsg := fmt.Sprintf("max retries (%d) exceeded", maxRetries)
-		if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, TransferStatusFailed, nil, &errMsg); updateErr != nil {
+		if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusFailed, nil, &errMsg); updateErr != nil {
 			e.logger.Warn("Failed to mark transfer as failed after max retries", zap.String("id", t.ID), zap.Error(updateErr))
 		}
 		return
@@ -459,7 +466,7 @@ func (e *Engine) maybeRetryTransfer(ctx context.Context, t *Transfer, dest Desti
 // retryStuckTransfer attempts to resubmit a pending transfer that has been stuck.
 // The Raw field is not available for reconstructed events; best-effort side effects
 // (CompleteWithdrawal) are skipped on this path.
-func (e *Engine) retryStuckTransfer(ctx context.Context, t *Transfer, dest Destination) {
+func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, dest Destination) {
 	if dest == nil {
 		e.logger.Error("No destination available for stuck transfer retry", zap.String("id", t.ID))
 		return
@@ -471,7 +478,7 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *Transfer, dest Desti
 		zap.Int("retry_count", t.RetryCount),
 		zap.Duration("age", time.Since(t.CreatedAt)))
 
-	event := &Event{
+	event := &relayer.Event{
 		ID:                t.ID,
 		SourceChain:       t.SourceChain,
 		DestinationChain:  t.DestinationChain,
@@ -497,7 +504,7 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *Transfer, dest Desti
 	if !skipped {
 		txHashPtr = &destTxHash
 	}
-	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
+	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
 		e.logger.Warn("Failed to mark retried transfer as completed", zap.String("id", t.ID), zap.Error(updateErr))
 	} else {
 		e.logger.Info("Stuck transfer retried successfully", zap.String("id", t.ID), zap.Bool("skipped", skipped))
@@ -587,7 +594,7 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 		e.cantonSynced = true
 		e.logger.Info("Canton processor initial sync complete (at ledger end)", zap.String("offset", e.cantonOffset))
 		return
-	case OffsetBegin:
+	case relayer.OffsetBegin:
 		// If starting from the beginning and the ledger is reachable, consider synced.
 		e.cantonSynced = true
 		e.logger.Info("Canton processor initial sync complete (BEGIN offset, ledger reachable)",

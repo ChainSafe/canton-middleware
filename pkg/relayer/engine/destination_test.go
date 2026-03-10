@@ -1,4 +1,4 @@
-package relayer_test
+package engine_test
 
 import (
 	"context"
@@ -10,8 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	bridgesdk "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	relayer "github.com/chainsafe/canton-middleware/pkg/relayer"
-	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/mocks"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/relayer/engine"
+	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/engine/mocks"
 )
 
 func TestCantonDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
@@ -19,7 +20,7 @@ func TestCantonDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
 	bridgeClient := relayermocks.NewCantonBridge(t)
 	bridgeClient.EXPECT().IsDepositProcessed(ctx, "0xsource").Return(true, nil)
 
-	destination := relayer.NewCantonDestination(bridgeClient, relayer.ChainCanton)
+	destination := engine.NewCantonDestination(bridgeClient, relayer.ChainCanton)
 	txHash, skipped, err := destination.SubmitTransfer(ctx, &relayer.Event{
 		SourceTxHash: "0xsource",
 		Recipient:    "fingerprint-1",
@@ -58,7 +59,7 @@ func TestCantonDestination_SubmitTransfer_Success(t *testing.T) {
 		ProcessDepositAndMint(ctx, bridgesdk.ProcessDepositRequest{DepositCID: "deposit-cid", MappingCID: "mapping-cid"}).
 		Return(&bridgesdk.ProcessedDeposit{ContractID: "mint-cid"}, nil)
 
-	destination := relayer.NewCantonDestination(bridgeClient, relayer.ChainCanton)
+	destination := engine.NewCantonDestination(bridgeClient, relayer.ChainCanton)
 	txHash, skipped, err := destination.SubmitTransfer(ctx, event)
 	if err != nil {
 		t.Fatalf("SubmitTransfer() failed: %v", err)
@@ -80,7 +81,7 @@ func TestCantonDestination_SubmitTransfer_CreatePendingDepositError(t *testing.T
 		CreatePendingDeposit(ctx, bridgesdk.CreatePendingDepositRequest{Fingerprint: "fp", Amount: "0", EvmTxHash: "0xsource"}).
 		Return(nil, errors.New("boom"))
 
-	destination := relayer.NewCantonDestination(bridgeClient, relayer.ChainCanton)
+	destination := engine.NewCantonDestination(bridgeClient, relayer.ChainCanton)
 	_, _, err := destination.SubmitTransfer(ctx, &relayer.Event{SourceTxHash: "0xsource", Recipient: "fp", Amount: "0"})
 	if err == nil || !strings.Contains(err.Error(), "create pending deposit") {
 		t.Fatalf("expected wrapped create pending deposit error, got %v", err)
@@ -90,7 +91,7 @@ func TestCantonDestination_SubmitTransfer_CreatePendingDepositError(t *testing.T
 func TestEthereumDestination_SubmitTransfer_InvalidAmount(t *testing.T) {
 	ctx := context.Background()
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	destination := relayer.NewEthereumDestination(ethClient, relayer.ChainEthereum)
+	destination := engine.NewEthereumDestination(ethClient, relayer.ChainEthereum)
 
 	_, _, err := destination.SubmitTransfer(ctx, &relayer.Event{Amount: "not-a-decimal"})
 	if err == nil || !strings.Contains(err.Error(), "parse amount") {
@@ -101,7 +102,7 @@ func TestEthereumDestination_SubmitTransfer_InvalidAmount(t *testing.T) {
 func TestEthereumDestination_SubmitTransfer_InvalidSourceTxHash(t *testing.T) {
 	ctx := context.Background()
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	destination := relayer.NewEthereumDestination(ethClient, relayer.ChainEthereum)
+	destination := engine.NewEthereumDestination(ethClient, relayer.ChainEthereum)
 
 	_, _, err := destination.SubmitTransfer(ctx, &relayer.Event{
 		Amount:       "1",
@@ -126,7 +127,7 @@ func TestEthereumDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
 
 	ethClient.EXPECT().IsWithdrawalProcessed(ctx, cantonTxHash).Return(true, nil)
 
-	destination := relayer.NewEthereumDestination(ethClient, relayer.ChainEthereum)
+	destination := engine.NewEthereumDestination(ethClient, relayer.ChainEthereum)
 	txHash, skipped, err := destination.SubmitTransfer(ctx, &relayer.Event{
 		TokenAddress: "0x2222222222222222222222222222222222222222",
 		Recipient:    "0x1111111111111111111111111111111111111111",
@@ -168,7 +169,7 @@ func TestEthereumDestination_SubmitTransfer_Success(t *testing.T) {
 			cantonTxHash,
 		).Return(common.HexToHash("0x1234"), nil)
 
-	destination := relayer.NewEthereumDestination(ethClient, relayer.ChainEthereum)
+	destination := engine.NewEthereumDestination(ethClient, relayer.ChainEthereum)
 	txHash, skipped, err := destination.SubmitTransfer(ctx, &relayer.Event{
 		TokenAddress: "0x2222222222222222222222222222222222222222",
 		Recipient:    "0x1111111111111111111111111111111111111111",

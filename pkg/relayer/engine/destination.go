@@ -1,4 +1,4 @@
-package relayer
+package engine
 
 import (
 	"context"
@@ -12,7 +12,10 @@ import (
 	"github.com/shopspring/decimal"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
+
+const decimalPlaces = 18
 
 // CantonDestination implements Destination for the Canton ledger.
 type CantonDestination struct {
@@ -39,10 +42,12 @@ func (d *CantonDestination) SetLogger(l *zap.Logger) {
 func (d *CantonDestination) GetChainID() string { return d.chainID }
 
 // SubmitTransfer deposits EVM tokens on Canton (creates and processes a PendingDeposit).
-func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *Event) (string, bool, error) {
+func (d *CantonDestination) SubmitTransfer(ctx context.Context, event *relayer.Event) (string, bool, error) {
 	const base10 = 10
-	amount := new(big.Int)
-	amount.SetString(event.Amount, base10)
+	amount, ok := new(big.Int).SetString(event.Amount, base10)
+	if !ok {
+		return "", false, fmt.Errorf("invalid amount %q", event.Amount)
+	}
 	amountStr := bigIntToDecimal(amount, decimalPlaces)
 
 	alreadyProcessed, err := d.client.IsDepositProcessed(ctx, event.SourceTxHash)
@@ -98,7 +103,7 @@ func (d *EthereumDestination) SetLogger(l *zap.Logger) {
 func (d *EthereumDestination) GetChainID() string { return d.chainID }
 
 // SubmitTransfer releases tokens on Ethereum for a Canton withdrawal event.
-func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *Event) (string, bool, error) {
+func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *relayer.Event) (string, bool, error) {
 	tokenAddress := common.HexToAddress(event.TokenAddress)
 	recipientAddr := common.HexToAddress(event.Recipient)
 

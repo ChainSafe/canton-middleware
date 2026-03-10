@@ -1,4 +1,4 @@
-package relayer_test
+package engine_test
 
 import (
 	"context"
@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 
-	relayer "github.com/chainsafe/canton-middleware/pkg/relayer"
-	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/mocks"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/relayer/engine"
+	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/engine/mocks"
 )
 
 func TestProcessor_Start_ProcessesEventSuccess(t *testing.T) {
@@ -52,7 +53,7 @@ func TestProcessor_Start_ProcessesEventSuccess(t *testing.T) {
 	var persistedOffset string
 	var hookCalled bool
 
-	processor := relayer.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum).
+	processor := engine.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(func(_ context.Context, chainID string, offset string) error {
 			persistedChain = chainID
 			persistedOffset = offset
@@ -97,7 +98,7 @@ func TestProcessor_Start_DuplicateTransferPersistsOffsetOnce(t *testing.T) {
 	source.EXPECT().ExtractOffset(mock.AnythingOfType("*relayer.Event")).Return("202").Twice()
 
 	persistCalls := 0
-	processor := relayer.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum).
+	processor := engine.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(func(_ context.Context, _ string, _ string) error {
 			persistCalls++
 			return nil
@@ -111,7 +112,7 @@ func TestProcessor_Start_DuplicateTransferPersistsOffsetOnce(t *testing.T) {
 	}
 }
 
-func TestProcessor_Start_SubmitErrorMarksFailed(t *testing.T) {
+func TestProcessor_Start_SubmitErrorKeepsTransferPending(t *testing.T) {
 	ctx := context.Background()
 	source := relayermocks.NewSource(t)
 	destination := relayermocks.NewDestination(t)
@@ -130,12 +131,12 @@ func TestProcessor_Start_SubmitErrorMarksFailed(t *testing.T) {
 	store.EXPECT().UpdateTransferStatus(
 		ctx,
 		"event-4",
-		relayer.TransferStatusFailed,
+		relayer.TransferStatusPending,
 		(*string)(nil),
 		mock.MatchedBy(func(v *string) bool { return v != nil && strings.Contains(*v, "submit failed") }),
 	).Return(nil).Once()
 
-	processor := relayer.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum)
+	processor := engine.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum)
 	if err := processor.Start(ctx, "0"); err != nil {
 		t.Fatalf("Start() should continue after event processing error, got %v", err)
 	}
@@ -155,7 +156,7 @@ func TestProcessor_Start_ReturnsSourceStreamError(t *testing.T) {
 	destination.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
 	source.EXPECT().StreamEvents(ctx, "10").Return((<-chan *relayer.Event)(eventCh), (<-chan error)(errCh)).Once()
 
-	processor := relayer.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum)
+	processor := engine.NewProcessor(source, destination, store, zap.NewNop(), "processor_test", relayer.DirectionCantonToEthereum)
 	err := processor.Start(ctx, "10")
 	if err == nil || !strings.Contains(err.Error(), "source stream error") {
 		t.Fatalf("expected source stream error, got %v", err)

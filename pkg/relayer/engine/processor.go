@@ -1,4 +1,4 @@
-package relayer
+package engine
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
 // OffsetUpdateFunc is called after successfully processing an event to persist the offset.
@@ -14,17 +15,17 @@ type OffsetUpdateFunc func(ctx context.Context, chainID string, offset string) e
 
 // PostSubmitHook is called after a transfer is successfully submitted to the destination.
 // It is best-effort: errors are logged but do not fail the transfer.
-type PostSubmitHook func(ctx context.Context, event *Event, destTxHash string) error
+type PostSubmitHook func(ctx context.Context, event *relayer.Event, destTxHash string) error
 
 // Source defines the interface for streaming events from a chain.
 //
 //go:generate mockery --name Source --output mocks --outpkg mocks --filename mock_source.go --with-expecter
 type Source interface {
-	StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error)
+	StreamEvents(ctx context.Context, offset string) (<-chan *relayer.Event, <-chan error)
 	GetChainID() string
 	// ExtractOffset returns the offset string to persist after processing event.
 	// Returns "" when no offset should be saved for this event.
-	ExtractOffset(event *Event) string
+	ExtractOffset(event *relayer.Event) string
 }
 
 // Destination defines the interface for submitting transfers to a chain.
@@ -33,7 +34,7 @@ type Source interface {
 //
 //go:generate mockery --name Destination --output mocks --outpkg mocks --filename mock_destination.go --with-expecter
 type Destination interface {
-	SubmitTransfer(ctx context.Context, event *Event) (destTxHash string, skipped bool, err error)
+	SubmitTransfer(ctx context.Context, event *relayer.Event) (destTxHash string, skipped bool, err error)
 	GetChainID() string
 }
 
@@ -44,7 +45,7 @@ type Processor struct {
 	store           BridgeStore
 	logger          *zap.Logger
 	metricsName     string
-	direction       TransferDirection
+	direction       relayer.TransferDirection
 	onOffsetUpdate  OffsetUpdateFunc
 	onPostSubmit    PostSubmitHook
 	lastSavedOffset string
@@ -57,7 +58,7 @@ func NewProcessor(
 	store BridgeStore,
 	logger *zap.Logger,
 	metricsName string,
-	direction TransferDirection,
+	direction relayer.TransferDirection,
 ) *Processor {
 	return &Processor{
 		source:      source,
@@ -114,11 +115,11 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 }
 
 // processEvent handles a single bridge event end-to-end.
-func (p *Processor) processEvent(ctx context.Context, event *Event) error {
-	transfer := &Transfer{
+func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) error {
+	transfer := &relayer.Transfer{
 		ID:                event.ID,
 		Direction:         p.direction,
-		Status:            TransferStatusPending,
+		Status:            relayer.TransferStatusPending,
 		SourceChain:       p.source.GetChainID(),
 		DestinationChain:  p.destination.GetChainID(),
 		SourceTxHash:      event.SourceTxHash,
@@ -149,22 +150,23 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 	if submitErr != nil {
 		p.logger.Error("Failed to submit transfer", zap.String("id", event.ID), zap.Error(submitErr))
 		errMsg := submitErr.Error()
-		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, TransferStatusFailed, nil, &errMsg); updateErr != nil {
-			p.logger.Warn("Failed to mark transfer as failed", zap.String("id", event.ID), zap.Error(updateErr))
+		// Keep failed submissions pending so reconciliation can retry them.
+		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, relayer.TransferStatusPending, nil, &errMsg); updateErr != nil {
+			p.logger.Warn("Failed to keep transfer pending after submission error", zap.String("id", event.ID), zap.Error(updateErr))
 		}
 		return fmt.Errorf("submission failed: %w", submitErr)
 	}
 
 	if skipped {
 		p.logger.Info("Transfer already processed on destination", zap.String("id", event.ID))
-		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, TransferStatusCompleted, nil, nil); updateErr != nil {
+		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, relayer.TransferStatusCompleted, nil, nil); updateErr != nil {
 			p.logger.Warn("Failed to mark skipped transfer as completed", zap.String("id", event.ID), zap.Error(updateErr))
 		}
 		p.persistOffset(ctx, event)
 		return nil
 	}
 
-	if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, TransferStatusCompleted, &destTxHash, nil); updateErr != nil {
+	if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, relayer.TransferStatusCompleted, &destTxHash, nil); updateErr != nil {
 		p.logger.Warn("Failed to mark transfer as completed", zap.String("id", event.ID), zap.Error(updateErr))
 	}
 
@@ -186,7 +188,7 @@ func (p *Processor) processEvent(ctx context.Context, event *Event) error {
 
 // persistOffset saves the current processing position to avoid replaying events on restart.
 // The source determines the offset format; duplicate offsets (same value) are skipped.
-func (p *Processor) persistOffset(ctx context.Context, event *Event) {
+func (p *Processor) persistOffset(ctx context.Context, event *relayer.Event) {
 	if p.onOffsetUpdate == nil {
 		return
 	}

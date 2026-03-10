@@ -1,4 +1,4 @@
-package relayer_test
+package engine_test
 
 import (
 	"context"
@@ -13,12 +13,13 @@ import (
 	bridgesdk "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	relayer "github.com/chainsafe/canton-middleware/pkg/relayer"
-	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/mocks"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/relayer/engine"
+	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/engine/mocks"
 )
 
 func TestCantonSource_ExtractOffset(t *testing.T) {
-	source := relayer.NewCantonSource(nil, "0xtoken", relayer.ChainCanton)
+	source := engine.NewCantonSource(nil, "0xtoken", relayer.ChainCanton)
 	if got := source.ExtractOffset(&relayer.Event{ID: "12345-0"}); got != "12345" {
 		t.Fatalf("expected offset 12345, got %q", got)
 	}
@@ -34,7 +35,7 @@ func TestCantonSource_StreamEvents_MapsWithdrawalAndSignalsUnexpectedClose(t *te
 
 	bridgeClient.EXPECT().StreamWithdrawalEvents(ctx, "50").Return((<-chan *bridgesdk.WithdrawalEvent)(withdrawalCh))
 
-	source := relayer.NewCantonSource(bridgeClient, "0xtoken", relayer.ChainCanton)
+	source := engine.NewCantonSource(bridgeClient, "0xtoken", relayer.ChainCanton)
 	eventCh, errCh := source.StreamEvents(ctx, "50")
 
 	withdrawalCh <- &bridgesdk.WithdrawalEvent{
@@ -79,7 +80,7 @@ func TestCantonSource_StreamEvents_ContextCancellationDoesNotReportCloseError(t 
 
 	bridgeClient.EXPECT().StreamWithdrawalEvents(ctx, "").Return((<-chan *bridgesdk.WithdrawalEvent)(withdrawalCh))
 
-	source := relayer.NewCantonSource(bridgeClient, "0xtoken", relayer.ChainCanton)
+	source := engine.NewCantonSource(bridgeClient, "0xtoken", relayer.ChainCanton)
 	_, errCh := source.StreamEvents(ctx, "")
 
 	cancel()
@@ -95,7 +96,7 @@ func TestCantonSource_StreamEvents_ContextCancellationDoesNotReportCloseError(t 
 }
 
 func TestEthereumSource_ExtractOffset(t *testing.T) {
-	src := relayer.NewEthereumSource(nil, &config.EthereumConfig{}, relayer.ChainEthereum)
+	src := engine.NewEthereumSource(nil, &config.EthereumConfig{}, relayer.ChainEthereum)
 	if got := src.ExtractOffset(&relayer.Event{SourceBlockNumber: 0}); got != "" {
 		t.Fatalf("expected empty offset for block 0, got %q", got)
 	}
@@ -107,7 +108,7 @@ func TestEthereumSource_ExtractOffset(t *testing.T) {
 func TestEthereumSource_StreamEvents_InvalidOffset(t *testing.T) {
 	ctx := context.Background()
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	source := relayer.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
+	source := engine.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
 
 	_, errCh := source.StreamEvents(ctx, "not-a-number")
 
@@ -143,7 +144,7 @@ func TestEthereumSource_StreamEvents_MapsDepositEvent(t *testing.T) {
 			return handler(deposit)
 		})
 
-	source := relayer.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
+	source := engine.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
 	eventCh, errCh := source.StreamEvents(ctx, "12")
 
 	select {

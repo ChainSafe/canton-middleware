@@ -1,4 +1,4 @@
-package relayer
+package engine
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
 // errCantonStreamClosed is returned when the Canton withdrawal stream closes without
@@ -33,14 +34,14 @@ func (s *cantonSource) GetChainID() string { return s.chainID }
 
 // ExtractOffset extracts the Canton ledger offset from a processed event.
 // Canton event IDs have the format "offset-nodeId" (e.g. "12345-0").
-func (*cantonSource) ExtractOffset(event *Event) string {
+func (*cantonSource) ExtractOffset(event *relayer.Event) string {
 	return cantonOffsetFromEventID(event.ID)
 }
 
 // StreamEvents streams Canton withdrawal events starting from offset.
 // Reconnection and token refresh are handled internally by the Canton client.
-func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
-	outCh := make(chan *Event)
+func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan *relayer.Event, <-chan error) {
+	outCh := make(chan *relayer.Event)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -59,11 +60,11 @@ func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					}
 					return
 				}
-				outCh <- &Event{
+				outCh <- &relayer.Event{
 					ID:               withdrawal.EventID,
 					TransactionID:    withdrawal.TransactionID,
-					SourceChain:      ChainCanton,
-					DestinationChain: ChainEthereum,
+					SourceChain:      relayer.ChainCanton,
+					DestinationChain: relayer.ChainEthereum,
 					SourceTxHash:     withdrawal.ContractID,
 					SourceContractID: withdrawal.ContractID,
 					TokenAddress:     s.tokenContract,
@@ -97,7 +98,7 @@ func (s *ethereumSource) GetChainID() string { return s.chainID }
 
 // ExtractOffset returns the block number as a string offset.
 // Returns "" when the event has no block number.
-func (*ethereumSource) ExtractOffset(event *Event) string {
+func (*ethereumSource) ExtractOffset(event *relayer.Event) string {
 	if event.SourceBlockNumber <= 0 {
 		return ""
 	}
@@ -105,8 +106,8 @@ func (*ethereumSource) ExtractOffset(event *Event) string {
 }
 
 // StreamEvents streams Ethereum deposit events starting from the block encoded in offset.
-func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-chan *Event, <-chan error) {
-	outCh := make(chan *Event, 10) //nolint:mnd // small buffer to reduce blocking between poller and processor
+func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-chan *relayer.Event, <-chan error) {
+	outCh := make(chan *relayer.Event, 10) //nolint:mnd // small buffer to reduce blocking between poller and processor
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -114,7 +115,7 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 		defer close(errCh)
 
 		var fromBlock uint64
-		if offset != "" && offset != OffsetBegin {
+		if offset != "" && offset != relayer.OffsetBegin {
 			n, err := strconv.ParseUint(offset, 10, 64)
 			if err != nil {
 				errCh <- fmt.Errorf("invalid ethereum offset %q: %w", offset, err)
@@ -124,11 +125,11 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 		}
 
 		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
-			relayerEvent := &Event{
+			relayerEvent := &relayer.Event{
 				ID:                fmt.Sprintf("%s-%d", event.TxHash.Hex(), event.LogIndex),
 				TransactionID:     event.TxHash.Hex(),
-				SourceChain:       ChainEthereum,
-				DestinationChain:  ChainCanton,
+				SourceChain:       relayer.ChainEthereum,
+				DestinationChain:  relayer.ChainCanton,
 				SourceTxHash:      event.TxHash.Hex(),
 				TokenAddress:      event.Token.Hex(),
 				Amount:            event.Amount.String(),
