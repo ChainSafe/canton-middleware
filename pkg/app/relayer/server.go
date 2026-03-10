@@ -3,7 +3,6 @@ package relayer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,9 +13,11 @@ import (
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
-	"github.com/chainsafe/canton-middleware/pkg/db"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
-	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	relayerengine "github.com/chainsafe/canton-middleware/pkg/relayer/engine"
+	relayersvc "github.com/chainsafe/canton-middleware/pkg/relayer/service"
+	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,10 +25,7 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	defaultHTTPMiddlewareTimeout = 60 * time.Second
-	defaultLimitForListTransfer  = 100
-)
+const defaultHTTPMiddlewareTimeout = 60 * time.Second
 
 // Server holds configuration for the relayer process.
 type Server struct {
@@ -58,12 +56,14 @@ func (s *Server) Run() error {
 
 	logger.Info("Starting Canton-Ethereum Bridge Relayer")
 
-	store, err := db.NewStore(cfg.Database.GetConnectionString())
+	db, err := pgutil.ConnectDB(&cfg.Database)
 	if err != nil {
 		return fmt.Errorf("connect relayer db: %w", err)
 	}
-	defer func() { _ = store.Close() }()
+	defer func() { _ = db.Close() }()
 	logger.Info("Database connection established")
+
+	store := relayerstore.NewStore(db)
 
 	cantonClient, err := canton.NewFromAppConfig(ctx, &cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
@@ -77,10 +77,7 @@ func (s *Server) Run() error {
 	}
 	ethClient.Close()
 
-	engine := relayer.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
-	// TODO: disabled the api-db & balance cacher for now.
-	// The relayer should not be able to access the api database
-	// Find out a better solution for this relayer - api server communication
+	engine := relayerengine.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
 
 	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
@@ -92,7 +89,7 @@ func (s *Server) Run() error {
 	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
 }
 
-func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.Logger) http.Handler {
+func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
 	cfg := s.cfg
 
 	r := chi.NewRouter()
@@ -100,9 +97,6 @@ func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultHTTPMiddlewareTimeout))
-
-	// NOTE: chi's middleware.Logger logs to stdlib.
-	// Keep it temporarily if access logs are useful; replace with zap-based middleware later.
 	r.Use(middleware.Logger)
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -110,68 +104,13 @@ func (s *Server) newRouter(store *db.Store, engine *relayer.Engine, logger *zap.
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	r.Get("/ready", func(w http.ResponseWriter, _ *http.Request) {
-		if !engine.IsReady() {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("NOT_READY"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("READY"))
-	})
-
 	if cfg.Monitoring.Enabled {
 		r.Handle("/metrics", promhttp.Handler())
 		logger.Info("Metrics enabled", zap.String("path", "/metrics"))
 	}
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/transfers", handleGetTransfers(store, logger))
-		r.Get("/transfers/{id}", handleGetTransfer(store, logger))
-		r.Get("/status", handleGetStatus(logger))
-	})
+	svc := relayersvc.NewLog(relayersvc.NewService(store), logger)
+	relayersvc.RegisterRoutes(r, svc, engine, logger)
 
 	return r
-}
-
-func handleGetTransfers(store *db.Store, logger *zap.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		transfers, err := store.ListTransfers(defaultLimitForListTransfer)
-		if err != nil {
-			logger.Error("Failed to list transfers", zap.Error(err))
-			http.Error(w, "failed to list transfers", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{"transfers": transfers}); err != nil {
-			logger.Error("Failed to encode response", zap.Error(err))
-		}
-	}
-}
-
-func handleGetTransfer(store *db.Store, logger *zap.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		id := chi.URLParam(r, "id")
-		transfer, err := store.GetTransfer(id)
-		if err != nil {
-			logger.Error("Failed to get transfer", zap.Error(err), zap.String("id", id))
-			http.Error(w, "transfer not found", http.StatusNotFound)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(transfer); err != nil {
-			logger.Error("Failed to encode response", zap.Error(err))
-		}
-	}
-}
-
-func handleGetStatus(logger *zap.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{"status": "running"}); err != nil {
-			logger.Error("Failed to encode response", zap.Error(err))
-		}
-	}
 }

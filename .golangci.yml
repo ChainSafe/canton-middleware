@@ -142,10 +142,8 @@ linters:
       - ^pkg/apidb
       - ^pkg/auth
       - ^pkg/config
-      - ^pkg/db
       - ^pkg/ethereum
       - ^pkg/keys
-      - ^pkg/relayer
       - ^internal
 
     rules:
@@ -174,8 +172,6 @@ formatters:
       - ^pkg/apidb
       - ^pkg/auth
       - ^pkg/config
-      - ^pkg/db
       - ^pkg/ethereum
       - ^pkg/keys
-      - ^pkg/relayer
       - ^internal

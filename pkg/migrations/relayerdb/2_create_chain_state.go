@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/chainsafe/canton-middleware/pkg/db/dao"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
+	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
 
 	"github.com/uptrace/bun"
 )
@@ -13,9 +13,9 @@ import (
 func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		log.Println("creating chain_state table...")
-		return mghelper.CreateSchema(ctx, db, &dao.ChainStateDao{})
+		return mghelper.CreateSchema(ctx, db, &relayerstore.ChainStateDao{})
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping chain_state table...")
-		return mghelper.DropTables(ctx, db, &dao.ChainStateDao{})
+		return mghelper.DropTables(ctx, db, &relayerstore.ChainStateDao{})
 	})
 }

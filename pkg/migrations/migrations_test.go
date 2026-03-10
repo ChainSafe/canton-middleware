@@ -7,12 +7,12 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/migrate"
 
-	"github.com/chainsafe/canton-middleware/pkg/db/dao"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/apidb"
 	"github.com/chainsafe/canton-middleware/pkg/migrations/relayerdb"
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil"
 	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
+	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 )
 
@@ -75,10 +75,8 @@ func TestRelayerDBMigrations_Apply(t *testing.T) {
 		t.Error("expected migrations to run, but none were applied")
 	}
 
-	modelCount(t, ctx, db, &dao.TransferDao{})
-	modelCount(t, ctx, db, &dao.ChainStateDao{})
-	modelCount(t, ctx, db, &dao.NonceStateDao{})
-	modelCount(t, ctx, db, &dao.BridgeBalanceDao{})
+	modelCount(t, ctx, db, &relayerstore.TransferDao{})
+	modelCount(t, ctx, db, &relayerstore.ChainStateDao{})
 }
 
 func TestMigrations_Idempotency(t *testing.T) {
