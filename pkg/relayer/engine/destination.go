@@ -147,5 +147,5 @@ func decimalToBigInt(s string, decimals int32) (*big.Int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid decimal format: %w", err)
 	}
-	return d.Mul(decimal.New(1, int32(decimals))).BigInt(), nil
+	return d.Mul(decimal.New(1, decimals)).BigInt(), nil
 }
