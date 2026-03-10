@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -22,6 +23,11 @@ import (
 // stuckTransferThreshold is the age beyond which a pending transfer is considered stuck
 // and eligible for retry during reconciliation.
 const stuckTransferThreshold = 15 * time.Minute
+
+const (
+	cantonProcessorRestartInitialBackoff = 1 * time.Second
+	cantonProcessorRestartMaxBackoff     = 30 * time.Second
+)
 
 // EthereumBridgeClient defines the interface for Ethereum interactions.
 //
@@ -134,11 +140,11 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to load offsets: %w", err)
 	}
 
-	cantonSource := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonKey)
-	e.ethDest = NewEthereumDestination(e.ethClient, e.ethereumKey)
+	cantonSrc := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonKey)
+	e.ethDest = NewEthereumDestination(e.ethClient, e.ethereumKey, e.logger)
 
 	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumKey)
-	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey)
+	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey, e.logger)
 
 	// After each Canton→Ethereum withdrawal is submitted on EVM, mark it complete on Canton.
 	completeWithdrawal := func(ctx context.Context, event *relayer.Event, destTxHash string) error {
@@ -155,25 +161,14 @@ func (e *Engine) Start(ctx context.Context) error {
 		return nil // best-effort: do not fail the transfer
 	}
 
-	cantonProcessor := NewProcessor(cantonSource, e.ethDest, e.store, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
+	cantonProcessor := NewProcessor(cantonSrc, e.ethDest, e.store, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(e.saveChainOffset).
 		WithPostSubmit(completeWithdrawal)
 	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.logger, "ethereum_processor", relayer.DirectionEthereumToCanton).
 		WithOffsetUpdate(e.saveChainOffset)
 
 	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		// Record when the Canton stream actually starts (not when Start() was called).
-		e.mu.Lock()
-		e.cantonStreamStarted = time.Now()
-		e.mu.Unlock()
-		if err := cantonProcessor.Start(ctx, e.cantonOffset); err != nil {
-			e.logger.Warn("Canton processor stopped",
-				zap.Error(err),
-				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
-		}
-	}()
+	go e.runCantonProcessorLoop(ctx, cantonProcessor)
 
 	e.wg.Add(1)
 	go func() {
@@ -192,6 +187,64 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	e.logger.Info("Relayer engine started")
 	return nil
+}
+
+func (e *Engine) runCantonProcessorLoop(ctx context.Context, cantonProcessor *Processor) {
+	defer e.wg.Done()
+
+	backoff := cantonProcessorRestartInitialBackoff
+
+	for {
+		// Record when the Canton stream actually starts (not when Start() was called).
+		e.mu.Lock()
+		e.cantonStreamStarted = time.Now()
+		startOffset := e.cantonOffset
+		e.mu.Unlock()
+
+		err := cantonProcessor.Start(ctx, startOffset)
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			return
+		}
+
+		if err != nil {
+			e.logger.Warn("Canton processor stopped; restarting with backoff",
+				zap.Error(err),
+				zap.String("offset", startOffset),
+				zap.Duration("restart_in", backoff),
+				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
+		} else {
+			e.logger.Warn("Canton processor exited unexpectedly; restarting with backoff",
+				zap.String("offset", startOffset),
+				zap.Duration("restart_in", backoff))
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+		}
+
+		backoff = nextCantonProcessorBackoff(backoff)
+	}
+}
+
+func nextCantonProcessorBackoff(current time.Duration) time.Duration {
+	if current <= 0 {
+		return cantonProcessorRestartInitialBackoff
+	}
+
+	next := current * 2
+	if next > cantonProcessorRestartMaxBackoff {
+		return cantonProcessorRestartMaxBackoff
+	}
+	return next
 }
 
 // IsReady returns true once both Canton and Ethereum processors have caught up to head.

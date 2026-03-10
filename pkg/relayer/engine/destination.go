@@ -25,17 +25,12 @@ type CantonDestination struct {
 }
 
 // NewCantonDestination creates a new Canton destination.
-func NewCantonDestination(client canton.Bridge, chainID string) *CantonDestination {
+func NewCantonDestination(client canton.Bridge, chainID string, logger *zap.Logger) *CantonDestination {
 	return &CantonDestination{
 		client:  client,
 		chainID: chainID,
-		logger:  zap.NewNop(),
+		logger:  logger,
 	}
-}
-
-// SetLogger sets the logger for the destination.
-func (d *CantonDestination) SetLogger(l *zap.Logger) {
-	d.logger = l
 }
 
 // GetChainID returns the chain identifier.
@@ -86,17 +81,12 @@ type EthereumDestination struct {
 }
 
 // NewEthereumDestination creates a new Ethereum destination.
-func NewEthereumDestination(client EthereumBridgeClient, chainID string) *EthereumDestination {
+func NewEthereumDestination(client EthereumBridgeClient, chainID string, logger *zap.Logger) *EthereumDestination {
 	return &EthereumDestination{
 		client:  client,
 		chainID: chainID,
-		logger:  zap.NewNop(),
+		logger:  logger,
 	}
-}
-
-// SetLogger sets the logger for the destination.
-func (d *EthereumDestination) SetLogger(l *zap.Logger) {
-	d.logger = l
 }
 
 // GetChainID returns the chain identifier.
@@ -132,6 +122,9 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *relayer
 		tokenAddress,
 		recipientAddr,
 		amount,
+		// Use the nonce carried by the Canton event. It is currently 0 because the source
+		// does not populate it yet, but forwarding event.Nonce keeps us aligned with the
+		// source payload once nonce population is enabled upstream.
 		big.NewInt(event.Nonce),
 		cantonTxHash,
 	)
@@ -143,18 +136,16 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *relayer
 }
 
 // bigIntToDecimal converts a wei big.Int to a Daml decimal string with the given decimal places.
-// decimals must fit in int32 (caller-enforced: always decimalPlaces = 18).
-func bigIntToDecimal(amount *big.Int, decimals int) string {
-	d := decimal.NewFromBigInt(amount, -int32(decimals)) //nolint:gosec // decimals is always 18, fits int32
+func bigIntToDecimal(amount *big.Int, decimals int32) string {
+	d := decimal.NewFromBigInt(amount, -decimals)
 	return d.String()
 }
 
 // decimalToBigInt converts a Daml decimal string to a wei big.Int with the given decimal places.
-// decimals must fit in int32 (caller-enforced: always decimalPlaces = 18).
-func decimalToBigInt(s string, decimals int) (*big.Int, error) {
+func decimalToBigInt(s string, decimals int32) (*big.Int, error) {
 	d, err := decimal.NewFromString(s)
 	if err != nil {
 		return nil, fmt.Errorf("invalid decimal format: %w", err)
 	}
-	return d.Mul(decimal.New(1, int32(decimals))).BigInt(), nil //nolint:gosec // decimals is always 18, fits int32
+	return d.Mul(decimal.New(1, int32(decimals))).BigInt(), nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,6 +74,54 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	if engine.IsReady() {
 		t.Fatalf("engine should not be marked ready immediately")
 	}
+}
+
+func TestEngine_Start_RestartsCantonProcessorOnUnexpectedStreamClose(t *testing.T) {
+	ctx := context.Background()
+	cfg := &config.Config{}
+
+	store := relayermocks.NewBridgeStore(t)
+	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).
+		Return(&relayer.ChainState{ChainID: relayer.ChainCanton, Offset: "10"}, nil).Once()
+	store.EXPECT().GetChainState(mock.Anything, relayer.ChainEthereum).
+		Return(&relayer.ChainState{ChainID: relayer.ChainEthereum, LastBlock: 20}, nil).Once()
+
+	cantonClient := relayermocks.NewCantonBridge(t)
+	cantonClient.EXPECT().GetLatestLedgerOffset(mock.Anything).Return(int64(100), nil).Maybe()
+
+	secondStream := make(chan *canton.WithdrawalEvent)
+	var streamCalls atomic.Int32
+	cantonClient.EXPECT().StreamWithdrawalEvents(mock.Anything, "10").
+		RunAndReturn(func(_ context.Context, _ string) <-chan *canton.WithdrawalEvent {
+			if streamCalls.Add(1) == 1 {
+				firstStream := make(chan *canton.WithdrawalEvent)
+				close(firstStream)
+				return firstStream
+			}
+			return secondStream
+		}).
+		Times(2)
+
+	ethClient := relayermocks.NewEthereumBridgeClient(t)
+	ethClient.EXPECT().WatchDepositEvents(mock.Anything, uint64(20), mock.Anything).Return(nil).Maybe()
+	ethClient.EXPECT().GetLatestBlockNumber(mock.Anything).Return(uint64(20), nil).Maybe()
+	ethClient.EXPECT().GetLastScannedBlock().Return(uint64(20)).Maybe()
+
+	engine := NewEngine(cfg, cantonClient, ethClient, store, zap.NewNop())
+	if err := engine.Start(ctx); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer engine.Stop()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if streamCalls.Load() >= 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("expected canton stream restart, StreamWithdrawalEvents called %d times", streamCalls.Load())
 }
 
 func TestEngine_RunReconciliation_CantonPendingQueryError(t *testing.T) {

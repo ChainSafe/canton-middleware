@@ -30,24 +30,24 @@ const (
 
 // Transfer represents a cross-chain token transfer.
 type Transfer struct {
-	ID                string
-	Direction         TransferDirection
-	Status            TransferStatus
-	SourceChain       string
-	DestinationChain  string
-	SourceTxHash      string
-	DestinationTxHash *string
-	TokenAddress      string
-	Amount            string
-	Sender            string
-	Recipient         string
-	Nonce             int64
-	SourceBlockNumber int64
-	RetryCount        int
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	CompletedAt       *time.Time
-	ErrorMessage      *string
+	ID                string            `json:"id"`
+	Direction         TransferDirection `json:"direction"`
+	Status            TransferStatus    `json:"status"`
+	SourceChain       string            `json:"source_chain"`
+	DestinationChain  string            `json:"destination_chain"`
+	SourceTxHash      string            `json:"source_tx_hash"`
+	DestinationTxHash *string           `json:"destination_tx_hash"`
+	TokenAddress      string            `json:"token_address"`
+	Amount            string            `json:"amount"`
+	Sender            string            `json:"sender"`
+	Recipient         string            `json:"recipient"`
+	Nonce             int64             `json:"nonce"`
+	SourceBlockNumber int64             `json:"source_block_number"`
+	RetryCount        int               `json:"retry_count"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	CompletedAt       *time.Time        `json:"completed_at"`
+	ErrorMessage      *string           `json:"error_message"`
 }
 
 // ChainState tracks the last processed offset for a chain.
