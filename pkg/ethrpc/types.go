@@ -3,6 +3,7 @@ package ethrpc
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -178,4 +179,14 @@ type SyncStatus struct {
 	StartingBlock hexutil.Uint64 `json:"startingBlock"`
 	CurrentBlock  hexutil.Uint64 `json:"currentBlock"`
 	HighestBlock  hexutil.Uint64 `json:"highestBlock"`
+}
+
+// Config contains Ethereum JSON-RPC facade settings for MetaMask compatibility
+type Config struct {
+	Enabled          bool          `yaml:"enabled"`
+	ChainID          uint64        `yaml:"chain_id"`
+	GasPriceWei      string        `yaml:"gas_price_wei"`
+	GasLimit         uint64        `yaml:"gas_limit"`
+	NativeBalanceWei string        `yaml:"native_balance_wei"`
+	RequestTimeout   time.Duration `yaml:"request_timeout"`
 }

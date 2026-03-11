@@ -75,3 +75,13 @@ type Event struct {
 	Nonce             int64
 	SourceBlockNumber int64
 }
+
+// BridgeConfig contains bridge operation settings
+type BridgeConfig struct {
+	MaxTransferAmount  string        `yaml:"max_transfer_amount"`
+	MinTransferAmount  string        `yaml:"min_transfer_amount"`
+	RateLimitPerHour   int           `yaml:"rate_limit_per_hour"`
+	MaxRetries         int           `yaml:"max_retries"`
+	RetryDelay         time.Duration `yaml:"retry_delay"`
+	ProcessingInterval time.Duration `yaml:"processing_interval"`
+}
