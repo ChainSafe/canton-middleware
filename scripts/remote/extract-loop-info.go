@@ -86,14 +86,8 @@ func main() {
 	stateService := lapiv2.NewStateServiceClient(conn)
 
 	// === InstrumentID ===
-	instrumentAdmin := cfg.Canton.InstrumentAdmin
-	if instrumentAdmin == "" {
-		instrumentAdmin = issuer
-	}
-	instrumentID := cfg.Canton.InstrumentID
-	if instrumentID == "" {
-		instrumentID = "DEMO"
-	}
+	instrumentAdmin := issuer
+	instrumentID := "DEMO"
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  1. InstrumentID")
@@ -144,9 +138,8 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  4. Package IDs")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Printf("  cip56_package_id:          %s\n", cfg.Canton.CIP56PackageID)
-	fmt.Printf("  splice_holding_package_id: %s\n", cfg.Canton.SpliceHoldingPackageID)
-	fmt.Printf("  splice_transfer_package_id:%s\n", cfg.Canton.SpliceTransferPackageID)
+	fmt.Printf("  cip56_package_id:           %s\n", cfg.Canton.CIP56PackageID)
+	fmt.Printf("  splice_transfer_package_id: %s\n", cfg.Canton.SpliceTransferPackageID)
 	fmt.Printf("  common_package_id:         %s\n", cfg.Canton.CommonPackageID)
 	fmt.Printf("  bridge_package_id:         %s\n", cfg.Canton.BridgePackageID)
 	fmt.Println()
@@ -163,7 +156,6 @@ func main() {
 		},
 		"package_ids": map[string]string{
 			"cip56":           cfg.Canton.CIP56PackageID,
-			"splice_holding":  cfg.Canton.SpliceHoldingPackageID,
 			"splice_transfer": cfg.Canton.SpliceTransferPackageID,
 		},
 	}

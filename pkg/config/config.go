@@ -66,8 +66,8 @@ func (c *Database) GetConnectionString() string {
 	)
 }
 
-// CantonConfig contains Canton Network client settings
-type CantonConfig struct {
+// Canton contains Canton Network client settings
+type Canton struct {
 	RPCURL                  string        `yaml:"rpc_url"`
 	LedgerID                string        `yaml:"ledger_id"`
 	DomainID                string        `yaml:"domain_id"`
@@ -79,10 +79,7 @@ type CantonConfig struct {
 	CorePackageID           string        `yaml:"core_package_id"`
 	CIP56PackageID          string        `yaml:"cip56_package_id"`
 	CommonPackageID         string        `yaml:"common_package_id"`
-	SpliceHoldingPackageID  string        `yaml:"splice_holding_package_id"`
 	SpliceTransferPackageID string        `yaml:"splice_transfer_package_id"`
-	InstrumentAdmin         string        `yaml:"instrument_admin"`
-	InstrumentID            string        `yaml:"instrument_id"`
 	BridgeModule            string        `yaml:"bridge_module"`
 	RelayerPrivateKey       string        `yaml:"relayer_private_key"`
 	ConfirmationBlocks      int           `yaml:"confirmation_blocks"`
