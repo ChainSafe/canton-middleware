@@ -30,19 +30,7 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	_ = ctx // reserved for future (e.g. eager connectivity check)
 	s := applyOptions(opts)
 
-	// Propagate common config to sub-components.
-	if cfg.Identity != nil {
-		cfg.Identity.DomainID = cfg.DomainID
-		cfg.Identity.IssuerParty = cfg.IssuerParty
-	}
-	if cfg.Token != nil {
-		cfg.Token.DomainID = cfg.DomainID
-		cfg.Token.IssuerParty = cfg.IssuerParty
-	}
-	if cfg.Bridge != nil {
-		cfg.Bridge.DomainID = cfg.DomainID
-		cfg.Bridge.OperatorParty = cfg.IssuerParty
-	}
+	propagateCommonConfig(cfg)
 
 	l, err := ledger.New(cfg.Ledger,
 		ledger.WithLogger(s.logger),
@@ -53,20 +41,12 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	}
 
 	sub := ""
-	if cfg.Identity != nil && cfg.Identity.UserID == "" {
+	if cfg.Identity.UserID == "" {
 		sub, err = l.JWTSubject(ctx)
 		if err != nil {
 			return nil, err
 		}
 		cfg.Identity.UserID = sub
-	}
-	if cfg.Token != nil && cfg.Token.UserID == "" {
-		if sub == "" {
-			sub, err = l.JWTSubject(ctx)
-			if err != nil {
-				return nil, err
-			}
-		}
 		cfg.Token.UserID = sub
 	}
 
@@ -92,22 +72,7 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 		bridgeCfg = s.bridgeCfg
 	}
 	if bridgeCfg != nil {
-		bridgeUserID := sub
-		if bridgeUserID == "" {
-			switch {
-			case cfg.Identity != nil && cfg.Identity.UserID != "":
-				bridgeUserID = cfg.Identity.UserID
-			case cfg.Token != nil && cfg.Token.UserID != "":
-				bridgeUserID = cfg.Token.UserID
-			default:
-				bridgeUserID, err = l.JWTSubject(ctx)
-				if err != nil {
-					_ = l.Close()
-					return nil, err
-				}
-			}
-		}
-		bridgeCfg.UserID = bridgeUserID
+		bridgeCfg.UserID = sub
 		br, err = bridge.New(bridgeCfg, l, id, bridge.WithLogger(s.logger))
 		if err != nil {
 			_ = l.Close()
@@ -121,6 +86,21 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 		Token:    tk,
 		Bridge:   br,
 	}, nil
+}
+
+func propagateCommonConfig(cfg *Config) {
+	if cfg.Identity != nil {
+		cfg.Identity.DomainID = cfg.DomainID
+		cfg.Identity.IssuerParty = cfg.IssuerParty
+	}
+	if cfg.Token != nil {
+		cfg.Token.DomainID = cfg.DomainID
+		cfg.Token.IssuerParty = cfg.IssuerParty
+	}
+	if cfg.Bridge != nil {
+		cfg.Bridge.DomainID = cfg.DomainID
+		cfg.Bridge.OperatorParty = cfg.IssuerParty
+	}
 }
 
 // Close closes the underlying ledger connection.

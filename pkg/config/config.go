@@ -16,9 +16,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/token"
+
 	"github.com/creasty/defaults"
 	"github.com/go-playground/validator/v10"
-
 	"gopkg.in/yaml.v3"
 )
 
