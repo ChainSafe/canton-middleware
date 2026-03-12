@@ -12,6 +12,10 @@ type DatabaseConfig struct {
 
 // GetConnectionString returns a PostgreSQL connection string with sslmode applied when missing.
 func (c *DatabaseConfig) GetConnectionString() string {
+	if c == nil {
+		return ""
+	}
+
 	parsed, err := url.Parse(c.URL)
 	if err != nil {
 		return c.URL
