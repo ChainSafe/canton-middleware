@@ -145,9 +145,8 @@ func main() {
 	defer cantonClient.Close()
 	printSuccess("Connected to Canton")
 
-	// Connect to PostgreSQL (use local host for testing)
-	dsn := fmt.Sprintf("host=localhost port=%d user=%s password=%s dbname=erc20_api sslmode=disable",
-		cfg.Database.Port, cfg.Database.User, cfg.Database.Password)
+	// Connect to PostgreSQL
+	dsn := cfg.Database.GetConnectionString()
 	printStep("Connecting to PostgreSQL...")
 	apiStore, err := apidb.NewStore(dsn)
 	if err != nil {
@@ -156,15 +155,7 @@ func main() {
 	}
 	defer apiStore.Close()
 
-	localDBCfg := pgutil.DatabaseConfig{
-		Host:     "localhost",
-		Port:     cfg.Database.Port,
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		Database: "erc20_api",
-		SSLMode:  "disable",
-	}
-	bunDB, err := pgutil.ConnectDB(&localDBCfg)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		printError("Failed to connect to PostgreSQL (bun): %v", err)
 		os.Exit(1)

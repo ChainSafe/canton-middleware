@@ -50,6 +50,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -89,13 +90,7 @@ type LocalTestConfig struct {
 		TokenAddress string `yaml:"token_address"`
 	} `yaml:"eth_rpc"`
 
-	Database struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
-		Database string `yaml:"database"`
-	} `yaml:"database"`
+	Database pgutil.DatabaseConfig `yaml:"database"`
 
 	Amounts struct {
 		TotalDeposit   string `yaml:"total_deposit"`
@@ -608,8 +603,10 @@ func runE2ETest(ctx context.Context, cfg *LocalTestConfig) error {
 // =============================================================================
 
 func whitelistUsers(cfg *LocalTestConfig, users ...common.Address) error {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database)
+	dsn := cfg.Database.GetConnectionString()
+	if dsn == "" {
+		return fmt.Errorf("database.url is required")
+	}
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -634,7 +631,7 @@ func whitelistUsers(cfg *LocalTestConfig, users ...common.Address) error {
 		return fmt.Errorf("failed to connect to database after retries: %w", lastErr)
 	}
 
-	printInfo("Connected to database: %s", cfg.Database.Database)
+	printInfo("Connected to database")
 
 	for _, addr := range users {
 		_, err := db.Exec(

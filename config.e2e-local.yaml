@@ -42,11 +42,7 @@ eth_rpc:
 
 # Database configuration (local PostgreSQL)
 database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "p@ssw0rd"
-  database: "erc20_api"
+  url: "postgres://postgres:p%40ssw0rd@localhost:5432/erc20_api"
   ssl_mode: "disable"
 
 # Ethereum config (required by config.Load validation)
@@ -65,7 +61,7 @@ ethereum:
 
 # Canton config (required by config.Load validation and bootstrap-demo.go)
 canton:
-  domain_id: "local::1220848ab7d9d164f43162097753a16635ae82a82c78a217895b81157a5ce3e66caf"
+  domain_id: "local::1220491bf04408d7cf1a8c9d6147f46a4e300901b5fd2f13dd60c4e871fc5df130d2"
   issuer_party: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
 
   ledger:

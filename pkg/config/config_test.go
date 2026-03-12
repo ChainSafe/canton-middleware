@@ -9,6 +9,8 @@ import (
 )
 
 func TestLoadDefaultConfigFiles(t *testing.T) {
+	setDefaultConfigEnv(t)
+
 	t.Run("api docker", func(t *testing.T) {
 		if _, err := LoadAPIServer(defaultConfigPath(t, "config.api-server.docker.yaml")); err != nil {
 			t.Fatalf("load api docker config: %v", err)
@@ -32,6 +34,45 @@ func TestLoadDefaultConfigFiles(t *testing.T) {
 			t.Fatalf("load relayer local-devnet config: %v", err)
 		}
 	})
+}
+
+func TestLoadConfig_EnvSubstitution(t *testing.T) {
+	t.Setenv("TEST_API_DB_URL", "postgres://postgres:pass@localhost:5432/erc20_api")
+	t.Setenv("TEST_API_DOMAIN_ID", "global-domain::1220test")
+	t.Setenv("TEST_API_ISSUER", "issuer::1220test")
+	t.Setenv("TEST_API_CLIENT_ID", "env-client-id")
+	t.Setenv("TEST_API_CLIENT_SECRET", "env-client-secret")
+
+	cfg, err := LoadAPIServer(testConfigPath(t, "env-substitution.api.yaml"))
+	if err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.Database.URL != "postgres://postgres:pass@localhost:5432/erc20_api" {
+		t.Fatalf("expected env-expanded database.url, got %q", cfg.Database.URL)
+	}
+	if cfg.Canton.DomainID != "global-domain::1220test" {
+		t.Fatalf("expected env-expanded canton.domain_id, got %q", cfg.Canton.DomainID)
+	}
+	if cfg.Canton.IssuerParty != "issuer::1220test" {
+		t.Fatalf("expected env-expanded canton.issuer_party, got %q", cfg.Canton.IssuerParty)
+	}
+	if cfg.Canton.Ledger.Auth.ClientID != "env-client-id" {
+		t.Fatalf("expected env-expanded auth.client_id, got %q", cfg.Canton.Ledger.Auth.ClientID)
+	}
+	if cfg.Canton.Ledger.Auth.ClientSecret != "env-client-secret" {
+		t.Fatalf("expected env-expanded auth.client_secret, got %q", cfg.Canton.Ledger.Auth.ClientSecret)
+	}
+}
+
+func TestLoadConfig_MissingEnvVariable(t *testing.T) {
+	_, err := LoadAPIServer(testConfigPath(t, "missing-env.api.yaml"))
+	if err == nil {
+		t.Fatal("expected validation error after empty env expansion, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "required") {
+		t.Fatalf("expected required validation error, got: %v", err)
+	}
 }
 
 func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
@@ -289,4 +330,18 @@ func defaultConfigPath(t *testing.T, fileName string) string {
 		t.Fatal("resolve test file path")
 	}
 	return filepath.Join(filepath.Dir(file), "defaults", fileName)
+}
+
+func setDefaultConfigEnv(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("API_SERVER_DATABASE_URL", "postgres://postgres:pass@localhost:5432/erc20_api")
+	t.Setenv("RELAYER_DATABASE_URL", "postgres://postgres:pass@localhost:5432/relayer")
+	t.Setenv("CANTON_DOMAIN_ID", "global-domain::1220test")
+	t.Setenv("CANTON_ISSUER_PARTY", "issuer::1220test")
+	t.Setenv("CANTON_AUTH_CLIENT_ID", "test-client-id")
+	t.Setenv("CANTON_AUTH_CLIENT_SECRET", "test-client-secret")
+	t.Setenv("ETHEREUM_RELAYER_PRIVATE_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("SEPOLIA_RPC_URL", "https://sepolia.example")
+	t.Setenv("SEPOLIA_WS_URL", "wss://sepolia.example/ws")
 }

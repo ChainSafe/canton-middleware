@@ -97,7 +97,7 @@ func loadConfigFromFile(path string, out any) error {
 		return fmt.Errorf("failed to read config file %q: %w", path, err)
 	}
 
-	if err = decodeYAMLStrict(data, out); err != nil {
+	if err = decodeYAMLStrict([]byte(os.ExpandEnv(string(data))), out); err != nil {
 		return fmt.Errorf("failed to parse config file %q: %w", path, err)
 	}
 

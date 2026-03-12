@@ -20,7 +20,8 @@ func ConnectDB(cfg *DatabaseConfig) (*bun.DB, error) {
 		return nil, fmt.Errorf("database config is nil")
 	}
 
-	dsn, dbName, err := withSSLMode(cfg.URL, cfg.SSLMode)
+	dsn := cfg.GetConnectionString()
+	dbName, err := databaseNameFromURL(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid database URL: %w", err)
 	}
@@ -56,16 +57,10 @@ func ConnectDB(cfg *DatabaseConfig) (*bun.DB, error) {
 	return db, nil
 }
 
-func withSSLMode(rawURL, sslMode string) (string, string, error) {
+func databaseNameFromURL(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return "", "", err
-	}
-
-	query := parsed.Query()
-	if sslMode != "" && query.Get("sslmode") == "" {
-		query.Set("sslmode", sslMode)
-		parsed.RawQuery = query.Encode()
+		return "", err
 	}
 
 	dbName := strings.TrimPrefix(parsed.Path, "/")
@@ -73,5 +68,5 @@ func withSSLMode(rawURL, sslMode string) (string, string, error) {
 		dbName = "<unknown>"
 	}
 
-	return parsed.String(), dbName, nil
+	return dbName, nil
 }

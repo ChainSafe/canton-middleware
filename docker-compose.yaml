@@ -156,6 +156,11 @@ services:
       API_SERVER_CONFIG_FILE: /app/state/api-server-config.yaml
       CANTON_HTTP: http://canton:5013
       BROADCAST_DIR: /app/broadcast
+      RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/relayer}"
+      API_SERVER_DATABASE_URL: "${API_SERVER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/erc20_api}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+      ETHEREUM_RELAYER_PRIVATE_KEY: "${ETHEREUM_RELAYER_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
     volumes:
       - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
       - config_state:/app/state
@@ -187,6 +192,10 @@ services:
     environment:
       LOG_LEVEL: debug
       ENV: docker
+      RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/relayer}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+      ETHEREUM_RELAYER_PRIVATE_KEY: "${ETHEREUM_RELAYER_PRIVATE_KEY:-ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -225,6 +234,9 @@ services:
     environment:
       LOG_LEVEL: debug
       ENV: docker
+      API_SERVER_DATABASE_URL: "${API_SERVER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/erc20_api}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32
       SKIP_CANTON_SIG_VERIFY: "${SKIP_CANTON_SIG_VERIFY:-false}"  # Set to "true" for local testing
     depends_on:

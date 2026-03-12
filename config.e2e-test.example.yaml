@@ -53,11 +53,8 @@ eth_rpc:
 # When using -local flag, the script will connect to this database
 # to automatically whitelist users before registration
 database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "p@ssw0rd"
-  database: "erc20_api"
+  url: "postgres://postgres:p%40ssw0rd@localhost:5432/erc20_api"
+  ssl_mode: "disable"
 
 # Test amounts (in token decimals, e.g., "10.0" for 10 tokens)
 amounts:

@@ -45,6 +45,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -84,13 +85,7 @@ type TestConfig struct {
 		TokenAddress string `yaml:"token_address"`
 	} `yaml:"eth_rpc"`
 
-	Database struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
-		Database string `yaml:"database"`
-	} `yaml:"database"`
+	Database pgutil.DatabaseConfig `yaml:"database"`
 
 	Amounts struct {
 		TotalDeposit   string `yaml:"total_deposit"`
@@ -363,7 +358,7 @@ func runE2ETest(ctx context.Context, cfg *config.RelayerServer, testCfg *TestCon
 	// =========================================================================
 	// Step 0 (local mode only): Whitelist users in PostgreSQL
 	// =========================================================================
-	if *localMode && testCfg.Database.Host != "" {
+	if *localMode && testCfg.Database.GetConnectionString() != "" {
 		printHeader("Step 0: Whitelist Users (Local Mode)")
 		if err := whitelistUsers(testCfg, user1Addr, user2Addr); err != nil {
 			return fmt.Errorf("failed to whitelist users: %w", err)
@@ -585,12 +580,10 @@ func runE2ETest(ctx context.Context, cfg *config.RelayerServer, testCfg *TestCon
 
 // whitelistUsers adds users to the API server whitelist in PostgreSQL
 func whitelistUsers(cfg *TestConfig, users ...common.Address) error {
-	if cfg.Database.Host == "" {
-		return fmt.Errorf("database config not provided")
+	dsn := cfg.Database.GetConnectionString()
+	if dsn == "" {
+		return fmt.Errorf("database.url not provided")
 	}
-
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -602,6 +595,7 @@ func whitelistUsers(cfg *TestConfig, users ...common.Address) error {
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	printInfo("Connected to database")
 
 	for _, addr := range users {
 		_, err := db.Exec(

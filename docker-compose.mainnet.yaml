@@ -35,5 +35,11 @@ services:
     command: []
     environment:
       ENV: docker
+      RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL}"
+      ETHEREUM_RELAYER_PRIVATE_KEY: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+      CANTON_DOMAIN_ID: "${CANTON_DOMAIN_ID}"
+      CANTON_ISSUER_PARTY: "${CANTON_ISSUER_PARTY}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
 
   # Postgres stays enabled for relayer state

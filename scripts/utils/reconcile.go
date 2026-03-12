@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -51,7 +52,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("  Config:   %s\n", *configPath)
 	fmt.Printf("  Network:  %s\n", networkName)
-	fmt.Printf("  Database: %s\n", cfg.Database.Database)
+	fmt.Printf("  Database: %s\n", databaseNameFromURL(cfg.Database.GetConnectionString()))
 	fmt.Println()
 
 	// Create logger
@@ -183,4 +184,16 @@ func detectNetwork(rpcURL string) string {
 	default:
 		return "UNKNOWN"
 	}
+}
+
+func databaseNameFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid>"
+	}
+	name := strings.TrimPrefix(parsed.Path, "/")
+	if name == "" {
+		return "<unknown>"
+	}
+	return name
 }

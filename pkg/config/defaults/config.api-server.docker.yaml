@@ -34,8 +34,8 @@ canton:
       ca_file: ""
       insecure_skip_verify: false
     auth:
-      client_id: "local-test-client"
-      client_secret: "local-test-secret"
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
       audience: "http://canton:5011"
       token_url: "http://mock-oauth2:8088/oauth/token"
       expiry_leeway: "60s"

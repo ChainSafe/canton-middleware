@@ -368,16 +368,7 @@ func printUserBalances(cfg *config.APIServer) {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Use erc20_api database (where user balances are stored)
-	// Override database name since relayer config uses 'relayer' db
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -437,14 +428,7 @@ func printUserBalances(cfg *config.APIServer) {
 
 // printPromptTransfers queries the database for PROMPT transfers via MetaMask
 func printPromptTransfers(cfg *config.APIServer) {
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -521,14 +505,7 @@ func printPromptTransfers(cfg *config.APIServer) {
 func getUserFingerprints(cfg *config.APIServer) map[string]string {
 	result := make(map[string]string)
 
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {

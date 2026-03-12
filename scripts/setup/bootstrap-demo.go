@@ -704,30 +704,7 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 
 // updateDemoBalancesInDB connects to the database and updates DEMO balances for users
 func updateDemoBalancesInDB(cfg *config.APIServer, user1Fingerprint, user2Fingerprint, amount string) error {
-	// Build database connection string
-	// Use localhost since we're running from host machine
-	dbHost := cfg.Database.Host
-	if dbHost == "postgres" {
-		dbHost = "localhost" // Convert docker service name to localhost
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		dbHost,
-		cfg.Database.Port,
-		cfg.Database.User,
-		cfg.Database.Password,
-		cfg.Database.Database,
-		cfg.Database.SSLMode,
-	)
-	if cfg.Database.SSLMode == "" {
-		connStr = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			dbHost,
-			cfg.Database.Port,
-			cfg.Database.User,
-			cfg.Database.Password,
-			cfg.Database.Database,
-		)
-	}
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
