@@ -88,11 +88,7 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = cantonClient.Close() }()
 
-	rpcURL := ""
-	if cfg.Canton != nil && cfg.Canton.Ledger != nil {
-		rpcURL = cfg.Canton.Ledger.RPCURL
-	}
-	logger.Info("Connected to Canton", zap.String("rpc_url", rpcURL))
+	logger.Info("Connected to Canton")
 
 	recStore := reconcilerstore.NewStore(dbBun)
 	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
@@ -108,7 +104,7 @@ func (s *Server) Run() error {
 		cantonClient.Identity,
 		cipher,
 		logger,
-		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
+		cfg.SkipCantonSigVerify,
 	)
 
 	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)

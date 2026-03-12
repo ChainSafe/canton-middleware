@@ -91,3 +91,5 @@ reconciliation:
 key_management:
   master_key_env: "CANTON_MASTER_KEY"
   key_derivation: "generate"
+
+skip_canton_sig_verify: ${SKIP_CANTON_SIG_VERIFY}

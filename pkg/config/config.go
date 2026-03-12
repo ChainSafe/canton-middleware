@@ -24,15 +24,16 @@ import (
 
 // APIServer represents the ERC-20 API server configuration
 type APIServer struct {
-	Server         *http.ServerConfig   `yaml:"server" validate:"required"`
-	Database       *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
-	Canton         *canton.Config       `yaml:"canton" validate:"required"`
-	Token          *token.Config        `yaml:"token" validate:"required"`
-	EthRPC         *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
-	JWKS           *JWKS                `yaml:"jwks" default:"-"` // nil by default (feature disabled)
-	Logging        *log.Config          `yaml:"logging" validate:"required"`
-	Reconciliation *reconciler.Config   `yaml:"reconciliation" validate:"required"`
-	KeyManagement  *KeyManagement       `yaml:"key_management" validate:"required"` // Custodial Canton key settings
+	Server              *http.ServerConfig   `yaml:"server" validate:"required"`
+	Database            *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
+	Canton              *canton.Config       `yaml:"canton" validate:"required"`
+	Token               *token.Config        `yaml:"token" validate:"required"`
+	EthRPC              *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
+	JWKS                *JWKS                `yaml:"jwks" default:"-"` // nil by default (feature disabled)
+	Logging             *log.Config          `yaml:"logging" validate:"required"`
+	Reconciliation      *reconciler.Config   `yaml:"reconciliation" validate:"required"`
+	KeyManagement       *KeyManagement       `yaml:"key_management" validate:"required"` // Custodial Canton key settings
+	SkipCantonSigVerify bool                 `yaml:"skip_canton_sig_verify" default:"false"`
 }
 
 // RelayerServer represents the application configuration for relayer.

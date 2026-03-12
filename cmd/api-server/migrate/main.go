@@ -30,7 +30,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Printf("Running migrations for API Server database (%s)...\n", cfg.Database.URL)
+	log.Printf("Running migrations for API Server database")
 
 	// Create migrator
 	migrator := migrate.NewMigrator(db, apidb.Migrations)
