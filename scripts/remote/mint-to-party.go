@@ -8,7 +8,7 @@
 // Usage:
 //
 //	DATABASE_HOST=localhost go run scripts/remote/mint-to-party.go \
-//	  -config config.api-server.devnet.yaml \
+//	  -config pkg/config/defaults/config.api-server.local-devnet.yaml \
 //	  -party "PAR::namespace::fingerprint" \
 //	  -amount 500
 
@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
+	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
-	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.devnet.yaml", "Path to API server config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to API server config file")
 	partyID    = flag.String("party", "", "Canton party ID to mint to (required)")
 	amount     = flag.String("amount", "500.0", "Amount to mint")
 )
@@ -125,7 +125,7 @@ func main() {
 	fmt.Println()
 }
 
-func dialCanton(cfg *config.APIServerConfig) (*grpc.ClientConn, error) {
+func dialCanton(cfg *config.APIServer) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{

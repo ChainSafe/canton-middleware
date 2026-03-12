@@ -25,17 +25,63 @@ fi
 MIGRATE_BINARY="${BINARY}-migrate"
 
 # Default config path to check for migration settings
-CONFIG_PATH="/app/config.yaml"
+CONFIG_PATH=""
+HAS_CONFIG_ARG=false
 
 # Attempt to find the config path from the remaining arguments
 prev_arg=""
 for arg in "$@"; do
     if [ "$prev_arg" = "-config" ]; then
         CONFIG_PATH="$arg"
+        HAS_CONFIG_ARG=true
         break
     fi
     prev_arg="$arg"
 done
+
+# If no -config was provided, select a built-in default based on service and ENV.
+if [ "$HAS_CONFIG_ARG" = "false" ]; then
+    SERVICE_NAME="$(basename "$BINARY")"
+    SELECTED_ENV="${ENV:-docker}"
+    CONFIG_SUFFIX=""
+
+    case "$SELECTED_ENV" in
+        docker)
+            CONFIG_SUFFIX="docker"
+            ;;
+        devnet|local-devnet)
+            CONFIG_SUFFIX="local-devnet"
+            ;;
+        *)
+            echo ">>> [WARN] Unknown ENV '$SELECTED_ENV'; defaulting to docker."
+            CONFIG_SUFFIX="docker"
+            ;;
+    esac
+
+    case "$SERVICE_NAME" in
+        relayer)
+            CONFIG_PATH="/app/config/defaults/config.relayer.${CONFIG_SUFFIX}.yaml"
+            ;;
+        api-server)
+            CONFIG_PATH="/app/config/defaults/config.api-server.${CONFIG_SUFFIX}.yaml"
+            ;;
+        *)
+            CONFIG_PATH=""
+            ;;
+    esac
+
+    if [ -n "$CONFIG_PATH" ] && [ -f "$CONFIG_PATH" ]; then
+        echo ">>> [INFO] Auto-selecting config from ENV=${SELECTED_ENV}: $CONFIG_PATH"
+        set -- -config "$CONFIG_PATH" "$@"
+    elif [ -n "$CONFIG_PATH" ]; then
+        echo ">>> [WARN] Auto-selected config not found: $CONFIG_PATH"
+    fi
+fi
+
+# Fallback for migration logging if config couldn't be determined.
+if [ -z "$CONFIG_PATH" ]; then
+    CONFIG_PATH="/app/config.yaml"
+fi
 
 # Run migrations if the migrate binary exists and is executable
 if [ -x "$MIGRATE_BINARY" ]; then

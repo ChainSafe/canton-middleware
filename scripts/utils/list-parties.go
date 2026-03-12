@@ -8,8 +8,8 @@
 // parties matching specific prefixes.
 //
 // Usage:
-//   go run scripts/utils/list-parties.go -config config.api-server.mainnet.local.yaml
-//   go run scripts/utils/list-parties.go -config config.api-server.mainnet.local.yaml -search native
+//   go run scripts/utils/list-parties.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/utils/list-parties.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -search native
 
 package main
 
@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	search     = flag.String("search", "", "Search Canton for parties matching this prefix (slow on mainnet)")
 )
 
@@ -63,7 +63,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 		os.Exit(1)

@@ -151,16 +151,14 @@ services:
       target: bootstrap
     container_name: bootstrap
     environment:
+      ENV: docker
       CONFIG_FILE: /app/state/config.yaml
       API_SERVER_CONFIG_FILE: /app/state/api-server-config.yaml
       CANTON_HTTP: http://canton:5013
       BROADCAST_DIR: /app/broadcast
     volumes:
-      - ./config.docker.yaml:/app/config-template.yaml:ro
-      - ./config.api-server.docker.yaml:/app/api-server-config-template.yaml:ro
       - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
       - config_state:/app/state
-    entrypoint: /bin/sh -c "cp /app/config-template.yaml /app/state/config.yaml && cp /app/api-server-config-template.yaml /app/state/api-server-config.yaml && /app/docker-bootstrap.sh"
     depends_on:
       canton:
         condition: service_healthy
@@ -188,6 +186,7 @@ services:
     command: ["-config", "/app/state/config.yaml"]
     environment:
       LOG_LEVEL: debug
+      ENV: docker
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -225,6 +224,7 @@ services:
     command: ["-config", "/app/state/api-server-config.yaml"]
     environment:
       LOG_LEVEL: debug
+      ENV: docker
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32
       SKIP_CANTON_SIG_VERIFY: "${SKIP_CANTON_SIG_VERIFY:-false}"  # Set to "true" for local testing
     depends_on:
@@ -252,5 +252,3 @@ networks:
 
 volumes:
   config_state:
-
-

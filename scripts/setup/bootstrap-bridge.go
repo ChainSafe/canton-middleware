@@ -7,7 +7,7 @@
 // 2. DARs are uploaded (run deploy-dars.canton)
 // 3. Issuer party is allocated (via Canton console)
 //
-// Run: go run scripts/bootstrap-bridge.go -config config.yaml -issuer "BridgeIssuer::1220..."
+// Run: go run scripts/setup/bootstrap-bridge.go -config pkg/config/defaults/config.api-server.docker.yaml -issuer "BridgeIssuer::1220..."
 //
 // After running, update your config.yaml with the output values.
 
@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -48,14 +48,14 @@ var (
 )
 
 func main() {
-	configPath := flag.String("config", "config.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	issuerParty := flag.String("issuer", "", "Full issuer party ID (uses config relayer_party if not specified)")
 	packageID := flag.String("package", "", "Optional: bridge-wayfinder package ID (uses config if not specified)")
 	domainIDFlag := flag.String("domain", "", "Optional: Domain/synchronizer ID (uses config if not specified)")
 	flag.Parse()
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -80,7 +80,7 @@ func main() {
 		fmt.Println("    -d '{\"partyIdHint\": \"BridgeIssuer\"}'")
 		fmt.Println()
 		fmt.Println("Then run this script with the full party ID:")
-		fmt.Println("  go run scripts/bootstrap-bridge.go -config config.yaml \\")
+		fmt.Println("  go run scripts/setup/bootstrap-bridge.go -config pkg/config/defaults/config.api-server.docker.yaml \\")
 		fmt.Println("    -issuer \"BridgeIssuer::1220...\" \\")
 		fmt.Println("    -domain \"local::1220...\"")
 		fmt.Println()
@@ -172,7 +172,7 @@ func main() {
 			fmt.Println("  docker logs canton 2>&1 | grep -oE 'local::[a-f0-9]{64}' | head -1")
 			fmt.Println()
 			fmt.Println("Then re-run with -domain flag:")
-			fmt.Printf("  go run scripts/bootstrap-bridge.go -config %s -issuer \"%s\" -domain \"local::...\"\n", *configPath, *issuerParty)
+			fmt.Printf("  go run scripts/setup/bootstrap-bridge.go -config %s -issuer \"%s\" -domain \"local::...\"\n", *configPath, *issuerParty)
 			os.Exit(1)
 		}
 	}
@@ -658,4 +658,3 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 	}
 	return "", fmt.Errorf("CIP56TransferFactory not found in response")
 }
-

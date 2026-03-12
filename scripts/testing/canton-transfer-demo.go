@@ -73,7 +73,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database (bun): %v\n", err)
 		os.Exit(1)
@@ -295,7 +295,9 @@ func showAllHoldings(ctx context.Context, client *canton.Client) {
 	}
 }
 
-func getFingerprint(ctx context.Context, uStore interface{ GetUserByCantonPartyID(context.Context, string) (*user.User, error) }, partyID string) string {
+func getFingerprint(ctx context.Context, uStore interface {
+	GetUserByCantonPartyID(context.Context, string) (*user.User, error)
+}, partyID string) string {
 	u, err := uStore.GetUserByCantonPartyID(ctx, partyID)
 	if err != nil || u == nil {
 		return ""

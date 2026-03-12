@@ -16,7 +16,7 @@
 //
 // Usage:
 //   go run scripts/testing/interop-demo.go                                          # local (default)
-//   go run scripts/testing/interop-demo.go --config config.api-server.devnet.yaml --skip-prompt  # devnet (DEMO only)
+//   go run scripts/testing/interop-demo.go --config pkg/config/defaults/config.api-server.local-devnet.yaml --skip-prompt  # devnet (DEMO only)
 //   go run scripts/testing/interop-demo.go --skip-prompt                             # skip PROMPT bridge tests
 //   go run scripts/testing/interop-demo.go --skip-demo                               # skip DEMO interop tests
 //   go run scripts/testing/interop-demo.go --api-url http://localhost:8082           # custom API URL
@@ -134,7 +134,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to services...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fatalf("Failed to connect to database (bun): %v", err)
 	}

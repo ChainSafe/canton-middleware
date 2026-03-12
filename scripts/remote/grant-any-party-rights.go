@@ -8,7 +8,7 @@
 // wallet operations where the API server submits commands on behalf of users.
 //
 // Usage:
-//   go run scripts/remote/grant-any-party-rights.go -config config.api-server.devnet.local.yaml
+//   go run scripts/remote/grant-any-party-rights.go -config pkg/config/defaults/config.api-server.local-devnet.yaml
 //
 // Prerequisites:
 //   - Valid OAuth credentials in config
@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,7 +38,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.devnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	userID     = flag.String("user", "", "User ID to grant rights to (default: OAuth client sub)")
 	listOnly   = flag.Bool("list", false, "Only list current rights, don't grant new ones")
 )
@@ -224,7 +224,7 @@ func main() {
 	fmt.Println("Your OAuth user can now ActAs and ReadAs any party on this participant.")
 	fmt.Println("Try running the interop demo again:")
 	fmt.Println()
-	fmt.Println("  go run scripts/testing/interop-demo.go -config config.api-server.devnet.local.yaml")
+	fmt.Println("  go run scripts/testing/interop-demo.go -config pkg/config/defaults/config.api-server.local-devnet.yaml")
 	fmt.Println()
 }
 

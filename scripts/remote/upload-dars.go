@@ -5,8 +5,8 @@
 // This script uploads DAR files via the Package Management gRPC API.
 //
 // Usage:
-//   go run scripts/remote/upload-dars.go -config config.api-server.devnet.yaml
-//   go run scripts/remote/upload-dars.go -config config.api-server.mainnet.yaml
+//   go run scripts/remote/upload-dars.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/remote/upload-dars.go -config pkg/config/defaults/config.api-server.local-devnet.yaml
 //
 // The script will:
 // 1. Connect to Canton with OAuth2 authentication
@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -58,13 +58,13 @@ var darFiles = []string{
 }
 
 func main() {
-	configPath := flag.String("config", "config.api-server.devnet.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	darDir := flag.String("dar-dir", "", "Directory containing DAR files (default: contracts/canton-erc20/daml/*/dist/)")
 	listOnly := flag.Bool("list-only", false, "Only list known packages, don't upload")
 	flag.Parse()
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -279,7 +279,7 @@ func main() {
 	fmt.Println("UPLOAD COMPLETE - Update your config with these package IDs:")
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println()
-	fmt.Println("# For config.api-server.devnet.yaml / config.api-server.mainnet.yaml:")
+	fmt.Println("# For pkg/config/defaults/config.api-server.*.yaml:")
 	fmt.Println("canton:")
 
 	// Print in a specific order

@@ -16,6 +16,13 @@ import (
 	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/engine/mocks"
 )
 
+func newEngineConfig() *relayer.Config {
+	return &relayer.Config{
+		CantonChainID: relayer.ChainCanton,
+		EthChainID:    relayer.ChainEthereum,
+	}
+}
+
 func newReconciliationEngine(cfg *relayer.Config, store BridgeStore) *Engine {
 	return &Engine{
 		config: cfg,
@@ -25,7 +32,7 @@ func newReconciliationEngine(cfg *relayer.Config, store BridgeStore) *Engine {
 }
 
 func TestEngine_IsReady_InitiallyFalse(t *testing.T) {
-	engine := NewEngine(&relayer.Config{}, nil, nil, nil, zap.NewNop())
+	engine := NewEngine(newEngineConfig(), nil, nil, nil, zap.NewNop())
 	if engine.IsReady() {
 		t.Fatalf("engine should not be ready initially")
 	}
@@ -36,7 +43,7 @@ func TestEngine_Start_ReturnsLoadOffsetError(t *testing.T) {
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).Return(nil, errors.New("db down")).Once()
 
-	engine := NewEngine(&relayer.Config{}, relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, zap.NewNop())
+	engine := NewEngine(newEngineConfig(), relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, zap.NewNop())
 	err := engine.Start(ctx)
 	if err == nil || !strings.Contains(err.Error(), "failed to load offsets") {
 		t.Fatalf("expected load offsets error, got %v", err)
@@ -45,7 +52,7 @@ func TestEngine_Start_ReturnsLoadOffsetError(t *testing.T) {
 
 func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	ctx := context.Background()
-	cfg := &relayer.Config{}
+	cfg := newEngineConfig()
 
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).
@@ -77,7 +84,7 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 
 func TestEngine_Start_RestartsCantonProcessorOnUnexpectedStreamClose(t *testing.T) {
 	ctx := context.Background()
-	cfg := &relayer.Config{}
+	cfg := newEngineConfig()
 
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).

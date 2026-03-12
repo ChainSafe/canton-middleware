@@ -6,7 +6,7 @@
 // This script lists all users registered with the API server from the database.
 //
 // Usage:
-//   go run scripts/utils/list-users.go -config config.api-server.mainnet.local.yaml
+//   go run scripts/utils/list-users.go -config pkg/config/defaults/config.api-server.docker.yaml
 
 package main
 
@@ -23,7 +23,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+var configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 
 func main() {
 	flag.Parse()
@@ -48,7 +48,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 		os.Exit(1)

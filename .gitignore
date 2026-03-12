@@ -84,7 +84,7 @@ config.e2e-test.yaml
 
 # Local devnet configs (contain OAuth secrets)
 config.local-devnet.yaml
-config.api-server.local-devnet.yaml
+pkg/config/defaults/config.api-server.local-devnet.yaml
 
 # Demo documentation (internal presentation materials)
 docs/demo/

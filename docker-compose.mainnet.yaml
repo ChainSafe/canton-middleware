@@ -5,7 +5,7 @@
 # - Disables local Canton, Anvil, deployer (using mainnet services)
 # - Disables mock-oauth2 and bootstrap (not needed for mainnet)
 # - Keeps Postgres for relayer state
-# - Uses config.mainnet.yaml
+# - Uses ENV=docker (built-in defaults in image)
 
 services:
   # Disable local services - using mainnet
@@ -24,14 +24,16 @@ services:
   bootstrap:
     profiles: ["disabled"]
 
+  api-server:
+    profiles: ["disabled"]
+
   relayer:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
+    depends_on: !override
       postgres:
         condition: service_healthy
-    volumes:
-      - ./config.mainnet.yaml:/app/config.yaml:ro
+    volumes: []
+    command: []
+    environment:
+      ENV: docker
 
   # Postgres stays enabled for relayer state

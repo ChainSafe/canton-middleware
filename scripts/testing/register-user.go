@@ -3,13 +3,13 @@
 // register-user.go - Register a user's fingerprint mapping on Canton
 //
 // Usage:
-//   go run scripts/register-user.go -config config.yaml \
+//   go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml \
 //     -party "Alice::1220abc...def" \
 //     -fingerprint "abc...def" \
 //     -evm-address "0x..."
 //
 // For testing with the BridgeIssuer (uses config relayer_party by default):
-//   go run scripts/register-user.go -config config.yaml
+//   go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml
 
 package main
 
@@ -39,7 +39,7 @@ import (
 )
 
 var (
-	ruConfigPath  = flag.String("config", "config.yaml", "Path to config file")
+	ruConfigPath  = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	ruPartyID     = flag.String("party", "", "Full Canton Party ID (uses config relayer_party if not specified)")
 	ruFingerprint = flag.String("fingerprint", "", "Fingerprint (32-byte hex, without 0x1220 prefix)")
 	ruEvmAddress  = flag.String("evm-address", "", "Optional EVM address for withdrawals")
@@ -55,7 +55,7 @@ var (
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*ruConfigPath)
+	cfg, err := config.LoadAPIServer(*ruConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -68,7 +68,7 @@ func main() {
 
 	if partyID == "" {
 		fmt.Println("Error: -party is required (or set canton.relayer_party in config)")
-		fmt.Println("Usage: go run scripts/register-user.go -config config.yaml -party 'PartyID' -fingerprint 'hex'")
+		fmt.Println("Usage: go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml -party 'PartyID' -fingerprint 'hex'")
 		os.Exit(1)
 	}
 

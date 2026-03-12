@@ -7,7 +7,7 @@
 // test runs (e.g., when switching from Anvil to Sepolia).
 //
 // Usage:
-//   go run scripts/cleanup-withdrawals.go -config config.devnet.yaml
+//   go run scripts/bridge/cleanup-withdrawals.go -config pkg/config/defaults/config.api-server.docker.yaml
 //
 // Options:
 //   -dry-run    List pending withdrawals without completing them (default: true)
@@ -41,7 +41,7 @@ import (
 )
 
 var (
-	cwConfigPath    = flag.String("config", "config.devnet.yaml", "Path to config file")
+	cwConfigPath    = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	cwDryRun        = flag.Bool("dry-run", true, "List pending withdrawals without completing them")
 	cwForce         = flag.Bool("force", false, "Actually complete the withdrawals")
 	cwCorePackageID = flag.String("core-package-id", "", "Bridge-core package ID for WithdrawalEvent completion")
@@ -71,7 +71,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(*cwConfigPath)
+	cfg, err := config.LoadAPIServer(*cwConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)

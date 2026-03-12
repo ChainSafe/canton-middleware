@@ -10,7 +10,7 @@
 // - Database cleaned up
 //
 // Usage:
-//   go run scripts/utils/reset-demo-state.go -config config.api-server.devnet.local.yaml
+//   go run scripts/utils/reset-demo-state.go -config pkg/config/defaults/config.api-server.docker.yaml
 
 package main
 
@@ -35,7 +35,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.devnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	dryRun     = flag.Bool("dry-run", false, "Show what would be done without making changes")
 	mintAmount = flag.String("amount", "500", "Amount to mint to each user")
 )
@@ -64,7 +64,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to services...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fatalf("Failed to connect to database (bun): %v", err)
 	}

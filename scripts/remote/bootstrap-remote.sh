@@ -6,8 +6,8 @@
 # Only uses API Server + PostgreSQL - no local Canton, Anvil, or Relayer.
 #
 # Usage:
-#   ./scripts/remote/bootstrap-remote.sh --devnet   # Uses config.api-server.devnet.yaml
-#   ./scripts/remote/bootstrap-remote.sh --mainnet  # Uses config.api-server.mainnet.yaml
+#   ./scripts/remote/bootstrap-remote.sh --devnet   # Uses pkg/config/defaults/config.api-server.local-devnet.yaml
+#   ./scripts/remote/bootstrap-remote.sh --mainnet  # Uses pkg/config/defaults/config.api-server.mainnet.yaml
 #
 # What it does:
 #   1. Generates CANTON_MASTER_KEY
@@ -38,12 +38,12 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --devnet)
             NETWORK="devnet"
-            CONFIG_FILE="config.api-server.devnet.yaml"
+            CONFIG_FILE="pkg/config/defaults/config.api-server.local-devnet.yaml"
             shift
             ;;
         --mainnet)
             NETWORK="mainnet"
-            CONFIG_FILE="config.api-server.mainnet.yaml"
+            CONFIG_FILE="pkg/config/defaults/config.api-server.docker.yaml"
             shift
             ;;
         --demo-amount)

@@ -3,9 +3,9 @@
 // demo-activity.go - Display token holdings on Canton (DEMO and PROMPT)
 //
 // Usage:
-//   go run scripts/demo-activity.go -config config.devnet.yaml           # DevNet
-//   go run scripts/demo-activity.go -config .test-config.yaml            # Local Docker
-//   go run scripts/demo-activity.go -config config.devnet.yaml -debug    # Show raw contract data
+//   go run scripts/testing/demo-activity.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/testing/demo-activity.go -config .test-config.yaml
+//   go run scripts/testing/demo-activity.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -debug
 //
 // This script shows:
 //   - Active CIP56Holdings grouped by token (DEMO, PROMPT) and user
@@ -45,7 +45,7 @@ import (
 const maxMessageSize = 50 * 1024 * 1024 // 50MB
 
 var (
-	configPath = flag.String("config", "config.devnet.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	debug      = flag.Bool("debug", false, "Show debug info about all contracts found")
 	showAll    = flag.Bool("all", false, "Show all events (not just recent)")
 )
@@ -99,7 +99,7 @@ type TokenConfig struct {
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -362,7 +362,7 @@ func main() {
 	printUserBalances(cfg)
 }
 
-func printUserBalances(cfg *config.Config) {
+func printUserBalances(cfg *config.APIServer) {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  User Balances (MetaMask View)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
@@ -436,7 +436,7 @@ func printUserBalances(cfg *config.Config) {
 }
 
 // printPromptTransfers queries the database for PROMPT transfers via MetaMask
-func printPromptTransfers(cfg *config.Config) {
+func printPromptTransfers(cfg *config.APIServer) {
 	dbName := cfg.Database.Database
 	if dbName == "relayer" {
 		dbName = "erc20_api"
@@ -518,7 +518,7 @@ func printPromptTransfers(cfg *config.Config) {
 }
 
 // getUserFingerprints returns a map of registered user fingerprints
-func getUserFingerprints(cfg *config.Config) map[string]string {
+func getUserFingerprints(cfg *config.APIServer) map[string]string {
 	result := make(map[string]string)
 
 	dbName := cfg.Database.Database
@@ -578,7 +578,7 @@ func truncateParty(partyID string) string {
 	return partyID
 }
 
-func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
+func connectToCanton(cfg *config.APIServer) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 
 	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
@@ -597,7 +597,7 @@ func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
 	return grpc.Dial(cfg.Canton.Ledger.RPCURL, opts...)
 }
 
-func getOAuthToken(cfg *config.Config) (string, error) {
+func getOAuthToken(cfg *config.APIServer) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 

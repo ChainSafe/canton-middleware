@@ -54,7 +54,7 @@ const (
 )
 
 var (
-	configPath    = flag.String("config", "config.docker.yaml", "Path to config file")
+	configPath    = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	verbose       = flag.Bool("verbose", false, "Enable verbose output")
 	fullReconcile = flag.Bool("full-reconcile", false, "Reset all balances and rebuild from events")
 )
@@ -66,7 +66,7 @@ func main() {
 
 	// Load configuration
 	printStep("Loading configuration from %s...", *configPath)
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		printError("Failed to load config: %v", err)
 		os.Exit(1)
@@ -92,7 +92,7 @@ func main() {
 
 	// Try to get issuer_party from .test-config.yaml if not set
 	if localCantonCfg.IssuerParty == "" {
-		testCfg, err := config.Load(".test-config.yaml")
+		testCfg, err := config.LoadAPIServer(".test-config.yaml")
 		if err != nil {
 			if *verbose {
 				printInfo("Could not load .test-config.yaml: %v", err)
@@ -156,7 +156,7 @@ func main() {
 	}
 	defer apiStore.Close()
 
-	localDBCfg := config.DatabaseConfig{
+	localDBCfg := pgutil.DatabaseConfig{
 		Host:     "localhost",
 		Port:     cfg.Database.Port,
 		User:     cfg.Database.User,

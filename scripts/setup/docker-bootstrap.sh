@@ -16,6 +16,8 @@ set -e
 
 CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
 API_SERVER_CONFIG_FILE="${API_SERVER_CONFIG_FILE:-/app/api-server-config.yaml}"
+SELECTED_ENV="${ENV:-docker}"
+CONFIG_DEFAULTS_DIR="${CONFIG_DEFAULTS_DIR:-/app/config/defaults}"
 CANTON_HTTP="${CANTON_HTTP:-http://canton:5013}"
 BROADCAST_DIR="${BROADCAST_DIR:-/app/broadcast}"
 MAX_RETRIES=60
@@ -24,9 +26,40 @@ echo "========================================================================"
 echo "DOCKER BOOTSTRAP"
 echo "========================================================================"
 echo "Canton HTTP API: $CANTON_HTTP"
+echo "Config env: $SELECTED_ENV"
 echo "Config file: $CONFIG_FILE"
 echo "API Server config: $API_SERVER_CONFIG_FILE"
 echo "Broadcast dir: $BROADCAST_DIR"
+echo ""
+
+case "$SELECTED_ENV" in
+    docker)
+        RELAYER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.relayer.docker.yaml"
+        API_SERVER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.api-server.docker.yaml"
+        ;;
+    devnet|local-devnet)
+        RELAYER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.relayer.local-devnet.yaml"
+        API_SERVER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.api-server.local-devnet.yaml"
+        ;;
+    *)
+        echo "ERROR: Unsupported ENV '$SELECTED_ENV' (expected docker|devnet)"
+        exit 1
+        ;;
+esac
+
+if [ ! -f "$RELAYER_TEMPLATE" ] || [ ! -f "$API_SERVER_TEMPLATE" ]; then
+    echo "ERROR: Missing config templates in ${CONFIG_DEFAULTS_DIR}"
+    echo "  relayer template: $RELAYER_TEMPLATE"
+    echo "  api template:     $API_SERVER_TEMPLATE"
+    exit 1
+fi
+
+mkdir -p "$(dirname "$CONFIG_FILE")" "$(dirname "$API_SERVER_CONFIG_FILE")"
+cp "$RELAYER_TEMPLATE" "$CONFIG_FILE"
+cp "$API_SERVER_TEMPLATE" "$API_SERVER_CONFIG_FILE"
+echo ">>> Selected templates:"
+echo "    Relayer:    $RELAYER_TEMPLATE"
+echo "    API Server: $API_SERVER_TEMPLATE"
 echo ""
 
 # =============================================================================
@@ -169,9 +202,8 @@ fi
 echo ""
 echo ">>> Updating config file..."
 sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$CONFIG_FILE"
-sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
-sed -i "s|instrument_admin: \".*\"|instrument_admin: \"$PARTY_ID\"|" "$CONFIG_FILE"
-echo "    Config updated with party, domain, and instrument_admin"
+sed -i "s|issuer_party: \".*\"|issuer_party: \"$PARTY_ID\"|" "$CONFIG_FILE"
+echo "    Config updated with issuer_party and domain_id"
 
 # =============================================================================
 # Update API server config file
@@ -180,9 +212,8 @@ if [ -f "$API_SERVER_CONFIG_FILE" ]; then
     echo ""
     echo ">>> Updating API server config file..."
     sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
-    sed -i "s|relayer_party: \".*\"|relayer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
-    sed -i "s|instrument_admin: \".*\"|instrument_admin: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
-    echo "    API server config updated with party, domain, and instrument_admin"
+    sed -i "s|issuer_party: \".*\"|issuer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
+    echo "    API server config updated with issuer_party and domain_id"
 fi
 
 # =============================================================================
@@ -221,5 +252,3 @@ if [ "${WAIT_FOREVER:-false}" = "true" ]; then
     echo "WAIT_FOREVER is set, keeping container alive..."
     tail -f /dev/null
 fi
-
-

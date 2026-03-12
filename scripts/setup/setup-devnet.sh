@@ -92,8 +92,8 @@ print_info() { echo -e "${CYAN}>>> $1${NC}"; }
 # =============================================================================
 # Config
 # =============================================================================
-RELAYER_CONFIG="$PROJECT_ROOT/config.local-devnet.yaml"
-API_SERVER_CONFIG="$PROJECT_ROOT/config.api-server.local-devnet.yaml"
+RELAYER_CONFIG="$PROJECT_ROOT/pkg/config/defaults/config.relayer.local-devnet.yaml"
+API_SERVER_CONFIG="$PROJECT_ROOT/pkg/config/defaults/config.api-server.local-devnet.yaml"
 SECRETS_FILE="$PROJECT_ROOT/secrets/devnet-secrets.sh"
 
 # DevNet Canton endpoint
@@ -389,7 +389,7 @@ setup_users_and_tokens() {
     cd "$PROJECT_ROOT"
     
     # Get issuer party from config
-    local issuer_party=$(grep "relayer_party:" "$RELAYER_CONFIG" | awk '{print $2}' | tr -d '"')
+    local issuer_party=$(grep "issuer_party:" "$RELAYER_CONFIG" | awk '{print $2}' | tr -d '"')
     local issuer_fingerprint=$(echo "$issuer_party" | sed 's/.*::1220//')
     
     # Compute unique fingerprints for each user from their EVM addresses
@@ -402,13 +402,13 @@ setup_users_and_tokens() {
     
     # Register User 1 with their unique fingerprint
     print_info "Registering User 1: $USER1_ADDRESS"
-    go run scripts/testing/register-user.go -config config.devnet.yaml \
+    go run scripts/testing/register-user.go -config "$API_SERVER_CONFIG" \
         -fingerprint "$USER1_FINGERPRINT" \
         -evm-address "$USER1_ADDRESS" 2>&1 | tail -5
     
     # Register User 2 with their unique fingerprint
     print_info "Registering User 2: $USER2_ADDRESS"
-    go run scripts/testing/register-user.go -config config.devnet.yaml \
+    go run scripts/testing/register-user.go -config "$API_SERVER_CONFIG" \
         -fingerprint "$USER2_FINGERPRINT" \
         -evm-address "$USER2_ADDRESS" 2>&1 | tail -5
     
@@ -418,7 +418,7 @@ setup_users_and_tokens() {
     local offset=$(grpcurl -H "Authorization: Bearer $token" -plaintext "$CANTON_GRPC" \
         com.daml.ledger.api.v2.StateService/GetLedgerEnd 2>/dev/null | jq -r '.offset // "0"')
     
-    local cip56_pkg=$(grep "cip56_package_id:" config.devnet.yaml | awk '{print $2}' | tr -d '"')
+    local cip56_pkg=$(grep "cip56_package_id:" "$API_SERVER_CONFIG" | awk '{print $2}' | tr -d '"')
     local demo_exists=$(grpcurl -H "Authorization: Bearer $token" -plaintext "$CANTON_GRPC" \
         -d "{
             \"active_at_offset\": $offset,
@@ -443,7 +443,7 @@ setup_users_and_tokens() {
         print_success "DEMO token already exists on DevNet"
     else
         print_info "Bootstrapping DEMO token with unique user fingerprints..."
-        go run scripts/setup/bootstrap-demo.go -config config.devnet.yaml \
+        go run scripts/setup/bootstrap-demo.go -config "$API_SERVER_CONFIG" \
             -user1-fingerprint "$USER1_FINGERPRINT" \
             -user2-fingerprint "$USER2_FINGERPRINT" 2>&1 | tail -10
     fi
@@ -460,7 +460,7 @@ setup_users_and_tokens() {
 # =============================================================================
 sync_database_with_canton() {
     local token=$(get_oauth_token)
-    local issuer_party=$(grep "relayer_party:" "$RELAYER_CONFIG" | awk '{print $2}' | tr -d '"')
+    local issuer_party=$(grep "issuer_party:" "$RELAYER_CONFIG" | awk '{print $2}' | tr -d '"')
     
     # Use the computed fingerprints from setup_users_and_tokens (if set)
     # Otherwise compute them fresh
@@ -476,7 +476,7 @@ sync_database_with_canton() {
         com.daml.ledger.api.v2.StateService/GetLedgerEnd 2>/dev/null | jq -r '.offset // "0"')
     
     # Query CIP56Holdings (DEMO token)
-    local cip56_pkg=$(grep "cip56_package_id:" config.devnet.yaml | awk '{print $2}' | tr -d '"')
+    local cip56_pkg=$(grep "cip56_package_id:" "$API_SERVER_CONFIG" | awk '{print $2}' | tr -d '"')
     
     print_info "Querying DEMO holdings from Canton..."
     local holdings=$(grpcurl -H "Authorization: Bearer $token" -plaintext "$CANTON_GRPC" \

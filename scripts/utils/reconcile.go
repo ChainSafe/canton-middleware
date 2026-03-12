@@ -7,7 +7,7 @@
 // This updates user balances to match their actual Canton holdings.
 //
 // Usage:
-//   go run scripts/utils/reconcile.go -config config.api-server.mainnet.local.yaml
+//   go run scripts/utils/reconcile.go -config pkg/config/defaults/config.api-server.mainnet.yaml
 
 package main
 
@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	verbose    = flag.Bool("verbose", false, "Show detailed output")
 )
 
@@ -76,7 +76,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database (bun): %v\n", err)
 		os.Exit(1)

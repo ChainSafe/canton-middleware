@@ -224,7 +224,7 @@ func main() {
 
 		// Connect to database
 		fmt.Println(">>> Connecting to database...")
-		bunDB, err := pgutil.ConnectDB(&cfg.Database)
+		bunDB, err := pgutil.ConnectDB(cfg.Database)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 			os.Exit(1)

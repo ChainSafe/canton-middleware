@@ -3,7 +3,7 @@
 // initiate-withdrawal.go - Initiate a withdrawal from Canton to EVM
 //
 // Usage:
-//   go run scripts/initiate-withdrawal.go -config config.yaml \
+//   go run scripts/bridge/initiate-withdrawal.go -config pkg/config/defaults/config.api-server.docker.yaml \
 //     -holding-cid "00..." \
 //     -amount "50.0" \
 //     -evm-destination "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	iwConfigPath     = flag.String("config", "config.yaml", "Path to config file")
+	iwConfigPath     = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	iwHoldingCid     = flag.String("holding-cid", "", "Contract ID of the CIP56Holding to withdraw from")
 	iwAmount         = flag.String("amount", "", "Amount to withdraw (e.g., '50.0')")
 	iwEvmDestination = flag.String("evm-destination", "", "EVM address to receive the tokens")
@@ -65,7 +65,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(*iwConfigPath)
+	cfg, err := config.LoadAPIServer(*iwConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)

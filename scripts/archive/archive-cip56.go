@@ -6,7 +6,7 @@
 // bridge-core, common) so new contracts can be created with updated packages.
 //
 // Usage:
-//   go run scripts/archive-cip56.go -config config.devnet.yaml [-dry-run]
+//   go run scripts/archive/archive-cip56.go -config pkg/config/defaults/config.api-server.docker.yaml [-dry-run]
 //
 // Flags:
 //   -config       Path to config file (for Canton connection and auth)
@@ -99,7 +99,7 @@ var templatesByPackageType = map[string][]TemplateInfo{
 }
 
 // buildPackagesFromConfig creates the oldPackages map from config package IDs
-func buildPackagesFromConfig(cfg *config.Config, corePackageID string) map[string][]TemplateInfo {
+func buildPackagesFromConfig(cfg *config.APIServer, corePackageID string) map[string][]TemplateInfo {
 	packages := make(map[string][]TemplateInfo)
 
 	// Bridge package (bridge-wayfinder)
@@ -140,7 +140,7 @@ func splitIDs(s string) []string {
 }
 
 func main() {
-	configPath := flag.String("config", "config.devnet.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	dryRun := flag.Bool("dry-run", true, "List contracts without archiving")
 	doArchive := flag.Bool("archive", false, "Actually archive the contracts")
 	corePackageID := flag.String("core-package-id", "", "Bridge-core package ID to archive")
@@ -154,7 +154,7 @@ func main() {
 	}
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

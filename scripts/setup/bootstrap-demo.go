@@ -10,7 +10,7 @@
 // 2. Users are registered (have FingerprintMapping contracts)
 //
 // Usage:
-//   go run scripts/bootstrap-demo.go -config config.yaml \
+//   go run scripts/setup/bootstrap-demo.go -config pkg/config/defaults/config.api-server.docker.yaml \
 //     -user1-fingerprint "0x..." \
 //     -user2-fingerprint "0x..."
 //
@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
@@ -53,9 +53,8 @@ var (
 	jwtSubject  string
 )
 
-
 func main() {
-	configPath := flag.String("config", "config.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	cip56PackageID := flag.String("cip56-package-id", "", "CIP56 package ID (uses config.canton.cip56_package_id if not set)")
 	issuerFlag := flag.String("issuer", "", "Issuer party ID (optional, uses config if not specified)")
 	domainFlag := flag.String("domain", "", "Domain/synchronizer ID (optional, uses config if not specified)")
@@ -67,7 +66,7 @@ func main() {
 	flag.Parse()
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -211,7 +210,7 @@ func main() {
 	fmt.Printf("User 2 (%s): %s DEMO\n", *user2Fingerprint, *mintAmount)
 }
 
-func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, commandService lapiv2.CommandServiceClient, cfg *config.Config,
+func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, commandService lapiv2.CommandServiceClient, cfg *config.APIServer,
 	cip56PackageID, nativeConfigCid, user1Fingerprint, user2Fingerprint, user1PartyOpt, user2PartyOpt, mintAmount, issuer, domainID string) {
 
 	var user1Party, user2Party string
@@ -704,7 +703,7 @@ func createTransferFactory(ctx context.Context, client lapiv2.CommandServiceClie
 }
 
 // updateDemoBalancesInDB connects to the database and updates DEMO balances for users
-func updateDemoBalancesInDB(cfg *config.Config, user1Fingerprint, user2Fingerprint, amount string) error {
+func updateDemoBalancesInDB(cfg *config.APIServer, user1Fingerprint, user2Fingerprint, amount string) error {
 	// Build database connection string
 	// Use localhost since we're running from host machine
 	dbHost := cfg.Database.Host

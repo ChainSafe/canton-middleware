@@ -3,11 +3,10 @@
 // bridge-activity.go - Display recent Canton bridge activity in a demo-friendly format
 //
 // Usage:
-//   go run scripts/bridge-activity.go -config .test-config.yaml              # Local Docker (after test-bridge.sh)
-//   go run scripts/bridge-activity.go -config config.devnet.yaml             # 5North DevNet
-//   go run scripts/bridge-activity.go -config config.mainnet.yaml            # Mainnet
-//   go run scripts/bridge-activity.go -config .test-config.yaml -limit 10    # Limit results
-//   go run scripts/bridge-activity.go -config .test-config.yaml -lookback 500 # Custom lookback
+//   go run scripts/bridge/bridge-activity.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/bridge/bridge-activity.go -config pkg/config/defaults/config.api-server.local-devnet.yaml
+//   go run scripts/bridge/bridge-activity.go -config .test-config.yaml -limit 10
+//   go run scripts/bridge/bridge-activity.go -config .test-config.yaml -lookback 500
 //
 // For local testing:
 //   1. Run: ./scripts/test-bridge.sh (starts services and creates .test-config.yaml)
@@ -46,7 +45,7 @@ import (
 )
 
 var (
-	baConfigPath = flag.String("config", "config.yaml", "Path to config file")
+	baConfigPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	baLimit      = flag.Int("limit", 20, "Number of recent transactions to display")
 	baLookback   = flag.Int64("lookback", 100000, "Offset lookback from ledger end")
 	baDebug      = flag.Bool("debug", false, "Show debug info about all contracts found")
@@ -87,7 +86,7 @@ type HoldingInfo struct {
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*baConfigPath)
+	cfg, err := config.LoadAPIServer(*baConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
