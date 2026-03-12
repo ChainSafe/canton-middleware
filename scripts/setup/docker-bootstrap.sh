@@ -221,7 +221,7 @@ fi
 # =============================================================================
 echo ""
 echo ">>> Running bootstrap-bridge..."
-/app/bootstrap-bridge -config "$CONFIG_FILE" -issuer "$PARTY_ID" || {
+/app/bootstrap-bridge -config "$API_SERVER_CONFIG_FILE" -issuer "$PARTY_ID" || {
     echo "    [WARN] Bootstrap may have failed or contracts already exist"
 }
 
@@ -230,7 +230,7 @@ echo ">>> Running bootstrap-bridge..."
 # =============================================================================
 echo ""
 echo ">>> Running register-user..."
-/app/register-user -config "$CONFIG_FILE" -party "$PARTY_ID" || {
+/app/register-user -config "$API_SERVER_CONFIG_FILE" -party "$PARTY_ID" || {
     echo "    [WARN] User registration may have failed or user already exists"
 }
 

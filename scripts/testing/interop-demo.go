@@ -48,10 +48,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
@@ -148,8 +150,27 @@ func main() {
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}
+
+	activeDomainID, knownSynchronizers, err := resolveActiveSynchronizer(ctx, cantonClient, cfg.Canton.DomainID)
+	if err != nil {
+		_ = cantonClient.Close()
+		fatalf("Failed to resolve active Canton synchronizer: %v", err)
+	}
+	if activeDomainID != cfg.Canton.DomainID {
+		fmt.Printf("    Canton domain override: %s -> %s\n", cfg.Canton.DomainID, activeDomainID)
+		_ = cantonClient.Close()
+		cfg.Canton.DomainID = activeDomainID
+		cantonClient, err = canton.New(ctx, cfg.Canton, canton.WithLogger(logger))
+		if err != nil {
+			fatalf("Failed to reconnect to Canton with resolved domain %s: %v", activeDomainID, err)
+		}
+	}
 	defer cantonClient.Close()
+
 	fmt.Println("    Canton:    connected")
+	if len(knownSynchronizers) > 0 {
+		fmt.Printf("    Sync IDs:  %s\n", strings.Join(knownSynchronizers, ", "))
+	}
 	fmt.Println()
 
 	// Verify registered users
@@ -475,6 +496,33 @@ func showHoldings(ctx context.Context, sdk *canton.Client) {
 		}
 		fmt.Printf("    %-40s | %-6s | %s\n", trunc(h.Owner), sym, fmtBal(h.Amount))
 	}
+}
+
+func resolveActiveSynchronizer(ctx context.Context, sdk *canton.Client, configuredDomainID string) (string, []string, error) {
+	authCtx := sdk.Ledger.AuthContext(ctx)
+	resp, err := sdk.Ledger.State().GetConnectedSynchronizers(authCtx, &lapiv2.GetConnectedSynchronizersRequest{})
+	if err != nil {
+		return "", nil, err
+	}
+	if resp == nil || len(resp.GetConnectedSynchronizers()) == 0 {
+		return "", nil, fmt.Errorf("no connected synchronizers returned by Canton")
+	}
+
+	ids := make([]string, 0, len(resp.GetConnectedSynchronizers()))
+	for _, s := range resp.GetConnectedSynchronizers() {
+		if s == nil || s.GetSynchronizerId() == "" {
+			continue
+		}
+		ids = append(ids, s.GetSynchronizerId())
+	}
+	if len(ids) == 0 {
+		return "", nil, fmt.Errorf("connected synchronizers response did not include IDs")
+	}
+
+	if configuredDomainID != "" && slices.Contains(ids, configuredDomainID) {
+		return configuredDomainID, ids, nil
+	}
+	return ids[0], ids, nil
 }
 
 // ─── Auto-detection ─────────────────────────────────────────────────────────

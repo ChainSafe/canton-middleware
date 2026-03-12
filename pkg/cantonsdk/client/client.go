@@ -92,7 +92,22 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 		bridgeCfg = s.bridgeCfg
 	}
 	if bridgeCfg != nil {
-		bridgeCfg.UserID = sub
+		bridgeUserID := sub
+		if bridgeUserID == "" {
+			switch {
+			case cfg.Identity != nil && cfg.Identity.UserID != "":
+				bridgeUserID = cfg.Identity.UserID
+			case cfg.Token != nil && cfg.Token.UserID != "":
+				bridgeUserID = cfg.Token.UserID
+			default:
+				bridgeUserID, err = l.JWTSubject(ctx)
+				if err != nil {
+					_ = l.Close()
+					return nil, err
+				}
+			}
+		}
+		bridgeCfg.UserID = bridgeUserID
 		br, err = bridge.New(bridgeCfg, l, id, bridge.WithLogger(s.logger))
 		if err != nil {
 			_ = l.Close()
