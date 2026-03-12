@@ -105,13 +105,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	partyID := cfg.Canton.RelayerParty
+	partyID := cfg.Canton.IssuerParty
 	if partyID == "" {
-		fmt.Println("Error: canton.relayer_party is required in config")
+		fmt.Println("Error: canton.issuer_party is required in config")
 		os.Exit(1)
 	}
 
-	cip56Pkg := cfg.Canton.CIP56PackageID
+	cip56Pkg := cfg.Canton.Token.CIP56PackageID
 
 	if cip56Pkg == "" {
 		fmt.Println("Error: cip56_package_id is required in config")
@@ -127,7 +127,7 @@ func main() {
 	defer conn.Close()
 
 	ctx := context.Background()
-	if cfg.Canton.Auth.TokenURL != "" {
+	if cfg.Canton.Ledger.Auth != nil && cfg.Canton.Ledger.Auth.TokenURL != "" {
 		token, err := getOAuthToken(cfg)
 		if err != nil {
 			fmt.Printf("Failed to get OAuth token: %v\n", err)
@@ -152,7 +152,7 @@ func main() {
 	fmt.Println("  Canton Token Activity (DEMO + PROMPT)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	fmt.Printf("  Canton RPC:     %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Canton RPC:     %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("  Party:          %s...\n", partyID[:50])
 	fmt.Printf("  Ledger Offset:  %d\n", ledgerEnd)
 	fmt.Printf("  CIP56 Package:  %s...\n", cip56Pkg[:16])
@@ -581,7 +581,7 @@ func truncateParty(partyID string) string {
 func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -594,7 +594,7 @@ func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
 		grpc.MaxCallRecvMsgSize(maxMessageSize),
 	))
 
-	return grpc.Dial(cfg.Canton.RPCURL, opts...)
+	return grpc.Dial(cfg.Canton.Ledger.RPCURL, opts...)
 }
 
 func getOAuthToken(cfg *config.Config) (string, error) {
@@ -606,14 +606,14 @@ func getOAuthToken(cfg *config.Config) (string, error) {
 	}
 
 	payload := map[string]string{
-		"client_id":     cfg.Canton.Auth.ClientID,
-		"client_secret": cfg.Canton.Auth.ClientSecret,
-		"audience":      cfg.Canton.Auth.Audience,
+		"client_id":     cfg.Canton.Ledger.Auth.ClientID,
+		"client_secret": cfg.Canton.Ledger.Auth.ClientSecret,
+		"audience":      cfg.Canton.Ledger.Auth.Audience,
 		"grant_type":    "client_credentials",
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(cfg.Canton.Auth.TokenURL, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(cfg.Canton.Ledger.Auth.TokenURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

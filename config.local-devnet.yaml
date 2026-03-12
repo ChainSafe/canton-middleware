@@ -25,32 +25,32 @@ ethereum:
   lookback_blocks: 200
 
 canton:
-  rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
-  ledger_id: ""
   domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
-  application_id: "canton-middleware"
-  relayer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+  issuer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
 
-  # v2.0.0 packages (uploaded 2026-03-05)
-  bridge_package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
-  core_package_id: "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
-  cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
-  common_package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
-  splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
-  splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
-  bridge_module: "Wayfinder.Bridge"
-  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  ledger:
+    rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+      token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
 
-  tls:
-    enabled: false
+  identity:
+    # v2.0.0 packages (uploaded 2026-03-05)
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
 
-  auth:
-    client_id: "${CANTON_AUTH_CLIENT_ID}"
-    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
-    audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
-    token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 
-  polling_interval: "5s"
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
 
 bridge:
   max_transfer_amount: "1000000000000000000000"
@@ -59,6 +59,9 @@ bridge:
   max_retries: 3
   retry_delay: "10s"
   processing_interval: "5s"
+  canton_chain_id: ""
+  canton_start_block: 0
+  canton_lookback_blocks: 100
 
 monitoring:
   enabled: true
@@ -69,4 +72,3 @@ logging:
   level: "debug"
   format: "console"
   output_path: "stdout"
-

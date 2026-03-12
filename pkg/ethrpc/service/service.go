@@ -8,7 +8,6 @@ import (
 	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/token"
@@ -69,7 +68,7 @@ type Service interface {
 
 // ethService is the concrete implementation of Service.
 type ethService struct {
-	cfg          config.EthRPCConfig
+	cfg          ethrpc.Config
 	store        Store
 	tokenService TokenService
 	chainID      *big.Int
@@ -89,7 +88,7 @@ const (
 
 // NewService creates a new ethService.
 func NewService(
-	cfg *config.EthRPCConfig,
+	cfg *ethrpc.Config,
 	evmStore Store,
 	tokenSvc TokenService,
 ) Service {

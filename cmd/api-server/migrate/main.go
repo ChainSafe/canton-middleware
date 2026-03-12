@@ -24,7 +24,7 @@ func main() {
 	}
 
 	// Connect to database
-	db, err := pgutil.ConnectDB(&cfg.Database)
+	db, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		log.Fatalf("error connecting to database: %s", err.Error())
 	}

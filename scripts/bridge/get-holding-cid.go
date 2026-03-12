@@ -53,9 +53,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	partyID := cfg.Canton.RelayerParty
+	partyID := cfg.Canton.IssuerParty
 	if partyID == "" {
-		fmt.Fprintf(os.Stderr, "Error: canton.relayer_party is required\n")
+		fmt.Fprintf(os.Stderr, "Error: canton.issuer_party is required\n")
 		os.Exit(1)
 	}
 
@@ -70,7 +70,7 @@ func main() {
 	}
 
 	// Connect to Canton
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cfg.Canton.Ledger.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect: %v\n", err)
 		os.Exit(1)
@@ -192,11 +192,11 @@ func main() {
 
 func getOAuthToken(cfg *config.Config) (string, error) {
 	data := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=%s&audience=%s",
-		cfg.Canton.Auth.ClientID,
-		cfg.Canton.Auth.ClientSecret,
-		cfg.Canton.Auth.Audience)
+		cfg.Canton.Ledger.Auth.ClientID,
+		cfg.Canton.Ledger.Auth.ClientSecret,
+		cfg.Canton.Ledger.Auth.Audience)
 
-	resp, err := http.Post(cfg.Canton.Auth.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
+	resp, err := http.Post(cfg.Canton.Ledger.Auth.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
 	if err != nil {
 		return "", err
 	}

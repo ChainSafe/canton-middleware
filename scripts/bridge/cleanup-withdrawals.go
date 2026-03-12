@@ -30,6 +30,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -40,9 +41,10 @@ import (
 )
 
 var (
-	cwConfigPath = flag.String("config", "config.devnet.yaml", "Path to config file")
-	cwDryRun     = flag.Bool("dry-run", true, "List pending withdrawals without completing them")
-	cwForce      = flag.Bool("force", false, "Actually complete the withdrawals")
+	cwConfigPath    = flag.String("config", "config.devnet.yaml", "Path to config file")
+	cwDryRun        = flag.Bool("dry-run", true, "List pending withdrawals without completing them")
+	cwForce         = flag.Bool("force", false, "Actually complete the withdrawals")
+	cwCorePackageID = flag.String("core-package-id", "", "Bridge-core package ID for WithdrawalEvent completion")
 )
 
 var (
@@ -84,12 +86,12 @@ func main() {
 		fmt.Println("MODE: EXECUTING - Will mark withdrawals as complete!")
 	}
 	fmt.Printf("Config: %s\n", *cwConfigPath)
-	fmt.Printf("Party: %s\n", cfg.Canton.RelayerParty)
+	fmt.Printf("Party: %s\n", cfg.Canton.IssuerParty)
 
 	ctx := context.Background()
 
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -99,7 +101,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -110,7 +112,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	ctx, err = cwGetAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = cwGetAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		fmt.Printf("Failed to get auth context: %v\n", err)
 		os.Exit(1)
@@ -132,7 +134,7 @@ func main() {
 	fmt.Printf("Ledger offset: %d\n\n", ledgerEndResp.Offset)
 
 	fmt.Println(">>> Querying pending WithdrawalEvent contracts...")
-	withdrawals, err := cwQueryPendingWithdrawals(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset)
+	withdrawals, err := cwQueryPendingWithdrawals(ctx, stateClient, cfg.Canton.IssuerParty, ledgerEndResp.Offset)
 	if err != nil {
 		fmt.Printf("Failed to query withdrawals: %v\n", err)
 		os.Exit(1)
@@ -170,7 +172,7 @@ func main() {
 	domainID := cfg.Canton.DomainID
 	if domainID == "" {
 		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-			Party: cfg.Canton.RelayerParty,
+			Party: cfg.Canton.IssuerParty,
 		})
 		if err != nil {
 			fmt.Printf("Failed to get domain ID: %v\n", err)
@@ -194,8 +196,8 @@ func main() {
 		err := cwCompleteWithdrawal(
 			ctx,
 			cmdClient,
-			cfg.Canton.RelayerParty,
-			cfg.Canton.CorePackageID,
+			cfg.Canton.IssuerParty,
+			*cwCorePackageID,
 			domainID,
 			w.ContractID,
 			cleanupTxHash,
@@ -222,8 +224,8 @@ func main() {
 	}
 }
 
-func cwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func cwGetAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
 	}
 
@@ -236,7 +238,7 @@ func cwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Con
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func cwGetOAuthToken(auth *config.AuthConfig) (string, error) {
+func cwGetOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	cwTokenMu.Lock()
 	defer cwTokenMu.Unlock()
 

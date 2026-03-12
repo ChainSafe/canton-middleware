@@ -30,6 +30,7 @@ import (
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
+	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -50,19 +51,19 @@ func main() {
 		fatalf("Failed to load config: %v", err)
 	}
 
-	issuer := cfg.Canton.RelayerParty
+	issuer := cfg.Canton.IssuerParty
 	if issuer == "" {
-		fatalf("canton.relayer_party is required in config")
+		fatalf("canton.issuer_party is required in config")
 	}
-	cip56Pkg := cfg.Canton.CIP56PackageID
+	cip56Pkg := cfg.Canton.Token.CIP56PackageID
 	if cip56Pkg == "" {
-		fatalf("canton.cip56_package_id is required in config")
+		fatalf("canton.token.cip56_package_id is required in config")
 	}
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Canton Loop Integration Data")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Printf("  Canton:  %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Canton:  %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("  Issuer:  %s\n", issuer)
 	if *partyID != "" {
 		fmt.Printf("  Party:   %s\n", *partyID)
@@ -78,7 +79,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	ctx, _, err = authContext(ctx, &cfg.Canton)
+	ctx, _, err = authContext(ctx, cfg.Canton)
 	if err != nil {
 		fatalf("Failed to get auth token: %v", err)
 	}
@@ -138,10 +139,10 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  4. Package IDs")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Printf("  cip56_package_id:           %s\n", cfg.Canton.CIP56PackageID)
-	fmt.Printf("  splice_transfer_package_id: %s\n", cfg.Canton.SpliceTransferPackageID)
-	fmt.Printf("  common_package_id:         %s\n", cfg.Canton.CommonPackageID)
-	fmt.Printf("  bridge_package_id:         %s\n", cfg.Canton.BridgePackageID)
+	fmt.Printf("  cip56_package_id:           %s\n", cfg.Canton.Token.CIP56PackageID)
+	fmt.Printf("  splice_transfer_package_id: %s\n", cfg.Canton.Token.SpliceTransferPackageID)
+	fmt.Printf("  common_package_id:         %s\n", cfg.Canton.Identity.PackageID)
+	fmt.Printf("  bridge_package_id:         %s\n", cfg.Canton.Bridge.PackageID)
 	fmt.Println()
 
 	// === JSON summary for easy sharing ===
@@ -155,8 +156,8 @@ func main() {
 			"id":    instrumentID,
 		},
 		"package_ids": map[string]string{
-			"cip56":           cfg.Canton.CIP56PackageID,
-			"splice_transfer": cfg.Canton.SpliceTransferPackageID,
+			"cip56":           cfg.Canton.Token.CIP56PackageID,
+			"splice_transfer": cfg.Canton.Token.SpliceTransferPackageID,
 		},
 	}
 
@@ -312,7 +313,7 @@ func getHoldings(ctx context.Context, client lapiv2.StateServiceClient, issuer, 
 
 func dialCanton(cfg *config.APIServerConfig) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true, //nolint:gosec // devnet testing
 		}
@@ -320,31 +321,31 @@ func dialCanton(cfg *config.APIServerConfig) (*grpc.ClientConn, error) {
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
-	if cfg.Canton.MaxMessageSize > 0 {
-		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.Canton.MaxMessageSize)))
+	if cfg.Canton.Ledger.MaxMessageSize > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.Canton.Ledger.MaxMessageSize)))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
 	return grpc.NewClient(target, opts...)
 }
 
-func authContext(ctx context.Context, canton *config.CantonConfig) (context.Context, string, error) {
-	if canton.Auth.ClientID == "" {
+func authContext(ctx context.Context, canton *cantonclient.Config) (context.Context, string, error) {
+	if canton.Ledger.Auth == nil || canton.Ledger.Auth.ClientID == "" {
 		return ctx, "", nil
 	}
 
 	payload := map[string]string{
-		"client_id":     canton.Auth.ClientID,
-		"client_secret": canton.Auth.ClientSecret,
-		"audience":      canton.Auth.Audience,
+		"client_id":     canton.Ledger.Auth.ClientID,
+		"client_secret": canton.Ledger.Auth.ClientSecret,
+		"audience":      canton.Ledger.Auth.Audience,
 		"grant_type":    "client_credentials",
 	}
 	body, _ := json.Marshal(payload)
 
-	resp, err := http.Post(canton.Auth.TokenURL, "application/json", bytes.NewBuffer(body))
+	resp, err := http.Post(canton.Ledger.Auth.TokenURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return nil, "", fmt.Errorf("token request: %w", err)
 	}

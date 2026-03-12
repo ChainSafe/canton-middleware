@@ -9,8 +9,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uptrace/bun"
-
-	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // SetupTestDB creates a PostgreSQL testcontainer and returns a connection
@@ -48,7 +46,7 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 	}
 
 	// Create database config
-	cfg := &config.DatabaseConfig{
+	cfg := &DatabaseConfig{
 		Host:     host,
 		Port:     port.Int(),
 		User:     "test_user",

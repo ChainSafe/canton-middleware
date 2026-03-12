@@ -6,7 +6,6 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 )
 
@@ -30,7 +29,7 @@ func TestConnectDB_Success(t *testing.T) {
 }
 
 func TestConnectDB_InvalidHost(t *testing.T) {
-	cfg := &config.DatabaseConfig{
+	cfg := &pgutil.DatabaseConfig{
 		Host:     "invalid-host-that-does-not-exist",
 		Port:     5432,
 		User:     "test",

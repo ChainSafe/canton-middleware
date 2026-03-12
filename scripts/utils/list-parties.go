@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Determine network
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Known Parties - %s\n", networkName)
@@ -58,7 +58,7 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  [daml-autopilot] (Relayer/Issuer)\n")
-	fmt.Printf("    %s\n", cfg.Canton.RelayerParty)
+	fmt.Printf("    %s\n", cfg.Canton.IssuerParty)
 	fmt.Println()
 
 	// Connect to database
@@ -127,7 +127,7 @@ func main() {
 
 		// Connect to Canton
 		fmt.Println(">>> Connecting to Canton (this may take a while on mainnet)...")
-		cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+		cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 		if err != nil {
 			fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 			os.Exit(1)

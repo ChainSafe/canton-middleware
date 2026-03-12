@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service/mocks"
@@ -20,8 +19,8 @@ import (
 )
 
 // defaultCfg returns a minimal EthRPCConfig suitable for unit tests.
-func defaultCfg() *config.EthRPCConfig {
-	return &config.EthRPCConfig{
+func defaultCfg() *ethrpc.Config {
+	return &ethrpc.Config{
 		ChainID:          31337,
 		GasPriceWei:      "1000000000",
 		GasLimit:         21000,
@@ -31,7 +30,7 @@ func defaultCfg() *config.EthRPCConfig {
 }
 
 // newSvc creates a real ethService backed by the supplied (possibly nil) dependencies.
-func newSvc(t *testing.T, cfg *config.EthRPCConfig, store service.Store, tokenSvc service.TokenService) service.Service {
+func newSvc(t *testing.T, cfg *ethrpc.Config, store service.Store, tokenSvc service.TokenService) service.Service {
 	t.Helper()
 	return service.NewService(cfg, store, tokenSvc)
 }

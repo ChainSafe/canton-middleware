@@ -144,7 +144,7 @@ func main() {
 	fmt.Println("    Database:  connected")
 
 	// Connect to Canton
-	cantonClient, err := canton.NewFromAppConfig(ctx, &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(ctx, cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}

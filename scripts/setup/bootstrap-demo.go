@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/golang-jwt/jwt/v5"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
@@ -72,8 +73,8 @@ func main() {
 	}
 
 	// Get package IDs - TokenConfig is now in cip56-token package
-	if *cip56PackageID == "" {
-		*cip56PackageID = cfg.Canton.CIP56PackageID
+	if *cip56PackageID == "" && cfg.Canton.Token != nil {
+		*cip56PackageID = cfg.Canton.Token.CIP56PackageID
 	}
 	if *cip56PackageID == "" {
 		log.Fatal("cip56_package_id is required in config or via -cip56-package-id flag")
@@ -82,10 +83,10 @@ func main() {
 	// Get issuer party (prefer flag over config)
 	issuer := *issuerFlag
 	if issuer == "" {
-		issuer = cfg.Canton.RelayerParty
+		issuer = cfg.Canton.IssuerParty
 	}
 	if issuer == "" {
-		log.Fatal("issuer is required (set via -issuer flag or config.canton.relayer_party)")
+		log.Fatal("issuer is required (set via -issuer flag or config.canton.issuer_party)")
 	}
 
 	// Get domain ID (prefer flag over config)
@@ -106,7 +107,7 @@ func main() {
 
 	// Connect to Canton
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true, //nolint:gosec // for testing only
 		}
@@ -115,7 +116,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -126,7 +127,7 @@ func main() {
 	defer conn.Close()
 
 	// Get auth context
-	ctx, err = getAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = getAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		log.Fatalf("Failed to get auth context: %v", err)
 	}
@@ -134,7 +135,7 @@ func main() {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println("DEMO TOKEN BOOTSTRAP")
 	fmt.Println("=" + strings.Repeat("=", 69))
-	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("Canton RPC: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("Issuer:     %s\n", issuer)
 	fmt.Printf("CIP56 Package:  %s\n", *cip56PackageID)
 	fmt.Printf("Mint Amount: %s DEMO per user\n", *mintAmount)
@@ -221,8 +222,12 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 		user1Party = user1PartyOpt
 		fmt.Println("    Using provided User 1 party ID (DEMO-only mode)")
 	} else {
+		bridgePkgID := ""
+		if cfg.Canton.Bridge != nil {
+			bridgePkgID = cfg.Canton.Bridge.PackageID
+		}
 		user1Party, err = getUserParty(ctx, stateService,
-			cfg.Canton.BridgePackageID, issuer, user1Fingerprint)
+			bridgePkgID, issuer, user1Fingerprint)
 		if err != nil {
 			log.Fatalf("Failed to get User 1 party: %v (make sure user is registered or provide -user1-party flag for DEMO-only mode)", err)
 		}
@@ -232,8 +237,12 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 		user2Party = user2PartyOpt
 		fmt.Println("    Using provided User 2 party ID (DEMO-only mode)")
 	} else {
+		bridgePkgID := ""
+		if cfg.Canton.Bridge != nil {
+			bridgePkgID = cfg.Canton.Bridge.PackageID
+		}
 		user2Party, err = getUserParty(ctx, stateService,
-			cfg.Canton.BridgePackageID, issuer, user2Fingerprint)
+			bridgePkgID, issuer, user2Fingerprint)
 		if err != nil {
 			log.Fatalf("Failed to get User 2 party: %v (make sure user is registered or provide -user2-party flag for DEMO-only mode)", err)
 		}
@@ -262,8 +271,8 @@ func mintToUsers(ctx context.Context, stateService lapiv2.StateServiceClient, co
 	fmt.Println()
 }
 
-func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func getAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		// No auth configured, return context as-is (local Canton)
 		return ctx, nil
 	}
@@ -277,7 +286,7 @@ func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Conte
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func getOAuthToken(auth *config.AuthConfig) (string, error) {
+func getOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 

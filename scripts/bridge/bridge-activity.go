@@ -36,6 +36,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
@@ -92,9 +93,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	partyID := cfg.Canton.RelayerParty
+	partyID := cfg.Canton.IssuerParty
 	if partyID == "" {
-		fmt.Println("Error: canton.relayer_party is required in config")
+		fmt.Println("Error: canton.issuer_party is required in config")
 		os.Exit(1)
 	}
 
@@ -103,7 +104,7 @@ func main() {
 
 	// Connect to Canton
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -113,7 +114,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -125,7 +126,7 @@ func main() {
 	defer conn.Close()
 
 	// Set up authentication
-	ctx, err = baGetAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = baGetAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		fmt.Printf("Failed to get auth context: %v\n", err)
 		os.Exit(1)
@@ -153,7 +154,7 @@ func main() {
 	}
 
 	// Print header
-	printHeader(cfg.Canton.RPCURL, partyID, ledgerEndResp.Offset)
+	printHeader(cfg.Canton.Ledger.RPCURL, partyID, ledgerEndResp.Offset)
 
 	// Query all raw Canton events
 	events, err := queryRawEvents(ctx, updateClient, partyID, startOffset, ledgerEndResp.Offset, *baLimit, *baDebug)
@@ -508,9 +509,9 @@ func queryHoldings(ctx context.Context, client lapiv2.StateServiceClient, party 
 }
 
 // Auth helpers
-func baGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
+func baGetAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
 	// Try OAuth2 first
-	if auth.ClientID != "" && auth.ClientSecret != "" && auth.Audience != "" && auth.TokenURL != "" {
+	if auth != nil && auth.ClientID != "" && auth.ClientSecret != "" && auth.Audience != "" && auth.TokenURL != "" {
 		token, err := baGetOAuthToken(auth)
 		if err != nil {
 			return nil, err
@@ -519,21 +520,10 @@ func baGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Con
 		return metadata.NewOutgoingContext(ctx, md), nil
 	}
 
-	// Fall back to token file
-	if auth.TokenFile != "" {
-		tokenBytes, err := os.ReadFile(auth.TokenFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read token file: %w", err)
-		}
-		authToken := strings.TrimSpace(string(tokenBytes))
-		md := metadata.Pairs("authorization", "Bearer "+authToken)
-		return metadata.NewOutgoingContext(ctx, md), nil
-	}
-
 	return ctx, nil
 }
 
-func baGetOAuthToken(auth *config.AuthConfig) (string, error) {
+func baGetOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	baTokenMu.Lock()
 	defer baTokenMu.Unlock()
 

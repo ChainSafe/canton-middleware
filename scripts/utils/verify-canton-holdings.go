@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// Determine network from config
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Canton Holdings Verification - %s\n", networkName)
@@ -61,7 +61,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("  Config:    %s\n", *configPath)
 	fmt.Printf("  Network:   %s\n", networkName)
-	fmt.Printf("  Endpoint:  %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Endpoint:  %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("  Domain:    %s\n", truncateDomain(cfg.Canton.DomainID))
 	fmt.Println()
 
@@ -72,7 +72,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)

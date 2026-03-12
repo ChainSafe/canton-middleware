@@ -42,7 +42,7 @@ type Transfer struct {
 	Sender            string            `json:"sender"`
 	Recipient         string            `json:"recipient"`
 	Nonce             int64             `json:"nonce"`
-	SourceBlockNumber int64             `json:"source_block_number"`
+	SourceBlockNumber uint64            `json:"source_block_number"`
 	RetryCount        int               `json:"retry_count"`
 	CreatedAt         time.Time         `json:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at"`
@@ -53,7 +53,7 @@ type Transfer struct {
 // ChainState tracks the last processed offset for a chain.
 type ChainState struct {
 	ChainID   string
-	LastBlock int64  // numeric block/offset; 0 for Canton
+	LastBlock uint64 // numeric block/offset; 0 for Canton
 	Offset    string // string representation of the offset (block hash or ledger offset)
 	UpdatedAt time.Time
 }
@@ -73,15 +73,5 @@ type Event struct {
 	Sender            string
 	Recipient         string
 	Nonce             int64
-	SourceBlockNumber int64
-}
-
-// BridgeConfig contains bridge operation settings
-type BridgeConfig struct {
-	MaxTransferAmount  string        `yaml:"max_transfer_amount"`
-	MinTransferAmount  string        `yaml:"min_transfer_amount"`
-	RateLimitPerHour   int           `yaml:"rate_limit_per_hour"`
-	MaxRetries         int           `yaml:"max_retries"`
-	RetryDelay         time.Duration `yaml:"retry_delay"`
-	ProcessingInterval time.Duration `yaml:"processing_interval"`
+	SourceBlockNumber uint64
 }

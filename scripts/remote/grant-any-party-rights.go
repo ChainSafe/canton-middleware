@@ -30,6 +30,7 @@ import (
 	"time"
 
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
+	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -56,12 +57,12 @@ func main() {
 		fatalf("Failed to load config: %v", err)
 	}
 
-	fmt.Printf(">>> Canton endpoint: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf(">>> Canton endpoint: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Println()
 
 	// Get OAuth token
 	fmt.Println(">>> Fetching OAuth token...")
-	token, sub, err := getOAuthToken(&cfg.Canton)
+	token, sub, err := getOAuthToken(cfg.Canton)
 	if err != nil {
 		fatalf("Failed to get OAuth token: %v", err)
 	}
@@ -78,7 +79,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -227,16 +228,16 @@ func main() {
 	fmt.Println()
 }
 
-func getOAuthToken(cfg *config.CantonConfig) (token string, subject string, err error) {
+func getOAuthToken(cfg *cantonclient.Config) (token string, subject string, err error) {
 	payload := map[string]string{
-		"client_id":     cfg.Auth.ClientID,
-		"client_secret": cfg.Auth.ClientSecret,
-		"audience":      cfg.Auth.Audience,
+		"client_id":     cfg.Ledger.Auth.ClientID,
+		"client_secret": cfg.Ledger.Auth.ClientSecret,
+		"audience":      cfg.Ledger.Auth.Audience,
 		"grant_type":    "client_credentials",
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	resp, err := http.Post(cfg.Auth.TokenURL, "application/json", bytes.NewBuffer(bodyBytes))
+	resp, err := http.Post(cfg.Ledger.Auth.TokenURL, "application/json", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", "", fmt.Errorf("token request failed: %w", err)
 	}

@@ -65,29 +65,31 @@ ethereum:
 
 # Canton config (required by config.Load validation and bootstrap-demo.go)
 canton:
-  rpc_url: "localhost:5011"
-  ledger_id: "canton-ledger-id"
-  domain_id: "local::1220848ab7d9d164f43162097753a16635ae82a82c78a217895b81157a5ce3e66caf"  # Auto-detected by bootstrap
-  application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"  # Auto-detected by bootstrap
-  bridge_package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
-  common_package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
-  core_package_id: "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
-  cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
-  splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
-  splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
-  instrument_admin: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"  # Set by bootstrap (same as relayer_party)
-  instrument_id: "PROMPT"
-  bridge_module: "Wayfinder.Bridge"
-  bridge_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-  tls:
-    enabled: false
-  auth:
-    client_id: "local-test-client"
-    client_secret: "local-test-secret"
-    audience: "http://canton:5011"
-    token_url: "http://localhost:8088/oauth/token"
-  polling_interval: "1s"
+  domain_id: "local::1220848ab7d9d164f43162097753a16635ae82a82c78a217895b81157a5ce3e66caf"
+  issuer_party: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
+
+  ledger:
+    rpc_url: "localhost:5011"
+    ledger_id: "canton-ledger-id"
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+    auth:
+      client_id: "local-test-client"
+      client_secret: "local-test-secret"
+      audience: "http://canton:5011"
+      token_url: "http://localhost:8088/oauth/token"
+
+  identity:
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
 
 # Bridge config
 bridge:
@@ -97,6 +99,9 @@ bridge:
   max_retries: 3
   retry_delay: "10s"
   processing_interval: "5s"
+  canton_chain_id: ""
+  canton_start_block: 0
+  canton_lookback_blocks: 100
 
 # =============================================================================
 # Test-specific settings

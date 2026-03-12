@@ -43,7 +43,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Balance Reconciliation - %s\n", networkName)
@@ -66,7 +66,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)

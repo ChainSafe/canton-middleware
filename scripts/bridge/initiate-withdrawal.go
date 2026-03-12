@@ -25,6 +25,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ var (
 	iwHoldingCid     = flag.String("holding-cid", "", "Contract ID of the CIP56Holding to withdraw from")
 	iwAmount         = flag.String("amount", "", "Amount to withdraw (e.g., '50.0')")
 	iwEvmDestination = flag.String("evm-destination", "", "EVM address to receive the tokens")
+	iwCorePackageID  = flag.String("core-package-id", "", "Bridge-core package ID for WithdrawalRequest processing")
 )
 
 var (
@@ -75,13 +77,13 @@ func main() {
 	fmt.Printf("Holding CID:     %s\n", *iwHoldingCid)
 	fmt.Printf("Amount:          %s\n", *iwAmount)
 	fmt.Printf("EVM Destination: %s\n", *iwEvmDestination)
-	fmt.Printf("Relayer Party:   %s\n", cfg.Canton.RelayerParty)
+	fmt.Printf("Relayer Party:   %s\n", cfg.Canton.IssuerParty)
 	fmt.Println()
 
 	ctx := context.Background()
 
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -91,7 +93,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -102,7 +104,7 @@ func main() {
 	}
 	defer conn.Close()
 
-	ctx, err = iwGetAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = iwGetAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		fmt.Printf("Failed to get auth context: %v\n", err)
 		os.Exit(1)
@@ -123,7 +125,11 @@ func main() {
 	}
 
 	fmt.Println(">>> Finding WayfinderBridgeConfig...")
-	configCid, err := iwFindBridgeConfig(ctx, stateClient, cfg.Canton.RelayerParty, cfg.Canton.BridgePackageID, ledgerEndResp.Offset)
+	bridgePkgID := ""
+	if cfg.Canton.Bridge != nil {
+		bridgePkgID = cfg.Canton.Bridge.PackageID
+	}
+	configCid, err := iwFindBridgeConfig(ctx, stateClient, cfg.Canton.IssuerParty, bridgePkgID, ledgerEndResp.Offset)
 	if err != nil {
 		fmt.Printf("Failed to find WayfinderBridgeConfig: %v\n", err)
 		os.Exit(1)
@@ -131,7 +137,7 @@ func main() {
 	fmt.Printf("    Config CID: %s\n\n", configCid)
 
 	fmt.Println(">>> Finding holding owner and FingerprintMapping...")
-	owner, err := iwGetHoldingOwner(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset, *iwHoldingCid)
+	owner, err := iwGetHoldingOwner(ctx, stateClient, cfg.Canton.IssuerParty, ledgerEndResp.Offset, *iwHoldingCid)
 	if err != nil {
 		fmt.Printf("Failed to get holding owner: %v\n", err)
 		os.Exit(1)
@@ -139,7 +145,7 @@ func main() {
 	fmt.Printf("    Holding Owner: %s\n", owner)
 
 	// Look up FingerprintMapping by canton party (owner), not by fingerprint extracted from party ID
-	mappingCid, err := iwFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, ledgerEndResp.Offset, owner)
+	mappingCid, err := iwFindFingerprintMapping(ctx, stateClient, cfg.Canton.IssuerParty, ledgerEndResp.Offset, owner)
 	if err != nil {
 		fmt.Printf("Failed to find FingerprintMapping: %v\n", err)
 		fmt.Println("\nUser must be registered first. Run:")
@@ -152,7 +158,7 @@ func main() {
 	domainID := cfg.Canton.DomainID
 	if domainID == "" {
 		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-			Party: cfg.Canton.RelayerParty,
+			Party: cfg.Canton.IssuerParty,
 		})
 		if err != nil {
 			fmt.Printf("Failed to get domain ID: %v\n", err)
@@ -170,8 +176,8 @@ func main() {
 	withdrawalRequestCid, err := iwInitiateWithdrawal(
 		ctx,
 		cmdClient,
-		cfg.Canton.RelayerParty,
-		cfg.Canton.BridgePackageID,
+		cfg.Canton.IssuerParty,
+		bridgePkgID,
 		domainID,
 		configCid,
 		mappingCid,
@@ -189,8 +195,8 @@ func main() {
 	withdrawalEventCid, err := iwProcessWithdrawal(
 		ctx,
 		cmdClient,
-		cfg.Canton.RelayerParty,
-		cfg.Canton.CorePackageID,
+		cfg.Canton.IssuerParty,
+		*iwCorePackageID,
 		domainID,
 		withdrawalRequestCid,
 	)
@@ -211,8 +217,8 @@ func main() {
 	fmt.Println("Monitor the relayer logs to see progress.")
 }
 
-func iwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func iwGetAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
 	}
 
@@ -225,7 +231,7 @@ func iwGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Con
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func iwGetOAuthToken(auth *config.AuthConfig) (string, error) {
+func iwGetOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	iwTokenMu.Lock()
 	defer iwTokenMu.Unlock()
 

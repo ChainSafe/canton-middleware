@@ -14,6 +14,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
+	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	relayerengine "github.com/chainsafe/canton-middleware/pkg/relayer/engine"
 	relayersvc "github.com/chainsafe/canton-middleware/pkg/relayer/service"
@@ -29,11 +30,11 @@ const defaultHTTPMiddlewareTimeout = 60 * time.Second
 
 // Server holds configuration for the relayer process.
 type Server struct {
-	cfg *config.Config
+	cfg *config.RelayerServer
 }
 
 // NewServer initializes a new relayer Server.
-func NewServer(cfg *config.Config) *Server {
+func NewServer(cfg *config.RelayerServer) *Server {
 	return &Server{cfg: cfg}
 }
 
@@ -48,7 +49,7 @@ func (s *Server) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger, err := config.NewLogger(cfg.Logging)
+	logger, err := log.NewLogger(cfg.Logging)
 	if err != nil {
 		return fmt.Errorf("create logger: %w", err)
 	}
@@ -56,7 +57,7 @@ func (s *Server) Run() error {
 
 	logger.Info("Starting Canton-Ethereum Bridge Relayer")
 
-	db, err := pgutil.ConnectDB(&cfg.Database)
+	db, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		return fmt.Errorf("connect relayer db: %w", err)
 	}
@@ -65,19 +66,19 @@ func (s *Server) Run() error {
 
 	store := relayerstore.NewStore(db)
 
-	cantonClient, err := canton.NewFromAppConfig(ctx, &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(ctx, cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		return fmt.Errorf("initialize canton client: %w", err)
 	}
 	defer func() { _ = cantonClient.Close() }()
 
-	ethClient, err := ethereum.NewClient(&cfg.Ethereum, logger)
+	ethClient, err := ethereum.NewClient(cfg.Ethereum, logger)
 	if err != nil {
 		return fmt.Errorf("initialize ethereum client: %w", err)
 	}
 	ethClient.Close()
 
-	engine := relayerengine.NewEngine(cfg, cantonClient.Bridge, ethClient, store, logger)
+	engine := relayerengine.NewEngine(cfg.Bridge, cantonClient.Bridge, ethClient, store, logger)
 
 	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
@@ -86,7 +87,7 @@ func (s *Server) Run() error {
 
 	router := s.newRouter(store, engine, logger)
 
-	return apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
+	return apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 }
 
 func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {

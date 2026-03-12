@@ -62,14 +62,14 @@ func main() {
 	}
 
 	// Determine network
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Native Canton Transfer - %s\n", networkName)
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  Network:  %s\n", networkName)
-	fmt.Printf("  Endpoint: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Endpoint: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Println()
 	fmt.Println("  Transfer Details:")
 	fmt.Printf("    From:   %s\n", truncateParty(*fromParty))
@@ -89,7 +89,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)

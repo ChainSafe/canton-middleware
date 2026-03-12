@@ -12,12 +12,11 @@ import (
 	"go.uber.org/zap"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	relayermocks "github.com/chainsafe/canton-middleware/pkg/relayer/engine/mocks"
 )
 
-func newReconciliationEngine(cfg *config.Config, store BridgeStore) *Engine {
+func newReconciliationEngine(cfg *relayer.Config, store BridgeStore) *Engine {
 	return &Engine{
 		config: cfg,
 		store:  store,
@@ -26,7 +25,7 @@ func newReconciliationEngine(cfg *config.Config, store BridgeStore) *Engine {
 }
 
 func TestEngine_IsReady_InitiallyFalse(t *testing.T) {
-	engine := NewEngine(&config.Config{}, nil, nil, nil, zap.NewNop())
+	engine := NewEngine(&relayer.Config{}, nil, nil, nil, zap.NewNop())
 	if engine.IsReady() {
 		t.Fatalf("engine should not be ready initially")
 	}
@@ -37,7 +36,7 @@ func TestEngine_Start_ReturnsLoadOffsetError(t *testing.T) {
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).Return(nil, errors.New("db down")).Once()
 
-	engine := NewEngine(&config.Config{}, relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, zap.NewNop())
+	engine := NewEngine(&relayer.Config{}, relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, zap.NewNop())
 	err := engine.Start(ctx)
 	if err == nil || !strings.Contains(err.Error(), "failed to load offsets") {
 		t.Fatalf("expected load offsets error, got %v", err)
@@ -46,7 +45,7 @@ func TestEngine_Start_ReturnsLoadOffsetError(t *testing.T) {
 
 func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
+	cfg := &relayer.Config{}
 
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).
@@ -57,7 +56,7 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	cantonClient := relayermocks.NewCantonBridge(t)
 	cantonEvents := make(chan *canton.WithdrawalEvent)
 	close(cantonEvents)
-	cantonClient.EXPECT().StreamWithdrawalEvents(mock.Anything, "10").Return((<-chan *canton.WithdrawalEvent)(cantonEvents)).Maybe()
+	cantonClient.EXPECT().StreamWithdrawalEvents(mock.Anything, "10").Return(cantonEvents).Maybe()
 	cantonClient.EXPECT().GetLatestLedgerOffset(mock.Anything).Return(int64(100), nil).Maybe()
 
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
@@ -78,7 +77,7 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 
 func TestEngine_Start_RestartsCantonProcessorOnUnexpectedStreamClose(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
+	cfg := &relayer.Config{}
 
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).
@@ -129,7 +128,7 @@ func TestEngine_RunReconciliation_CantonPendingQueryError(t *testing.T) {
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetPendingTransfers(ctx, relayer.DirectionCantonToEthereum).Return(nil, errors.New("boom")).Once()
 
-	engine := newReconciliationEngine(&config.Config{}, store)
+	engine := newReconciliationEngine(&relayer.Config{}, store)
 	err := engine.runReconciliation(ctx)
 	if err == nil || !strings.Contains(err.Error(), "get pending canton transfers") {
 		t.Fatalf("expected canton pending query error, got %v", err)
@@ -142,7 +141,7 @@ func TestEngine_RunReconciliation_EthereumPendingQueryError(t *testing.T) {
 	store.EXPECT().GetPendingTransfers(ctx, relayer.DirectionCantonToEthereum).Return([]*relayer.Transfer{}, nil).Once()
 	store.EXPECT().GetPendingTransfers(ctx, relayer.DirectionEthereumToCanton).Return(nil, errors.New("boom")).Once()
 
-	engine := newReconciliationEngine(&config.Config{}, store)
+	engine := newReconciliationEngine(&relayer.Config{}, store)
 	err := engine.runReconciliation(ctx)
 	if err == nil || !strings.Contains(err.Error(), "get pending ethereum transfers") {
 		t.Fatalf("expected ethereum pending query error, got %v", err)
@@ -151,9 +150,9 @@ func TestEngine_RunReconciliation_EthereumPendingQueryError(t *testing.T) {
 
 func TestEngine_RunReconciliation_MaxRetriesMarksFailed(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.MaxRetries = 2
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.MaxRetries = 2
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", RetryCount: 2, UpdatedAt: time.Now().Add(-2 * time.Second)}
 
@@ -179,9 +178,9 @@ func TestEngine_RunReconciliation_MaxRetriesMarksFailed(t *testing.T) {
 
 func TestEngine_RunReconciliation_MaxRetriesUpdateErrorIgnored(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.MaxRetries = 1
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.MaxRetries = 1
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", RetryCount: 1, UpdatedAt: time.Now().Add(-2 * time.Second)}
 
@@ -202,9 +201,9 @@ func TestEngine_RunReconciliation_MaxRetriesUpdateErrorIgnored(t *testing.T) {
 
 func TestEngine_RunReconciliation_BeforeRetryDelayDoesNothing(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.MaxRetries = 3
-	cfg.Bridge.RetryDelay = time.Hour
+	cfg := &relayer.Config{}
+	cfg.MaxRetries = 3
+	cfg.RetryDelay = time.Hour
 
 	transfer := &relayer.Transfer{ID: "t1", UpdatedAt: time.Now()}
 
@@ -224,8 +223,8 @@ func TestEngine_RunReconciliation_BeforeRetryDelayDoesNothing(t *testing.T) {
 
 func TestEngine_RunReconciliation_RetrySuccessUpdatesCompletedWithHash(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{
 		ID:                "t1",
@@ -270,8 +269,8 @@ func TestEngine_RunReconciliation_RetrySuccessUpdatesCompletedWithHash(t *testin
 
 func TestEngine_RunReconciliation_RetrySuccessUpdateErrorIgnored(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", UpdatedAt: time.Now().Add(-2 * time.Second), CreatedAt: time.Now().Add(-1 * time.Minute)}
 
@@ -295,8 +294,8 @@ func TestEngine_RunReconciliation_RetrySuccessUpdateErrorIgnored(t *testing.T) {
 
 func TestEngine_RunReconciliation_RetrySkippedUpdatesCompletedWithoutHash(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{
 		ID:                "t1",
@@ -333,8 +332,8 @@ func TestEngine_RunReconciliation_RetrySkippedUpdatesCompletedWithoutHash(t *tes
 
 func TestEngine_RunReconciliation_RetryFailureIncrementsRetryCount(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", UpdatedAt: time.Now().Add(-2 * time.Second), CreatedAt: time.Now().Add(-1 * time.Minute)}
 
@@ -357,8 +356,8 @@ func TestEngine_RunReconciliation_RetryFailureIncrementsRetryCount(t *testing.T)
 
 func TestEngine_RunReconciliation_RetryFailureIncrementErrorIgnored(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", UpdatedAt: time.Now().Add(-2 * time.Second), CreatedAt: time.Now().Add(-1 * time.Minute)}
 
@@ -381,8 +380,8 @@ func TestEngine_RunReconciliation_RetryFailureIncrementErrorIgnored(t *testing.T
 
 func TestEngine_RunReconciliation_NilDestinationIsNoOp(t *testing.T) {
 	ctx := context.Background()
-	cfg := &config.Config{}
-	cfg.Bridge.RetryDelay = time.Second
+	cfg := &relayer.Config{}
+	cfg.RetryDelay = time.Second
 
 	transfer := &relayer.Transfer{ID: "t1", UpdatedAt: time.Now().Add(-2 * time.Second), CreatedAt: time.Now().Add(-1 * time.Minute)}
 

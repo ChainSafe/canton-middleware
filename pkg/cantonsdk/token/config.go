@@ -8,8 +8,8 @@ type Config struct {
 	IssuerParty string // the CIP56 token issuer
 	UserID      string
 
-	CIP56PackageID          string
-	SpliceTransferPackageID string
+	CIP56PackageID          string `yaml:"cip56_package_id"`
+	SpliceTransferPackageID string `yaml:"splice_transfer_package_id"`
 }
 
 func (c *Config) validate() error {

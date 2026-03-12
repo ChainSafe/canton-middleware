@@ -85,13 +85,13 @@ func main() {
 	defer logger.Sync()
 
 	// Override Canton URL for local access (Docker uses internal hostnames)
-	localCantonCfg := cfg.Canton
-	localCantonCfg.RPCURL = "localhost:5011"
-	localCantonCfg.Auth.TokenURL = "http://localhost:8088/oauth/token"
-	localCantonCfg.Auth.Audience = "http://localhost:5011"
+	localCantonCfg := *cfg.Canton
+	localCantonCfg.Ledger.RPCURL = "localhost:5011"
+	localCantonCfg.Ledger.Auth.TokenURL = "http://localhost:8088/oauth/token"
+	localCantonCfg.Ledger.Auth.Audience = "http://localhost:5011"
 
-	// Try to get relayer_party from .test-config.yaml if not set
-	if localCantonCfg.RelayerParty == "" {
+	// Try to get issuer_party from .test-config.yaml if not set
+	if localCantonCfg.IssuerParty == "" {
 		testCfg, err := config.Load(".test-config.yaml")
 		if err != nil {
 			if *verbose {
@@ -100,16 +100,16 @@ func main() {
 			// Try reading party directly from bootstrap output
 			partyBytes, err := os.ReadFile(".test-config.yaml")
 			if err == nil {
-				// Parse YAML manually for just the relayer_party field
+				// Parse YAML manually for just the issuer_party field
 				lines := strings.Split(string(partyBytes), "\n")
 				for _, line := range lines {
-					if strings.Contains(line, "relayer_party:") {
+					if strings.Contains(line, "issuer_party:") {
 						parts := strings.SplitN(line, ":", 2)
 						if len(parts) == 2 {
 							party := strings.Trim(strings.TrimSpace(parts[1]), `"`)
 							if party != "" {
-								localCantonCfg.RelayerParty = party
-								printInfo("Using relayer_party from .test-config.yaml: %s", truncate(party, 40))
+								localCantonCfg.IssuerParty = party
+								printInfo("Using issuer_party from .test-config.yaml: %s", truncate(party, 40))
 							}
 						}
 					}
@@ -124,20 +124,20 @@ func main() {
 					}
 				}
 			}
-		} else if testCfg.Canton.RelayerParty != "" {
-			localCantonCfg.RelayerParty = testCfg.Canton.RelayerParty
+		} else if testCfg.Canton.IssuerParty != "" {
+			localCantonCfg.IssuerParty = testCfg.Canton.IssuerParty
 			localCantonCfg.DomainID = testCfg.Canton.DomainID
-			printInfo("Using relayer_party from .test-config.yaml: %s", truncate(localCantonCfg.RelayerParty, 40))
+			printInfo("Using issuer_party from .test-config.yaml: %s", truncate(localCantonCfg.IssuerParty, 40))
 		}
 
-		if localCantonCfg.RelayerParty == "" {
-			printWarning("relayer_party not set - run e2e-local.go first to bootstrap Canton")
+		if localCantonCfg.IssuerParty == "" {
+			printWarning("issuer_party not set - run e2e-local.go first to bootstrap Canton")
 		}
 	}
 
 	// Connect to Canton
-	printStep("Connecting to Canton at %s...", localCantonCfg.RPCURL)
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &localCantonCfg, canton.WithLogger(logger))
+	printStep("Connecting to Canton at %s...", localCantonCfg.Ledger.RPCURL)
+	cantonClient, err := canton.New(context.Background(), &localCantonCfg, canton.WithLogger(logger))
 	if err != nil {
 		printError("Failed to connect to Canton: %v", err)
 		os.Exit(1)

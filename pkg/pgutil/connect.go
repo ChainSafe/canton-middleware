@@ -9,12 +9,10 @@ import (
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
-
-	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // ConnectDB creates a connection to the specified database
-func ConnectDB(cfg *config.DatabaseConfig) (*bun.DB, error) {
+func ConnectDB(cfg *DatabaseConfig) (*bun.DB, error) {
 	ctx := context.Background()
 
 	// Build connector using functional options to properly escape special characters

@@ -12,7 +12,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
-	appcfg "github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // Client is the SDK facade.
@@ -25,8 +24,25 @@ type Client struct {
 
 // New creates an SDK client from SDK-native config.
 func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nil canton config")
+	}
 	_ = ctx // reserved for future (e.g. eager connectivity check)
 	s := applyOptions(opts)
+
+	// Propagate common config to sub-components.
+	if cfg.Identity != nil {
+		cfg.Identity.DomainID = cfg.DomainID
+		cfg.Identity.IssuerParty = cfg.IssuerParty
+	}
+	if cfg.Token != nil {
+		cfg.Token.DomainID = cfg.DomainID
+		cfg.Token.IssuerParty = cfg.IssuerParty
+	}
+	if cfg.Bridge != nil {
+		cfg.Bridge.DomainID = cfg.DomainID
+		cfg.Bridge.OperatorParty = cfg.IssuerParty
+	}
 
 	l, err := ledger.New(cfg.Ledger,
 		ledger.WithLogger(s.logger),
@@ -37,12 +53,20 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	}
 
 	sub := ""
-	if cfg.Identity.UserID == "" {
+	if cfg.Identity != nil && cfg.Identity.UserID == "" {
 		sub, err = l.JWTSubject(ctx)
 		if err != nil {
 			return nil, err
 		}
 		cfg.Identity.UserID = sub
+	}
+	if cfg.Token != nil && cfg.Token.UserID == "" {
+		if sub == "" {
+			sub, err = l.JWTSubject(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
 		cfg.Token.UserID = sub
 	}
 
@@ -90,66 +114,4 @@ func (c *Client) Close() error {
 		return nil
 	}
 	return c.Ledger.Close()
-}
-
-// NewFromAppConfig is a convenience adapter for existing config.CantonConfig.
-// This keeps SDK clean but makes migration easy.
-func NewFromAppConfig(ctx context.Context, cfg *appcfg.CantonConfig, opts ...Option) (*Client, error) {
-	_ = ctx // reserved for future (e.g. eager connectivity check)
-
-	if cfg == nil {
-		return nil, fmt.Errorf("nil canton config")
-	}
-	s := applyOptions(opts)
-
-	sdkCfg := Config{
-		Ledger: &ledger.Config{
-			RPCURL:         cfg.RPCURL,
-			LedgerID:       cfg.LedgerID,
-			MaxMessageSize: cfg.MaxMessageSize,
-			TLS: &ledger.TLSConfig{
-				Enabled:  cfg.TLS.Enabled,
-				CertFile: cfg.TLS.CertFile,
-				KeyFile:  cfg.TLS.KeyFile,
-				CAFile:   cfg.TLS.CAFile,
-			},
-			Auth: &ledger.AuthConfig{
-				ClientID:     cfg.Auth.ClientID,
-				ClientSecret: cfg.Auth.ClientSecret,
-				Audience:     cfg.Auth.Audience,
-				TokenURL:     cfg.Auth.TokenURL,
-			},
-		},
-		Identity: &identity.Config{
-			DomainID:    cfg.DomainID,
-			IssuerParty: cfg.RelayerParty,
-			PackageID:   cfg.CommonPackageID,
-		},
-		Token: &token.Config{
-			DomainID:                cfg.DomainID,
-			IssuerParty:             cfg.RelayerParty,
-			CIP56PackageID:          cfg.CIP56PackageID,
-			SpliceTransferPackageID: cfg.SpliceTransferPackageID,
-		},
-	}
-
-	// Bridge is optional. Enable only when bridge config exists.
-	if cfg.BridgePackageID != "" && cfg.BridgeModule != "" {
-		sdkCfg.Bridge = &bridge.Config{
-			DomainID:        cfg.DomainID,
-			OperatorParty:   cfg.RelayerParty,
-			BridgePackageID: cfg.BridgePackageID,
-			BridgeModule:    cfg.BridgeModule,
-		}
-	}
-
-	newOpts := []Option{
-		WithLogger(s.logger),
-		WithHTTPClient(s.httpClient),
-		WithBridgeConfig(sdkCfg.Bridge),
-	}
-	if s.keyResolver != nil {
-		newOpts = append(newOpts, WithKeyResolver(s.keyResolver))
-	}
-	return New(ctx, &sdkCfg, newOpts...)
 }

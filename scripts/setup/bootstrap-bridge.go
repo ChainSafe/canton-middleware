@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -61,10 +62,10 @@ func main() {
 
 	// Use config values as defaults
 	if *issuerParty == "" {
-		*issuerParty = cfg.Canton.RelayerParty
+		*issuerParty = cfg.Canton.IssuerParty
 	}
-	if *packageID == "" {
-		*packageID = cfg.Canton.BridgePackageID
+	if *packageID == "" && cfg.Canton.Bridge != nil {
+		*packageID = cfg.Canton.Bridge.PackageID
 	}
 	if *domainIDFlag == "" {
 		*domainIDFlag = cfg.Canton.DomainID
@@ -97,7 +98,7 @@ func main() {
 
 	// Connect to Canton with TLS if enabled
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -109,7 +110,7 @@ func main() {
 		fmt.Println("TLS: disabled")
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -120,7 +121,7 @@ func main() {
 	defer conn.Close()
 
 	// Get OAuth2 token and auth context
-	ctx, err = getAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = getAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		log.Fatalf("Failed to get auth context: %v", err)
 	}
@@ -135,7 +136,7 @@ func main() {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println("WAYFINDER BRIDGE BOOTSTRAP")
 	fmt.Println("=" + strings.Repeat("=", 69))
-	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("Canton RPC: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("Issuer:     %s\n", *issuerParty)
 	fmt.Printf("JWT Subject: %s\n", jwtSubject)
 	fmt.Println()
@@ -193,12 +194,12 @@ func main() {
 
 	// Step 4: Create CIP56Manager
 	fmt.Println(">>> Step 4: Creating CIP56Manager for PROMPT token...")
-	cip56PackageID := cfg.Canton.CIP56PackageID
+	cip56PackageID := cfg.Canton.Token.CIP56PackageID
 	if cip56PackageID == "" {
-		log.Fatalf("cip56_package_id not set in config - run test-bridge.sh or set it manually")
+		log.Fatalf("canton.token.cip56_package_id not set in config - run test-bridge.sh or set it manually")
 	}
 	fmt.Printf("    Using cip56-token package: %s\n", cip56PackageID)
-	tokenManagerCid, err := createTokenManager(ctx, commandService, *issuerParty, cip56PackageID, domainID, cfg.Canton.ApplicationID)
+	tokenManagerCid, err := createTokenManager(ctx, commandService, *issuerParty, cip56PackageID, domainID, "")
 	if err != nil {
 		log.Fatalf("Failed to create CIP56Manager: %v", err)
 	}
@@ -225,7 +226,7 @@ func main() {
 
 	// Step 6: Create WayfinderBridgeConfig
 	fmt.Println(">>> Step 6: Creating WayfinderBridgeConfig...")
-	configCid, err := createBridgeConfig(ctx, commandService, *issuerParty, pkgID, domainID, cfg.Canton.ApplicationID, tokenConfigCid)
+	configCid, err := createBridgeConfig(ctx, commandService, *issuerParty, pkgID, domainID, "", tokenConfigCid)
 	if err != nil {
 		log.Fatalf("Failed to create WayfinderBridgeConfig: %v", err)
 	}
@@ -236,8 +237,8 @@ func main() {
 	printConfig(*issuerParty, pkgID, domainID, fingerprint, tokenManagerCid, configCid)
 }
 
-func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func getAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
 	}
 
@@ -250,7 +251,7 @@ func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Conte
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func getOAuthToken(auth *config.AuthConfig) (string, error) {
+func getOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 

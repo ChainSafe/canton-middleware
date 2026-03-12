@@ -10,10 +10,10 @@ type Config struct {
 	UserID string
 	// OperatorParty is the party that controls WayfinderBridgeConfig (the bridge operator).
 	OperatorParty string
-	// BridgePackageID is the package id that contains Wayfinder.Bridge templates/choices.
-	BridgePackageID string
-	// BridgeModule is the DAML module name that contains WayfinderBridgeConfig template.
-	BridgeModule string
+	// PackageID is the package id that contains Wayfinder.Bridge templates/choices.
+	PackageID string `yaml:"package_id"`
+	// Module is the DAML module name that contains WayfinderBridgeConfig template.
+	Module string `yaml:"module"`
 }
 
 // Validate validates config for bridge operations.
@@ -30,10 +30,10 @@ func (c *Config) validate() error {
 	if c.OperatorParty == "" {
 		return fmt.Errorf("operator party is required")
 	}
-	if c.BridgePackageID == "" {
+	if c.PackageID == "" {
 		return fmt.Errorf("bridge package id is required")
 	}
-	if c.BridgeModule == "" {
+	if c.Module == "" {
 		return fmt.Errorf("bridge module is required")
 	}
 	return nil

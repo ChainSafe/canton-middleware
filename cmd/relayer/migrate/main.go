@@ -18,13 +18,13 @@ func main() {
 	flag.Parse()
 
 	// Load configuration
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.LoadRelayerServer(*cfgPath)
 	if err != nil {
 		log.Fatalf("error reading configuration file: %s", err.Error())
 	}
 
 	// Connect to database
-	db, err := pgutil.ConnectDB(&cfg.Database)
+	db, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		log.Fatalf("error connecting to database: %s", err.Error())
 	}

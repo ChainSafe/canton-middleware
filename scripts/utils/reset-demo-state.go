@@ -79,7 +79,7 @@ func main() {
 	fmt.Println("    Connected to PostgreSQL")
 
 	// Connect to Canton
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}

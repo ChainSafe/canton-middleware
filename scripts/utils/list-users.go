@@ -36,7 +36,7 @@ func main() {
 	}
 
 	// Determine network from config
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Registered Users - %s\n", networkName)

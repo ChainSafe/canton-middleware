@@ -93,8 +93,8 @@ func (c *Client) GetWayfinderBridgeConfigCID(ctx context.Context) (string, error
 	}
 
 	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
-		ModuleName: c.cfg.BridgeModule,
+		PackageId:  c.cfg.PackageID,
+		ModuleName: c.cfg.Module,
 		EntityName: "WayfinderBridgeConfig",
 	}
 
@@ -125,12 +125,12 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 	// We enforce module/entity filtering via template id. This assumes deposits live in the same package/module.
 	// If your deposits are in a different package/module, adjust these template IDs accordingly.
 	pendingTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
+		PackageId:  c.cfg.PackageID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "PendingDeposit",
 	}
 	receiptTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
+		PackageId:  c.cfg.PackageID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "DepositReceipt",
 	}
@@ -185,8 +185,8 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req CreatePendingDepo
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -247,8 +247,8 @@ func (c *Client) ProcessDepositAndMint(ctx context.Context, req ProcessDepositRe
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -305,8 +305,8 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalR
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -357,7 +357,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
+					PackageId:  c.cfg.PackageID,
 					ModuleName: "Bridge.Contracts",
 					EntityName: "WithdrawalEvent",
 				},
@@ -447,7 +447,7 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 								IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
 									TemplateFilter: &lapiv2.TemplateFilter{
 										TemplateId: &lapiv2.Identifier{
-											PackageId:  c.cfg.BridgePackageID,
+											PackageId:  c.cfg.PackageID,
 											ModuleName: "Bridge.Contracts",
 											EntityName: "WithdrawalEvent",
 										},
