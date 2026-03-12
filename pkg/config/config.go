@@ -65,7 +65,7 @@ type KeyManagement struct {
 	// MasterKeyEnv is the environment variable name containing the master encryption key (base64)
 	MasterKeyEnv string `yaml:"master_key_env" validate:"required" default:"CANTON_MASTER_KEY"`
 	// KeyDerivation specifies how to generate Canton keys: "generate" (random) or "derive" (from EVM + seed)
-	KeyDerivation string `yaml:"key_derivation" default:"generate"`
+	KeyDerivation string `yaml:"key_derivation" default:"generate" validate:"required,oneof=generate derive"`
 }
 
 // LoadAPIServer loads, defaults, and validates API app configuration from file.
@@ -102,6 +102,11 @@ func loadConfigFromFile(path string, out any) error {
 		return fmt.Errorf("failed to parse config file %q: %w", path, err)
 	}
 
+	// NOTE: creasty/defaults cannot distinguish between an explicit zero value in YAML
+	// and "not set". For numeric/bool fields with non-zero defaults (e.g. Timeout=10,
+	// PoolSize=10, MaxRetries=5), an explicit zero in YAML will be overridden by the
+	// default. This is a known limitation; explicit zero values for these fields are
+	// not supported.
 	if err = defaults.Set(out); err != nil {
 		return fmt.Errorf("failed to apply default values for config %q: %w", path, err)
 	}

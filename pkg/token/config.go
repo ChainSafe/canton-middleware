@@ -1,6 +1,8 @@
 package token
 
 import (
+	"fmt"
+
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -8,7 +10,7 @@ import (
 type ERC20Token struct {
 	Name     string `yaml:"name" validate:"required"`
 	Symbol   string `yaml:"symbol" validate:"required"`
-	Decimals int    `yaml:"decimals" validate:"required,gt=0"`
+	Decimals int    `yaml:"decimals" validate:"gte=0,lte=18"`
 }
 
 // Config holds token metadata indexed by contract address.
@@ -31,4 +33,14 @@ func (c *Config) AddToken(address common.Address, token ERC20Token) {
 		c.SupportedTokens = make(map[common.Address]ERC20Token)
 	}
 	c.SupportedTokens[address] = token
+}
+
+// getToken returns the ERC20Token metadata for the given contract address,
+// or an error if the address is not a supported token.
+func (c *Config) getToken(address common.Address) (ERC20Token, error) {
+	tkn, ok := c.SupportedTokens[address]
+	if !ok {
+		return ERC20Token{}, fmt.Errorf("token not supported: %s", address.Hex())
+	}
+	return tkn, nil
 }

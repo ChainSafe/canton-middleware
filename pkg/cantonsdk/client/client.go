@@ -88,6 +88,12 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	}, nil
 }
 
+// propagateCommonConfig copies top-level common fields (DomainID, IssuerParty) into
+// each sub-client config. Note that sub-config validation is intentionally two-phase:
+// the startup validator (called from LoadAPIServer/LoadRelayerServer) cannot validate
+// fields that are populated here (DomainID, IssuerParty, UserID) because they have no
+// YAML tags and are set after YAML decode. Those fields are validated later by each
+// sub-client's own validate() call inside its New() constructor.
 func propagateCommonConfig(cfg *Config) {
 	if cfg.Identity != nil {
 		cfg.Identity.DomainID = cfg.DomainID

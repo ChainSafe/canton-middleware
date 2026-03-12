@@ -90,8 +90,19 @@ if [ -x "$MIGRATE_BINARY" ]; then
         echo ">>> [INFO] Using config: $CONFIG_PATH"
         
         echo ">>> [INFO] Initializing migrations (if needed)..."
-        # We allow 'init' to fail as the database might already be initialized
-        "$MIGRATE_BINARY" -config "$CONFIG_PATH" init || echo ">>> [INFO] Migration already initialized or init command not supported (skipping)."
+        # 'init' is expected to fail with a non-zero exit when the migrations table already
+        # exists. Treat exit code 1 as "already initialized"; any other non-zero exit code
+        # (binary not found, permission denied, DB unreachable) is a real error and fails loudly.
+        init_output=$("$MIGRATE_BINARY" -config "$CONFIG_PATH" init 2>&1)
+        init_code=$?
+        if [ $init_code -eq 0 ]; then
+            echo ">>> [INFO] Migrations initialized."
+        elif echo "$init_output" | grep -qi "already\|exist"; then
+            echo ">>> [INFO] Migrations already initialized (skipping)."
+        else
+            echo ">>> [ERROR] Migration init failed (exit $init_code): $init_output"
+            exit 1
+        fi
         
         echo ">>> [INFO] Running 'up' migrations..."
         if "$MIGRATE_BINARY" -config "$CONFIG_PATH" up; then
