@@ -76,7 +76,7 @@ func (s *Server) Run() error {
 	if err != nil {
 		return fmt.Errorf("initialize ethereum client: %w", err)
 	}
-	ethClient.Close()
+	defer ethClient.Close()
 
 	engine := relayerengine.NewEngine(cfg.Bridge, cantonClient.Bridge, ethClient, store, logger)
 

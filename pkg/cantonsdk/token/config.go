@@ -4,9 +4,9 @@ import "errors"
 
 // Config contains the configuration required to initialize the token client.
 type Config struct {
-	DomainID    string
-	IssuerParty string // the CIP56 token issuer
-	UserID      string
+	DomainID    string `yaml:"domain_id"`
+	IssuerParty string `yaml:"issuer_party"`
+	UserID      string `yaml:"user_id"`
 
 	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
 	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`

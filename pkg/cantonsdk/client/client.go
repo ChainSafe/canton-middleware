@@ -72,7 +72,7 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 		bridgeCfg = s.bridgeCfg
 	}
 	if bridgeCfg != nil {
-		bridgeCfg.UserID = sub
+		bridgeCfg.UserID = cfg.Identity.UserID
 		br, err = bridge.New(bridgeCfg, l, id, bridge.WithLogger(s.logger))
 		if err != nil {
 			_ = l.Close()

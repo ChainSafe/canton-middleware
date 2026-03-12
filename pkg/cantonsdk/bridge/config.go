@@ -5,11 +5,11 @@ import "fmt"
 // Config contains bridge-client configuration.
 type Config struct {
 	// DomainID is the Canton synchronizer/domain ID to submit commands against.
-	DomainID string
+	DomainID string `yaml:"domain_id"`
 	// UserID is the Canton user id (JWT subject) used for command submission.
-	UserID string
+	UserID string `yaml:"user_id"`
 	// OperatorParty is the party that controls WayfinderBridgeConfig (the bridge operator).
-	OperatorParty string
+	OperatorParty string `yaml:"operator_party"`
 	// PackageID is the package id that contains Wayfinder.Bridge templates/choices.
 	PackageID string `yaml:"package_id" validate:"required"`
 	// Module is the DAML module name that contains WayfinderBridgeConfig template.

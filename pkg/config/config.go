@@ -65,7 +65,7 @@ type KeyManagement struct {
 	// MasterKeyEnv is the environment variable name containing the master encryption key (base64)
 	MasterKeyEnv string `yaml:"master_key_env" validate:"required" default:"CANTON_MASTER_KEY"`
 	// KeyDerivation specifies how to generate Canton keys: "generate" (random) or "derive" (from EVM + seed)
-	KeyDerivation string `yaml:"key_derivation" default:"generate"` // TODO: check usages
+	KeyDerivation string `yaml:"key_derivation" default:"generate"`
 }
 
 // LoadAPIServer loads, defaults, and validates API app configuration from file.

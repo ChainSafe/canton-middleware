@@ -4,9 +4,9 @@ import "errors"
 
 // Config contains the configuration required to initialize the identity client.
 type Config struct {
-	DomainID    string
-	IssuerParty string // maps to DAML FingerprintMapping.issuer
-	UserID      string
+	DomainID    string `yaml:"domain_id"`
+	IssuerParty string `yaml:"issuer_party"`
+	UserID      string `yaml:"user_id"`
 	PackageID   string `yaml:"package_id" validate:"required"` // package ID for FingerprintMapping (Common.FingerprintAuth)
 }
 
