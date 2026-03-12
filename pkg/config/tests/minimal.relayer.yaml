@@ -1,0 +1,45 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  url: "postgres://postgres:pass@localhost:5432/relayer"
+  ssl_mode: "disable"
+
+ethereum:
+  rpc_url: "http://localhost:8545"
+  chain_id: 31337
+  bridge_contract: "0x0000000000000000000000000000000000000002"
+  relayer_private_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  gas_limit: 300000
+  polling_interval: "5s"
+
+canton:
+  domain_id: "domain"
+  issuer_party: "issuer"
+  ledger:
+    rpc_url: "localhost:5011"
+    tls: {}
+    auth:
+      client_id: "client"
+      client_secret: "secret"
+      audience: "audience"
+      token_url: "http://localhost/token"
+  identity:
+    package_id: "identity-package"
+  token:
+    cip56_package_id: "cip56-package"
+    splice_transfer_package_id: "splice-package"
+
+bridge:
+  max_transfer_amount: "1000"
+  min_transfer_amount: "1"
+  rate_limit_per_hour: 100
+  canton_chain_id: "canton"
+  eth_chain_id: "31337"
+  eth_token_contract: "0x0000000000000000000000000000000000000001"
+
+monitoring: {}
+logging:
+  level: "info"
+  format: "json"

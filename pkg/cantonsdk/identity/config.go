@@ -7,7 +7,7 @@ type Config struct {
 	DomainID    string
 	IssuerParty string // maps to DAML FingerprintMapping.issuer
 	UserID      string
-	PackageID   string `yaml:"package_id"` // package ID for FingerprintMapping (Common.FingerprintAuth)
+	PackageID   string `yaml:"package_id" validate:"required"` // package ID for FingerprintMapping (Common.FingerprintAuth)
 }
 
 func (c *Config) validate() error {

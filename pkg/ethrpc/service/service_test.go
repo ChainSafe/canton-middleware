@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -24,8 +25,8 @@ func defaultCfg() *ethrpc.Config {
 		ChainID:          31337,
 		GasPriceWei:      "1000000000",
 		GasLimit:         21000,
-		TokenAddress:     common.HexToAddress("0x1000000000000000000000000000000000000001"),
-		DemoTokenAddress: common.HexToAddress("0x2000000000000000000000000000000000000002"),
+		RequestTimeout:   30 * time.Second,
+		NativeBalanceWei: "1000000000000000000000",
 	}
 }
 
@@ -182,24 +183,34 @@ func TestService_GetTransactionCount(t *testing.T) {
 // ─── GetCode ──────────────────────────────────────────────────────────────────
 
 func TestService_GetCode(t *testing.T) {
-	cfg := defaultCfg()
-	svc := newSvc(t, cfg, nil, nil)
+	supportedAddr := common.HexToAddress("0x1000000000000000000000000000000000000001")
+	unknownAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
 
-	t.Run("primary token address returns stub bytecode", func(t *testing.T) {
-		got, err := svc.GetCode(context.Background(), cfg.TokenAddress)
+	t.Run("supported token address returns stub bytecode", func(t *testing.T) {
+		mockERC20 := mocks.NewERC20(t)
+		mockTokenSvc := mocks.NewTokenService(t)
+		mockTokenSvc.EXPECT().ERC20(supportedAddr).Return(mockERC20, nil)
+		svc := newSvc(t, defaultCfg(), nil, mockTokenSvc)
+
+		got, err := svc.GetCode(context.Background(), supportedAddr)
 		require.NoError(t, err)
 		assert.Equal(t, hexutil.Bytes{0x60, 0x80}, got)
 	})
 
-	t.Run("demo token address returns stub bytecode", func(t *testing.T) {
-		got, err := svc.GetCode(context.Background(), cfg.DemoTokenAddress)
+	t.Run("unsupported token address returns empty", func(t *testing.T) {
+		mockTokenSvc := mocks.NewTokenService(t)
+		mockTokenSvc.EXPECT().ERC20(unknownAddr).Return(nil, errors.New("unsupported token"))
+		svc := newSvc(t, defaultCfg(), nil, mockTokenSvc)
+
+		got, err := svc.GetCode(context.Background(), unknownAddr)
 		require.NoError(t, err)
-		assert.Equal(t, hexutil.Bytes{0x60, 0x80}, got)
+		assert.Empty(t, got)
 	})
 
-	t.Run("unknown address returns empty", func(t *testing.T) {
-		unknown := common.HexToAddress("0x9999999999999999999999999999999999999999")
-		got, err := svc.GetCode(context.Background(), unknown)
+	t.Run("nil token service returns empty", func(t *testing.T) {
+		svc := newSvc(t, defaultCfg(), nil, nil)
+
+		got, err := svc.GetCode(context.Background(), unknownAddr)
 		require.NoError(t, err)
 		assert.Empty(t, got)
 	})

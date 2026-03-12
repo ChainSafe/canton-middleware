@@ -2,14 +2,16 @@
 server:
   host: "0.0.0.0"
   port: 8081
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
 
 database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "p@ssw0rd"
-  database: "erc20_api"
+  url: "${API_SERVER_DATABASE_URL}"
   ssl_mode: "disable"
+  timeout: 10
+  pool_size: 20
 
 canton:
   domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
@@ -21,11 +23,16 @@ canton:
     max_inbound_message_size: 52428800
     tls:
       enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
     auth:
       client_id: "${CANTON_AUTH_CLIENT_ID}"
       client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
       audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
       token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+      expiry_leeway: "60s"
 
   identity:
     # v2.0.0 packages (uploaded 2026-03-05)
@@ -40,22 +47,21 @@ canton:
     module: "Wayfinder.Bridge"
 
 token:
-  name: "PROMPT"
-  symbol: "PROMPT"
-  decimals: 18
-
-# DEMO token metadata (native Canton token)
-demo_token:
-  name: "Demo Token"
-  symbol: "DEMO"
-  decimals: 18
+  supported_tokens:
+    "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+    "0xDE30000000000000000000000000000000000001":
+      name: "Demo Token"
+      symbol: "DEMO"
+      decimals: 18
+  native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
 eth_rpc:
   enabled: true
   chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton local
-  token_address: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"  # PROMPT on Sepolia
-  demo_token_address: "0xDE30000000000000000000000000000000000001"
   gas_price_wei: "1000000000"
   gas_limit: 21000
   native_balance_wei: "1000000000000000000000"

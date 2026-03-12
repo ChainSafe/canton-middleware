@@ -1,0 +1,292 @@
+package config
+
+import (
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestLoadDefaultConfigFiles(t *testing.T) {
+	t.Run("api docker", func(t *testing.T) {
+		if _, err := LoadAPIServer(defaultConfigPath(t, "config.api-server.docker.yaml")); err != nil {
+			t.Fatalf("load api docker config: %v", err)
+		}
+	})
+
+	t.Run("api local-devnet", func(t *testing.T) {
+		if _, err := LoadAPIServer(defaultConfigPath(t, "config.api-server.local-devnet.yaml")); err != nil {
+			t.Fatalf("load api local-devnet config: %v", err)
+		}
+	})
+
+	t.Run("relayer docker", func(t *testing.T) {
+		if _, err := LoadRelayerServer(defaultConfigPath(t, "config.relayer.docker.yaml")); err != nil {
+			t.Fatalf("load relayer docker config: %v", err)
+		}
+	})
+
+	t.Run("relayer local-devnet", func(t *testing.T) {
+		if _, err := LoadRelayerServer(defaultConfigPath(t, "config.relayer.local-devnet.yaml")); err != nil {
+			t.Fatalf("load relayer local-devnet config: %v", err)
+		}
+	})
+}
+
+func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
+	cfg, err := LoadAPIServer(testConfigPath(t, "minimal.api.yaml"))
+	if err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.Server.ReadTimeout != 15*time.Second {
+		t.Fatalf("read_timeout default mismatch: got %s", cfg.Server.ReadTimeout)
+	}
+	if cfg.Server.WriteTimeout != 15*time.Second {
+		t.Fatalf("write_timeout default mismatch: got %s", cfg.Server.WriteTimeout)
+	}
+	if cfg.Server.IdleTimeout != 60*time.Second {
+		t.Fatalf("idle_timeout default mismatch: got %s", cfg.Server.IdleTimeout)
+	}
+	if cfg.Server.ShutdownTimeout != 30*time.Second {
+		t.Fatalf("shutdown_timeout default mismatch: got %s", cfg.Server.ShutdownTimeout)
+	}
+
+	if cfg.Database.Timeout != 10 {
+		t.Fatalf("database.timeout default mismatch: got %d", cfg.Database.Timeout)
+	}
+	if cfg.Database.PoolSize != 10 {
+		t.Fatalf("database.pool_size default mismatch: got %d", cfg.Database.PoolSize)
+	}
+
+	if cfg.Canton.Ledger.LedgerID != "" {
+		t.Fatalf("ledger_id default mismatch: got %q", cfg.Canton.Ledger.LedgerID)
+	}
+	if cfg.Canton.Ledger.MaxMessageSize != 52428800 {
+		t.Fatalf("max_inbound_message_size default mismatch: got %d", cfg.Canton.Ledger.MaxMessageSize)
+	}
+	if cfg.Canton.Ledger.Auth.ExpiryLeeway != 60*time.Second {
+		t.Fatalf("auth.expiry_leeway default mismatch: got %s", cfg.Canton.Ledger.Auth.ExpiryLeeway)
+	}
+
+	if cfg.Token.NativeBalanceWei != "1000000000000000000000" {
+		t.Fatalf("token.native_balance_wei default mismatch: got %q", cfg.Token.NativeBalanceWei)
+	}
+
+	if cfg.EthRPC.Enabled {
+		t.Fatal("eth_rpc.enabled default mismatch: expected false")
+	}
+	if cfg.EthRPC.GasPriceWei != "1000000000" {
+		t.Fatalf("eth_rpc.gas_price_wei default mismatch: got %q", cfg.EthRPC.GasPriceWei)
+	}
+	if cfg.EthRPC.GasLimit != 21000 {
+		t.Fatalf("eth_rpc.gas_limit default mismatch: got %d", cfg.EthRPC.GasLimit)
+	}
+	if cfg.EthRPC.NativeBalanceWei != "1000000000000000000000" {
+		t.Fatalf("eth_rpc.native_balance_wei default mismatch: got %q", cfg.EthRPC.NativeBalanceWei)
+	}
+	if cfg.EthRPC.RequestTimeout != 30*time.Second {
+		t.Fatalf("eth_rpc.request_timeout default mismatch: got %s", cfg.EthRPC.RequestTimeout)
+	}
+
+	if cfg.Logging.OutputPath != "stdout" {
+		t.Fatalf("logging.output_path default mismatch: got %q", cfg.Logging.OutputPath)
+	}
+	if cfg.Reconciliation.InitialTimeout != 2*time.Minute {
+		t.Fatalf("reconciliation.initial_timeout default mismatch: got %s", cfg.Reconciliation.InitialTimeout)
+	}
+	if cfg.Reconciliation.Interval != 5*time.Minute {
+		t.Fatalf("reconciliation.interval default mismatch: got %s", cfg.Reconciliation.Interval)
+	}
+
+	if cfg.KeyManagement.MasterKeyEnv != "CANTON_MASTER_KEY" {
+		t.Fatalf("key_management.master_key_env default mismatch: got %q", cfg.KeyManagement.MasterKeyEnv)
+	}
+	if cfg.KeyManagement.KeyDerivation != "generate" {
+		t.Fatalf("key_management.key_derivation default mismatch: got %q", cfg.KeyManagement.KeyDerivation)
+	}
+
+	if cfg.JWKS != nil {
+		t.Fatal("jwks should default to nil when omitted")
+	}
+	if cfg.Canton.Bridge != nil {
+		t.Fatal("canton.bridge should default to nil when omitted")
+	}
+}
+
+func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
+	cfg, err := LoadRelayerServer(testConfigPath(t, "minimal.relayer.yaml"))
+	if err != nil {
+		t.Fatalf("expected valid config, got error: %v", err)
+	}
+
+	if cfg.Server.ReadTimeout != 15*time.Second {
+		t.Fatalf("read_timeout default mismatch: got %s", cfg.Server.ReadTimeout)
+	}
+	if cfg.Server.WriteTimeout != 15*time.Second {
+		t.Fatalf("write_timeout default mismatch: got %s", cfg.Server.WriteTimeout)
+	}
+	if cfg.Server.IdleTimeout != 60*time.Second {
+		t.Fatalf("idle_timeout default mismatch: got %s", cfg.Server.IdleTimeout)
+	}
+	if cfg.Server.ShutdownTimeout != 30*time.Second {
+		t.Fatalf("shutdown_timeout default mismatch: got %s", cfg.Server.ShutdownTimeout)
+	}
+
+	if cfg.Database.Timeout != 10 {
+		t.Fatalf("database.timeout default mismatch: got %d", cfg.Database.Timeout)
+	}
+	if cfg.Database.PoolSize != 10 {
+		t.Fatalf("database.pool_size default mismatch: got %d", cfg.Database.PoolSize)
+	}
+
+	if cfg.Ethereum.WSUrl != "" {
+		t.Fatalf("ethereum.ws_url default mismatch: got %q", cfg.Ethereum.WSUrl)
+	}
+	if cfg.Ethereum.TokenContract != "" {
+		t.Fatalf("ethereum.token_contract default mismatch: got %q", cfg.Ethereum.TokenContract)
+	}
+	if cfg.Ethereum.ConfirmationBlocks != 12 {
+		t.Fatalf("ethereum.confirmation_blocks default mismatch: got %d", cfg.Ethereum.ConfirmationBlocks)
+	}
+	if cfg.Ethereum.MaxGasPrice != "" {
+		t.Fatalf("ethereum.max_gas_price default mismatch: got %q", cfg.Ethereum.MaxGasPrice)
+	}
+	if cfg.Ethereum.StartBlock != 0 {
+		t.Fatalf("ethereum.start_block default mismatch: got %d", cfg.Ethereum.StartBlock)
+	}
+	if cfg.Ethereum.LookbackBlocks != 1000 {
+		t.Fatalf("ethereum.lookback_blocks default mismatch: got %d", cfg.Ethereum.LookbackBlocks)
+	}
+
+	if cfg.Canton.Ledger.MaxMessageSize != 52428800 {
+		t.Fatalf("max_inbound_message_size default mismatch: got %d", cfg.Canton.Ledger.MaxMessageSize)
+	}
+	if cfg.Canton.Ledger.Auth.ExpiryLeeway != 60*time.Second {
+		t.Fatalf("auth.expiry_leeway default mismatch: got %s", cfg.Canton.Ledger.Auth.ExpiryLeeway)
+	}
+	if cfg.Canton.Bridge != nil {
+		t.Fatal("canton.bridge should default to nil when omitted")
+	}
+
+	if cfg.Bridge.MaxRetries != 5 {
+		t.Fatalf("bridge.max_retries default mismatch: got %d", cfg.Bridge.MaxRetries)
+	}
+	if cfg.Bridge.RetryDelay != 60*time.Second {
+		t.Fatalf("bridge.retry_delay default mismatch: got %s", cfg.Bridge.RetryDelay)
+	}
+	if cfg.Bridge.ProcessingInterval != 30*time.Second {
+		t.Fatalf("bridge.processing_interval default mismatch: got %s", cfg.Bridge.ProcessingInterval)
+	}
+	if cfg.Bridge.CantonStartBlock != 0 {
+		t.Fatalf("bridge.canton_start_block default mismatch: got %d", cfg.Bridge.CantonStartBlock)
+	}
+	if cfg.Bridge.CantonLookback != 1000 {
+		t.Fatalf("bridge.canton_lookback_blocks default mismatch: got %d", cfg.Bridge.CantonLookback)
+	}
+	if cfg.Bridge.EthStartBlock != 0 {
+		t.Fatalf("bridge.eth_start_block default mismatch: got %d", cfg.Bridge.EthStartBlock)
+	}
+	if cfg.Bridge.EthLookbackBlocks != 1000 {
+		t.Fatalf("bridge.eth_lookback_blocks default mismatch: got %d", cfg.Bridge.EthLookbackBlocks)
+	}
+
+	if cfg.Monitoring.Enabled {
+		t.Fatal("monitoring.enabled default mismatch: expected false")
+	}
+	if cfg.Monitoring.MetricsPort != 9090 {
+		t.Fatalf("monitoring.metrics_port default mismatch: got %d", cfg.Monitoring.MetricsPort)
+	}
+	if cfg.Monitoring.HealthCheckURL != "/health" {
+		t.Fatalf("monitoring.health_check_url default mismatch: got %q", cfg.Monitoring.HealthCheckURL)
+	}
+	if cfg.Logging.OutputPath != "stdout" {
+		t.Fatalf("logging.output_path default mismatch: got %q", cfg.Logging.OutputPath)
+	}
+}
+
+func TestLoadAPIServer_RequiredValidation(t *testing.T) {
+	path := testConfigPath(t, "missing-required.api.yaml")
+
+	_, err := LoadAPIServer(path)
+	if err == nil {
+		t.Fatal("expected required validation error, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "database") {
+		t.Fatalf("expected missing database error, got: %v", err)
+	}
+}
+
+func TestLoadRelayerServer_RequiredValidation(t *testing.T) {
+	path := testConfigPath(t, "missing-required.relayer.yaml")
+
+	_, err := LoadRelayerServer(path)
+	if err == nil {
+		t.Fatal("expected required validation error, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "eth_token_contract") {
+		t.Fatalf("expected missing eth_token_contract error, got: %v", err)
+	}
+}
+
+func TestLoadAPIServer_RejectsUnknownField(t *testing.T) {
+	path := testConfigPath(t, "unknown-field.api.yaml")
+
+	_, err := LoadAPIServer(path)
+	if err == nil {
+		t.Fatal("expected unknown field error, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "unknown_field") {
+		t.Fatalf("expected unknown_field in error, got: %v", err)
+	}
+}
+
+func TestLoadRelayerServer_RejectsUnknownField(t *testing.T) {
+	path := testConfigPath(t, "unknown-field.relayer.yaml")
+
+	_, err := LoadRelayerServer(path)
+	if err == nil {
+		t.Fatal("expected unknown field error, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "unknown_field") {
+		t.Fatalf("expected unknown_field in error, got: %v", err)
+	}
+}
+
+func TestLoadConfig_FileErrors(t *testing.T) {
+	t.Run("missing file", func(t *testing.T) {
+		_, err := LoadAPIServer("/non-existent/config.yaml")
+		if err == nil {
+			t.Fatal("expected read-file error, got nil")
+		}
+	})
+
+	t.Run("invalid yaml", func(t *testing.T) {
+		path := testConfigPath(t, "invalid.yaml")
+		_, err := LoadRelayerServer(path)
+		if err == nil {
+			t.Fatal("expected yaml parse error, got nil")
+		}
+	})
+}
+
+func testConfigPath(t *testing.T, fileName string) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "tests", fileName)
+}
+
+func defaultConfigPath(t *testing.T, fileName string) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test file path")
+	}
+	return filepath.Join(filepath.Dir(file), "defaults", fileName)
+}

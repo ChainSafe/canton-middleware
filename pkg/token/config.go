@@ -8,15 +8,15 @@ import (
 
 // ERC20Token contains ERC-20 token metadata
 type ERC20Token struct {
-	Name     string `yaml:"name"`
-	Symbol   string `yaml:"symbol"`
-	Decimals int    `yaml:"decimals"`
+	Name     string `yaml:"name" validate:"required"`
+	Symbol   string `yaml:"symbol" validate:"required"`
+	Decimals int    `yaml:"decimals" validate:"required,gt=0"`
 }
 
 // Config holds token metadata indexed by contract address.
 type Config struct {
-	SupportedTokens  map[common.Address]ERC20Token `yaml:"supported_tokens"`
-	NativeBalanceWei string                        `yaml:"native_balance_wei"`
+	SupportedTokens  map[common.Address]ERC20Token `yaml:"supported_tokens" validate:"required,min=1"`
+	NativeBalanceWei string                        `yaml:"native_balance_wei" default:"1000000000000000000000"`
 }
 
 // NewConfig creates a token Config.

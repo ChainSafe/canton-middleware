@@ -2,18 +2,14 @@ package ethrpc
 
 import (
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // Config contains Ethereum JSON-RPC facade settings for MetaMask compatibility
 type Config struct {
-	Enabled          bool           `yaml:"enabled"`
-	ChainID          uint64         `yaml:"chain_id"`
-	TokenAddress     common.Address `yaml:"token_address"`
-	DemoTokenAddress common.Address `yaml:"demo_token_address"`
-	GasPriceWei      string         `yaml:"gas_price_wei"`
-	GasLimit         uint64         `yaml:"gas_limit"`
-	NativeBalanceWei string         `yaml:"native_balance_wei"`
-	RequestTimeout   time.Duration  `yaml:"request_timeout"`
+	Enabled          bool          `yaml:"enabled" default:"false"`
+	ChainID          uint64        `yaml:"chain_id" validate:"required"`
+	GasPriceWei      string        `yaml:"gas_price_wei" default:"1000000000"`
+	GasLimit         uint64        `yaml:"gas_limit" default:"21000"`
+	NativeBalanceWei string        `yaml:"native_balance_wei" default:"1000000000000000000000"`
+	RequestTimeout   time.Duration `yaml:"request_timeout"  default:"30s"`
 }

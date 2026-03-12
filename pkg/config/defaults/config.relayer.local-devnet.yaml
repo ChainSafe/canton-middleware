@@ -2,14 +2,16 @@
 server:
   host: "0.0.0.0"
   port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
 
 database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "p@ssw0rd"
-  database: "relayer"
+  url: "${RELAYER_DATABASE_URL}"
   ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
 
 ethereum:
   rpc_url: "${SEPOLIA_RPC_URL}"          # e.g., https://sepolia.infura.io/v3/<YOUR_KEY>
@@ -22,6 +24,7 @@ ethereum:
   gas_limit: 300000
   max_gas_price: "100000000000"
   polling_interval: "5s"
+  start_block: 0
   lookback_blocks: 200
 
 canton:
@@ -34,11 +37,16 @@ canton:
     max_inbound_message_size: 52428800
     tls:
       enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
     auth:
       client_id: "${CANTON_AUTH_CLIENT_ID}"
       client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
       audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
       token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+      expiry_leeway: "60s"
 
   identity:
     # v2.0.0 packages (uploaded 2026-03-05)
@@ -59,9 +67,13 @@ bridge:
   max_retries: 3
   retry_delay: "10s"
   processing_interval: "5s"
-  canton_chain_id: ""
+  canton_chain_id: "canton"
   canton_start_block: 0
   canton_lookback_blocks: 100
+  eth_chain_id: "11155111"
+  eth_start_block: 0
+  eth_lookback_blocks: 200
+  eth_token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
 
 monitoring:
   enabled: true

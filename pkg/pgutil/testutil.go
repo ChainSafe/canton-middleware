@@ -2,6 +2,7 @@ package pgutil
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -47,12 +48,10 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 
 	// Create database config
 	cfg := &DatabaseConfig{
-		Host:     host,
-		Port:     port.Int(),
-		User:     "test_user",
-		Password: "test_pass",
-		Database: "test_db",
+		URL:      fmt.Sprintf("postgres://test_user:test_pass@%s:%s/test_db", host, port.Port()),
 		SSLMode:  "disable",
+		Timeout:  10,
+		PoolSize: 10,
 	}
 
 	// Connect to database with retry logic

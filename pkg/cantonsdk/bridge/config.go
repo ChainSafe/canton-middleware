@@ -11,9 +11,9 @@ type Config struct {
 	// OperatorParty is the party that controls WayfinderBridgeConfig (the bridge operator).
 	OperatorParty string
 	// PackageID is the package id that contains Wayfinder.Bridge templates/choices.
-	PackageID string `yaml:"package_id"`
+	PackageID string `yaml:"package_id" validate:"required"`
 	// Module is the DAML module name that contains WayfinderBridgeConfig template.
-	Module string `yaml:"module"`
+	Module string `yaml:"module" validate:"required"`
 }
 
 // Validate validates config for bridge operations.

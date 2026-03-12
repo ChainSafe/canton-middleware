@@ -168,13 +168,14 @@ func (s *ethService) GetTransactionCount(ctx context.Context, address common.Add
 }
 
 func (s *ethService) GetCode(_ context.Context, address common.Address) (hexutil.Bytes, error) {
-	// TODO: get from the token service
-	switch address {
-	case s.cfg.TokenAddress, s.cfg.DemoTokenAddress:
-		return hexutil.Bytes{0x60, 0x80}, nil
-	default:
+	if s.tokenService == nil {
 		return hexutil.Bytes{}, nil
 	}
+	if _, err := s.tokenService.ERC20(address); err == nil {
+		// Return minimal non-empty bytecode for supported ERC20 contracts.
+		return hexutil.Bytes{0x60, 0x80}, nil
+	}
+	return hexutil.Bytes{}, nil
 }
 
 func (*ethService) Syncing(_ context.Context) bool {

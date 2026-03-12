@@ -30,12 +30,10 @@ func TestConnectDB_Success(t *testing.T) {
 
 func TestConnectDB_InvalidHost(t *testing.T) {
 	cfg := &pgutil.DatabaseConfig{
-		Host:     "invalid-host-that-does-not-exist",
-		Port:     5432,
-		User:     "test",
-		Password: "test",
-		Database: "test",
+		URL:      "postgres://test:test@invalid-host-that-does-not-exist:5432/test",
 		SSLMode:  "disable",
+		Timeout:  1,
+		PoolSize: 1,
 	}
 
 	db, err := pgutil.ConnectDB(cfg)

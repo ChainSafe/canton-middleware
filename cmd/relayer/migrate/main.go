@@ -30,7 +30,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Printf("Running migrations for Relayer database (%s)...\n", cfg.Database.Database)
+	log.Printf("Running migrations for Relayer database (%s)...\n", cfg.Database.URL)
 
 	// Create migrator
 	migrator := migrate.NewMigrator(db, relayerdb.Migrations)
