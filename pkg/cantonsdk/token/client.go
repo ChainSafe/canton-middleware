@@ -443,7 +443,7 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 		CommandId:      uuid.NewString(),
 		UserId:         c.cfg.UserID,
 		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.RelayerParty},
+		ReadAs:         []string{c.cfg.IssuerParty},
 		Commands:       []*lapiv2.Command{cmd},
 	}
 
@@ -719,7 +719,7 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		CommandId:      uuid.NewString(),
 		UserId:         c.cfg.UserID,
 		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.RelayerParty},
+		ReadAs:         []string{c.cfg.IssuerParty},
 		Commands:       []*lapiv2.Command{cmd},
 	}
 
