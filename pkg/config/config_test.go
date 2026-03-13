@@ -271,6 +271,18 @@ func TestLoadAPIServer_RequiredValidation(t *testing.T) {
 	}
 }
 
+func TestLoadAPIServer_InvalidDatabaseURL(t *testing.T) {
+	path := testConfigPath(t, "invalid-database-url.api.yaml")
+
+	_, err := LoadAPIServer(path)
+	if err == nil {
+		t.Fatal("expected database URL validation error, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "database.url") {
+		t.Fatalf("expected database.url validation error, got: %v", err)
+	}
+}
+
 func TestLoadRelayerServer_RequiredValidation(t *testing.T) {
 	path := testConfigPath(t, "missing-required.relayer.yaml")
 
