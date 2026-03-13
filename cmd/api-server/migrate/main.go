@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", "config.example.yaml", "Path to configuration file")
+	cfgPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to configuration file")
 	flag.Usage = mghelper.Usage
 	flag.Parse()
 

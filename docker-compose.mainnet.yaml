@@ -5,7 +5,7 @@
 # - Disables local Canton, Anvil, deployer (using mainnet services)
 # - Disables mock-oauth2 and bootstrap (not needed for mainnet)
 # - Keeps Postgres for relayer state
-# - Uses ENV=docker (built-in defaults in image)
+# - Uses ENV=mainnet (built-in mainnet defaults in image)
 
 services:
   # Disable local services - using mainnet
@@ -34,12 +34,24 @@ services:
     volumes: []
     command: []
     environment:
-      ENV: docker
+      ENV: mainnet
       RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL}"
+      ETHEREUM_RPC_URL: "${ETHEREUM_RPC_URL}"
+      ETHEREUM_WS_URL: "${ETHEREUM_WS_URL}"
+      ETHEREUM_CHAIN_ID: "${ETHEREUM_CHAIN_ID}"
+      ETHEREUM_BRIDGE_CONTRACT: "${ETHEREUM_BRIDGE_CONTRACT}"
+      ETHEREUM_TOKEN_CONTRACT: "${ETHEREUM_TOKEN_CONTRACT}"
       ETHEREUM_RELAYER_PRIVATE_KEY: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
       CANTON_DOMAIN_ID: "${CANTON_DOMAIN_ID}"
       CANTON_ISSUER_PARTY: "${CANTON_ISSUER_PARTY}"
+      CANTON_LEDGER_RPC_URL: "${CANTON_LEDGER_RPC_URL}"
       CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID}"
       CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
+      CANTON_AUTH_AUDIENCE: "${CANTON_AUTH_AUDIENCE}"
+      CANTON_AUTH_TOKEN_URL: "${CANTON_AUTH_TOKEN_URL}"
+      CANTON_IDENTITY_PACKAGE_ID: "${CANTON_IDENTITY_PACKAGE_ID}"
+      CANTON_CIP56_PACKAGE_ID: "${CANTON_CIP56_PACKAGE_ID}"
+      CANTON_SPLICE_TRANSFER_PACKAGE_ID: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+      CANTON_BRIDGE_PACKAGE_ID: "${CANTON_BRIDGE_PACKAGE_ID}"
 
   # Postgres stays enabled for relayer state

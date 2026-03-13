@@ -34,6 +34,18 @@ func TestLoadDefaultConfigFiles(t *testing.T) {
 			t.Fatalf("load relayer local-devnet config: %v", err)
 		}
 	})
+
+	t.Run("api mainnet", func(t *testing.T) {
+		if _, err := LoadAPIServer(defaultConfigPath(t, "config.api-server.mainnet.yaml")); err != nil {
+			t.Fatalf("load api mainnet config: %v", err)
+		}
+	})
+
+	t.Run("relayer mainnet", func(t *testing.T) {
+		if _, err := LoadRelayerServer(defaultConfigPath(t, "config.relayer.mainnet.yaml")); err != nil {
+			t.Fatalf("load relayer mainnet config: %v", err)
+		}
+	})
 }
 
 func TestLoadConfig_EnvSubstitution(t *testing.T) {
@@ -339,8 +351,20 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("RELAYER_DATABASE_URL", "postgres://postgres:pass@localhost:5432/relayer")
 	t.Setenv("CANTON_DOMAIN_ID", "global-domain::1220test")
 	t.Setenv("CANTON_ISSUER_PARTY", "issuer::1220test")
+	t.Setenv("CANTON_LEDGER_RPC_URL", "canton-ledger.example:443")
 	t.Setenv("CANTON_AUTH_CLIENT_ID", "test-client-id")
 	t.Setenv("CANTON_AUTH_CLIENT_SECRET", "test-client-secret")
+	t.Setenv("CANTON_AUTH_AUDIENCE", "https://canton-ledger.example")
+	t.Setenv("CANTON_AUTH_TOKEN_URL", "https://auth.example/oauth/token")
+	t.Setenv("CANTON_IDENTITY_PACKAGE_ID", "identity-package-id")
+	t.Setenv("CANTON_CIP56_PACKAGE_ID", "cip56-package-id")
+	t.Setenv("CANTON_SPLICE_TRANSFER_PACKAGE_ID", "splice-transfer-package-id")
+	t.Setenv("CANTON_BRIDGE_PACKAGE_ID", "bridge-package-id")
+	t.Setenv("ETHEREUM_RPC_URL", "https://eth.example")
+	t.Setenv("ETHEREUM_WS_URL", "wss://eth.example/ws")
+	t.Setenv("ETHEREUM_CHAIN_ID", "1")
+	t.Setenv("ETHEREUM_BRIDGE_CONTRACT", "0x1111111111111111111111111111111111111111")
+	t.Setenv("ETHEREUM_TOKEN_CONTRACT", "0x2222222222222222222222222222222222222222")
 	t.Setenv("ETHEREUM_RELAYER_PRIVATE_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("SEPOLIA_RPC_URL", "https://sepolia.example")
 	t.Setenv("SEPOLIA_WS_URL", "wss://sepolia.example/ws")

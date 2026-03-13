@@ -160,7 +160,7 @@ type TransferResult struct {
 }
 
 var (
-	configPath = flag.String("config", "config.e2e-local.yaml", "Path to local test config")
+	configPath = flag.String("config", "config.e2e-local.test.yaml", "Path to local test config")
 	cleanup    = flag.Bool("cleanup", false, "Stop and remove Docker services after test")
 	skipDocker = flag.Bool("skip-docker", false, "Skip Docker compose start")
 	verbose    = flag.Bool("verbose", false, "Enable verbose output")

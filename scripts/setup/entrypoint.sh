@@ -52,6 +52,9 @@ if [ "$HAS_CONFIG_ARG" = "false" ]; then
         devnet|local-devnet)
             CONFIG_SUFFIX="local-devnet"
             ;;
+        mainnet)
+            CONFIG_SUFFIX="mainnet"
+            ;;
         *)
             echo ">>> [WARN] Unknown ENV '$SELECTED_ENV'; defaulting to docker."
             CONFIG_SUFFIX="docker"
