@@ -24,6 +24,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
+	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -82,7 +83,10 @@ func (s *Server) Run() error {
 	userStore := userstore.NewStore(dbBun)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
-	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
+	transferCache := cantontkn.NewPreparedTransferCache(2 * time.Minute)
+	go transferCache.Start(ctx)
+
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger, transferCache)
 	if err != nil {
 		return err
 	}
@@ -111,7 +115,8 @@ func (s *Server) Run() error {
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
-	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore)
+	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), transferSvc, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 
@@ -142,6 +147,7 @@ func (s *Server) openCantonClient(
 	keyStore userKeyStore,
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
+	transferCache *cantontkn.PreparedTransferCache,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (cantontkn.Signer, error) {
 		privKey, err := keyStore.GetUserKeyByCantonPartyID(ctx, cipher.Decrypt, partyID)
@@ -159,6 +165,7 @@ func (s *Server) openCantonClient(
 		s.cfg.Canton,
 		canton.WithLogger(logger),
 		canton.WithKeyResolver(keyResolver),
+		canton.WithPreparedTransferCache(transferCache),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create canton client: %w", err)
@@ -210,6 +217,7 @@ func (s *Server) setupRouter(
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
+	transferSvc *transfer.TransferService,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -228,6 +236,9 @@ func (s *Server) setupRouter(
 
 	// Registration endpoints
 	userservice.RegisterRoutes(r, registrationService, logger)
+
+	// Non-custodial transfer endpoints (prepare/execute)
+	transfer.RegisterRoutes(r, transferSvc, logger)
 
 	registryHandler := registry.NewHandler(cantonClient.Token, logger)
 	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
