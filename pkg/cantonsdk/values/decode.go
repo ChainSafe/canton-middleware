@@ -111,3 +111,70 @@ func Timestamp(v *lapiv2.Value) time.Time {
 	}
 	return time.Time{}
 }
+
+// RecordField extracts a named field from a Record value, returning the sub-map.
+// Returns nil when v is nil or not a Record.
+func RecordField(v *lapiv2.Value) map[string]*lapiv2.Value {
+	if v == nil {
+		return nil
+	}
+	r, ok := v.Sum.(*lapiv2.Value_Record)
+	if !ok || r.Record == nil {
+		return nil
+	}
+	return RecordToMap(r.Record)
+}
+
+// NestedTextField accesses a Text field within a nested DAML Record value.
+// Use this for fields like instrumentId.id where instrumentId is a Record.
+// Returns "" when v is nil, not a Record, or the field is absent.
+func NestedTextField(v *lapiv2.Value, field string) string {
+	return Text(RecordField(v)[field])
+}
+
+// NestedPartyField accesses a Party field within a nested DAML Record value.
+// Use this for fields like instrumentId.admin.
+// Returns "" when v is nil, not a Record, or the field is absent.
+func NestedPartyField(v *lapiv2.Value, field string) string {
+	return Party(RecordField(v)[field])
+}
+
+// OptionalRecordFields extracts the inner Record fields from an Optional(Record) value.
+// Returns nil when v is None or the inner value is not a Record.
+func OptionalRecordFields(v *lapiv2.Value) map[string]*lapiv2.Value {
+	if IsNone(v) {
+		return nil
+	}
+	opt, ok := v.Sum.(*lapiv2.Value_Optional)
+	if !ok || opt.Optional == nil || opt.Optional.Value == nil {
+		return nil
+	}
+	return RecordField(opt.Optional.Value)
+}
+
+// MapLookupText looks up a string key in a DAML Map Text Text value.
+// Handles both TextMap (DA.TextMap) and GenMap (DA.Map) encodings.
+// Returns "" when v is nil, not a map, or the key is absent.
+func MapLookupText(v *lapiv2.Value, key string) string {
+	if v == nil {
+		return ""
+	}
+	// DA.TextMap.TextMap serialises as Value_TextMap
+	if tm, ok := v.Sum.(*lapiv2.Value_TextMap); ok && tm.TextMap != nil {
+		for _, e := range tm.TextMap.Entries {
+			if e.GetKey() == key {
+				return Text(e.GetValue())
+			}
+		}
+		return ""
+	}
+	// DA.Map.Map serialises as Value_GenMap with Text keys
+	if gm, ok := v.Sum.(*lapiv2.Value_GenMap); ok && gm.GenMap != nil {
+		for _, e := range gm.GenMap.Entries {
+			if Text(e.GetKey()) == key {
+				return Text(e.GetValue())
+			}
+		}
+	}
+	return ""
+}
