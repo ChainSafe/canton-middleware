@@ -13,10 +13,11 @@ import (
 type Option func(*settings)
 
 type settings struct {
-	logger      *zap.Logger
-	httpClient  *http.Client
-	bridgeCfg   *bridge.Config
-	keyResolver token.KeyResolver
+	logger        *zap.Logger
+	httpClient    *http.Client
+	bridgeCfg     *bridge.Config
+	keyResolver   token.KeyResolver
+	preparedCache *token.PreparedTransferCache
 }
 
 // WithLogger sets a custom logger for the SDK client.
@@ -39,6 +40,11 @@ func WithBridgeConfig(cfg *bridge.Config) Option {
 // Required for transfers involving external parties (Interactive Submission).
 func WithKeyResolver(kr token.KeyResolver) Option {
 	return func(s *settings) { s.keyResolver = kr }
+}
+
+// WithPreparedTransferCache sets the cache used by PrepareTransfer/ExecuteTransfer.
+func WithPreparedTransferCache(c *token.PreparedTransferCache) Option {
+	return func(s *settings) { s.preparedCache = c }
 }
 
 func applyOptions(opts []Option) settings {
