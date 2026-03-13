@@ -14,27 +14,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"gopkg.in/yaml.v3"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
-
-type Config struct {
-	Canton struct {
-		RPCURL       string `yaml:"rpc_url"`
-		RelayerParty string `yaml:"relayer_party"`
-		Auth         struct {
-			ClientID     string `yaml:"client_id"`
-			ClientSecret string `yaml:"client_secret"`
-			Audience     string `yaml:"audience"`
-			TokenURL     string `yaml:"token_url"`
-		} `yaml:"auth"`
-	} `yaml:"canton"`
-}
 
 type UserMapping struct {
 	Fingerprint string
@@ -43,26 +30,29 @@ type UserMapping struct {
 }
 
 func main() {
-	configFile := "config.mainnet.yaml"
+	configFile := "pkg/config/defaults/config.api-server.docker.yaml"
 	if len(os.Args) > 1 {
 		configFile = os.Args[1]
 	}
 
-	data, err := os.ReadFile(configFile)
+	cfg, err := config.LoadAPIServer(configFile)
 	if err != nil {
 		fmt.Printf("Failed to read config: %v\n", err)
 		return
 	}
-	var cfg Config
-	yaml.Unmarshal(data, &cfg)
 
-	token := getToken(cfg.Canton.Auth.TokenURL, cfg.Canton.Auth.ClientID, cfg.Canton.Auth.ClientSecret, cfg.Canton.Auth.Audience)
+	token := getToken(
+		cfg.Canton.Ledger.Auth.TokenURL,
+		cfg.Canton.Ledger.Auth.ClientID,
+		cfg.Canton.Ledger.Auth.ClientSecret,
+		cfg.Canton.Ledger.Auth.Audience,
+	)
 	if token == "" {
 		fmt.Println("Failed to get OAuth token")
 		return
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cfg.Canton.Ledger.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Printf("Failed to connect: %v\n", err)
 		return
@@ -88,7 +78,7 @@ func main() {
 		ActiveAtOffset: resp.Offset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
-				cfg.Canton.RelayerParty: {
+				cfg.Canton.IssuerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{{
 						IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
 							WildcardFilter: &lapiv2.WildcardFilter{},
@@ -144,7 +134,7 @@ func main() {
 		ActiveAtOffset: resp.Offset,
 		EventFormat: &lapiv2.EventFormat{
 			FiltersByParty: map[string]*lapiv2.Filters{
-				cfg.Canton.RelayerParty: {
+				cfg.Canton.IssuerParty: {
 					Cumulative: []*lapiv2.CumulativeFilter{{
 						IdentifierFilter: &lapiv2.CumulativeFilter_WildcardFilter{
 							WildcardFilter: &lapiv2.WildcardFilter{},

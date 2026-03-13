@@ -7,7 +7,7 @@
 // This simulates a native Canton user making a transfer without MetaMask.
 //
 // Usage:
-//   go run scripts/demo/native-transfer.go -config config.api-server.mainnet.local.yaml \
+//   go run scripts/demo/native-transfer.go -config pkg/config/defaults/config.api-server.docker.yaml \
 //     -from "party1::..." -to "party2::..." -amount "100"
 //
 // Flags:
@@ -33,7 +33,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	fromParty  = flag.String("from", "", "Sender Canton party ID (required)")
 	toParty    = flag.String("to", "", "Recipient Canton party ID (required)")
 	amount     = flag.String("amount", "", "Amount to transfer (required)")
@@ -62,14 +62,14 @@ func main() {
 	}
 
 	// Determine network
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Native Canton Transfer - %s\n", networkName)
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  Network:  %s\n", networkName)
-	fmt.Printf("  Endpoint: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Endpoint: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Println()
 	fmt.Println("  Transfer Details:")
 	fmt.Printf("    From:   %s\n", truncateParty(*fromParty))
@@ -89,7 +89,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)

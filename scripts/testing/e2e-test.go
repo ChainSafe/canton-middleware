@@ -12,12 +12,12 @@
 //
 // Usage:
 //   go run scripts/e2e-test.go \
-//     -config config.devnet.yaml \
+//     -config pkg/config/defaults/config.relayer.local-devnet.yaml \
 //     -test-config config.e2e-test.yaml \
 //     [-local] [-skip-docker]
 //
 // Flags:
-//   -config       Path to main service config (e.g., config.devnet.yaml)
+//   -config       Path to main service config (e.g., pkg/config/defaults/config.relayer.local-devnet.yaml)
 //   -test-config  Path to test config with user keys and amounts
 //   -local        Use local docker compose services
 //   -skip-docker  Skip docker compose start (assume services are running)
@@ -45,6 +45,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -84,13 +85,7 @@ type TestConfig struct {
 		TokenAddress string `yaml:"token_address"`
 	} `yaml:"eth_rpc"`
 
-	Database struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
-		Database string `yaml:"database"`
-	} `yaml:"database"`
+	Database pgutil.DatabaseConfig `yaml:"database"`
 
 	Amounts struct {
 		TotalDeposit   string `yaml:"total_deposit"`
@@ -157,7 +152,7 @@ type TransferResult struct {
 }
 
 var (
-	configPath     = flag.String("config", "config.devnet.yaml", "Path to main service config")
+	configPath     = flag.String("config", "pkg/config/defaults/config.relayer.docker.yaml", "Path to main service config")
 	testConfigPath = flag.String("test-config", "config.e2e-test.yaml", "Path to test config")
 	localMode      = flag.Bool("local", false, "Use local docker compose services")
 	skipDocker     = flag.Bool("skip-docker", true, "Skip docker compose start")
@@ -171,7 +166,7 @@ func main() {
 
 	// Load configs
 	printStep("Loading configurations...")
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadRelayerServer(*configPath)
 	if err != nil {
 		printError("Failed to load main config: %v", err)
 		os.Exit(1)
@@ -324,7 +319,7 @@ func waitForHealth(url string, maxAttempts int) error {
 	return fmt.Errorf("timeout waiting for %s", url)
 }
 
-func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) error {
+func runE2ETest(ctx context.Context, cfg *config.RelayerServer, testCfg *TestConfig) error {
 	// Parse timeouts
 	depositTimeout, _ := time.ParseDuration(testCfg.Timeouts.DepositConfirmation)
 	balanceTimeout, _ := time.ParseDuration(testCfg.Timeouts.BalanceUpdate)
@@ -363,7 +358,7 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 	// =========================================================================
 	// Step 0 (local mode only): Whitelist users in PostgreSQL
 	// =========================================================================
-	if *localMode && testCfg.Database.Host != "" {
+	if *localMode && testCfg.Database.GetConnectionString() != "" {
 		printHeader("Step 0: Whitelist Users (Local Mode)")
 		if err := whitelistUsers(testCfg, user1Addr, user2Addr); err != nil {
 			return fmt.Errorf("failed to whitelist users: %w", err)
@@ -585,12 +580,10 @@ func runE2ETest(ctx context.Context, cfg *config.Config, testCfg *TestConfig) er
 
 // whitelistUsers adds users to the API server whitelist in PostgreSQL
 func whitelistUsers(cfg *TestConfig, users ...common.Address) error {
-	if cfg.Database.Host == "" {
-		return fmt.Errorf("database config not provided")
+	dsn := cfg.Database.GetConnectionString()
+	if dsn == "" {
+		return fmt.Errorf("database.url not provided")
 	}
-
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -602,6 +595,7 @@ func whitelistUsers(cfg *TestConfig, users ...common.Address) error {
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	printInfo("Connected to database")
 
 	for _, addr := range users {
 		_, err := db.Exec(

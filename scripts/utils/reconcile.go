@@ -7,7 +7,7 @@
 // This updates user balances to match their actual Canton holdings.
 //
 // Usage:
-//   go run scripts/utils/reconcile.go -config config.api-server.mainnet.local.yaml
+//   go run scripts/utils/reconcile.go -config pkg/config/defaults/config.api-server.mainnet.yaml
 
 package main
 
@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -30,7 +31,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	verbose    = flag.Bool("verbose", false, "Show detailed output")
 )
 
@@ -43,7 +44,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Balance Reconciliation - %s\n", networkName)
@@ -51,7 +52,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("  Config:   %s\n", *configPath)
 	fmt.Printf("  Network:  %s\n", networkName)
-	fmt.Printf("  Database: %s\n", cfg.Database.Database)
+	fmt.Printf("  Database: %s\n", databaseNameFromURL(cfg.Database.GetConnectionString()))
 	fmt.Println()
 
 	// Create logger
@@ -66,7 +67,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
@@ -76,7 +77,7 @@ func main() {
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database (bun): %v\n", err)
 		os.Exit(1)
@@ -183,4 +184,16 @@ func detectNetwork(rpcURL string) string {
 	default:
 		return "UNKNOWN"
 	}
+}
+
+func databaseNameFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid>"
+	}
+	name := strings.TrimPrefix(parsed.Path, "/")
+	if name == "" {
+		return "<unknown>"
+	}
+	return name
 }

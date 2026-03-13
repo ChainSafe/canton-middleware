@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -19,7 +18,7 @@ import (
 
 // Client represents an Ethereum client
 type Client struct {
-	config     *config.EthereumConfig
+	config     *Config
 	client     *ethclient.Client
 	wsClient   *ethclient.Client
 	privateKey *ecdsa.PrivateKey
@@ -35,7 +34,7 @@ type Client struct {
 }
 
 // NewClient creates a new Ethereum client
-func NewClient(cfg *config.EthereumConfig, logger *zap.Logger) (*Client, error) {
+func NewClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 	// Connect to Ethereum RPC
 	client, err := ethclient.Dial(cfg.RPCURL)
 	if err != nil {

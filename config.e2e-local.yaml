@@ -10,136 +10,91 @@
 #
 # =============================================================================
 
-# Test participants (Anvil default accounts from mnemonic)
-# Mnemonic: "test test test test test test test test test test test junk"
-users:
-  user1:
-    # Account 1 from Anvil (0xf39...)
-    private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-    address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-    fingerprint: ""
 
-  user2:
-    # Account 2 from Anvil (0x70...)
-    private_key: "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-    address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-    fingerprint: ""
-
-# Service endpoints (local docker compose)
-services:
-  relayer_url: "http://localhost:8080"
-  api_server_url: "http://localhost:8081"
-  # eth_rpc_url and register_url will be auto-generated if not specified
-
-# Ethereum RPC configuration (for host-side scripts)
-eth_rpc:
-  chain_id: 31337
-  # token_address will use contracts.token_address if not specified
-
-# =============================================================================
-# Required relayer config fields (for bootstrap-demo.go compatibility)
-# =============================================================================
+# API server config (used by scripts that load APIServer config from this file)
+server:
+  host: "0.0.0.0"
+  port: 8081
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
 
 # Database configuration (local PostgreSQL)
 database:
-  host: "localhost"
-  port: 5432
-  user: "postgres"
-  password: "p@ssw0rd"
-  database: "erc20_api"
+  url: "postgres://postgres:p%40ssw0rd@localhost:5432/erc20_api"
   ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
 
-# Ethereum config (required by config.Load validation)
-ethereum:
-  rpc_url: "http://localhost:8545"
-  ws_url: "ws://localhost:8545"
-  chain_id: 31337
-  bridge_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-  token_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
-  relayer_private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-  confirmation_blocks: 1
-  gas_limit: 300000
-  max_gas_price: "100000000000"
-  polling_interval: "5s"
-  start_block: 0
-
-# Canton config (required by config.Load validation and bootstrap-demo.go)
+# Canton config
 canton:
-  rpc_url: "localhost:5011"
-  ledger_id: "canton-ledger-id"
-  domain_id: "local::122034748b7295375873a031aa4b151f3f52aea896e2da6db1e884e33511c0980cb9"  # Auto-detected by bootstrap
-  application_id: "canton-middleware"
-  relayer_party: "BridgeIssuer::1220fc770f608f7837c0f7a39a9910386065d6a203e4764494f324aa54e789300fdd"  # Auto-detected by bootstrap
-  bridge_package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
-  common_package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
-  core_package_id: "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
-  cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
-  splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
-  splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
-  instrument_admin: "BridgeIssuer::1220fc770f608f7837c0f7a39a9910386065d6a203e4764494f324aa54e789300fdd"  # Set by bootstrap (same as relayer_party)
-  instrument_id: "PROMPT"
-  bridge_module: "Wayfinder.Bridge"
-  bridge_contract: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-  tls:
-    enabled: false
-  auth:
-    client_id: "local-test-client"
-    client_secret: "local-test-secret"
-    audience: "http://canton:5011"
-    token_url: "http://localhost:8088/oauth/token"
-  polling_interval: "1s"
+  domain_id: "local::1220491bf04408d7cf1a8c9d6147f46a4e300901b5fd2f13dd60c4e871fc5df130d2"
+  issuer_party: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
 
-# Bridge config
-bridge:
-  max_transfer_amount: "1000000000000000000000"
-  min_transfer_amount: "1000000000000000"
-  rate_limit_per_hour: 100
-  max_retries: 3
-  retry_delay: "10s"
-  processing_interval: "5s"
+  ledger:
+    rpc_url: "localhost:5011"
+    ledger_id: "canton-ledger-id"
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "local-test-client"
+      client_secret: "local-test-secret"
+      audience: "http://canton:5011"
+      token_url: "http://localhost:8088/oauth/token"
+      expiry_leeway: "60s"
 
-# =============================================================================
-# Test-specific settings
-# =============================================================================
+  identity:
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
 
-# Test amounts
-amounts:
-  # Deposit 100 tokens (Anvil accounts have plenty of ETH)
-  total_deposit: "100.0"
-  # Transfer 25 tokens
-  transfer_amount: "25.0"
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 
-# Contract addresses (deployed by docker compose)
-# These are deterministic based on deployer script
-contracts:
-  # PromptToken deployed at this address by Foundry script
-  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
-  # CantonBridge deployed at this address by Foundry script
-  bridge_address: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-  # DEMO token (native Canton token) - synthetic address for MetaMask
-  demo_token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
 
-# DEMO token settings (native Canton token)
-demo_token:
-  name: "Demo Token"
-  symbol: "DEMO"
-  decimals: 18
-  # Amount to mint to each user at bootstrap
-  mint_amount: "500.0"
+# Token metadata
+token:
+  supported_tokens:
+    "0x5FbDB2315678afecb367f032d93F642f64180aa3":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+    "0xDE30000000000000000000000000000000000001":
+      name: "Demo Token"
+      symbol: "DEMO"
+      decimals: 18
+  native_balance_wei: "1000000000000000000000"
 
-# Timeouts (shorter for local testing)
-timeouts:
-  deposit_confirmation: "60s"
-  balance_update: "30s"
-  rpc_call: "15s"
+# Ethereum JSON-RPC facade (MetaMask compatibility)
+eth_rpc:
+  enabled: true
+  chain_id: 31337
+  gas_price_wei: "1000000000"
+  gas_limit: 21000
+  native_balance_wei: "1000000000000000000000"
+  request_timeout: "30s"
 
-# Local test specific settings
-local:
-  # Docker compose files to use
-  compose_files:
-    - "docker-compose.yaml"
-    - "docker-compose.local-test.yaml"
-  # Anvil RPC URL
-  anvil_url: "http://localhost:8545"
-  # Canton HTTP URL
-  canton_url: "http://localhost:5013"
+jwks:
+  url: ""
+  issuer: ""
+
+logging:
+  level: "debug"
+  format: "json"
+  output_path: "stdout"
+
+reconciliation:
+  initial_timeout: "2m"
+  interval: "10s"
+
+key_management:
+  master_key_env: "CANTON_MASTER_KEY"
+  key_derivation: "generate"

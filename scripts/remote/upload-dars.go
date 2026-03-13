@@ -5,8 +5,8 @@
 // This script uploads DAR files via the Package Management gRPC API.
 //
 // Usage:
-//   go run scripts/remote/upload-dars.go -config config.api-server.devnet.yaml
-//   go run scripts/remote/upload-dars.go -config config.api-server.mainnet.yaml
+//   go run scripts/remote/upload-dars.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/remote/upload-dars.go -config pkg/config/defaults/config.api-server.local-devnet.yaml
 //
 // The script will:
 // 1. Connect to Canton with OAuth2 authentication
@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,13 +58,13 @@ var darFiles = []string{
 }
 
 func main() {
-	configPath := flag.String("config", "config.api-server.devnet.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	darDir := flag.String("dar-dir", "", "Directory containing DAR files (default: contracts/canton-erc20/daml/*/dist/)")
 	listOnly := flag.Bool("list-only", false, "Only list known packages, don't upload")
 	flag.Parse()
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -73,7 +74,7 @@ func main() {
 
 	// Connect to Canton
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 			NextProtos:         []string{"h2"},
@@ -84,7 +85,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -95,7 +96,7 @@ func main() {
 	defer conn.Close()
 
 	// Get auth context
-	ctx, err = getAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = getAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		log.Fatalf("Failed to get auth context: %v", err)
 	}
@@ -103,7 +104,7 @@ func main() {
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println("DAR UPLOAD TOOL")
 	fmt.Println("=" + strings.Repeat("=", 69))
-	fmt.Printf("Canton RPC: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("Canton RPC: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Println()
 
 	pkgClient := admin.NewPackageManagementServiceClient(conn)
@@ -278,7 +279,7 @@ func main() {
 	fmt.Println("UPLOAD COMPLETE - Update your config with these package IDs:")
 	fmt.Println("=" + strings.Repeat("=", 69))
 	fmt.Println()
-	fmt.Println("# For config.api-server.devnet.yaml / config.api-server.mainnet.yaml:")
+	fmt.Println("# For pkg/config/defaults/config.api-server.*.yaml:")
 	fmt.Println("canton:")
 
 	// Print in a specific order
@@ -305,8 +306,8 @@ func main() {
 	}
 }
 
-func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func getAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, nil
 	}
 
@@ -319,7 +320,7 @@ func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Conte
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func getOAuthToken(auth *config.AuthConfig) (string, error) {
+func getOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 

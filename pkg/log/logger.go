@@ -1,4 +1,4 @@
-package config
+package log
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 )
 
 // NewLogger creates a new logger based on configuration
-func NewLogger(cfg LoggingConfig) (*zap.Logger, error) {
+func NewLogger(cfg *Config) (*zap.Logger, error) {
 	var zapConfig zap.Config
 
 	if cfg.Format == "json" {
