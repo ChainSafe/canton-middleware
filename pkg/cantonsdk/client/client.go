@@ -60,9 +60,6 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	if s.keyResolver != nil {
 		tokenOpts = append(tokenOpts, token.WithKeyResolver(s.keyResolver))
 	}
-	if s.preparedCache != nil {
-		tokenOpts = append(tokenOpts, token.WithPreparedTransferCache(s.preparedCache))
-	}
 	tk, err := token.New(cfg.Token, l, id, tokenOpts...)
 	if err != nil {
 		_ = l.Close()

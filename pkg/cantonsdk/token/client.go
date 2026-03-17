@@ -86,12 +86,11 @@ type Token interface {
 
 // Client implements CIP-56 token operations.
 type Client struct {
-	cfg           *Config
-	ledger        ledger.Ledger
-	identity      identity.Identity
-	keyResolver   KeyResolver
-	logger        *zap.Logger
-	preparedCache *PreparedTransferCache
+	cfg         *Config
+	ledger      ledger.Ledger
+	identity    identity.Identity
+	keyResolver KeyResolver
+	logger      *zap.Logger
 }
 
 // New creates a new token client.
@@ -109,12 +108,11 @@ func New(cfg *Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*C
 
 	s := applyOptions(opts)
 	return &Client{
-		cfg:           cfg,
-		ledger:        l,
-		identity:      id,
-		keyResolver:   s.keyResolver,
-		logger:        s.logger,
-		preparedCache: s.preparedCache,
+		cfg:         cfg,
+		ledger:      l,
+		identity:    id,
+		keyResolver: s.keyResolver,
+		logger:      s.logger,
 	}, nil
 }
 
@@ -676,17 +674,8 @@ func selectHoldingsForTransfer(holdings []*Holding, requiredAmount string) (*sel
 }
 
 func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferRequest) (*PreparedTransfer, error) {
-	if c.preparedCache == nil {
-		return nil, fmt.Errorf("prepared transfer cache not configured")
-	}
-	if req.FromPartyID == "" || req.ToPartyID == "" {
-		return nil, fmt.Errorf("from/to party is required")
-	}
-	if req.Amount == "" {
-		return nil, fmt.Errorf("amount is required")
-	}
-	if req.TokenSymbol == "" {
-		return nil, fmt.Errorf("token symbol is required")
+	if err := req.validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
 	}
 
 	holdings, err := c.GetHoldings(ctx, req.FromPartyID, req.TokenSymbol)
@@ -742,9 +731,8 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 		PartyID:              req.FromPartyID,
-		ExpiresAt:            time.Now().Add(c.preparedCache.ttl),
+		ExpiresAt:            time.Now().Add(defaultTransferValidity),
 	}
-	c.preparedCache.Put(pt)
 
 	c.logger.Info("Prepared non-custodial transfer",
 		zap.String("transfer_id", pt.TransferID),
@@ -757,15 +745,11 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 }
 
 func (c *Client) ExecuteTransfer(ctx context.Context, req *ExecuteTransferRequest) error {
-	if c.preparedCache == nil {
-		return fmt.Errorf("prepared transfer cache not configured")
+	if err := req.validate(); err != nil {
+		return fmt.Errorf("invalid request: %w", err)
 	}
 
-	pt, err := c.preparedCache.GetAndDelete(req.TransferID)
-	if err != nil {
-		return err
-	}
-
+	pt := req.PreparedTransfer
 	authCtx := c.ledger.AuthContext(ctx)
 
 	partySigs := &interactivev2.PartySignatures{
@@ -784,7 +768,7 @@ func (c *Client) ExecuteTransfer(ctx context.Context, req *ExecuteTransferReques
 		},
 	}
 
-	_, err = c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
+	_, err := c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
 		PreparedTransaction:  pt.PreparedTransaction,
 		PartySignatures:      partySigs,
 		SubmissionId:         uuid.NewString(),
@@ -796,7 +780,7 @@ func (c *Client) ExecuteTransfer(ctx context.Context, req *ExecuteTransferReques
 	}
 
 	c.logger.Info("Executed non-custodial transfer",
-		zap.String("transfer_id", req.TransferID),
+		zap.String("transfer_id", pt.TransferID),
 		zap.String("party", pt.PartyID))
 
 	return nil

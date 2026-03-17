@@ -143,6 +143,19 @@ type PrepareTransferRequest struct {
 	TokenSymbol string
 }
 
+func (r *PrepareTransferRequest) validate() error {
+	if r.FromPartyID == "" || r.ToPartyID == "" {
+		return fmt.Errorf("from/to party is required")
+	}
+	if r.Amount == "" {
+		return fmt.Errorf("amount is required")
+	}
+	if r.TokenSymbol == "" {
+		return fmt.Errorf("token symbol is required")
+	}
+	return nil
+}
+
 // PreparedTransfer holds the result of a prepare step for non-custodial signing.
 type PreparedTransfer struct {
 	TransferID           string                             // UUID
@@ -155,9 +168,22 @@ type PreparedTransfer struct {
 
 // ExecuteTransferRequest contains the client-signed data to complete a non-custodial transfer.
 type ExecuteTransferRequest struct {
-	TransferID string
-	Signature  []byte // DER-encoded ECDSA signature of TransactionHash
-	SignedBy   string // Canton multihash fingerprint of signing key
+	PreparedTransfer *PreparedTransfer // The prepared transfer to execute
+	Signature        []byte            // DER-encoded ECDSA signature of TransactionHash
+	SignedBy         string            // Canton multihash fingerprint of signing key
+}
+
+func (r *ExecuteTransferRequest) validate() error {
+	if r.PreparedTransfer == nil {
+		return fmt.Errorf("prepared transfer is required")
+	}
+	if len(r.Signature) == 0 {
+		return fmt.Errorf("signature is required")
+	}
+	if r.SignedBy == "" {
+		return fmt.Errorf("signed by is required")
+	}
+	return nil
 }
 
 // TransferFactoryInfo contains the CIP56TransferFactory contract details
