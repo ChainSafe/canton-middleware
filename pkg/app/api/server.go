@@ -83,10 +83,7 @@ func (s *Server) Run() error {
 	userStore := userstore.NewStore(dbBun)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
-	transferCache := cantontkn.NewPreparedTransferCache(2 * time.Minute)
-	go transferCache.Start(ctx)
-
-	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger, transferCache)
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
 	if err != nil {
 		return err
 	}
@@ -115,7 +112,8 @@ func (s *Server) Run() error {
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore)
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, tokenSymbols(cfg.Token))
+	go transferSvc.StartCache(ctx)
 	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), transferSvc, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
@@ -147,7 +145,6 @@ func (s *Server) openCantonClient(
 	keyStore userKeyStore,
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
-	transferCache *cantontkn.PreparedTransferCache,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (cantontkn.Signer, error) {
 		privKey, err := keyStore.GetUserKeyByCantonPartyID(ctx, cipher.Decrypt, partyID)
@@ -165,7 +162,6 @@ func (s *Server) openCantonClient(
 		s.cfg.Canton,
 		canton.WithLogger(logger),
 		canton.WithKeyResolver(keyResolver),
-		canton.WithPreparedTransferCache(transferCache),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create canton client: %w", err)
@@ -252,4 +248,17 @@ func (s *Server) setupRouter(
 	}
 
 	return r
+}
+
+// tokenSymbols extracts the unique symbol strings from the token config.
+func tokenSymbols(cfg *token.Config) []string {
+	seen := make(map[string]bool, len(cfg.SupportedTokens))
+	var symbols []string
+	for _, tkn := range cfg.SupportedTokens {
+		if !seen[tkn.Symbol] {
+			seen[tkn.Symbol] = true
+			symbols = append(symbols, tkn.Symbol)
+		}
+	}
+	return symbols
 }

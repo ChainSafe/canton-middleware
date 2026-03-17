@@ -16,11 +16,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-// allowedTokenSymbols defines the set of valid token symbols for transfers.
-var allowedTokenSymbols = map[string]bool{
-	"DEMO":   true,
-	"PROMPT": true,
-}
+const defaultCacheTTL = 2 * time.Minute
 
 // UserStore is the narrow interface for looking up users.
 type UserStore interface {
@@ -29,16 +25,30 @@ type UserStore interface {
 
 // TransferService implements the non-custodial prepare/execute transfer flow.
 type TransferService struct {
-	cantonToken token.Token
-	userStore   UserStore
+	cantonToken         token.Token
+	userStore           UserStore
+	cache               *token.PreparedTransferCache
+	allowedTokenSymbols map[string]bool
 }
 
 // NewTransferService creates a new TransferService.
-func NewTransferService(cantonToken token.Token, userStore UserStore) *TransferService {
-	return &TransferService{
-		cantonToken: cantonToken,
-		userStore:   userStore,
+// allowedSymbols defines the set of valid token symbols (e.g. "DEMO", "PROMPT").
+func NewTransferService(cantonToken token.Token, userStore UserStore, allowedSymbols []string) *TransferService {
+	allowed := make(map[string]bool, len(allowedSymbols))
+	for _, s := range allowedSymbols {
+		allowed[s] = true
 	}
+	return &TransferService{
+		cantonToken:         cantonToken,
+		userStore:           userStore,
+		cache:               token.NewPreparedTransferCache(defaultCacheTTL),
+		allowedTokenSymbols: allowed,
+	}
+}
+
+// StartCache runs the background cache cleanup goroutine. Call from main.
+func (s *TransferService) StartCache(ctx context.Context) {
+	s.cache.Start(ctx)
 }
 
 // Prepare builds a Canton transaction and returns the hash for external signing.
@@ -56,8 +66,8 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		return nil, apperrors.BadRequestError(nil, "invalid amount: must be a positive decimal number")
 	}
 
-	if !allowedTokenSymbols[req.Token] {
-		return nil, apperrors.BadRequestError(nil, "unsupported token: must be DEMO or PROMPT")
+	if !s.allowedTokenSymbols[req.Token] {
+		return nil, apperrors.BadRequestError(nil, "unsupported token")
 	}
 
 	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
@@ -92,6 +102,8 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		return nil, fmt.Errorf("prepare transfer: %w", err)
 	}
 
+	s.cache.Put(pt)
+
 	return &PrepareResponse{
 		TransferID:      pt.TransferID,
 		TransactionHash: "0x" + hex.EncodeToString(pt.TransactionHash),
@@ -117,16 +129,7 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 		return nil, apperrors.ForbiddenError(nil, "signature fingerprint does not match registered key")
 	}
 
-	sigBytes, err := hex.DecodeString(strings.TrimPrefix(req.Signature, "0x"))
-	if err != nil {
-		return nil, apperrors.BadRequestError(err, "invalid DER signature")
-	}
-
-	err = s.cantonToken.ExecuteTransfer(ctx, &token.ExecuteTransferRequest{
-		TransferID: req.TransferID,
-		Signature:  sigBytes,
-		SignedBy:   req.SignedBy,
-	})
+	pt, err := s.cache.GetAndDelete(req.TransferID)
 	if err != nil {
 		if errors.Is(err, token.ErrTransferNotFound) {
 			return nil, apperrors.ResourceNotFoundError(err, "transfer not found")
@@ -134,6 +137,20 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 		if errors.Is(err, token.ErrTransferExpired) {
 			return nil, apperrors.GoneError(err, "transfer expired")
 		}
+		return nil, fmt.Errorf("retrieve prepared transfer: %w", err)
+	}
+
+	sigBytes, err := hex.DecodeString(strings.TrimPrefix(req.Signature, "0x"))
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid DER signature")
+	}
+
+	err = s.cantonToken.ExecuteTransfer(ctx, &token.ExecuteTransferRequest{
+		PreparedTransfer: pt,
+		Signature:        sigBytes,
+		SignedBy:         req.SignedBy,
+	})
+	if err != nil {
 		return nil, fmt.Errorf("execute transfer: %w", err)
 	}
 

@@ -95,11 +95,9 @@ func authenticateEVM(r *http.Request) (string, error) {
 }
 
 func readJSON(r *http.Request, dst any) error {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
-	if err != nil {
-		return apperrors.BadRequestError(err, "failed to read request")
-	}
-	if err := json.Unmarshal(body, dst); err != nil {
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodyBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
 		return apperrors.BadRequestError(err, "invalid JSON")
 	}
 	return nil
