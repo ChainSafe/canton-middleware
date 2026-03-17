@@ -447,7 +447,6 @@ func signHashDER(kp *keys.CantonKeyPair, hashData []byte) []byte {
 	// Canton's SignDER hashes with SHA-256 internally, but PrepareSubmission
 	// returns a hash that should be SHA-256 hashed before signing.
 	hash := sha256.Sum256(hashData)
-	_ = hash // SignHashDER expects the pre-hashed 32 bytes
 	derSig, err := kp.SignHashDER(hash[:])
 	if err != nil {
 		fatalf("DER sign: %v", err)
