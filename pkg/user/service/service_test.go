@@ -43,6 +43,7 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 	evmAddress, signature := signEIP191Message(t, message)
 
 	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
@@ -68,7 +69,6 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	evmAddress, signature := signEIP191Message(t, message)
 
 	storeMock := mocks.NewStore(t)
-	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
