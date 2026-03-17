@@ -52,6 +52,25 @@ type LedgerEvent struct {
 	fields map[string]*lapiv2.Value
 }
 
+// NewLedgerEvent constructs a LedgerEvent with pre-decoded fields.
+// Used by tests that need to build events without going through the proto decode path.
+// Accepts FieldValue values produced by the Make* constructor functions so that
+// callers have no direct dependency on lapiv2.
+func NewLedgerEvent(contractID, packageID, moduleName, templateName string, isCreated bool, fields map[string]FieldValue) *LedgerEvent {
+	inner := make(map[string]*lapiv2.Value, len(fields))
+	for k, v := range fields {
+		inner[k] = v.v
+	}
+	return &LedgerEvent{
+		ContractID:   contractID,
+		PackageID:    packageID,
+		ModuleName:   moduleName,
+		TemplateName: templateName,
+		IsCreated:    isCreated,
+		fields:       inner,
+	}
+}
+
 // TextField returns the named DAML Text field as a Go string.
 // Returns "" when the field is absent or not of type Text.
 func (e *LedgerEvent) TextField(name string) string {

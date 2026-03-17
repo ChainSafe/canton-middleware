@@ -1,10 +1,11 @@
-package indexer
+package engine
 
 import (
 	"context"
 	"sync/atomic"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 
 	"go.uber.org/zap"
 )
@@ -12,36 +13,43 @@ import (
 const txChannelCap = 100
 
 // Fetcher opens a live Canton stream from a caller-supplied resume offset and
-// exposes the resulting transactions via Events.
+// exposes the resulting batches via Events.
 //
 // Typical usage:
 //
-//	f := indexer.NewFetcher(streamClient, templateID, logger)
+//	decode := indexer.NewTokenTransferDecoder(mode, allowed, logger)
+//	f := indexer.NewFetcher(streamClient, templateID, decode, logger)
 //	f.Start(ctx, lastProcessedOffset)
-//	for tx := range f.Events() { ... }
+//	for batch := range f.Events() { ... }
 type Fetcher struct {
-	stream     streaming.Streamer
+	stream     *streaming.Stream[*indexer.ParsedEvent]
 	templateID streaming.TemplateID
-	out        chan *streaming.LedgerTransaction
+	out        chan *streaming.Batch[*indexer.ParsedEvent]
 	logger     *zap.Logger
 }
 
 // NewFetcher creates a new Fetcher.
 //
-//   - stream:     Canton streaming client (handles reconnection, auth, backoff)
+//   - streamer:   Canton streaming client (handles reconnection, auth, backoff)
 //   - templateID: DAML template to subscribe to (e.g. TokenTransferEvent)
+//   - decode:     per-event decode function (see NewTokenTransferDecoder)
 //   - logger:     caller-provided logger
-func NewFetcher(stream streaming.Streamer, templateID streaming.TemplateID, logger *zap.Logger) *Fetcher {
+func NewFetcher(
+	streamer streaming.Streamer,
+	templateID streaming.TemplateID,
+	decode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.ParsedEvent, bool),
+	logger *zap.Logger,
+) *Fetcher {
 	return &Fetcher{
-		stream:     stream,
+		stream:     streaming.NewStream(streamer, decode),
 		templateID: templateID,
-		out:        make(chan *streaming.LedgerTransaction, txChannelCap),
+		out:        make(chan *streaming.Batch[*indexer.ParsedEvent], txChannelCap),
 		logger:     logger,
 	}
 }
 
 // Start begins streaming from offset in a background goroutine. It is non-blocking.
-// The goroutine exits when ctx is cancelled or the underlying stream closes.
+// The goroutine exits when ctx is canceled or the underlying stream closes.
 //
 // Start must be called exactly once before Events is used.
 func (f *Fetcher) Start(ctx context.Context, offset int64) {
@@ -53,7 +61,7 @@ func (f *Fetcher) Start(ctx context.Context, offset int64) {
 	var lastOffset int64
 	atomic.StoreInt64(&lastOffset, offset)
 
-	txCh := f.stream.Subscribe(ctx, streaming.SubscribeRequest{
+	batchCh := f.stream.Subscribe(ctx, streaming.SubscribeRequest{
 		FromOffset:  offset,
 		TemplateIDs: []streaming.TemplateID{f.templateID},
 	}, &lastOffset)
@@ -62,12 +70,12 @@ func (f *Fetcher) Start(ctx context.Context, offset int64) {
 		defer close(f.out)
 		for {
 			select {
-			case tx, ok := <-txCh:
+			case batch, ok := <-batchCh:
 				if !ok {
 					return
 				}
 				select {
-				case f.out <- tx:
+				case f.out <- batch:
 				case <-ctx.Done():
 					return
 				}
@@ -78,8 +86,8 @@ func (f *Fetcher) Start(ctx context.Context, offset int64) {
 	}()
 }
 
-// Events returns the read-only channel of LedgerTransactions.
+// Events returns the read-only channel of decoded batches.
 // Must be called after Start. The channel is closed when the stream terminates.
-func (f *Fetcher) Events() <-chan *streaming.LedgerTransaction {
+func (f *Fetcher) Events() <-chan *streaming.Batch[*indexer.ParsedEvent] {
 	return f.out
 }

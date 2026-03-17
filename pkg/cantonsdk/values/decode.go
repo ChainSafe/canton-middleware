@@ -159,7 +159,7 @@ func MapLookupText(v *lapiv2.Value, key string) string {
 	if v == nil {
 		return ""
 	}
-	// DA.TextMap.TextMap serialises as Value_TextMap
+	// DA.TextMap.TextMap serializes as Value_TextMap
 	if tm, ok := v.Sum.(*lapiv2.Value_TextMap); ok && tm.TextMap != nil {
 		for _, e := range tm.TextMap.Entries {
 			if e.GetKey() == key {
@@ -168,7 +168,7 @@ func MapLookupText(v *lapiv2.Value, key string) string {
 		}
 		return ""
 	}
-	// DA.Map.Map serialises as Value_GenMap with Text keys
+	// DA.Map.Map serializes as Value_GenMap with Text keys
 	if gm, ok := v.Sum.(*lapiv2.Value_GenMap); ok && gm.GenMap != nil {
 		for _, e := range gm.GenMap.Entries {
 			if Text(e.GetKey()) == key {

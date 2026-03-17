@@ -55,7 +55,7 @@ func New(l ledger.Ledger, party string, opts ...Option) *Client {
 // resume from the last safely received point. The caller is responsible for persisting
 // lastOffset to the database (the processor does this atomically with event writes).
 //
-// The returned channel is closed when ctx is cancelled or a terminal error occurs
+// The returned channel is closed when ctx is canceled or a terminal error occurs
 // (io.EOF, context cancellation).
 func (c *Client) Subscribe(
 	ctx context.Context,
@@ -110,7 +110,7 @@ func (c *Client) Subscribe(
 }
 
 // runStream opens a single GetUpdates stream and forwards transactions to out until
-// the stream ends or ctx is cancelled. It updates lastOffset atomically on each
+// the stream ends or ctx is canceled. It updates lastOffset atomically on each
 // received transaction.
 func (c *Client) runStream(
 	ctx context.Context,

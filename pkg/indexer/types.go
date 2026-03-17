@@ -71,6 +71,53 @@ type InstrumentKey struct {
 	ID    string // instrumentId.id   — the token identifier (e.g. "DEMO")
 }
 
+// Token represents a CIP56 token deployment, uniquely identified by {InstrumentAdmin, InstrumentID}.
+// A Token record is created the first time the indexer observes a TokenTransferEvent for a given
+// instrument pair. It tracks the ERC-20-equivalent on-chain state derivable from transfer events.
+//
+// ERC-20 parallel:
+//
+//	symbol()      → InstrumentID
+//	owner/minter  → InstrumentAdmin, Issuer
+//	totalSupply() → TotalSupply   (maintained: +amount on MINT, -amount on BURN)
+//	                HolderCount   (non-standard but shown on all block explorers)
+type Token struct {
+	// Identity — canonical composite key.
+	InstrumentAdmin string // instrumentId.admin — token admin/issuer party (ERC-20: deployer)
+	InstrumentID    string // instrumentId.id   — token symbol/identifier (ERC-20: symbol, e.g. "DEMO")
+
+	// Roles.
+	Issuer string // issuer party on the TokenTransferEvent contract (ERC-20: minter role)
+
+	// Supply (ERC-20: totalSupply()).
+	// Running total, always ≥ 0. Incremented by each MINT amount, decremented by each BURN amount.
+	// Updated atomically with every mint/burn via Store.ApplySupplyDelta.
+	TotalSupply string // decimal string, e.g. "1000000.000000000000000000"
+
+	// Holders (ERC-20: no standard equivalent, but a standard block-explorer metric).
+	// Count of distinct parties currently holding a non-zero balance.
+	// The store increments this when a balance first becomes positive, decrements when it returns to zero.
+	HolderCount int64
+
+	// Provenance.
+	FirstSeenOffset int64     // ledger offset when this token was first indexed
+	FirstSeenAt     time.Time // ledger effective time when this token was first indexed
+}
+
+// Balance is a party's current token holding for a specific instrument.
+// (ERC-20: the per-address entry in the balances mapping, i.e. balanceOf(address).)
+//
+// Amount is a non-negative decimal string representing the live balance,
+// e.g. "1500.000000000000000000". It is computed by the processor from the
+// prior balance plus the event amount and stored as a snapshot — no delta
+// arithmetic is performed in the database.
+type Balance struct {
+	PartyID         string // canton party (ERC-20: address)
+	InstrumentAdmin string // instrumentId.admin
+	InstrumentID    string // instrumentId.id
+	Amount          string // current balance, decimal string ≥ 0
+}
+
 // FilterMode controls which token instruments the Parser processes.
 type FilterMode int
 
