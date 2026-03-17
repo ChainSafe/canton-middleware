@@ -33,7 +33,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultRequestTimeout = 60
+const (
+	defaultRequestTimeout = 60
+	topologyCacheTTL      = 5 * time.Minute
+)
 
 // Server holds cfg to init the api server.
 type Server struct {
@@ -100,12 +103,16 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
+	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
+	go topologyCache.Start(ctx)
+
 	registrationService := userservice.NewService(
 		userStore,
 		cantonClient.Identity,
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
+		topologyCache,
 	)
 
 	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)

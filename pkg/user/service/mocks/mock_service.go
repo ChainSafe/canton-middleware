@@ -141,6 +141,65 @@ func (_c *Service_RegisterWeb3User_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// PrepareExternalRegistration provides a mock function with given fields: ctx, req
+func (_m *Service) PrepareExternalRegistration(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareExternalRegistration")
+	}
+
+	var r0 *user.PrepareTopologyResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *user.RegisterRequest) (*user.PrepareTopologyResponse, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *user.RegisterRequest) *user.PrepareTopologyResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*user.PrepareTopologyResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *user.RegisterRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_PrepareExternalRegistration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareExternalRegistration'
+type Service_PrepareExternalRegistration_Call struct {
+	*mock.Call
+}
+
+// PrepareExternalRegistration is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *user.RegisterRequest
+func (_e *Service_Expecter) PrepareExternalRegistration(ctx interface{}, req interface{}) *Service_PrepareExternalRegistration_Call {
+	return &Service_PrepareExternalRegistration_Call{Call: _e.mock.On("PrepareExternalRegistration", ctx, req)}
+}
+
+func (_c *Service_PrepareExternalRegistration_Call) Run(run func(ctx context.Context, req *user.RegisterRequest)) *Service_PrepareExternalRegistration_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*user.RegisterRequest))
+	})
+	return _c
+}
+
+func (_c *Service_PrepareExternalRegistration_Call) Return(_a0 *user.PrepareTopologyResponse, _a1 error) *Service_PrepareExternalRegistration_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_PrepareExternalRegistration_Call) RunAndReturn(run func(context.Context, *user.RegisterRequest) (*user.PrepareTopologyResponse, error)) *Service_PrepareExternalRegistration_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {
