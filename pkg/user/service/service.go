@@ -118,6 +118,15 @@ func (s *registrationService) RegisterWeb3User(
 		zap.String("evm_address", evmAddress),
 		zap.String("key_mode", req.KeyMode))
 
+	// Check whitelist (before any registration path)
+	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check whitelist: %w", err)
+	}
+	if !whitelisted {
+		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	}
+
 	// External (non-custodial) registration: second step of two-step flow
 	if req.KeyMode == user.KeyModeExternal {
 		return s.registerExternalWeb3User(ctx, evmAddress, req)
@@ -130,15 +139,6 @@ func (s *registrationService) RegisterWeb3User(
 	}
 	if exists {
 		return nil, apperrors.ConflictError(ErrUserAlreadyRegistered, "user already registered")
-	}
-
-	// Check whitelist
-	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check whitelist: %w", err)
-	}
-	if !whitelisted {
-		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
 	}
 
 	// Compute fingerprint
