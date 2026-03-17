@@ -53,9 +53,10 @@ func NewExternal(evmAddress, cantonPartyID, fingerprint, mappingCID, publicKeyFi
 }
 
 // RegisterRequest represents a registration request
-// Supports two registration modes:
-// 1. Web3 user: signature + message (EIP-191 signature from MetaMask)
+// Supports three registration modes:
+// 1. Web3 user (custodial): signature + message (EIP-191 signature from MetaMask)
 // 2. Canton native user: canton_party_id + canton_signature + message (from Loop wallet signMessage)
+// 3. External user (non-custodial): key_mode="external" + canton_public_key + registration_token + topology_signature
 type RegisterRequest struct {
 	// Web3 user registration (EIP-191 signature)
 	Signature string `json:"signature,omitzero"`
@@ -69,6 +70,12 @@ type RegisterRequest struct {
 	// registration, the handler stores it so the API server can sign Interactive
 	// Submission transactions on the user's behalf (e.g. transfers via /eth).
 	CantonPrivateKey string `json:"canton_private_key,omitzero"`
+
+	// External (non-custodial) user registration
+	KeyMode           string `json:"key_mode,omitzero"`           // "external" for non-custodial
+	CantonPublicKey   string `json:"canton_public_key,omitzero"`  // hex compressed secp256k1 public key
+	RegistrationToken string `json:"registration_token,omitzero"` // from prepare-topology response
+	TopologySignature string `json:"topology_signature,omitzero"` // DER sig of topology hash (hex)
 }
 
 // RegisterResponse represents a registration response
@@ -78,6 +85,14 @@ type RegisterResponse struct {
 	MappingCID  string `json:"mapping_cid,omitzero"`
 	EVMAddress  string `json:"evm_address,omitzero"` // Returned for Canton native users
 	PrivateKey  string `json:"private_key,omitzero"` // Returned for Canton native users (for MetaMask import)
+	KeyMode     string `json:"key_mode,omitzero"`    // "custodial" or "external"
+}
+
+// PrepareTopologyResponse is the response from the prepare-topology step of external user registration.
+type PrepareTopologyResponse struct {
+	TopologyHash         string `json:"topology_hash"`
+	PublicKeyFingerprint string `json:"public_key_fingerprint"`
+	RegistrationToken    string `json:"registration_token"`
 }
 
 var ErrKeyNotFound = errors.New("key not found")

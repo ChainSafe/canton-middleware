@@ -43,9 +43,10 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 	evmAddress, signature := signEIP191Message(t, message)
 
 	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   message,
@@ -68,10 +69,9 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	evmAddress, signature := signEIP191Message(t, message)
 
 	storeMock := mocks.NewStore(t)
-	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   message,
@@ -96,7 +96,7 @@ func TestRegistrationService_RegisterCantonNativeUser_StoreError(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(nil, storeErr).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -119,7 +119,7 @@ func TestRegistrationService_RegisterCantonNativeUser_PartyAlreadyRegistered(t *
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(&user.User{CantonPartyID: partyID}, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
