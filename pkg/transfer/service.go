@@ -8,10 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
@@ -69,19 +66,6 @@ func (s *TransferService) StartCache(ctx context.Context) {
 
 // Prepare builds a Canton transaction and returns the hash for external signing.
 func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error) {
-	if req.To == "" || req.Amount == "" || req.Token == "" {
-		return nil, apperrors.BadRequestError(nil, "to, amount, and token are required")
-	}
-
-	if !auth.ValidateEVMAddress(req.To) {
-		return nil, apperrors.BadRequestError(nil, "invalid recipient address: must be a 0x-prefixed 40-hex-char EVM address")
-	}
-
-	amt, err := decimal.NewFromString(req.Amount)
-	if err != nil || !amt.IsPositive() {
-		return nil, apperrors.BadRequestError(nil, "invalid amount: must be a positive decimal number")
-	}
-
 	if !s.allowedTokenSymbols[req.Token] {
 		return nil, apperrors.BadRequestError(nil, "unsupported token")
 	}
@@ -132,10 +116,6 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 
 // Execute completes a previously prepared transfer using the client's DER signature.
 func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req *ExecuteRequest) (*ExecuteResponse, error) {
-	if req.TransferID == "" || req.Signature == "" || req.SignedBy == "" {
-		return nil, apperrors.BadRequestError(nil, "transfer_id, signature, and signed_by are required")
-	}
-
 	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
@@ -43,6 +44,17 @@ func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
 		return jsonErr
 	}
 
+	if req.To == "" || req.Amount == "" || req.Token == "" {
+		return apperrors.BadRequestError(nil, "to, amount, and token are required")
+	}
+	if !auth.ValidateEVMAddress(req.To) {
+		return apperrors.BadRequestError(nil, "invalid recipient address: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+	amt, parseErr := decimal.NewFromString(req.Amount)
+	if parseErr != nil || !amt.IsPositive() {
+		return apperrors.BadRequestError(nil, "invalid amount: must be a positive decimal number")
+	}
+
 	resp, err := h.svc.Prepare(r.Context(), evmAddr, &req)
 	if err != nil {
 		return err
@@ -61,6 +73,10 @@ func (h *httpHandler) execute(w http.ResponseWriter, r *http.Request) error {
 	var req ExecuteRequest
 	if jsonErr := readJSON(r, &req); jsonErr != nil {
 		return jsonErr
+	}
+
+	if req.TransferID == "" || req.Signature == "" || req.SignedBy == "" {
+		return apperrors.BadRequestError(nil, "transfer_id, signature, and signed_by are required")
 	}
 
 	resp, err := h.svc.Execute(r.Context(), evmAddr, &req)

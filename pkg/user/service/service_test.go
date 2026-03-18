@@ -17,7 +17,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user/service/mocks"
 )
 
-func signEIP191Message(t *testing.T, message string) (string, string) {
+const testMessage = "register-me"
+
+func signEIP191Message(t *testing.T) (string, string) {
 	t.Helper()
 
 	privateKey, err := crypto.GenerateKey()
@@ -25,7 +27,7 @@ func signEIP191Message(t *testing.T, message string) (string, string) {
 		t.Fatalf("GenerateKey() failed: %v", err)
 	}
 
-	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(testMessage), testMessage)
 	hash := crypto.Keccak256Hash([]byte(prefixedMessage))
 
 	signature, err := crypto.Sign(hash.Bytes(), privateKey)
@@ -39,8 +41,7 @@ func signEIP191Message(t *testing.T, message string) (string, string) {
 
 func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
@@ -49,7 +50,7 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
-		Message:   message,
+		Message:   testMessage,
 		Signature: signature,
 	})
 	if err == nil {
@@ -65,8 +66,7 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 
 func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
@@ -74,7 +74,7 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
-		Message:   message,
+		Message:   testMessage,
 		Signature: signature,
 	})
 	if err == nil {
@@ -88,26 +88,9 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	}
 }
 
-func TestPrepareExternalRegistration_MissingPublicKey(t *testing.T) {
-	ctx := context.Background()
-
-	svc := NewService(nil, nil, nil, zap.NewNop(), false, nil)
-
-	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
-		CantonPublicKey: "",
-	})
-	if err == nil {
-		t.Fatal("expected bad request error, got nil")
-	}
-	if !apperrors.Is(err, apperrors.CategoryDataError) {
-		t.Fatalf("expected CategoryDataError, got %v", err)
-	}
-}
-
 func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
@@ -115,7 +98,7 @@ func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
-		Message:         message,
+		Message:         testMessage,
 		Signature:       signature,
 		CantonPublicKey: "02deadbeef",
 	})
@@ -132,8 +115,7 @@ func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
 
 func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
@@ -142,7 +124,7 @@ func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
 	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
-		Message:         message,
+		Message:         testMessage,
 		Signature:       signature,
 		CantonPublicKey: "02deadbeef",
 	})

@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // --- mocks ---
@@ -65,46 +66,13 @@ func (m *mockTransferCache) Start(_ context.Context) {
 	m.started = true
 }
 
-// mockToken implements token.Token. Only PrepareTransfer and ExecuteTransfer
-// carry real logic; every other method panics if called.
+// mockToken implements token.Token by embedding token.UnimplementedToken (if available)
+// or overriding only the methods TransferService actually calls.
 type mockToken struct {
+	token.Token   // embed interface to satisfy unused methods (nil panics on call)
 	prepareResult *token.PreparedTransfer
 	prepareErr    error
 	executeErr    error
-}
-
-func (m *mockToken) GetTokenConfigCID(context.Context, string) (string, error) {
-	panic("not implemented")
-}
-func (m *mockToken) Mint(context.Context, *token.MintRequest) (string, error) {
-	panic("not implemented")
-}
-func (m *mockToken) Burn(context.Context, *token.BurnRequest) error {
-	panic("not implemented")
-}
-func (m *mockToken) GetHoldings(context.Context, string, string) ([]*token.Holding, error) {
-	panic("not implemented")
-}
-func (m *mockToken) GetAllHoldings(context.Context) ([]*token.Holding, error) {
-	panic("not implemented")
-}
-func (m *mockToken) GetBalanceByFingerprint(context.Context, string, string) (string, error) {
-	panic("not implemented")
-}
-func (m *mockToken) GetTotalSupply(context.Context, string) (string, error) {
-	panic("not implemented")
-}
-func (m *mockToken) TransferByFingerprint(context.Context, string, string, string, string) error {
-	panic("not implemented")
-}
-func (m *mockToken) TransferByPartyID(context.Context, string, string, string, string) error {
-	panic("not implemented")
-}
-func (m *mockToken) GetTokenTransferEvents(context.Context) ([]*token.TokenTransferEvent, error) {
-	panic("not implemented")
-}
-func (m *mockToken) GetTransferFactory(context.Context) (*token.TransferFactoryInfo, error) {
-	panic("not implemented")
 }
 
 func (m *mockToken) PrepareTransfer(_ context.Context, _ *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
@@ -191,26 +159,6 @@ func TestTransferService_Prepare_Success(t *testing.T) {
 	assert.True(t, ok, "prepared transfer should be in cache")
 }
 
-func TestTransferService_Prepare_MissingFields(t *testing.T) {
-	svc := newTestService(&mockToken{}, &mockUserStore{users: map[string]*user.User{}}, newMockCache())
-
-	tests := []struct {
-		name string
-		req  *PrepareRequest
-	}{
-		{"missing to", &PrepareRequest{Amount: "1", Token: "DEMO"}},
-		{"missing amount", &PrepareRequest{To: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Token: "DEMO"}},
-		{"missing token", &PrepareRequest{To: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Amount: "1"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Prepare(context.Background(), "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", tt.req)
-			assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
-		})
-	}
-}
-
 func TestTransferService_Prepare_SenderNotFound(t *testing.T) {
 	store := &mockUserStore{users: map[string]*user.User{}} // empty store
 	svc := newTestService(&mockToken{}, store, newMockCache())
@@ -281,26 +229,6 @@ func TestTransferService_Execute_Success(t *testing.T) {
 	// Verify the transfer was removed from cache.
 	_, ok := cache.stored["txn-456"]
 	assert.False(t, ok, "transfer should be removed from cache after execute")
-}
-
-func TestTransferService_Execute_MissingFields(t *testing.T) {
-	svc := newTestService(&mockToken{}, &mockUserStore{users: map[string]*user.User{}}, newMockCache())
-
-	tests := []struct {
-		name string
-		req  *ExecuteRequest
-	}{
-		{"missing transfer_id", &ExecuteRequest{Signature: "0xab", SignedBy: "fp"}},
-		{"missing signature", &ExecuteRequest{TransferID: "t1", SignedBy: "fp"}},
-		{"missing signed_by", &ExecuteRequest{TransferID: "t1", Signature: "0xab"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Execute(context.Background(), "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", tt.req)
-			assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
-		})
-	}
 }
 
 func TestTransferService_Execute_TransferNotFound(t *testing.T) {

@@ -315,12 +315,6 @@ func (s *registrationService) registerExternalWeb3User(
 	evmAddress string,
 	req *user.RegisterRequest,
 ) (*user.RegisterResponse, error) {
-	if req.RegistrationToken == "" || req.TopologySignature == "" || req.CantonPublicKey == "" {
-		return nil, apperrors.BadRequestError(
-			nil, "registration_token, topology_signature, and canton_public_key are required for external registration",
-		)
-	}
-
 	// Re-check user existence to guard against concurrent registrations between step 1 and step 2.
 	exists, err := s.store.UserExists(ctx, evmAddress)
 	if err != nil {
@@ -402,10 +396,6 @@ func (s *registrationService) PrepareExternalRegistration(
 	ctx context.Context,
 	req *user.RegisterRequest,
 ) (*user.PrepareTopologyResponse, error) {
-	if req.CantonPublicKey == "" {
-		return nil, apperrors.BadRequestError(nil, "canton_public_key is required")
-	}
-
 	// Verify EVM signature
 	recoveredAddr, err := auth.VerifyEIP191Signature(req.Message, req.Signature)
 	if err != nil {

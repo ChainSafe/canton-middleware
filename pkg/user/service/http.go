@@ -64,6 +64,13 @@ func (h *HTTP) register(w http.ResponseWriter, r *http.Request) error {
 		if req.Signature == "" || req.Message == "" {
 			return apperrors.UnAuthorizedError(nil, "signature and message required")
 		}
+		if req.KeyMode == "external" {
+			if req.RegistrationToken == "" || req.TopologySignature == "" || req.CantonPublicKey == "" {
+				return apperrors.BadRequestError(
+					nil, "registration_token, topology_signature, and canton_public_key are required for external registration",
+				)
+			}
+		}
 		resp, regErr = h.service.RegisterWeb3User(r.Context(), &req)
 	}
 
