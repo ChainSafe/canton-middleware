@@ -22,66 +22,6 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
-// GetAllowance provides a mock function with given fields: ctx, owner, spender, admin, id
-func (_m *Store) GetAllowance(ctx context.Context, owner string, spender string, admin string, id string) (string, error) {
-	ret := _m.Called(ctx, owner, spender, admin, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetAllowance")
-	}
-
-	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (string, error)); ok {
-		return rf(ctx, owner, spender, admin, id)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) string); ok {
-		r0 = rf(ctx, owner, spender, admin, id)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
-		r1 = rf(ctx, owner, spender, admin, id)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Store_GetAllowance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAllowance'
-type Store_GetAllowance_Call struct {
-	*mock.Call
-}
-
-// GetAllowance is a helper method to define mock.On call
-//   - ctx context.Context
-//   - owner string
-//   - spender string
-//   - admin string
-//   - id string
-func (_e *Store_Expecter) GetAllowance(ctx interface{}, owner interface{}, spender interface{}, admin interface{}, id interface{}) *Store_GetAllowance_Call {
-	return &Store_GetAllowance_Call{Call: _e.mock.On("GetAllowance", ctx, owner, spender, admin, id)}
-}
-
-func (_c *Store_GetAllowance_Call) Run(run func(ctx context.Context, owner string, spender string, admin string, id string)) *Store_GetAllowance_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
-	})
-	return _c
-}
-
-func (_c *Store_GetAllowance_Call) Return(_a0 string, _a1 error) *Store_GetAllowance_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Store_GetAllowance_Call) RunAndReturn(run func(context.Context, string, string, string, string) (string, error)) *Store_GetAllowance_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetBalance provides a mock function with given fields: ctx, partyID, admin, id
 func (_m *Store) GetBalance(ctx context.Context, partyID string, admin string, id string) (*indexer.Balance, error) {
 	ret := _m.Called(ctx, partyID, admin, id)

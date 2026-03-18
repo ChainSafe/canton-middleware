@@ -18,7 +18,6 @@ import (
 
 const (
 	alice = "alice::122059f6ef3a88b2da18a1c8a7462836543c4c7c5dbfc8c76db5db67a8e53b13e5b7"
-	bob   = "bob::abcd1234ef567890abcd1234ef567890abcd1234ef567890abcd1234ef567890ef"
 	admin = "admin-party::deadbeef"
 )
 
@@ -114,30 +113,6 @@ func TestSvc_TotalSupply(t *testing.T) {
 		store.EXPECT().GetToken(mock.Anything, admin, "DEMO").Return(nil, nil)
 
 		_, err := svc.TotalSupply(context.Background(), admin, "DEMO")
-		require.Error(t, err)
-		assert.True(t, apperr.Is(err, apperr.CategoryResourceNotFound))
-	})
-}
-
-// ─── BalanceOf ────────────────────────────────────────────────────────────────
-
-func TestSvc_BalanceOf(t *testing.T) {
-	balance := &indexer.Balance{PartyID: alice, Amount: "250.0"}
-
-	t.Run("success", func(t *testing.T) {
-		svc, store := newSvc(t)
-		store.EXPECT().GetBalance(mock.Anything, alice, admin, "DEMO").Return(balance, nil)
-
-		amount, err := svc.BalanceOf(context.Background(), alice, admin, "DEMO")
-		require.NoError(t, err)
-		assert.Equal(t, "250.0", amount)
-	})
-
-	t.Run("balance not found → 404", func(t *testing.T) {
-		svc, store := newSvc(t)
-		store.EXPECT().GetBalance(mock.Anything, alice, admin, "DEMO").Return(nil, nil)
-
-		_, err := svc.BalanceOf(context.Background(), alice, admin, "DEMO")
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryResourceNotFound))
 	})
@@ -284,18 +259,5 @@ func TestSvc_ListPartyEvents(t *testing.T) {
 
 		_, err := svc.ListPartyEvents(context.Background(), alice, indexer.EventFilter{}, p)
 		require.Error(t, err)
-	})
-}
-
-// ─── Allowance ────────────────────────────────────────────────────────────────
-
-func TestSvc_Allowance(t *testing.T) {
-	t.Run("success", func(t *testing.T) {
-		svc, store := newSvc(t)
-		store.EXPECT().GetAllowance(mock.Anything, alice, bob, admin, "DEMO").Return("0", nil)
-
-		amount, err := svc.Allowance(context.Background(), alice, bob, admin, "DEMO")
-		require.NoError(t, err)
-		assert.Equal(t, "0", amount)
 	})
 }

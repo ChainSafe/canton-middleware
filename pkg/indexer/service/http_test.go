@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -47,11 +48,16 @@ func newTestEnv(t *testing.T) *testEnv {
 
 func (e *testEnv) get(t *testing.T, path string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, e.srv.URL+path, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, e.srv.URL+path, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	return resp
+}
+
+func assertStatus(t *testing.T, resp *http.Response, want int) {
+	t.Helper()
+	assert.Equal(t, want, resp.StatusCode)
 }
 
 func decodeJSON[T any](t *testing.T, resp *http.Response) T {
@@ -79,6 +85,7 @@ func TestHTTP_ListTokens(t *testing.T) {
 			Return(&indexer.Page[*indexer.Token]{Items: []*indexer.Token{token}, Total: 1, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		page := decodeJSON[indexer.Page[*indexer.Token]](t, resp)
@@ -93,21 +100,24 @@ func TestHTTP_ListTokens(t *testing.T) {
 			Return(&indexer.Page[*indexer.Token]{Items: nil, Total: 0, Page: 2, Limit: 10}, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens?page=2&limit=10")
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusOK)
 	})
 
 	t.Run("invalid page returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
 		resp := e.get(t, "/indexer/v1/tokens?page=0")
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusBadRequest)
 	})
 
 	t.Run("invalid limit returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
 		resp := e.get(t, "/indexer/v1/tokens?limit=999")
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusBadRequest)
 	})
 
 	t.Run("service error propagates", func(t *testing.T) {
@@ -116,7 +126,8 @@ func TestHTTP_ListTokens(t *testing.T) {
 			Return(nil, errors.New("db error"))
 
 		resp := e.get(t, "/indexer/v1/tokens")
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
@@ -134,6 +145,7 @@ func TestHTTP_GetToken(t *testing.T) {
 		e.svc.EXPECT().GetToken(mock.Anything, "admin-party", "DEMO").Return(token, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		got := decodeJSON[indexer.Token](t, resp)
@@ -147,7 +159,8 @@ func TestHTTP_GetToken(t *testing.T) {
 			Return(nil, apperr.ResourceNotFoundError(nil, "token not found"))
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/NOPE")
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusNotFound)
 	})
 
 	t.Run("service error returns 500", func(t *testing.T) {
@@ -156,7 +169,8 @@ func TestHTTP_GetToken(t *testing.T) {
 			Return(nil, errors.New("db error"))
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO")
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
@@ -168,6 +182,7 @@ func TestHTTP_GetTokenSupply(t *testing.T) {
 		e.svc.EXPECT().TotalSupply(mock.Anything, "admin-party", "DEMO").Return("1000.0", nil)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/supply")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		body := decodeJSON[map[string]string](t, resp)
@@ -180,7 +195,8 @@ func TestHTTP_GetTokenSupply(t *testing.T) {
 			Return("", apperr.ResourceNotFoundError(nil, "token not found"))
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/NOPE/supply")
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusNotFound)
 	})
 }
 
@@ -200,6 +216,7 @@ func TestHTTP_ListTokenBalances(t *testing.T) {
 			Return(&indexer.Page[*indexer.Balance]{Items: []*indexer.Balance{balance}, Total: 1, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/balances")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		page := decodeJSON[indexer.Page[*indexer.Balance]](t, resp)
@@ -214,7 +231,8 @@ func TestHTTP_ListTokenBalances(t *testing.T) {
 			Return(nil, errors.New("db error"))
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/balances")
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
@@ -235,6 +253,7 @@ func TestHTTP_ListTokenEvents(t *testing.T) {
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: []*indexer.ParsedEvent{event}, Total: 1, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		page := decodeJSON[indexer.Page[*indexer.ParsedEvent]](t, resp)
@@ -247,14 +266,16 @@ func TestHTTP_ListTokenEvents(t *testing.T) {
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: nil, Total: 0, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events?event_type=MINT")
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusOK)
 	})
 
 	t.Run("invalid event_type returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
 		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events?event_type=INVALID")
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusBadRequest)
 	})
 }
 
@@ -274,6 +295,7 @@ func TestHTTP_ListPartyBalances(t *testing.T) {
 			Return(&indexer.Page[*indexer.Balance]{Items: []*indexer.Balance{balance}, Total: 1, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		page := decodeJSON[indexer.Page[*indexer.Balance]](t, resp)
@@ -296,6 +318,7 @@ func TestHTTP_GetPartyBalance(t *testing.T) {
 		e.svc.EXPECT().GetBalance(mock.Anything, e.partyID, "admin-party", "DEMO").Return(balance, nil)
 
 		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances/admin-party/DEMO")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		got := decodeJSON[indexer.Balance](t, resp)
@@ -308,7 +331,8 @@ func TestHTTP_GetPartyBalance(t *testing.T) {
 			Return(nil, apperr.ResourceNotFoundError(nil, "balance not found"))
 
 		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances/admin-party/DEMO")
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusNotFound)
 	})
 }
 
@@ -327,6 +351,7 @@ func TestHTTP_ListPartyEvents(t *testing.T) {
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: []*indexer.ParsedEvent{event}, Total: 1, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/events")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		page := decodeJSON[indexer.Page[*indexer.ParsedEvent]](t, resp)
@@ -339,7 +364,8 @@ func TestHTTP_ListPartyEvents(t *testing.T) {
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: nil, Total: 0, Page: 1, Limit: 50}, nil)
 
 		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/events?event_type=BURN")
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusOK)
 	})
 }
 
@@ -357,6 +383,7 @@ func TestHTTP_GetEvent(t *testing.T) {
 		e.svc.EXPECT().GetEvent(mock.Anything, "contract-abc").Return(event, nil)
 
 		resp := e.get(t, "/indexer/v1/events/contract-abc")
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		got := decodeJSON[indexer.ParsedEvent](t, resp)
@@ -370,7 +397,8 @@ func TestHTTP_GetEvent(t *testing.T) {
 			Return(nil, apperr.ResourceNotFoundError(nil, "event not found"))
 
 		resp := e.get(t, "/indexer/v1/events/unknown")
-		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusNotFound)
 	})
 
 	t.Run("service error returns 500", func(t *testing.T) {
@@ -379,6 +407,7 @@ func TestHTTP_GetEvent(t *testing.T) {
 			Return(nil, errors.New("db error"))
 
 		resp := e.get(t, "/indexer/v1/events/contract-abc")
-		assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		defer resp.Body.Close()
+		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }

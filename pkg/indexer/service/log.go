@@ -104,61 +104,6 @@ func (ls *logService) TotalSupply(ctx context.Context, admin, id string) (supply
 	return ls.svc.TotalSupply(ctx, admin, id)
 }
 
-func (ls *logService) BalanceOf(ctx context.Context, partyID, admin, id string) (amount string, err error) {
-	start := time.Now()
-	ls.logger.Info("BalanceOf started",
-		zap.String("service", indexerServiceName),
-		zap.String("party_id", partyID),
-		zap.String("admin", admin),
-		zap.String("id", id),
-	)
-	defer func() {
-		if err != nil {
-			ls.logger.Error("BalanceOf failed",
-				zap.String("service", indexerServiceName),
-				zap.String("party_id", partyID),
-				zap.Duration("duration", time.Since(start)),
-				zap.Error(err),
-			)
-		} else {
-			ls.logger.Info("BalanceOf completed",
-				zap.String("service", indexerServiceName),
-				zap.String("party_id", partyID),
-				zap.Duration("duration", time.Since(start)),
-			)
-		}
-	}()
-	return ls.svc.BalanceOf(ctx, partyID, admin, id)
-}
-
-func (ls *logService) Allowance(ctx context.Context, owner, spender, admin, id string) (amount string, err error) {
-	start := time.Now()
-	ls.logger.Info("Allowance started",
-		zap.String("service", indexerServiceName),
-		zap.String("owner", owner),
-		zap.String("spender", spender),
-		zap.String("admin", admin),
-		zap.String("id", id),
-	)
-	defer func() {
-		if err != nil {
-			ls.logger.Error("Allowance failed",
-				zap.String("service", indexerServiceName),
-				zap.String("owner", owner),
-				zap.Duration("duration", time.Since(start)),
-				zap.Error(err),
-			)
-		} else {
-			ls.logger.Info("Allowance completed",
-				zap.String("service", indexerServiceName),
-				zap.String("owner", owner),
-				zap.Duration("duration", time.Since(start)),
-			)
-		}
-	}()
-	return ls.svc.Allowance(ctx, owner, spender, admin, id)
-}
-
 func (ls *logService) GetBalance(ctx context.Context, partyID, admin, id string) (b *indexer.Balance, err error) {
 	start := time.Now()
 	ls.logger.Info("GetBalance started",
@@ -186,7 +131,11 @@ func (ls *logService) GetBalance(ctx context.Context, partyID, admin, id string)
 	return ls.svc.GetBalance(ctx, partyID, admin, id)
 }
 
-func (ls *logService) ListBalancesForParty(ctx context.Context, partyID string, p indexer.Pagination) (page *indexer.Page[*indexer.Balance], err error) {
+func (ls *logService) ListBalancesForParty(
+	ctx context.Context,
+	partyID string,
+	p indexer.Pagination,
+) (page *indexer.Page[*indexer.Balance], err error) {
 	start := time.Now()
 	ls.logger.Info("ListBalancesForParty started",
 		zap.String("service", indexerServiceName),
@@ -214,7 +163,11 @@ func (ls *logService) ListBalancesForParty(ctx context.Context, partyID string, 
 	return ls.svc.ListBalancesForParty(ctx, partyID, p)
 }
 
-func (ls *logService) ListBalancesForToken(ctx context.Context, admin, id string, p indexer.Pagination) (page *indexer.Page[*indexer.Balance], err error) {
+func (ls *logService) ListBalancesForToken(
+	ctx context.Context,
+	admin, id string,
+	p indexer.Pagination,
+) (page *indexer.Page[*indexer.Balance], err error) {
 	start := time.Now()
 	ls.logger.Info("ListBalancesForToken started",
 		zap.String("service", indexerServiceName),
@@ -270,7 +223,12 @@ func (ls *logService) GetEvent(ctx context.Context, contractID string) (e *index
 	return ls.svc.GetEvent(ctx, contractID)
 }
 
-func (ls *logService) ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (page *indexer.Page[*indexer.ParsedEvent], err error) {
+func (ls *logService) ListTokenEvents(
+	ctx context.Context,
+	admin, id string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (page *indexer.Page[*indexer.ParsedEvent], err error) {
 	start := time.Now()
 	ls.logger.Info("ListTokenEvents started",
 		zap.String("service", indexerServiceName),
@@ -301,7 +259,12 @@ func (ls *logService) ListTokenEvents(ctx context.Context, admin, id string, f i
 	return ls.svc.ListTokenEvents(ctx, admin, id, f, p)
 }
 
-func (ls *logService) ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (page *indexer.Page[*indexer.ParsedEvent], err error) {
+func (ls *logService) ListPartyEvents(
+	ctx context.Context,
+	partyID string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (page *indexer.Page[*indexer.ParsedEvent], err error) {
 	start := time.Now()
 	ls.logger.Info("ListPartyEvents started",
 		zap.String("service", indexerServiceName),

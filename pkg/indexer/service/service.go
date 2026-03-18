@@ -26,8 +26,6 @@ type Store interface {
 	ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error)
 	// GetEvent looks up a single event by its unique contract ID.
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
-	// GetAllowance is a stub — AllowanceContract indexing is deferred to a later phase.
-	GetAllowance(ctx context.Context, owner, spender, admin, id string) (string, error)
 }
 
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
@@ -37,9 +35,7 @@ type Service interface {
 	ListTokens(ctx context.Context, p indexer.Pagination) (*indexer.Page[*indexer.Token], error)
 
 	// ERC-20 analogs
-	TotalSupply(ctx context.Context, admin, id string) (string, error)               // totalSupply()
-	BalanceOf(ctx context.Context, partyID, admin, id string) (string, error)        // balanceOf(address)
-	Allowance(ctx context.Context, owner, spender, admin, id string) (string, error) // allowance() — stub
+	TotalSupply(ctx context.Context, admin, id string) (string, error) // totalSupply()
 
 	// Rich balance queries (beyond ERC-20)
 	GetBalance(ctx context.Context, partyID, admin, id string) (*indexer.Balance, error)
@@ -48,8 +44,18 @@ type Service interface {
 
 	// Audit trail (immutable, ordered by ledger_offset ASC)
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
-	ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error)
-	ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListTokenEvents(
+		ctx context.Context,
+		admin, id string,
+		f indexer.EventFilter,
+		p indexer.Pagination,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListPartyEvents(
+		ctx context.Context,
+		partyID string,
+		f indexer.EventFilter,
+		p indexer.Pagination,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
 // NewService creates a new indexer Service backed by store.
@@ -92,21 +98,6 @@ func (s *svc) TotalSupply(ctx context.Context, admin, id string) (string, error)
 	return t.TotalSupply, nil
 }
 
-func (s *svc) BalanceOf(ctx context.Context, partyID, admin, id string) (string, error) {
-	b, err := s.store.GetBalance(ctx, partyID, admin, id)
-	if err != nil {
-		return "", err
-	}
-	if b == nil {
-		return "", apperrors.ResourceNotFoundError(nil, "balance not found")
-	}
-	return b.Amount, nil
-}
-
-func (s *svc) Allowance(ctx context.Context, owner, spender, admin, id string) (string, error) {
-	return s.store.GetAllowance(ctx, owner, spender, admin, id)
-}
-
 func (s *svc) GetBalance(ctx context.Context, partyID, admin, id string) (*indexer.Balance, error) {
 	b, err := s.store.GetBalance(ctx, partyID, admin, id)
 	if err != nil {
@@ -145,7 +136,12 @@ func (s *svc) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedE
 	return e, nil
 }
 
-func (s *svc) ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (s *svc) ListTokenEvents(
+	ctx context.Context,
+	admin, id string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	f.InstrumentAdmin = admin
 	f.InstrumentID = id
 	items, total, err := s.store.ListEvents(ctx, f, p)
@@ -155,7 +151,12 @@ func (s *svc) ListTokenEvents(ctx context.Context, admin, id string, f indexer.E
 	return &indexer.Page[*indexer.ParsedEvent]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
 }
 
-func (s *svc) ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (s *svc) ListPartyEvents(
+	ctx context.Context,
+	partyID string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	f.PartyID = partyID
 	items, total, err := s.store.ListEvents(ctx, f, p)
 	if err != nil {
