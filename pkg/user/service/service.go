@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"crypto/elliptic"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
@@ -459,13 +460,13 @@ func compressedKeyToSPKI(hexKey string) ([]byte, error) {
 		return nil, fmt.Errorf("expected %d-byte compressed public key, got %d bytes", compressedPubKeyLen, len(raw))
 	}
 
-	// Decompress and build SPKI via keys helper
-	x, y := elliptic.UnmarshalCompressed(keys.Secp256k1(), raw)
-	if x == nil {
-		return nil, fmt.Errorf("invalid compressed secp256k1 public key")
+	// Decompress using go-ethereum (works with secp256k1 unlike elliptic.UnmarshalCompressed)
+	ecdsaPub, err := crypto.DecompressPubkey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid compressed secp256k1 public key: %w", err)
 	}
 
-	return keys.MarshalSPKIPublicKey(x, y)
+	return keys.MarshalSPKIPublicKey(ecdsaPub.X, ecdsaPub.Y)
 }
 
 // Helper methods

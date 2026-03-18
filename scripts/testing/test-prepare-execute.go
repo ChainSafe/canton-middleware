@@ -83,14 +83,14 @@ func main() {
 	logger, _ := zap.NewDevelopment()
 	ctx := context.Background()
 
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fatalf("Failed to connect to database: %v", err)
 	}
 	defer bunDB.Close()
 	userStore := userstore.NewStore(bunDB)
 
-	cantonClient, err := canton.NewFromAppConfig(ctx, &cfg.Canton, canton.WithLogger(logger))
+	cantonClient, err := canton.New(ctx, cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
 		fatalf("Failed to connect to Canton: %v", err)
 	}
