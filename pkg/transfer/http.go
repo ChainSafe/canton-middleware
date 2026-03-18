@@ -20,12 +20,12 @@ const (
 )
 
 type httpHandler struct {
-	svc    *TransferService
+	svc    Service
 	logger *zap.Logger
 }
 
 // RegisterRoutes registers the non-custodial prepare/execute transfer endpoints.
-func RegisterRoutes(r chi.Router, svc *TransferService, logger *zap.Logger) {
+func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	h := &httpHandler{svc: svc, logger: logger}
 
 	r.Post("/api/v2/transfer/prepare", apphttp.HandleError(h.prepare))

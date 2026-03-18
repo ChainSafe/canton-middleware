@@ -121,7 +121,7 @@ func (s *Server) Run() error {
 
 	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, tokenSymbols(cfg.Token))
 	go transferSvc.StartCache(ctx)
-	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), transferSvc, logger)
+	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), transfer.NewLog(transferSvc, logger), logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 
@@ -220,7 +220,7 @@ func (s *Server) setupRouter(
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
-	transferSvc *transfer.TransferService,
+	transferSvc transfer.Service,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()

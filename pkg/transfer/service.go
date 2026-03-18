@@ -26,11 +26,24 @@ type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }
 
+// TransferCache is the interface for caching prepared transfers.
+type TransferCache interface {
+	Put(transfer *token.PreparedTransfer) error
+	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
+	Start(ctx context.Context)
+}
+
+// Service is the interface for the non-custodial prepare/execute transfer flow.
+type Service interface {
+	Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error)
+	Execute(ctx context.Context, senderEVMAddr string, req *ExecuteRequest) (*ExecuteResponse, error)
+}
+
 // TransferService implements the non-custodial prepare/execute transfer flow.
 type TransferService struct {
 	cantonToken         token.Token
 	userStore           UserStore
-	cache               *token.PreparedTransferCache
+	cache               TransferCache
 	allowedTokenSymbols map[string]bool
 }
 

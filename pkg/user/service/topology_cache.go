@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
 var (
@@ -19,23 +20,25 @@ const (
 	topologyCleanupInterval = 30 * time.Second
 )
 
-type pendingTopology struct {
-	Topology  *identity.ExternalPartyTopology
-	PublicKey []byte // SPKI public key bytes
-	ExpiresAt time.Time
+// TopologyCacheProvider is the interface for storing and retrieving pending topology data.
+//
+//go:generate mockery --name TopologyCacheProvider --output mocks --outpkg mocks --filename mock_topology_cache.go --with-expecter
+type TopologyCacheProvider interface {
+	Put(token string, topo *identity.ExternalPartyTopology, spkiKey []byte)
+	GetAndDelete(token string) (*user.PendingTopology, error)
 }
 
 // TopologyCache stores pending topology data for two-step external user registration.
 type TopologyCache struct {
 	mu      sync.RWMutex
-	entries map[string]*pendingTopology
+	entries map[string]*user.PendingTopology
 	ttl     time.Duration
 }
 
 // NewTopologyCache creates a new topology cache with the given TTL.
 func NewTopologyCache(ttl time.Duration) *TopologyCache {
 	return &TopologyCache{
-		entries: make(map[string]*pendingTopology),
+		entries: make(map[string]*user.PendingTopology),
 		ttl:     ttl,
 	}
 }
@@ -44,7 +47,7 @@ func NewTopologyCache(ttl time.Duration) *TopologyCache {
 func (c *TopologyCache) Put(token string, topo *identity.ExternalPartyTopology, spkiKey []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[token] = &pendingTopology{
+	c.entries[token] = &user.PendingTopology{
 		Topology:  topo,
 		PublicKey: spkiKey,
 		ExpiresAt: time.Now().Add(c.ttl),
@@ -52,7 +55,7 @@ func (c *TopologyCache) Put(token string, topo *identity.ExternalPartyTopology, 
 }
 
 // GetAndDelete atomically retrieves and removes a pending topology.
-func (c *TopologyCache) GetAndDelete(token string) (*pendingTopology, error) {
+func (c *TopologyCache) GetAndDelete(token string) (*user.PendingTopology, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

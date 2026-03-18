@@ -67,7 +67,7 @@ type registrationService struct {
 	logger                          *zap.Logger
 	keyCipher                       keys.KeyCipher
 	skipCantonSignatureVerification bool
-	topologyCache                   *TopologyCache
+	topologyCache                   TopologyCacheProvider
 }
 
 // NewService creates a new registration service
@@ -77,7 +77,7 @@ func NewService(
 	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
-	topologyCache *TopologyCache,
+	topologyCache TopologyCacheProvider,
 ) Service {
 	return &registrationService{
 		store:                           store,

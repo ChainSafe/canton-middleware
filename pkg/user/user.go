@@ -3,6 +3,8 @@ package user
 import (
 	"errors"
 	"time"
+
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 )
 
 // Key mode constants for user registration type.
@@ -93,6 +95,13 @@ type PrepareTopologyResponse struct {
 	TopologyHash         string `json:"topology_hash"`
 	PublicKeyFingerprint string `json:"public_key_fingerprint"`
 	RegistrationToken    string `json:"registration_token"`
+}
+
+// PendingTopology holds the topology data for a pending external user registration.
+type PendingTopology struct {
+	Topology  *identity.ExternalPartyTopology
+	PublicKey []byte // SPKI public key bytes
+	ExpiresAt time.Time
 }
 
 var ErrKeyNotFound = errors.New("key not found")
