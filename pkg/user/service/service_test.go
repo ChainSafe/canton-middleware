@@ -88,6 +88,75 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	}
 }
 
+func TestPrepareExternalRegistration_MissingPublicKey(t *testing.T) {
+	ctx := context.Background()
+
+	svc := NewService(nil, nil, nil, zap.NewNop(), false, nil)
+
+	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
+		CantonPublicKey: "",
+	})
+	if err == nil {
+		t.Fatal("expected bad request error, got nil")
+	}
+	if !apperrors.Is(err, apperrors.CategoryDataError) {
+		t.Fatalf("expected CategoryDataError, got %v", err)
+	}
+}
+
+func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
+	ctx := context.Background()
+	message := "register-me"
+	evmAddress, signature := signEIP191Message(t, message)
+
+	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
+
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+
+	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
+		Message:         message,
+		Signature:       signature,
+		CantonPublicKey: "02deadbeef",
+	})
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !errors.Is(err, ErrUserAlreadyRegistered) {
+		t.Fatalf("expected ErrUserAlreadyRegistered, got %v", err)
+	}
+	if !apperrors.Is(err, apperrors.CategoryDataConflict) {
+		t.Fatalf("expected CategoryDataConflict, got %v", err)
+	}
+}
+
+func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
+	ctx := context.Background()
+	message := "register-me"
+	evmAddress, signature := signEIP191Message(t, message)
+
+	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
+	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
+
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+
+	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
+		Message:         message,
+		Signature:       signature,
+		CantonPublicKey: "02deadbeef",
+	})
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if !errors.Is(err, ErrNotWhitelisted) {
+		t.Fatalf("expected ErrNotWhitelisted, got %v", err)
+	}
+	if !apperrors.Is(err, apperrors.CategoryForbidden) {
+		t.Fatalf("expected CategoryForbidden, got %v", err)
+	}
+}
+
 func TestRegistrationService_RegisterCantonNativeUser_StoreError(t *testing.T) {
 	ctx := context.Background()
 	partyID := "party::aabb"
