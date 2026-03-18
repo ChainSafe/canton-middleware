@@ -33,10 +33,6 @@ func toUserDao(usr *user.User) *UserDao {
 		KeyMode:     usr.KeyMode,
 	}
 
-	if dao.KeyMode == "" {
-		dao.KeyMode = user.KeyModeCustodial
-	}
-
 	if usr.MappingCID != "" {
 		dao.MappingCID = &usr.MappingCID
 	}
@@ -63,10 +59,6 @@ func toUser(dao *UserDao) *user.User {
 		CantonParty: dao.CantonParty,
 		Fingerprint: dao.Fingerprint,
 		KeyMode:     dao.KeyMode,
-	}
-
-	if usr.KeyMode == "" {
-		usr.KeyMode = user.KeyModeCustodial
 	}
 
 	if dao.MappingCID != nil {

@@ -10,6 +10,7 @@ import (
 var (
 	ErrTransferNotFound = errors.New("transfer not found")
 	ErrTransferExpired  = errors.New("transfer expired")
+	ErrCacheFull        = errors.New("cache is full")
 )
 
 const defaultCleanupInterval = 30 * time.Second
@@ -19,21 +20,31 @@ type PreparedTransferCache struct {
 	mu      sync.RWMutex
 	entries map[string]*PreparedTransfer
 	ttl     time.Duration
+	maxSize int
 }
 
-// NewPreparedTransferCache creates a new cache with the given TTL.
-func NewPreparedTransferCache(ttl time.Duration) *PreparedTransferCache {
+// NewPreparedTransferCache creates a new cache with the given TTL and a maximum number of entries.
+func NewPreparedTransferCache(ttl time.Duration, maxSize int) *PreparedTransferCache {
 	return &PreparedTransferCache{
 		entries: make(map[string]*PreparedTransfer),
 		ttl:     ttl,
+		maxSize: maxSize,
 	}
 }
 
-// Put stores a prepared transfer in the cache.
-func (c *PreparedTransferCache) Put(transfer *PreparedTransfer) {
+// Put stores a prepared transfer in the cache. It sets ExpiresAt from the cache TTL.
+// Returns ErrCacheFull if the maximum number of entries has been reached.
+func (c *PreparedTransferCache) Put(transfer *PreparedTransfer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.maxSize > 0 && len(c.entries) >= c.maxSize {
+		return ErrCacheFull
+	}
+
+	transfer.ExpiresAt = time.Now().Add(c.ttl)
 	c.entries[transfer.TransferID] = transfer
+	return nil
 }
 
 // GetAndDelete atomically retrieves and removes a prepared transfer.

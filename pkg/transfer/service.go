@@ -16,7 +16,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-const defaultCacheTTL = 2 * time.Minute
+const (
+	defaultCacheTTL     = 2 * time.Minute
+	defaultCacheMaxSize = 10000
+)
 
 // UserStore is the narrow interface for looking up users.
 type UserStore interface {
@@ -41,7 +44,7 @@ func NewTransferService(cantonToken token.Token, userStore UserStore, allowedSym
 	return &TransferService{
 		cantonToken:         cantonToken,
 		userStore:           userStore,
-		cache:               token.NewPreparedTransferCache(defaultCacheTTL),
+		cache:               token.NewPreparedTransferCache(defaultCacheTTL, defaultCacheMaxSize),
 		allowedTokenSymbols: allowed,
 	}
 }
@@ -102,7 +105,9 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		return nil, fmt.Errorf("prepare transfer: %w", err)
 	}
 
-	s.cache.Put(pt)
+	if err := s.cache.Put(pt); err != nil {
+		return nil, apperrors.GeneralError(fmt.Errorf("too many pending transfers: %w", err))
+	}
 
 	return &PrepareResponse{
 		TransferID:      pt.TransferID,

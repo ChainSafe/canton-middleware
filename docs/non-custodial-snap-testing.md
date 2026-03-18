@@ -173,7 +173,7 @@ The `canton_public_key` must match the key from step 1a.
 }
 ```
 
-Store the `fingerprint` — it's needed for execute requests (as `signed_by`). The `public_key_fingerprint` from step 1a is the Canton key fingerprint used for `signed_by`.
+Store the `public_key_fingerprint` from step 1a — this is the Canton key fingerprint required as the `signed_by` field in execute transfer requests.
 
 ---
 

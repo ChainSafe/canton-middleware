@@ -731,7 +731,6 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 		PartyID:              req.FromPartyID,
-		ExpiresAt:            time.Now().Add(defaultTransferValidity),
 	}
 
 	c.logger.Info("Prepared non-custodial transfer",

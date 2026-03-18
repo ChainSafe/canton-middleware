@@ -8,14 +8,18 @@ import (
 )
 
 func TestPreparedTransferCache_PutAndGetAndDelete(t *testing.T) {
-	cache := NewPreparedTransferCache(5 * time.Minute)
+	cache := NewPreparedTransferCache(5*time.Minute, 100)
 
 	pt := &PreparedTransfer{
 		TransferID:      "test-id-1",
 		TransactionHash: []byte("hash"),
-		ExpiresAt:       time.Now().Add(5 * time.Minute),
 	}
-	cache.Put(pt)
+	if err := cache.Put(pt); err != nil {
+		t.Fatalf("Put() failed: %v", err)
+	}
+	if pt.ExpiresAt.IsZero() {
+		t.Fatal("Put() should set ExpiresAt")
+	}
 
 	got, err := cache.GetAndDelete(pt.TransferID)
 	if err != nil {
@@ -33,14 +37,18 @@ func TestPreparedTransferCache_PutAndGetAndDelete(t *testing.T) {
 }
 
 func TestPreparedTransferCache_Expired(t *testing.T) {
-	cache := NewPreparedTransferCache(1 * time.Millisecond)
+	cache := NewPreparedTransferCache(1*time.Millisecond, 100)
 
 	pt := &PreparedTransfer{
 		TransferID:      "test-id-2",
 		TransactionHash: []byte("hash"),
-		ExpiresAt:       time.Now().Add(-1 * time.Second), // already expired
 	}
-	cache.Put(pt)
+	if err := cache.Put(pt); err != nil {
+		t.Fatalf("Put() failed: %v", err)
+	}
+
+	// Wait for expiry
+	time.Sleep(5 * time.Millisecond)
 
 	_, err := cache.GetAndDelete(pt.TransferID)
 	if !errors.Is(err, ErrTransferExpired) {
@@ -49,7 +57,7 @@ func TestPreparedTransferCache_Expired(t *testing.T) {
 }
 
 func TestPreparedTransferCache_NotFound(t *testing.T) {
-	cache := NewPreparedTransferCache(5 * time.Minute)
+	cache := NewPreparedTransferCache(5*time.Minute, 100)
 
 	_, err := cache.GetAndDelete("nonexistent")
 	if !errors.Is(err, ErrTransferNotFound) {
@@ -57,23 +65,40 @@ func TestPreparedTransferCache_NotFound(t *testing.T) {
 	}
 }
 
-func TestPreparedTransferCache_Cleanup(t *testing.T) {
-	cache := NewPreparedTransferCache(1 * time.Millisecond)
+func TestPreparedTransferCache_MaxSize(t *testing.T) {
+	cache := NewPreparedTransferCache(5*time.Minute, 2)
 
-	cache.Put(&PreparedTransfer{
-		TransferID: "expired",
-		ExpiresAt:  time.Now().Add(-1 * time.Second),
-	})
-	cache.Put(&PreparedTransfer{
-		TransferID: "valid",
-		ExpiresAt:  time.Now().Add(5 * time.Minute),
-	})
+	if err := cache.Put(&PreparedTransfer{TransferID: "a"}); err != nil {
+		t.Fatalf("Put(a) failed: %v", err)
+	}
+	if err := cache.Put(&PreparedTransfer{TransferID: "b"}); err != nil {
+		t.Fatalf("Put(b) failed: %v", err)
+	}
+
+	err := cache.Put(&PreparedTransfer{TransferID: "c"})
+	if !errors.Is(err, ErrCacheFull) {
+		t.Fatalf("expected ErrCacheFull, got %v", err)
+	}
+}
+
+func TestPreparedTransferCache_Cleanup(t *testing.T) {
+	cache := NewPreparedTransferCache(1*time.Millisecond, 100)
+
+	if err := cache.Put(&PreparedTransfer{TransferID: "will-expire"}); err != nil {
+		t.Fatalf("Put() failed: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+
+	if err := cache.Put(&PreparedTransfer{TransferID: "valid"}); err != nil {
+		t.Fatalf("Put() failed: %v", err)
+	}
 
 	cache.cleanup()
 
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
-	if _, ok := cache.entries["expired"]; ok {
+	if _, ok := cache.entries["will-expire"]; ok {
 		t.Fatal("expired entry should have been cleaned up")
 	}
 	if _, ok := cache.entries["valid"]; !ok {
@@ -82,7 +107,7 @@ func TestPreparedTransferCache_Cleanup(t *testing.T) {
 }
 
 func TestPreparedTransferCache_StartStopsOnCancel(t *testing.T) {
-	cache := NewPreparedTransferCache(1 * time.Millisecond)
+	cache := NewPreparedTransferCache(1*time.Millisecond, 100)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
