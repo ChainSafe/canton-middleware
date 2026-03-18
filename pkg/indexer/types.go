@@ -108,9 +108,8 @@ type Token struct {
 // (ERC-20: the per-address entry in the balances mapping, i.e. balanceOf(address).)
 //
 // Amount is a non-negative decimal string representing the live balance,
-// e.g. "1500.000000000000000000". It is computed by the processor from the
-// prior balance plus the event amount and stored as a snapshot — no delta
-// arithmetic is performed in the database.
+// e.g. "1500.000000000000000000". Updated by the store via delta arithmetic
+// (Store.ApplyBalanceDelta) — the store adds the signed delta to the persisted value.
 type Balance struct {
 	PartyID         string // canton party (ERC-20: address)
 	InstrumentAdmin string // instrumentId.admin

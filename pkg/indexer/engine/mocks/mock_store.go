@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	indexer "github.com/chainsafe/canton-middleware/pkg/indexer"
+	engine "github.com/chainsafe/canton-middleware/pkg/indexer/engine"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -41,17 +42,10 @@ func (_m *Store) ApplyBalanceDelta(ctx context.Context, partyID string, instrume
 	return r0
 }
 
-// Store_ApplyBalanceDelta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplyBalanceDelta'
 type Store_ApplyBalanceDelta_Call struct {
 	*mock.Call
 }
 
-// ApplyBalanceDelta is a helper method to define mock.On call
-//   - ctx context.Context
-//   - partyID string
-//   - instrumentAdmin string
-//   - instrumentID string
-//   - delta string
 func (_e *Store_Expecter) ApplyBalanceDelta(ctx interface{}, partyID interface{}, instrumentAdmin interface{}, instrumentID interface{}, delta interface{}) *Store_ApplyBalanceDelta_Call {
 	return &Store_ApplyBalanceDelta_Call{Call: _e.mock.On("ApplyBalanceDelta", ctx, partyID, instrumentAdmin, instrumentID, delta)}
 }
@@ -91,16 +85,10 @@ func (_m *Store) ApplySupplyDelta(ctx context.Context, instrumentAdmin string, i
 	return r0
 }
 
-// Store_ApplySupplyDelta_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplySupplyDelta'
 type Store_ApplySupplyDelta_Call struct {
 	*mock.Call
 }
 
-// ApplySupplyDelta is a helper method to define mock.On call
-//   - ctx context.Context
-//   - instrumentAdmin string
-//   - instrumentID string
-//   - delta string
 func (_e *Store_Expecter) ApplySupplyDelta(ctx interface{}, instrumentAdmin interface{}, instrumentID interface{}, delta interface{}) *Store_ApplySupplyDelta_Call {
 	return &Store_ApplySupplyDelta_Call{Call: _e.mock.On("ApplySupplyDelta", ctx, instrumentAdmin, instrumentID, delta)}
 }
@@ -150,13 +138,10 @@ func (_m *Store) LatestOffset(ctx context.Context) (int64, error) {
 	return r0, r1
 }
 
-// Store_LatestOffset_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LatestOffset'
 type Store_LatestOffset_Call struct {
 	*mock.Call
 }
 
-// LatestOffset is a helper method to define mock.On call
-//   - ctx context.Context
 func (_e *Store_Expecter) LatestOffset(ctx interface{}) *Store_LatestOffset_Call {
 	return &Store_LatestOffset_Call{Call: _e.mock.On("LatestOffset", ctx)}
 }
@@ -179,7 +164,7 @@ func (_c *Store_LatestOffset_Call) RunAndReturn(run func(context.Context) (int64
 }
 
 // RunInTx provides a mock function with given fields: ctx, fn
-func (_m *Store) RunInTx(ctx context.Context, fn func(context.Context, indexer.Store) error) error {
+func (_m *Store) RunInTx(ctx context.Context, fn func(context.Context, engine.Store) error) error {
 	ret := _m.Called(ctx, fn)
 
 	if len(ret) == 0 {
@@ -187,7 +172,7 @@ func (_m *Store) RunInTx(ctx context.Context, fn func(context.Context, indexer.S
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, func(context.Context, indexer.Store) error) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, func(context.Context, engine.Store) error) error); ok {
 		r0 = rf(ctx, fn)
 	} else {
 		r0 = ret.Error(0)
@@ -196,21 +181,17 @@ func (_m *Store) RunInTx(ctx context.Context, fn func(context.Context, indexer.S
 	return r0
 }
 
-// Store_RunInTx_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunInTx'
 type Store_RunInTx_Call struct {
 	*mock.Call
 }
 
-// RunInTx is a helper method to define mock.On call
-//   - ctx context.Context
-//   - fn func(context.Context , indexer.Store) error
 func (_e *Store_Expecter) RunInTx(ctx interface{}, fn interface{}) *Store_RunInTx_Call {
 	return &Store_RunInTx_Call{Call: _e.mock.On("RunInTx", ctx, fn)}
 }
 
-func (_c *Store_RunInTx_Call) Run(run func(ctx context.Context, fn func(context.Context, indexer.Store) error)) *Store_RunInTx_Call {
+func (_c *Store_RunInTx_Call) Run(run func(ctx context.Context, fn func(context.Context, engine.Store) error)) *Store_RunInTx_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(func(context.Context, indexer.Store) error))
+		run(args[0].(context.Context), args[1].(func(context.Context, engine.Store) error))
 	})
 	return _c
 }
@@ -220,7 +201,7 @@ func (_c *Store_RunInTx_Call) Return(_a0 error) *Store_RunInTx_Call {
 	return _c
 }
 
-func (_c *Store_RunInTx_Call) RunAndReturn(run func(context.Context, func(context.Context, indexer.Store) error) error) *Store_RunInTx_Call {
+func (_c *Store_RunInTx_Call) RunAndReturn(run func(context.Context, func(context.Context, engine.Store) error) error) *Store_RunInTx_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -243,15 +224,10 @@ func (_m *Store) SaveBatch(ctx context.Context, offset int64, events []*indexer.
 	return r0
 }
 
-// Store_SaveBatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveBatch'
 type Store_SaveBatch_Call struct {
 	*mock.Call
 }
 
-// SaveBatch is a helper method to define mock.On call
-//   - ctx context.Context
-//   - offset int64
-//   - events []*indexer.ParsedEvent
 func (_e *Store_Expecter) SaveBatch(ctx interface{}, offset interface{}, events interface{}) *Store_SaveBatch_Call {
 	return &Store_SaveBatch_Call{Call: _e.mock.On("SaveBatch", ctx, offset, events)}
 }
@@ -291,14 +267,10 @@ func (_m *Store) UpsertToken(ctx context.Context, token *indexer.Token) error {
 	return r0
 }
 
-// Store_UpsertToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertToken'
 type Store_UpsertToken_Call struct {
 	*mock.Call
 }
 
-// UpsertToken is a helper method to define mock.On call
-//   - ctx context.Context
-//   - token *indexer.Token
 func (_e *Store_Expecter) UpsertToken(ctx interface{}, token interface{}) *Store_UpsertToken_Call {
 	return &Store_UpsertToken_Call{Call: _e.mock.On("UpsertToken", ctx, token)}
 }
@@ -321,7 +293,6 @@ func (_c *Store_UpsertToken_Call) RunAndReturn(run func(context.Context, *indexe
 }
 
 // NewStore creates a new instance of Store. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
 func NewStore(t interface {
 	mock.TestingT
 	Cleanup(func())

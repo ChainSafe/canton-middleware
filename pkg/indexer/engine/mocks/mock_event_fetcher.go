@@ -45,12 +45,10 @@ func (_m *EventFetcher) Events() <-chan *streaming.Batch[*indexer.ParsedEvent] {
 	return r0
 }
 
-// EventFetcher_Events_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Events'
 type EventFetcher_Events_Call struct {
 	*mock.Call
 }
 
-// Events is a helper method to define mock.On call
 func (_e *EventFetcher_Expecter) Events() *EventFetcher_Events_Call {
 	return &EventFetcher_Events_Call{Call: _e.mock.On("Events")}
 }
@@ -77,14 +75,10 @@ func (_m *EventFetcher) Start(ctx context.Context, offset int64) {
 	_m.Called(ctx, offset)
 }
 
-// EventFetcher_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
 type EventFetcher_Start_Call struct {
 	*mock.Call
 }
 
-// Start is a helper method to define mock.On call
-//   - ctx context.Context
-//   - offset int64
 func (_e *EventFetcher_Expecter) Start(ctx interface{}, offset interface{}) *EventFetcher_Start_Call {
 	return &EventFetcher_Start_Call{Call: _e.mock.On("Start", ctx, offset)}
 }
@@ -102,12 +96,13 @@ func (_c *EventFetcher_Start_Call) Return() *EventFetcher_Start_Call {
 }
 
 func (_c *EventFetcher_Start_Call) RunAndReturn(run func(context.Context, int64)) *EventFetcher_Start_Call {
-	_c.Run(run)
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
 	return _c
 }
 
 // NewEventFetcher creates a new instance of EventFetcher. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-// The first argument is typically a *testing.T value.
 func NewEventFetcher(t interface {
 	mock.TestingT
 	Cleanup(func())

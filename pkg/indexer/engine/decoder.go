@@ -108,7 +108,7 @@ func NewTokenTransferDecoder(
 
 		return &indexer.ParsedEvent{
 			InstrumentID:    instrumentID,
-			InstrumentAdmin: ev.NestedPartyField("instrumentId", "admin"),
+			InstrumentAdmin: instrumentAdmin,
 			Issuer:          ev.PartyField("issuer"),
 			EventType:       et,
 			Amount:          ev.NumericField("amount"),
