@@ -244,7 +244,8 @@ func (s *PGStore) GetBalance(ctx context.Context, partyID, admin, id string) (*i
 // ListBalancesForParty returns a paginated list of all holdings for a given party.
 func (s *PGStore) ListBalancesForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]*indexer.Balance, int64, error) {
 	var daos []BalanceDao
-	q := s.db.NewSelect().Model(&daos).Where("party_id = ?", partyID)
+	q := s.db.NewSelect().Model(&daos).Where("party_id = ?", partyID).
+		OrderExpr("instrument_admin ASC, instrument_id ASC")
 
 	total, err := q.Count(ctx)
 	if err != nil {
@@ -266,7 +267,8 @@ func (s *PGStore) ListBalancesForToken(ctx context.Context, admin, id string, p 
 	var daos []BalanceDao
 	q := s.db.NewSelect().Model(&daos).
 		Where("instrument_admin = ?", admin).
-		Where("instrument_id = ?", id)
+		Where("instrument_id = ?", id).
+		OrderExpr("party_id ASC")
 
 	total, err := q.Count(ctx)
 	if err != nil {
