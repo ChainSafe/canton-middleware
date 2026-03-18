@@ -9,27 +9,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 )
 
-// readinessMiddleware returns 503 Service Unavailable until the indexer has
-// processed its first batch from the Canton ledger.
-func readinessMiddleware(checker ReadinessChecker) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !checker.Ready() {
-				apphttp.DefaultErrorHandler(w, &apperrors.ServiceError{
-					Category: apperrors.CategoryRecovering,
-					Message:  "indexer not yet synced, please retry later",
-				})
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// jwtMiddleware extracts the Bearer token, validates it, reads the
+// JWTMiddleware extracts the Bearer token, validates it, reads the
 // canton_party_id claim, and injects it via auth.WithCantonParty.
 // Returns 401 JSON on any failure.
-func jwtMiddleware(validator *auth.JWTValidator) func(http.Handler) http.Handler {
+func JWTMiddleware(validator *auth.JWTValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")

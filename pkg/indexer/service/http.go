@@ -10,7 +10,6 @@ import (
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
-	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 )
 
@@ -21,15 +20,11 @@ type HTTP struct {
 }
 
 // RegisterRoutes registers HTTP endpoints for the indexer service on the given chi router.
-// All routes are mounted under /indexer/v1 and require a valid JWT.
-// Requests are rejected with 503 until the indexer has processed its first batch.
-func RegisterRoutes(r chi.Router, svc Service, checker ReadinessChecker, validator *auth.JWTValidator, logger *zap.Logger) {
+// All routes are mounted under /indexer/v1. Callers control what middleware is applied.
+func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	h := &HTTP{service: svc, logger: logger}
 
 	r.Route("/indexer/v1", func(r chi.Router) {
-		r.Use(readinessMiddleware(checker))
-		r.Use(jwtMiddleware(validator))
-
 		r.Get("/tokens", apphttp.HandleError(h.listTokens))
 		r.Get("/tokens/{admin}/{id}", apphttp.HandleError(h.getToken))
 		r.Get("/tokens/{admin}/{id}/supply", apphttp.HandleError(h.getTokenSupply))

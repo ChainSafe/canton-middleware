@@ -55,7 +55,7 @@ type ParsedEvent struct {
 	ContractID    string    `json:"contract_id"`    // TokenTransferEvent contract ID — idempotency key (event_id in store)
 	TxID          string    `json:"tx_id"`          // Ledger transaction UpdateId
 	LedgerOffset  int64     `json:"ledger_offset"`  // Ledger offset of the containing transaction
-	Timestamp     time.Time `json:"-"`              // Contract-level time from TokenTransferEvent.timestamp
+	Timestamp     time.Time `json:"timestamp"`      // Contract-level time from TokenTransferEvent.timestamp
 	EffectiveTime time.Time `json:"effective_time"` // Ledger transaction effective time
 }
 

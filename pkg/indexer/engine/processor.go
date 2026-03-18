@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
@@ -87,7 +86,6 @@ type Processor struct {
 	fetcher EventFetcher
 	store   Store
 	logger  *zap.Logger
-	ready   atomic.Bool
 }
 
 // NewProcessor creates a Processor.
@@ -97,12 +95,6 @@ func NewProcessor(fetcher EventFetcher, store Store, logger *zap.Logger) *Proces
 		store:   store,
 		logger:  logger,
 	}
-}
-
-// Ready reports whether the processor has successfully committed at least one
-// batch. HTTP handlers should return 503 until this returns true.
-func (p *Processor) Ready() bool {
-	return p.ready.Load()
 }
 
 // Run starts the indexer loop. It blocks until ctx is canceled or the fetcher
@@ -210,8 +202,6 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 	if err != nil {
 		return fmt.Errorf("tx at offset %d: %w", batch.Offset, err)
 	}
-
-	p.ready.Store(true)
 
 	if len(batch.Items) > 0 {
 		p.logger.Debug("indexed batch",

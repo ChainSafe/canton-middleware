@@ -6,7 +6,6 @@ import (
 	"go.uber.org/zap"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 )
 
@@ -14,14 +13,6 @@ const (
 	MaxLimit     = 200
 	DefaultLimit = 50
 )
-
-//go:generate mockery --name ReadinessChecker --output mocks --outpkg mocks --filename mock_readiness_checker.go --with-expecter
-
-// ReadinessChecker reports whether the indexer has caught up to the ledger.
-// The engine.Processor implements this interface.
-type ReadinessChecker interface {
-	Ready() bool
-}
 
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
@@ -46,9 +37,9 @@ type Service interface {
 	ListTokens(ctx context.Context, p indexer.Pagination) (*indexer.Page[*indexer.Token], error)
 
 	// ERC-20 analogs
-	TotalSupply(ctx context.Context, admin, id string) (string, error)                       // totalSupply()
-	BalanceOf(ctx context.Context, partyID, admin, id string) (string, error)                // balanceOf(address)
-	Allowance(ctx context.Context, owner, spender, admin, id string) (string, error)         // allowance() — stub
+	TotalSupply(ctx context.Context, admin, id string) (string, error)               // totalSupply()
+	BalanceOf(ctx context.Context, partyID, admin, id string) (string, error)        // balanceOf(address)
+	Allowance(ctx context.Context, owner, spender, admin, id string) (string, error) // allowance() — stub
 
 	// Rich balance queries (beyond ERC-20)
 	GetBalance(ctx context.Context, partyID, admin, id string) (*indexer.Balance, error)
@@ -71,20 +62,7 @@ type svc struct {
 	logger *zap.Logger
 }
 
-// requesterParty reads the canton_party_id injected by jwtMiddleware.
-// The middleware guarantees the value is always present when this is called.
-func requesterParty(ctx context.Context) (string, error) {
-	party, ok := auth.CantonPartyFromContext(ctx)
-	if !ok || party == "" {
-		return "", apperrors.UnAuthorizedError(nil, "missing canton_party_id")
-	}
-	return party, nil
-}
-
 func (s *svc) GetToken(ctx context.Context, admin, id string) (*indexer.Token, error) {
-	if _, err := requesterParty(ctx); err != nil {
-		return nil, err
-	}
 	t, err := s.store.GetToken(ctx, admin, id)
 	if err != nil {
 		return nil, err
@@ -96,9 +74,6 @@ func (s *svc) GetToken(ctx context.Context, admin, id string) (*indexer.Token, e
 }
 
 func (s *svc) ListTokens(ctx context.Context, p indexer.Pagination) (*indexer.Page[*indexer.Token], error) {
-	if _, err := requesterParty(ctx); err != nil {
-		return nil, err
-	}
 	items, total, err := s.store.ListTokens(ctx, p)
 	if err != nil {
 		return nil, err
@@ -107,9 +82,6 @@ func (s *svc) ListTokens(ctx context.Context, p indexer.Pagination) (*indexer.Pa
 }
 
 func (s *svc) TotalSupply(ctx context.Context, admin, id string) (string, error) {
-	if _, err := requesterParty(ctx); err != nil {
-		return "", err
-	}
 	t, err := s.store.GetToken(ctx, admin, id)
 	if err != nil {
 		return "", err
@@ -121,13 +93,6 @@ func (s *svc) TotalSupply(ctx context.Context, admin, id string) (string, error)
 }
 
 func (s *svc) BalanceOf(ctx context.Context, partyID, admin, id string) (string, error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return "", err
-	}
-	if requester != partyID && requester != admin {
-		return "", apperrors.ForbiddenError(nil, "access denied")
-	}
 	b, err := s.store.GetBalance(ctx, partyID, admin, id)
 	if err != nil {
 		return "", err
@@ -139,24 +104,10 @@ func (s *svc) BalanceOf(ctx context.Context, partyID, admin, id string) (string,
 }
 
 func (s *svc) Allowance(ctx context.Context, owner, spender, admin, id string) (string, error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return "", err
-	}
-	if requester != owner && requester != admin {
-		return "", apperrors.ForbiddenError(nil, "access denied")
-	}
 	return s.store.GetAllowance(ctx, owner, spender, admin, id)
 }
 
 func (s *svc) GetBalance(ctx context.Context, partyID, admin, id string) (*indexer.Balance, error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if requester != partyID && requester != admin {
-		return nil, apperrors.ForbiddenError(nil, "access denied")
-	}
 	b, err := s.store.GetBalance(ctx, partyID, admin, id)
 	if err != nil {
 		return nil, err
@@ -168,13 +119,6 @@ func (s *svc) GetBalance(ctx context.Context, partyID, admin, id string) (*index
 }
 
 func (s *svc) ListBalancesForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[*indexer.Balance], error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if requester != partyID {
-		return nil, apperrors.ForbiddenError(nil, "access denied")
-	}
 	items, total, err := s.store.ListBalancesForParty(ctx, partyID, p)
 	if err != nil {
 		return nil, err
@@ -183,13 +127,6 @@ func (s *svc) ListBalancesForParty(ctx context.Context, partyID string, p indexe
 }
 
 func (s *svc) ListBalancesForToken(ctx context.Context, admin, id string, p indexer.Pagination) (*indexer.Page[*indexer.Balance], error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if requester != admin {
-		return nil, apperrors.ForbiddenError(nil, "access denied")
-	}
 	items, total, err := s.store.ListBalancesForToken(ctx, admin, id, p)
 	if err != nil {
 		return nil, err
@@ -198,9 +135,6 @@ func (s *svc) ListBalancesForToken(ctx context.Context, admin, id string, p inde
 }
 
 func (s *svc) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error) {
-	if _, err := requesterParty(ctx); err != nil {
-		return nil, err
-	}
 	e, err := s.store.GetEvent(ctx, contractID)
 	if err != nil {
 		return nil, err
@@ -212,9 +146,6 @@ func (s *svc) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedE
 }
 
 func (s *svc) ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
-	if _, err := requesterParty(ctx); err != nil {
-		return nil, err
-	}
 	f.InstrumentAdmin = admin
 	f.InstrumentID = id
 	items, total, err := s.store.ListEvents(ctx, f, p)
@@ -225,13 +156,6 @@ func (s *svc) ListTokenEvents(ctx context.Context, admin, id string, f indexer.E
 }
 
 func (s *svc) ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
-	requester, err := requesterParty(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if requester != partyID {
-		return nil, apperrors.ForbiddenError(nil, "access denied")
-	}
 	f.PartyID = partyID
 	items, total, err := s.store.ListEvents(ctx, f, p)
 	if err != nil {
