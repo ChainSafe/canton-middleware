@@ -163,6 +163,7 @@ func TestProcessor_Run_MintBatch(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeBatch(1, ev)))
 
 	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(true, nil)
 	store.EXPECT().UpsertToken(mock.Anything, &indexer.Token{
 		InstrumentAdmin: testInstrumentAdmin,
 		InstrumentID:    testInstrumentID,
@@ -172,7 +173,7 @@ func TestProcessor_Run_MintBatch(t *testing.T) {
 	}).Return(nil)
 	store.EXPECT().ApplySupplyDelta(mock.Anything, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
-	store.EXPECT().SaveBatch(mock.Anything, int64(1), []*indexer.ParsedEvent{ev}).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(1)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }
@@ -187,6 +188,7 @@ func TestProcessor_Run_BurnBatch(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeBatch(2, ev)))
 
 	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(true, nil)
 	store.EXPECT().UpsertToken(mock.Anything, &indexer.Token{
 		InstrumentAdmin: testInstrumentAdmin,
 		InstrumentID:    testInstrumentID,
@@ -196,7 +198,7 @@ func TestProcessor_Run_BurnBatch(t *testing.T) {
 	}).Return(nil)
 	store.EXPECT().ApplySupplyDelta(mock.Anything, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
-	store.EXPECT().SaveBatch(mock.Anything, int64(2), []*indexer.ParsedEvent{ev}).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(2)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }
@@ -211,6 +213,7 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeBatch(3, ev)))
 
 	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(true, nil)
 	store.EXPECT().UpsertToken(mock.Anything, &indexer.Token{
 		InstrumentAdmin: testInstrumentAdmin,
 		InstrumentID:    testInstrumentID,
@@ -221,7 +224,7 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	// Transfer: no ApplySupplyDelta.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
-	store.EXPECT().SaveBatch(mock.Anything, int64(3), []*indexer.ParsedEvent{ev}).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }
@@ -235,13 +238,29 @@ func TestProcessor_Run_EmptyBatch_AdvancesOffset(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeBatch(10)))
 
 	setupRunInTx(store)
-	store.EXPECT().SaveBatch(mock.Anything, int64(10), ([]*indexer.ParsedEvent)(nil)).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(10)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_DuplicateEvent_SkipsDerivedStateButAdvancesOffset(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	ev := mintEvent()
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(4), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(4))
+	fetcher.EXPECT().Events().Return(feedCh(makeBatch(5, ev)))
+
+	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(false, nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(5)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }
 
 // ---------------------------------------------------------------------------
-// Retry behaviour
+// Retry behavior
 // ---------------------------------------------------------------------------
 
 func TestProcessor_Run_StoreError_Retries(t *testing.T) {
@@ -260,7 +279,7 @@ func TestProcessor_Run_StoreError_Retries(t *testing.T) {
 		RunAndReturn(func(ctx context.Context, fn func(context.Context, engine.Store) error) error {
 			return fn(ctx, store)
 		}).Once()
-	store.EXPECT().SaveBatch(mock.Anything, int64(1), ([]*indexer.ParsedEvent)(nil)).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(1)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }

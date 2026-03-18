@@ -49,10 +49,15 @@ type Store interface {
 	// participate in the same underlying DB transaction.
 	RunInTx(ctx context.Context, fn func(ctx context.Context, tx Store) error) error
 
-	// SaveBatch persists a batch of ParsedEvents and advances the stored ledger offset.
-	// Duplicate events (same ContractID) are silently skipped via ON CONFLICT DO NOTHING.
-	// When events is empty the offset is still advanced to skip no-op transactions on restart.
-	SaveBatch(ctx context.Context, offset int64, events []*indexer.ParsedEvent) error
+	// InsertEvent persists one ParsedEvent by ContractID.
+	// Returns inserted=false when the event already exists and should therefore not
+	// mutate any derived state a second time.
+	InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (inserted bool, err error)
+
+	// SaveOffset advances the stored ledger offset after all newly inserted events in
+	// the transaction have updated derived state. It must be safe to call even when the
+	// batch was empty or every event was already present.
+	SaveOffset(ctx context.Context, offset int64) error
 
 	// UpsertToken records a token deployment on first observation.
 	// Subsequent calls for the same {InstrumentAdmin, InstrumentID} are no-ops
@@ -156,11 +161,21 @@ func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.
 }
 
 // processBatch persists a single decoded batch inside a single database transaction.
-// All writes — token upserts, supply/balance deltas, events, and offset advance — are
-// committed atomically. On any error the transaction is rolled back and the caller retries.
+// Each event is inserted before its derived state is mutated so replayed transactions
+// can skip already-indexed events without double-applying balances or supply.
+// All writes — event inserts, token upserts, supply/balance deltas, and offset advance —
+// are committed atomically. On any error the transaction is rolled back and the caller retries.
 func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*indexer.ParsedEvent]) error {
 	err := p.store.RunInTx(ctx, func(ctx context.Context, tx Store) error {
 		for _, e := range batch.Items {
+			inserted, err := tx.InsertEvent(ctx, e)
+			if err != nil {
+				return fmt.Errorf("insert event: %w", err)
+			}
+			if !inserted {
+				continue
+			}
+
 			if err := tx.UpsertToken(ctx, tokenFromEvent(e)); err != nil {
 				return fmt.Errorf("upsert token: %w", err)
 			}
@@ -178,7 +193,11 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 			}
 		}
 
-		return tx.SaveBatch(ctx, batch.Offset, batch.Items)
+		if err := tx.SaveOffset(ctx, batch.Offset); err != nil {
+			return fmt.Errorf("save offset: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("tx at offset %d: %w", batch.Offset, err)
