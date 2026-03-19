@@ -67,8 +67,8 @@ type ParsedEvent struct {
 // a token with id="DEMO". The full {Admin, ID} pair IS unique and is the correct
 // key for whitelisting specific token deployments.
 type InstrumentKey struct {
-	Admin string // instrumentId.admin — the token admin/issuer party
-	ID    string // instrumentId.id   — the token identifier (e.g. "DEMO")
+	Admin string `yaml:"admin"` // instrumentId.admin — the token admin/issuer party
+	ID    string `yaml:"id"`    // instrumentId.id   — the token identifier (e.g. "DEMO")
 }
 
 // Token represents a CIP56 token deployment, uniquely identified by {InstrumentAdmin, InstrumentID}.

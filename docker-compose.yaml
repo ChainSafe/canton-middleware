@@ -109,7 +109,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: p@ssw0rd
       POSTGRES_DB: postgres
-      POSTGRES_MULTIPLE_DATABASES: relayer,erc20_api
+      POSTGRES_MULTIPLE_DATABASES: relayer,erc20_api,canton_indexer
     ports:
       - "5432:5432"
     volumes:
@@ -154,6 +154,7 @@ services:
       ENV: docker
       CONFIG_FILE: /app/state/config.yaml
       API_SERVER_CONFIG_FILE: /app/state/api-server-config.yaml
+      INDEXER_CONFIG_FILE: /app/state/indexer-config.yaml
       CANTON_HTTP: http://canton:5013
       BROADCAST_DIR: /app/broadcast
       RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/relayer}"
@@ -251,6 +252,45 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - bridge-network
+
+  # ===========================================================================
+  # Canton Indexer
+  # ===========================================================================
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: indexer
+    container_name: canton-indexer
+    ports:
+      - "8082:8082"
+    volumes:
+      - config_state:/app/state:ro
+    command: ["-config", "/app/state/indexer-config.yaml"]
+    environment:
+      LOG_LEVEL: debug
+      ENV: docker
+      INDEXER_DATABASE_URL: "${INDEXER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/canton_indexer}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      canton:
+        condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
       interval: 10s
       timeout: 5s
       retries: 5

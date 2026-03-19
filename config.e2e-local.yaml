@@ -29,7 +29,7 @@ database:
 
 # Canton config
 canton:
-  domain_id: "local::1220491bf04408d7cf1a8c9d6147f46a4e300901b5fd2f13dd60c4e871fc5df130d2"
+  domain_id: "local::122012347c9534aef60e0c941f8baa14d4bd977d18b593011f714078064ce154ed7e"
   issuer_party: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
 
   ledger:

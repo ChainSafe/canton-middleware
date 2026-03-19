@@ -9,8 +9,10 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	pgdb "github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
@@ -91,6 +93,35 @@ func LoadRelayerServer(configPath string) (*RelayerServer, error) {
 	}
 	return &cfg, nil
 }
+
+// IndexerServer represents the configuration for the standalone indexer process.
+// It wires a Canton ledger stream (write path) with an HTTP read API.
+type IndexerServer struct {
+	Server   *http.ServerConfig   `yaml:"server" validate:"required"`
+	Database *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
+	// CantonLedger holds the Canton participant connection settings. The indexer only
+	// needs the ledger gRPC connection (for streaming) — Identity, Token, and
+	// Bridge sub-clients are not required.
+	CantonLedger *ledger.Config `yaml:"canton_ledger" validate:"required"`
+	Indexer *indexer.Config `yaml:"indexer" validate:"required"`
+	// JWKS configures JWT validation for the HTTP read API. When nil (default),
+	// JWT validation is disabled — only safe for local development.
+	JWKS    *JWKS       `yaml:"jwks" default:"-"`
+	Logging *log.Config `yaml:"logging" validate:"required"`
+}
+
+// LoadIndexerServer loads, defaults, and validates indexer configuration from file.
+func LoadIndexerServer(configPath string) (*IndexerServer, error) {
+	var cfg IndexerServer
+	if err := loadConfigFromFile(configPath, &cfg); err != nil {
+		return nil, err
+	}
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
 
 func loadConfigFromFile(path string, out any) error {
 	data, err := os.ReadFile(path)
