@@ -1,16 +1,18 @@
-package token
+package transfer
 
 import (
 	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 )
 
 func TestPreparedTransferCache_PutAndGetAndDelete(t *testing.T) {
 	cache := NewPreparedTransferCache(5*time.Minute, 100)
 
-	pt := &PreparedTransfer{
+	pt := &token.PreparedTransfer{
 		TransferID:      "test-id-1",
 		TransactionHash: []byte("hash"),
 	}
@@ -39,7 +41,7 @@ func TestPreparedTransferCache_PutAndGetAndDelete(t *testing.T) {
 func TestPreparedTransferCache_Expired(t *testing.T) {
 	cache := NewPreparedTransferCache(1*time.Millisecond, 100)
 
-	pt := &PreparedTransfer{
+	pt := &token.PreparedTransfer{
 		TransferID:      "test-id-2",
 		TransactionHash: []byte("hash"),
 	}
@@ -68,14 +70,14 @@ func TestPreparedTransferCache_NotFound(t *testing.T) {
 func TestPreparedTransferCache_MaxSize(t *testing.T) {
 	cache := NewPreparedTransferCache(5*time.Minute, 2)
 
-	if err := cache.Put(&PreparedTransfer{TransferID: "a"}); err != nil {
+	if err := cache.Put(&token.PreparedTransfer{TransferID: "a"}); err != nil {
 		t.Fatalf("Put(a) failed: %v", err)
 	}
-	if err := cache.Put(&PreparedTransfer{TransferID: "b"}); err != nil {
+	if err := cache.Put(&token.PreparedTransfer{TransferID: "b"}); err != nil {
 		t.Fatalf("Put(b) failed: %v", err)
 	}
 
-	err := cache.Put(&PreparedTransfer{TransferID: "c"})
+	err := cache.Put(&token.PreparedTransfer{TransferID: "c"})
 	if !errors.Is(err, ErrCacheFull) {
 		t.Fatalf("expected ErrCacheFull, got %v", err)
 	}
@@ -84,13 +86,13 @@ func TestPreparedTransferCache_MaxSize(t *testing.T) {
 func TestPreparedTransferCache_Cleanup(t *testing.T) {
 	cache := NewPreparedTransferCache(1*time.Millisecond, 100)
 
-	if err := cache.Put(&PreparedTransfer{TransferID: "will-expire"}); err != nil {
+	if err := cache.Put(&token.PreparedTransfer{TransferID: "will-expire"}); err != nil {
 		t.Fatalf("Put() failed: %v", err)
 	}
 
 	time.Sleep(5 * time.Millisecond)
 
-	if err := cache.Put(&PreparedTransfer{TransferID: "valid"}); err != nil {
+	if err := cache.Put(&token.PreparedTransfer{TransferID: "valid"}); err != nil {
 		t.Fatalf("Put() failed: %v", err)
 	}
 

@@ -56,7 +56,7 @@ func (m *mockTransferCache) GetAndDelete(transferID string) (*token.PreparedTran
 	}
 	t, ok := m.stored[transferID]
 	if !ok {
-		return nil, token.ErrTransferNotFound
+		return nil, ErrTransferNotFound
 	}
 	delete(m.stored, transferID)
 	return t, nil
@@ -250,7 +250,7 @@ func TestTransferService_Execute_TransferExpired(t *testing.T) {
 	sender := senderUser()
 	store := &mockUserStore{users: map[string]*user.User{sender.EVMAddress: sender}}
 	cache := newMockCache()
-	cache.getErr = token.ErrTransferExpired
+	cache.getErr = ErrTransferExpired
 
 	svc := newTestService(&mockToken{}, store, cache)
 

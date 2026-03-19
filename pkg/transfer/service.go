@@ -54,7 +54,7 @@ func NewTransferService(cantonToken token.Token, userStore UserStore, allowedSym
 	return &TransferService{
 		cantonToken:         cantonToken,
 		userStore:           userStore,
-		cache:               token.NewPreparedTransferCache(defaultCacheTTL, defaultCacheMaxSize),
+		cache:               NewPreparedTransferCache(defaultCacheTTL, defaultCacheMaxSize),
 		allowedTokenSymbols: allowed,
 	}
 }
@@ -129,10 +129,10 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 
 	pt, err := s.cache.GetAndDelete(req.TransferID)
 	if err != nil {
-		if errors.Is(err, token.ErrTransferNotFound) {
+		if errors.Is(err, ErrTransferNotFound) {
 			return nil, apperrors.ResourceNotFoundError(err, "transfer not found")
 		}
-		if errors.Is(err, token.ErrTransferExpired) {
+		if errors.Is(err, ErrTransferExpired) {
 			return nil, apperrors.GoneError(err, "transfer expired")
 		}
 		return nil, fmt.Errorf("retrieve prepared transfer: %w", err)
