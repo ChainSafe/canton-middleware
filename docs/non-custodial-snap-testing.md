@@ -166,7 +166,7 @@ The `canton_public_key` must match the key from step 1a.
 ```json
 {
   "party": "user_f39Fd6e5::1220abc...",
-  "fingerprint": "0xe9707d0e...",
+  "fingerprint": "1220e9707d0e...",
   "mapping_cid": "00abc...",
   "evm_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "key_mode": "external"
@@ -269,7 +269,7 @@ POST /api/v2/transfer/execute
 | 400 | `to, amount, and token are required` | Missing fields |
 | 400 | `invalid recipient address: must be a 0x-prefixed 40-hex-char EVM address` | Bad `to` format |
 | 400 | `invalid amount: must be a positive decimal number` | Non-positive or non-numeric |
-| 400 | `unsupported token: must be DEMO or PROMPT` | Unknown token symbol |
+| 400 | `unsupported token` | Unknown token symbol |
 | 401 | `user not found` | Sender not registered |
 | 400 | `prepare/execute API requires key_mode=external` | Sender is custodial |
 | 400 | `recipient not found` | Recipient not registered |
