@@ -364,7 +364,7 @@ func (_c *BridgeStore_ListTransfers_Call) RunAndReturn(run func(context.Context,
 }
 
 // SetChainState provides a mock function with given fields: ctx, chainID, blockNumber, offset
-func (_m *BridgeStore) SetChainState(ctx context.Context, chainID string, blockNumber int64, offset string) error {
+func (_m *BridgeStore) SetChainState(ctx context.Context, chainID string, blockNumber uint64, offset string) error {
 	ret := _m.Called(ctx, chainID, blockNumber, offset)
 
 	if len(ret) == 0 {
@@ -372,7 +372,7 @@ func (_m *BridgeStore) SetChainState(ctx context.Context, chainID string, blockN
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, int64, string) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, uint64, string) error); ok {
 		r0 = rf(ctx, chainID, blockNumber, offset)
 	} else {
 		r0 = ret.Error(0)
@@ -389,15 +389,15 @@ type BridgeStore_SetChainState_Call struct {
 // SetChainState is a helper method to define mock.On call
 //   - ctx context.Context
 //   - chainID string
-//   - blockNumber int64
+//   - blockNumber uint64
 //   - offset string
 func (_e *BridgeStore_Expecter) SetChainState(ctx interface{}, chainID interface{}, blockNumber interface{}, offset interface{}) *BridgeStore_SetChainState_Call {
 	return &BridgeStore_SetChainState_Call{Call: _e.mock.On("SetChainState", ctx, chainID, blockNumber, offset)}
 }
 
-func (_c *BridgeStore_SetChainState_Call) Run(run func(ctx context.Context, chainID string, blockNumber int64, offset string)) *BridgeStore_SetChainState_Call {
+func (_c *BridgeStore_SetChainState_Call) Run(run func(ctx context.Context, chainID string, blockNumber uint64, offset string)) *BridgeStore_SetChainState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(int64), args[3].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(uint64), args[3].(string))
 	})
 	return _c
 }
@@ -407,7 +407,7 @@ func (_c *BridgeStore_SetChainState_Call) Return(_a0 error) *BridgeStore_SetChai
 	return _c
 }
 
-func (_c *BridgeStore_SetChainState_Call) RunAndReturn(run func(context.Context, string, int64, string) error) *BridgeStore_SetChainState_Call {
+func (_c *BridgeStore_SetChainState_Call) RunAndReturn(run func(context.Context, string, uint64, string) error) *BridgeStore_SetChainState_Call {
 	_c.Call.Return(run)
 	return _c
 }

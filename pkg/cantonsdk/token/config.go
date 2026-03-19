@@ -4,18 +4,12 @@ import "errors"
 
 // Config contains the configuration required to initialize the token client.
 type Config struct {
-	DomainID     string
-	RelayerParty string
-	UserID       string
+	DomainID    string `yaml:"domain_id"`
+	IssuerParty string `yaml:"issuer_party"`
+	UserID      string `yaml:"user_id"`
 
-	CIP56PackageID          string
-	SpliceHoldingPackageID  string
-	SpliceTransferPackageID string
-
-	// InstrumentAdmin is the party that administers the token instrument (typically the relayer).
-	InstrumentAdmin string
-	// InstrumentID is the unique identifier for the token instrument (e.g. "PROMPT").
-	InstrumentID string
+	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
+	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
 }
 
 func (c *Config) validate() error {
@@ -25,17 +19,14 @@ func (c *Config) validate() error {
 	if c.DomainID == "" {
 		return errors.New("domain_id is required")
 	}
-	if c.RelayerParty == "" {
-		return errors.New("relayer_party is required")
+	if c.IssuerParty == "" {
+		return errors.New("issuer_party is required")
 	}
 	if c.UserID == "" {
 		return errors.New("user_id is required")
 	}
 	if c.CIP56PackageID == "" {
 		return errors.New("cip56_package_id is required")
-	}
-	if c.SpliceHoldingPackageID == "" {
-		return errors.New("splice_holding_package_id is required")
 	}
 	if c.SpliceTransferPackageID == "" {
 		return errors.New("splice_transfer_package_id is required")

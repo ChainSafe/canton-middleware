@@ -11,8 +11,8 @@
 # =============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
-CONFIG_FILE="$PROJECT_ROOT/config.devnet.yaml"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
+CONFIG_FILE="$PROJECT_ROOT/pkg/config/defaults/config.relayer.local-devnet.yaml"
 
 # Colors
 GREEN='\033[0;32m'
@@ -72,7 +72,7 @@ echo ""
 echo -e "${YELLOW}User Registration:${NC}"
 echo "   Before you can receive Canton balances, register your EVM address:"
 echo ""
-echo -e "   ${GREEN}go run scripts/testing/register-user.go -config config.devnet.yaml -evm-address YOUR_ADDRESS${NC}"
+echo -e "   ${GREEN}go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -evm-address YOUR_ADDRESS${NC}"
 echo ""
 
 # Check if services are running
@@ -104,5 +104,5 @@ echo ""
 echo -e "${YELLOW}Useful Commands:${NC}"
 echo "   Check services:   ./scripts/setup/setup-devnet.sh --status"
 echo "   View logs:        docker compose -f docker-compose.yaml -f docker-compose.devnet.yaml logs -f"
-echo "   Register user:    go run scripts/testing/register-user.go -config config.devnet.yaml -evm-address 0x..."
+echo "   Register user:    go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -evm-address 0x..."
 echo ""

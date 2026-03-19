@@ -1,0 +1,80 @@
+server:
+  host: "0.0.0.0"
+  port: 8081
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${API_SERVER_DATABASE_URL}"
+  ssl_mode: "require"
+  timeout: 10
+  pool_size: 30
+
+canton:
+  domain_id: "${CANTON_DOMAIN_ID}"
+  issuer_party: "${CANTON_ISSUER_PARTY}"
+
+  ledger:
+    rpc_url: "${CANTON_LEDGER_RPC_URL}"
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: true
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "${CANTON_AUTH_AUDIENCE}"
+      token_url: "${CANTON_AUTH_TOKEN_URL}"
+      expiry_leeway: "60s"
+
+  identity:
+    package_id: "${CANTON_IDENTITY_PACKAGE_ID}"
+
+  token:
+    cip56_package_id: "${CANTON_CIP56_PACKAGE_ID}"
+    splice_transfer_package_id: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+
+  bridge:
+    package_id: "${CANTON_BRIDGE_PACKAGE_ID}"
+    module: "Wayfinder.Bridge"
+
+token:
+  supported_tokens:
+    "0xDE30000000000000000000000000000000000001":
+      name: "Demo Token"
+      symbol: "DEMO"
+      decimals: 18
+  native_balance_wei: "1000000000000000000000"
+
+eth_rpc:
+  enabled: true
+  chain_id: 1337
+  gas_price_wei: "1000000000"
+  gas_limit: 21000
+  native_balance_wei: "1000000000000000000000"
+  request_timeout: "30s"
+
+jwks:
+  url: ""
+  issuer: ""
+
+logging:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+reconciliation:
+  initial_timeout: "2m"
+  interval: "1m"
+
+key_management:
+  master_key_env: "CANTON_MASTER_KEY"
+  key_derivation: "generate"
+
+skip_canton_sig_verify: false

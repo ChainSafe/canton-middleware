@@ -2,9 +2,9 @@
 
 // get-holding-cid.go - Get the CIP56Holding with the largest balance for withdrawals
 // Usage:
-//   go run scripts/get-holding-cid.go -config .test-config.yaml              # Output: contract_id
-//   go run scripts/get-holding-cid.go -config .test-config.yaml -with-balance # Output: contract_id balance
-//   go run scripts/get-holding-cid.go -config .test-config.yaml -party "User::12345" -with-balance # Filter by owner
+//   go run scripts/bridge/get-holding-cid.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/bridge/get-holding-cid.go -config pkg/config/defaults/config.api-server.docker.yaml -with-balance
+//   go run scripts/bridge/get-holding-cid.go -config pkg/config/defaults/config.api-server.docker.yaml -party "User::12345" -with-balance
 //
 // Note: When multiple holdings exist (from multiple deposits), this returns the one
 // with the LARGEST balance, which is most useful for withdrawals.
@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	configPath  = flag.String("config", "config.yaml", "Path to config file")
+	configPath  = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	withBalance = flag.Bool("with-balance", false, "Also output the holding balance")
 	ownerParty  = flag.String("party", "", "Filter by owner party (optional)")
 )
@@ -47,15 +47,15 @@ type holding struct {
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	partyID := cfg.Canton.RelayerParty
+	partyID := cfg.Canton.IssuerParty
 	if partyID == "" {
-		fmt.Fprintf(os.Stderr, "Error: canton.relayer_party is required\n")
+		fmt.Fprintf(os.Stderr, "Error: canton.issuer_party is required\n")
 		os.Exit(1)
 	}
 
@@ -70,7 +70,7 @@ func main() {
 	}
 
 	// Connect to Canton
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(cfg.Canton.Ledger.RPCURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect: %v\n", err)
 		os.Exit(1)
@@ -190,13 +190,13 @@ func main() {
 	os.Exit(0)
 }
 
-func getOAuthToken(cfg *config.Config) (string, error) {
+func getOAuthToken(cfg *config.APIServer) (string, error) {
 	data := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=%s&audience=%s",
-		cfg.Canton.Auth.ClientID,
-		cfg.Canton.Auth.ClientSecret,
-		cfg.Canton.Auth.Audience)
+		cfg.Canton.Ledger.Auth.ClientID,
+		cfg.Canton.Ledger.Auth.ClientSecret,
+		cfg.Canton.Ledger.Auth.Audience)
 
-	resp, err := http.Post(cfg.Canton.Auth.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
+	resp, err := http.Post(cfg.Canton.Ledger.Auth.TokenURL, "application/x-www-form-urlencoded", strings.NewReader(data))
 	if err != nil {
 		return "", err
 	}

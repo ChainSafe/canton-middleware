@@ -12,7 +12,7 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadRelayerServer(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	bridgesdk "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer/engine"
@@ -96,7 +95,7 @@ func TestCantonSource_StreamEvents_ContextCancellationDoesNotReportCloseError(t 
 }
 
 func TestEthereumSource_ExtractOffset(t *testing.T) {
-	src := engine.NewEthereumSource(nil, &config.EthereumConfig{}, relayer.ChainEthereum)
+	src := engine.NewEthereumSource(nil, relayer.ChainEthereum)
 	if got := src.ExtractOffset(&relayer.Event{SourceBlockNumber: 0}); got != "" {
 		t.Fatalf("expected empty offset for block 0, got %q", got)
 	}
@@ -108,7 +107,7 @@ func TestEthereumSource_ExtractOffset(t *testing.T) {
 func TestEthereumSource_StreamEvents_InvalidOffset(t *testing.T) {
 	ctx := context.Background()
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	source := engine.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
+	source := engine.NewEthereumSource(ethClient, relayer.ChainEthereum)
 
 	_, errCh := source.StreamEvents(ctx, "not-a-number")
 
@@ -144,7 +143,7 @@ func TestEthereumSource_StreamEvents_MapsDepositEvent(t *testing.T) {
 			return handler(deposit)
 		})
 
-	source := engine.NewEthereumSource(ethClient, &config.EthereumConfig{}, relayer.ChainEthereum)
+	source := engine.NewEthereumSource(ethClient, relayer.ChainEthereum)
 	eventCh, errCh := source.StreamEvents(ctx, "12")
 
 	select {

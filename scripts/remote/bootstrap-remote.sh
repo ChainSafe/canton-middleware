@@ -6,8 +6,8 @@
 # Only uses API Server + PostgreSQL - no local Canton, Anvil, or Relayer.
 #
 # Usage:
-#   ./scripts/remote/bootstrap-remote.sh --devnet   # Uses config.api-server.devnet.yaml
-#   ./scripts/remote/bootstrap-remote.sh --mainnet  # Uses config.api-server.mainnet.yaml
+#   ./scripts/remote/bootstrap-remote.sh --devnet   # Uses pkg/config/defaults/config.api-server.local-devnet.yaml
+#   ./scripts/remote/bootstrap-remote.sh --mainnet  # Uses pkg/config/defaults/config.api-server.mainnet.yaml
 #
 # What it does:
 #   1. Generates CANTON_MASTER_KEY
@@ -38,12 +38,12 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --devnet)
             NETWORK="devnet"
-            CONFIG_FILE="config.api-server.devnet.yaml"
+            CONFIG_FILE="pkg/config/defaults/config.api-server.local-devnet.yaml"
             shift
             ;;
         --mainnet)
             NETWORK="mainnet"
-            CONFIG_FILE="config.api-server.mainnet.yaml"
+            CONFIG_FILE="pkg/config/defaults/config.api-server.mainnet.yaml"
             shift
             ;;
         --demo-amount)
@@ -62,6 +62,28 @@ if [ -z "$NETWORK" ]; then
     echo -e "${RED}Error: Must specify --devnet or --mainnet${NC}"
     echo "Usage: $0 --devnet|--mainnet [--demo-amount N]"
     exit 1
+fi
+
+if [ "$NETWORK" = "mainnet" ]; then
+    REQUIRED_VARS=(
+        CANTON_DOMAIN_ID
+        CANTON_ISSUER_PARTY
+        CANTON_LEDGER_RPC_URL
+        CANTON_AUTH_CLIENT_ID
+        CANTON_AUTH_CLIENT_SECRET
+        CANTON_AUTH_AUDIENCE
+        CANTON_AUTH_TOKEN_URL
+        CANTON_IDENTITY_PACKAGE_ID
+        CANTON_CIP56_PACKAGE_ID
+        CANTON_SPLICE_TRANSFER_PACKAGE_ID
+        CANTON_BRIDGE_PACKAGE_ID
+    )
+    for var_name in "${REQUIRED_VARS[@]}"; do
+        if [ -z "${!var_name}" ]; then
+            echo -e "${RED}Error: Missing required env var for --mainnet: ${var_name}${NC}"
+            exit 1
+        fi
+    done
 fi
 
 print_header() {
@@ -109,6 +131,7 @@ print_header "Step 2: Generate Master Key"
 export CANTON_MASTER_KEY=$(openssl rand -base64 32)
 export CONFIG_FILE
 export SKIP_CANTON_SIG_VERIFY=true
+export API_SERVER_DATABASE_URL="${API_SERVER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@localhost:5432/erc20_api}"
 print_success "Master key generated"
 
 # Step 3: Stop existing services
@@ -204,7 +227,7 @@ done
 print_header "Step 8: Bootstrap DEMO Tokens"
 
 print_step "Minting DEMO tokens on ChainSafe $NETWORK..."
-DATABASE_HOST=localhost go run scripts/setup/bootstrap-demo.go \
+go run scripts/setup/bootstrap-demo.go \
     -config "$CONFIG_FILE" \
     -user1-fingerprint "$USER1_FINGERPRINT" \
     -user2-fingerprint "$USER2_FINGERPRINT" \

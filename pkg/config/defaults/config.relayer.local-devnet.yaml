@@ -1,0 +1,86 @@
+# Local Relayer config for testing with DevNet Canton and Sepolia
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${RELAYER_DATABASE_URL}"
+  ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
+
+ethereum:
+  rpc_url: "${SEPOLIA_RPC_URL}"          # e.g., https://sepolia.infura.io/v3/<YOUR_KEY>
+  ws_url: "${SEPOLIA_WS_URL}"            # e.g., wss://sepolia.infura.io/ws/v3/<YOUR_KEY>
+  chain_id: 11155111
+  bridge_contract: "0x363Dd0b55bf74D5b494B064AA8E8c2Ef5eD58d75"
+  token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0
+  lookback_blocks: 200
+
+canton:
+  domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
+  issuer_party: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+
+  ledger:
+    rpc_url: "canton-ledger-api-grpc-dev1.chainsafe.dev:80"
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "https://canton-ledger-api-dev1.01.chainsafe.dev"
+      token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
+      expiry_leeway: "60s"
+
+  identity:
+    # v2.0.0 packages (uploaded 2026-03-05)
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+  canton_chain_id: "canton"
+  canton_start_block: 0
+  canton_lookback_blocks: 100
+  eth_chain_id: "11155111"
+  eth_start_block: 0
+  eth_lookback_blocks: 200
+  eth_token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"

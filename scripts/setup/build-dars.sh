@@ -114,8 +114,8 @@ echo "    bridge_package_id:  $BRIDGE_ID"
 
 # Config files to update (tracked in git, used for local/docker testing)
 CONFIG_FILES=(
-    "$PROJECT_DIR/config.docker.yaml"
-    "$PROJECT_DIR/config.api-server.docker.yaml"
+    "$PROJECT_DIR/pkg/config/defaults/config.relayer.docker.yaml"
+    "$PROJECT_DIR/pkg/config/defaults/config.api-server.docker.yaml"
     "$PROJECT_DIR/config.e2e-local.yaml"
 )
 
@@ -144,4 +144,3 @@ done
 
 echo ""
 echo "Done! Config files updated with current package IDs."
-

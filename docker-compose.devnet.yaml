@@ -5,8 +5,8 @@
 # - Disables local Canton, Anvil, deployer (using 5North hosted participant + Sepolia)
 # - Disables mock-oauth2 and bootstrap (not needed for devnet)
 # - Keeps Postgres for relayer and API server state
-# - Configures relayer with config.devnet.yaml
-# - Configures api-server with config.api-server.devnet.yaml
+# - Configures relayer with ENV=devnet (built-in defaults in image)
+# - Configures api-server with ENV=devnet (built-in defaults in image)
 
 services:
   # Disable local services - using 5North hosted participant + Sepolia
@@ -34,17 +34,32 @@ services:
     depends_on: !override
       postgres:
         condition: service_healthy
-    volumes:
-      - ./config.devnet.yaml:/app/config.yaml:ro
-    command: ["-config", "/app/config.yaml"]
+    volumes: []
+    command: []
+    environment:
+      ENV: devnet
+      RELAYER_DATABASE_URL: "${RELAYER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/relayer}"
+      SEPOLIA_RPC_URL: "${SEPOLIA_RPC_URL}"
+      SEPOLIA_WS_URL: "${SEPOLIA_WS_URL}"
+      ETHEREUM_RELAYER_PRIVATE_KEY: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
 
   # API Server connecting to 5North DevNet
   api-server:
     depends_on: !override
       postgres:
         condition: service_healthy
-    volumes:
-      - ./config.api-server.devnet.yaml:/app/config.yaml:ro
-    command: ["-config", "/app/config.yaml"]
+    volumes: []
+    command: []
+    environment:
+      ENV: devnet
+      API_SERVER_DATABASE_URL: "${API_SERVER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/erc20_api}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
+      CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"
 
   # Postgres stays enabled for relayer and API server state
+
+volumes:
+  postgres_data:

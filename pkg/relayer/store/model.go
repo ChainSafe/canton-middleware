@@ -23,7 +23,7 @@ type TransferDao struct {
 	Sender            string     `bun:",notnull,type:varchar(255)"`
 	Recipient         string     `bun:",notnull,type:varchar(255)"`
 	Nonce             int64      `bun:",notnull"`
-	SourceBlockNumber int64      `bun:",notnull"`
+	SourceBlockNumber uint64     `bun:",notnull"`
 	RetryCount        int        `bun:",notnull,default:0"`
 	CreatedAt         time.Time  `bun:",notnull,default:current_timestamp"`
 	UpdatedAt         time.Time  `bun:",notnull,default:current_timestamp"`
@@ -35,7 +35,7 @@ type TransferDao struct {
 type ChainStateDao struct {
 	bun.BaseModel `bun:"table:chain_state"`
 	ChainID       string    `bun:",pk,type:varchar(100)"`
-	LastBlock     int64     `bun:",notnull"`
+	LastBlock     uint64    `bun:",notnull"`
 	LastBlockHash string    `bun:",notnull,type:varchar(255)"` // stores the string offset
 	UpdatedAt     time.Time `bun:",notnull,default:current_timestamp"`
 }

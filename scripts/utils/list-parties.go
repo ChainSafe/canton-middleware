@@ -8,8 +8,8 @@
 // parties matching specific prefixes.
 //
 // Usage:
-//   go run scripts/utils/list-parties.go -config config.api-server.mainnet.local.yaml
-//   go run scripts/utils/list-parties.go -config config.api-server.mainnet.local.yaml -search native
+//   go run scripts/utils/list-parties.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/utils/list-parties.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -search native
 
 package main
 
@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.mainnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	search     = flag.String("search", "", "Search Canton for parties matching this prefix (slow on mainnet)")
 )
 
@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// Determine network
-	networkName := detectNetwork(cfg.Canton.RPCURL)
+	networkName := detectNetwork(cfg.Canton.Ledger.RPCURL)
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Known Parties - %s\n", networkName)
@@ -58,12 +58,12 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Printf("  [daml-autopilot] (Relayer/Issuer)\n")
-	fmt.Printf("    %s\n", cfg.Canton.RelayerParty)
+	fmt.Printf("    %s\n", cfg.Canton.IssuerParty)
 	fmt.Println()
 
 	// Connect to database
 	fmt.Println(">>> Connecting to database...")
-	bunDB, err := pgutil.ConnectDB(&cfg.Database)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		fmt.Printf("ERROR: Failed to connect to database: %v\n", err)
 		os.Exit(1)
@@ -127,7 +127,7 @@ func main() {
 
 		// Connect to Canton
 		fmt.Println(">>> Connecting to Canton (this may take a while on mainnet)...")
-		cantonClient, err := canton.NewFromAppConfig(context.Background(), &cfg.Canton, canton.WithLogger(logger))
+		cantonClient, err := canton.New(context.Background(), cfg.Canton, canton.WithLogger(logger))
 		if err != nil {
 			fmt.Printf("ERROR: Failed to connect to Canton: %v\n", err)
 			os.Exit(1)
