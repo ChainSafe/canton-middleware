@@ -19,12 +19,17 @@ type HTTP struct {
 	logger  *zap.Logger
 }
 
-// RegisterRoutes registers HTTP endpoints for the indexer service on the given chi router.
-// All routes are mounted under /indexer/v1. Callers control what middleware is applied.
-func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
+// RegisterPrivateRoutes registers the indexer admin API on the given chi router.
+// All routes are mounted under /indexer/v1/admin.
+//
+// These routes are unauthenticated and intended for internal/trusted callers only
+// (e.g. backend services, ops tooling). A public, JWT-protected read API will be
+// added in a future iteration — at that point these routes will remain separate.
+// Callers are responsible for restricting network access to this port.
+func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	h := &HTTP{service: svc, logger: logger}
 
-	r.Route("/indexer/v1", func(r chi.Router) {
+	r.Route("/indexer/v1/admin", func(r chi.Router) {
 		r.Get("/tokens", apphttp.HandleError(h.listTokens))
 		r.Get("/tokens/{admin}/{id}", apphttp.HandleError(h.getToken))
 		r.Get("/tokens/{admin}/{id}/supply", apphttp.HandleError(h.getTokenSupply))

@@ -16,14 +16,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
-	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -119,7 +117,7 @@ func (s *Server) Run() error {
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := s.newRouter(svc, cfg, logger)
+	router := s.newRouter(svc, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -142,8 +140,14 @@ func (s *Server) Run() error {
 }
 
 // newRouter builds the chi router with standard middleware, a /health endpoint,
-// JWT validation (when configured), and the /indexer/v1 API routes.
-func (s *Server) newRouter(svc indexerservice.Service, cfg *config.IndexerServer, logger *zap.Logger) http.Handler {
+// and the private admin routes under /indexer/v1/admin.
+//
+// Currently the indexer exposes a single unauthenticated port intended for
+// internal/trusted callers (backend services, ops tooling). A public read API
+// with JWT authentication will be added in a future iteration on a separate
+// route group. Until then, restrict network access to this port at the
+// infrastructure level (firewall, private VPC, etc.).
+func (s *Server) newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -155,67 +159,7 @@ func (s *Server) newRouter(svc indexerservice.Service, cfg *config.IndexerServer
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	// /indexer/v1 routes are protected by JWT. If JWKS is not configured the
-	// middleware is a no-op and a warning is emitted — only safe for local dev.
-	validator := auth.NewJWTValidator(jwksURL(cfg.JWKS), jwksIssuer(cfg.JWKS))
-	r.Group(func(r chi.Router) {
-		r.Use(jwtMiddleware(validator, logger))
-		indexerservice.RegisterRoutes(r, svc, logger)
-	})
+	indexerservice.RegisterPrivateRoutes(r, svc, logger)
 
 	return r
-}
-
-// jwtMiddleware validates a Bearer JWT and injects the canton_party_id claim
-// into the request context via auth.WithCantonParty. Requests without a valid
-// token are rejected with 401.
-//
-// When the validator is unconfigured (no JWKS URL), the middleware is a no-op
-// and a startup warning is logged. Do not deploy without JWKS in production.
-func jwtMiddleware(validator *auth.JWTValidator, logger *zap.Logger) func(http.Handler) http.Handler {
-	if !validator.IsConfigured() {
-		logger.Warn("JWKS not configured; JWT validation is disabled — not safe for production")
-		return func(next http.Handler) http.Handler { return next }
-	}
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if !strings.HasPrefix(authHeader, "Bearer ") {
-				http.Error(w, "missing or invalid Authorization header", http.StatusUnauthorized)
-				return
-			}
-
-			claims, err := validator.ValidateToken(strings.TrimPrefix(authHeader, "Bearer "))
-			if err != nil {
-				logger.Debug("JWT validation failed", zap.Error(err))
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			// The api-server embeds the authenticated party in the canton_party_id claim.
-			partyID, ok := claims["canton_party_id"].(string)
-			if !ok || partyID == "" {
-				http.Error(w, "missing canton_party_id claim", http.StatusUnauthorized)
-				return
-			}
-
-			next.ServeHTTP(w, r.WithContext(auth.WithCantonParty(r.Context(), partyID)))
-		})
-	}
-}
-
-// jwksURL and jwksIssuer are nil-safe accessors for the optional JWKS config.
-func jwksURL(j *config.JWKS) string {
-	if j == nil {
-		return ""
-	}
-	return j.URL
-}
-
-func jwksIssuer(j *config.JWKS) string {
-	if j == nil {
-		return ""
-	}
-	return j.Issuer
 }
