@@ -3,13 +3,12 @@ module github.com/chainsafe/canton-middleware
 go 1.24.0
 
 require (
+	github.com/creasty/defaults v1.8.0
 	github.com/ethereum/go-ethereum v1.17.0
 	github.com/go-chi/chi/v5 v5.2.3
-	github.com/creasty/defaults v1.8.0
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/lib/pq v1.10.9
 	github.com/prometheus/client_golang v1.20.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
@@ -21,10 +20,9 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.48.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b
-	google.golang.org/grpc v1.77.0
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
-	gotest.tools/v3 v3.5.2
 )
 
 require (
