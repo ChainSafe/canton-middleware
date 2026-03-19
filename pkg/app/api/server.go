@@ -34,10 +34,10 @@ import (
 )
 
 const (
-	defaultRequestTimeout  = 60
-	topologyCacheTTL       = 5 * time.Minute
-	transferCacheTTL       = 2 * time.Minute
-	transferCacheMaxSize   = 10000
+	defaultRequestTimeout = 60
+	topologyCacheTTL      = 5 * time.Minute
+	transferCacheTTL      = 2 * time.Minute
+	transferCacheMaxSize  = 10000
 )
 
 // Server holds cfg to init the api server.
