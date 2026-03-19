@@ -13,11 +13,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-const (
-	defaultCacheTTL     = 2 * time.Minute
-	defaultCacheMaxSize = 10000
-)
-
 // UserStore is the narrow interface for looking up users.
 type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
@@ -27,7 +22,6 @@ type UserStore interface {
 type TransferCache interface {
 	Put(transfer *token.PreparedTransfer) error
 	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
-	Start(ctx context.Context)
 }
 
 // Service is the interface for the non-custodial prepare/execute transfer flow.
@@ -46,7 +40,7 @@ type TransferService struct {
 
 // NewTransferService creates a new TransferService.
 // allowedSymbols defines the set of valid token symbols (e.g. "DEMO", "PROMPT").
-func NewTransferService(cantonToken token.Token, userStore UserStore, allowedSymbols []string) *TransferService {
+func NewTransferService(cantonToken token.Token, userStore UserStore, cache TransferCache, allowedSymbols []string) *TransferService {
 	allowed := make(map[string]bool, len(allowedSymbols))
 	for _, s := range allowedSymbols {
 		allowed[s] = true
@@ -54,14 +48,9 @@ func NewTransferService(cantonToken token.Token, userStore UserStore, allowedSym
 	return &TransferService{
 		cantonToken:         cantonToken,
 		userStore:           userStore,
-		cache:               NewPreparedTransferCache(defaultCacheTTL, defaultCacheMaxSize),
+		cache:               cache,
 		allowedTokenSymbols: allowed,
 	}
-}
-
-// StartCache runs the background cache cleanup goroutine. Call from main.
-func (s *TransferService) StartCache(ctx context.Context) {
-	s.cache.Start(ctx)
 }
 
 // Prepare builds a Canton transaction and returns the hash for external signing.

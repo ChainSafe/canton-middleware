@@ -34,8 +34,10 @@ import (
 )
 
 const (
-	defaultRequestTimeout = 60
-	topologyCacheTTL      = 5 * time.Minute
+	defaultRequestTimeout  = 60
+	topologyCacheTTL       = 5 * time.Minute
+	transferCacheTTL       = 2 * time.Minute
+	transferCacheMaxSize   = 10000
 )
 
 // Server holds cfg to init the api server.
@@ -119,8 +121,9 @@ func (s *Server) Run() error {
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, tokenSymbols(cfg.Token))
-	go transferSvc.StartCache(ctx)
+	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
+	go transferCache.Start(ctx)
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
 	regSvcLog := userservice.NewLog(registrationService, logger)
 	transferSvcLog := transfer.NewLog(transferSvc, logger)
 	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)

@@ -32,10 +32,9 @@ func (m *mockUserStore) GetUserByEVMAddress(_ context.Context, evmAddress string
 }
 
 type mockTransferCache struct {
-	stored  map[string]*token.PreparedTransfer
-	putErr  error
-	getErr  error
-	started bool
+	stored map[string]*token.PreparedTransfer
+	putErr error
+	getErr error
 }
 
 func newMockCache() *mockTransferCache {
@@ -60,10 +59,6 @@ func (m *mockTransferCache) GetAndDelete(transferID string) (*token.PreparedTran
 	}
 	delete(m.stored, transferID)
 	return t, nil
-}
-
-func (m *mockTransferCache) Start(_ context.Context) {
-	m.started = true
 }
 
 // mockToken implements token.Token by embedding token.UnimplementedToken (if available)
