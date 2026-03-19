@@ -13,6 +13,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
+//go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
+//go:generate mockery --name TransferCache --output mocks --outpkg mocks --filename mock_transfer_cache.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
+
 // UserStore is the narrow interface for looking up users.
 type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
