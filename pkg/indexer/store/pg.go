@@ -49,6 +49,26 @@ func (s *PGStore) RunInTx(ctx context.Context, fn func(ctx context.Context, tx e
 	})
 }
 
+// runReadTx executes fn inside a read-only REPEATABLE READ transaction so that
+// the Count and Scan calls within a paginated query both observe the same database
+// snapshot. Without this, a row inserted between the two calls would make the
+// returned total stale (count reflects N+1 rows, page reflects N rows).
+//
+// If the store is already scoped to a transaction (s.db is a bun.Tx rather than
+// a *bun.DB), fn is invoked directly — the existing snapshot already provides the
+// required consistency guarantee.
+func (s *PGStore) runReadTx(ctx context.Context, fn func(ctx context.Context, db bun.IDB) error) error {
+	db, ok := s.db.(*bun.DB)
+	if !ok {
+		// Already inside a transaction; reuse the existing snapshot.
+		return fn(ctx, s.db)
+	}
+	opts := &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}
+	return db.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+		return fn(ctx, tx)
+	})
+}
+
 // InsertEvent persists one ParsedEvent. Returns inserted=false when the event already
 // exists (idempotent by ContractID).
 func (s *PGStore) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {
@@ -205,18 +225,22 @@ func (s *PGStore) GetToken(ctx context.Context, admin, id string) (*indexer.Toke
 }
 
 // ListTokens returns a paginated list of all indexed tokens, ordered by first_seen_offset ASC.
+// The Count and Scan are executed within a single read-only transaction so the total
+// and the page are derived from the same consistent snapshot (see runReadTx).
 func (s *PGStore) ListTokens(ctx context.Context, p indexer.Pagination) ([]*indexer.Token, int64, error) {
 	var daos []TokenDao
-	q := s.db.NewSelect().Model(&daos).OrderExpr("first_seen_offset ASC")
-
-	total, err := q.Count(ctx)
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).OrderExpr("first_seen_offset ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list tokens count: %w", err)
-	}
-	if err = q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx); err != nil {
 		return nil, 0, fmt.Errorf("list tokens: %w", err)
 	}
-
 	tokens := make([]*indexer.Token, len(daos))
 	for i := range daos {
 		tokens[i] = fromTokenDao(&daos[i])
@@ -242,19 +266,24 @@ func (s *PGStore) GetBalance(ctx context.Context, partyID, admin, id string) (*i
 }
 
 // ListBalancesForParty returns a paginated list of all holdings for a given party.
+// The Count and Scan are executed within a single read-only transaction so the total
+// and the page are derived from the same consistent snapshot (see runReadTx).
 func (s *PGStore) ListBalancesForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]*indexer.Balance, int64, error) {
 	var daos []BalanceDao
-	q := s.db.NewSelect().Model(&daos).Where("party_id = ?", partyID).
-		OrderExpr("instrument_admin ASC, instrument_id ASC")
-
-	total, err := q.Count(ctx)
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("party_id = ?", partyID).
+			OrderExpr("instrument_admin ASC, instrument_id ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list balances for party count: %w", err)
-	}
-	if err = q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx); err != nil {
 		return nil, 0, fmt.Errorf("list balances for party: %w", err)
 	}
-
 	balances := make([]*indexer.Balance, len(daos))
 	for i := range daos {
 		balances[i] = fromBalanceDao(&daos[i])
@@ -263,21 +292,25 @@ func (s *PGStore) ListBalancesForParty(ctx context.Context, partyID string, p in
 }
 
 // ListBalancesForToken returns a paginated list of all holders of a given token.
+// The Count and Scan are executed within a single read-only transaction so the total
+// and the page are derived from the same consistent snapshot (see runReadTx).
 func (s *PGStore) ListBalancesForToken(ctx context.Context, admin, id string, p indexer.Pagination) ([]*indexer.Balance, int64, error) {
 	var daos []BalanceDao
-	q := s.db.NewSelect().Model(&daos).
-		Where("instrument_admin = ?", admin).
-		Where("instrument_id = ?", id).
-		OrderExpr("party_id ASC")
-
-	total, err := q.Count(ctx)
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("instrument_admin = ?", admin).
+			Where("instrument_id = ?", id).
+			OrderExpr("party_id ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list balances for token count: %w", err)
-	}
-	if err = q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx); err != nil {
 		return nil, 0, fmt.Errorf("list balances for token: %w", err)
 	}
-
 	balances := make([]*indexer.Balance, len(daos))
 	for i := range daos {
 		balances[i] = fromBalanceDao(&daos[i])
@@ -302,31 +335,34 @@ func (s *PGStore) GetEvent(ctx context.Context, contractID string) (*indexer.Par
 
 // ListEvents returns a paginated, ledger_offset-ascending list of events.
 // Zero-value EventFilter fields are ignored.
+// The Count and Scan are executed within a single read-only transaction so the total
+// and the page are derived from the same consistent snapshot (see runReadTx).
 func (s *PGStore) ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error) {
 	var daos []EventDao
-	q := s.db.NewSelect().Model(&daos).OrderExpr("ledger_offset ASC")
-
-	if f.InstrumentAdmin != "" {
-		q = q.Where("instrument_admin = ?", f.InstrumentAdmin)
-	}
-	if f.InstrumentID != "" {
-		q = q.Where("instrument_id = ?", f.InstrumentID)
-	}
-	if f.PartyID != "" {
-		q = q.Where("(from_party_id = ? OR to_party_id = ?)", f.PartyID, f.PartyID)
-	}
-	if f.EventType != "" {
-		q = q.Where("event_type = ?", string(f.EventType))
-	}
-
-	total, err := q.Count(ctx)
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).OrderExpr("ledger_offset ASC")
+		if f.InstrumentAdmin != "" {
+			q = q.Where("instrument_admin = ?", f.InstrumentAdmin)
+		}
+		if f.InstrumentID != "" {
+			q = q.Where("instrument_id = ?", f.InstrumentID)
+		}
+		if f.PartyID != "" {
+			q = q.Where("(from_party_id = ? OR to_party_id = ?)", f.PartyID, f.PartyID)
+		}
+		if f.EventType != "" {
+			q = q.Where("event_type = ?", string(f.EventType))
+		}
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list events count: %w", err)
-	}
-	if err = q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx); err != nil {
 		return nil, 0, fmt.Errorf("list events: %w", err)
 	}
-
 	events := make([]*indexer.ParsedEvent, len(daos))
 	for i := range daos {
 		events[i] = fromEventDao(&daos[i])

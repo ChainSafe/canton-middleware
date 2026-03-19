@@ -6,8 +6,8 @@ import (
 
 	"github.com/uptrace/bun"
 
-	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 	indexerstore "github.com/chainsafe/canton-middleware/pkg/indexer/store"
+	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 )
 
 func init() {

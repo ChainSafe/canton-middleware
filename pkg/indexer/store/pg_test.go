@@ -25,6 +25,15 @@ func setupIndexerStore(t *testing.T) (context.Context, *PGStore) {
 	if err := mghelper.CreateSchema(ctx, db, &EventDao{}, &TokenDao{}, &BalanceDao{}, &OffsetDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
+	// Mirror the indexes created by the migration files so the test schema matches
+	// production. This catches index-related issues (e.g. constraint violations) and
+	// ensures query plans exercised in tests reflect real query plans.
+	if err := mghelper.CreateModelIndexes(ctx, db, &EventDao{}, "ledger_offset", "from_party_id", "to_party_id"); err != nil {
+		t.Fatalf("failed to create event indexes: %v", err)
+	}
+	if err := mghelper.CreateModelIndexes(ctx, db, &BalanceDao{}, "party_id"); err != nil {
+		t.Fatalf("failed to create balance indexes: %v", err)
+	}
 
 	return ctx, NewStore(db)
 }
@@ -224,7 +233,8 @@ func TestPGStore_UpsertToken(t *testing.T) {
 	// second call with different issuer — should be a no-op
 	tok2 := makeToken("admin-1", "DEMO", 99)
 	tok2.Issuer = "other-issuer"
-	if err := s.UpsertToken(ctx, tok2); err != nil {
+	err = s.UpsertToken(ctx, tok2)
+	if err != nil {
 		t.Fatalf("UpsertToken(second) failed: %v", err)
 	}
 
@@ -375,7 +385,8 @@ func TestPGStore_GetToken(t *testing.T) {
 	}
 
 	// seed and retrieve
-	if err := s.UpsertToken(ctx, makeToken("admin-1", "DEMO", 5)); err != nil {
+	err = s.UpsertToken(ctx, makeToken("admin-1", "DEMO", 5))
+	if err != nil {
 		t.Fatalf("UpsertToken failed: %v", err)
 	}
 	tok, err = s.GetToken(ctx, "admin-1", "DEMO")
@@ -394,7 +405,10 @@ func TestPGStore_ListTokens(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
 
 	// seed 3 tokens with distinct offsets
-	tokens := []struct{ admin, id string; offset int64 }{
+	tokens := []struct {
+		admin, id string
+		offset    int64
+	}{
 		{"admin-1", "AAA", 10},
 		{"admin-1", "BBB", 20},
 		{"admin-2", "AAA", 30},
@@ -449,12 +463,13 @@ func TestPGStore_GetBalance(t *testing.T) {
 	}
 
 	// seed balance directly via DAO
-	if _, err := s.db.NewInsert().Model(&BalanceDao{
+	_, err = s.db.NewInsert().Model(&BalanceDao{
 		PartyID:         "alice",
 		InstrumentAdmin: "admin-1",
 		InstrumentID:    "DEMO",
 		Amount:          "123",
-	}).Exec(ctx); err != nil {
+	}).Exec(ctx)
+	if err != nil {
 		t.Fatalf("seed balance failed: %v", err)
 	}
 
@@ -577,7 +592,8 @@ func TestPGStore_GetEvent(t *testing.T) {
 
 	// insert then retrieve
 	event := makeEvent("contract-xyz", 7, indexer.EventMint, nil, ptr("alice"))
-	if _, err := s.InsertEvent(ctx, event); err != nil {
+	_, err = s.InsertEvent(ctx, event)
+	if err != nil {
 		t.Fatalf("InsertEvent failed: %v", err)
 	}
 
@@ -598,11 +614,11 @@ func TestPGStore_ListEvents(t *testing.T) {
 
 	// seed events
 	seedEvents := []struct {
-		contractID  string
-		offset      int64
-		eventType   indexer.EventType
-		from, to    *string
-		admin, id   string
+		contractID string
+		offset     int64
+		eventType  indexer.EventType
+		from, to   *string
+		admin, id  string
 	}{
 		{"c1", 1, indexer.EventMint, nil, ptr("alice"), "admin-1", "DEMO"},
 		{"c2", 2, indexer.EventTransfer, ptr("alice"), ptr("bob"), "admin-1", "DEMO"},
