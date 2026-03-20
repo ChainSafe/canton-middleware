@@ -117,7 +117,7 @@ func (s *Server) Run() error {
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := s.newRouter(svc, logger)
+	router := newRouter(svc, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -147,7 +147,7 @@ func (s *Server) Run() error {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func (s *Server) newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
+func newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
