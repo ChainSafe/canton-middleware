@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	cfgPath := flag.String("config", "config.example.yaml", "Path to configuration file")
+	cfgPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to configuration file")
 	flag.Usage = mghelper.Usage
 	flag.Parse()
 
@@ -24,13 +24,13 @@ func main() {
 	}
 
 	// Connect to database
-	db, err := pgutil.ConnectDB(&cfg.Database)
+	db, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		log.Fatalf("error connecting to database: %s", err.Error())
 	}
 	defer db.Close()
 
-	log.Printf("Running migrations for API Server database (%s)...\n", cfg.Database.Database)
+	log.Printf("Running migrations for API Server database")
 
 	// Create migrator
 	migrator := migrate.NewMigrator(db, apidb.Migrations)

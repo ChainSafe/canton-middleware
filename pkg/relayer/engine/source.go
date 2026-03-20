@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
@@ -84,13 +83,12 @@ func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 // ethereumSource implements Source for Ethereum.
 type ethereumSource struct {
 	client  EthereumBridgeClient
-	config  *config.EthereumConfig
 	chainID string
 }
 
 // NewEthereumSource creates a new Ethereum event source.
-func NewEthereumSource(client EthereumBridgeClient, cfg *config.EthereumConfig, chainID string) Source {
-	return &ethereumSource{client: client, config: cfg, chainID: chainID}
+func NewEthereumSource(client EthereumBridgeClient, chainID string) Source {
+	return &ethereumSource{client: client, chainID: chainID}
 }
 
 // GetChainID returns the chain identifier.
@@ -102,7 +100,7 @@ func (*ethereumSource) ExtractOffset(event *relayer.Event) string {
 	if event.SourceBlockNumber <= 0 {
 		return ""
 	}
-	return strconv.FormatInt(event.SourceBlockNumber, 10)
+	return strconv.FormatUint(event.SourceBlockNumber, 10)
 }
 
 // StreamEvents streams Ethereum deposit events starting from the block encoded in offset.
@@ -136,7 +134,7 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 				Sender:            event.Sender.Hex(),
 				Recipient:         fmt.Sprintf("%x", event.CantonRecipient),
 				Nonce:             event.Nonce.Int64(),
-				SourceBlockNumber: int64(event.BlockNumber), //nolint:gosec // BlockNumber fits int64 in practice
+				SourceBlockNumber: event.BlockNumber,
 			}
 
 			select {

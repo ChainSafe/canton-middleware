@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/token/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/user"
@@ -30,8 +29,8 @@ var (
 
 func newCfg() *token.Config {
 	cfg := token.NewConfig("5000000000000000000") // 5 ETH in wei
-	cfg.AddToken(promptAddr, config.TokenConfig{Name: "Prompt Token", Symbol: "PROMPT", Decimals: 18})
-	cfg.AddToken(demoAddr, config.TokenConfig{Name: "Demo Token", Symbol: "DEMO", Decimals: 18})
+	cfg.AddToken(promptAddr, token.ERC20Token{Name: "Prompt Token", Symbol: "PROMPT", Decimals: 18})
+	cfg.AddToken(demoAddr, token.ERC20Token{Name: "Demo Token", Symbol: "DEMO", Decimals: 18})
 	return cfg
 }
 
@@ -99,7 +98,7 @@ func TestERC20_Decimals(t *testing.T) {
 	t.Run("decimals value 255 (MaxUint8) is preserved", func(t *testing.T) {
 		cfg := newCfg()
 		addr255 := common.HexToAddress("0x3000000000000000000000000000000000000003")
-		cfg.AddToken(addr255, config.TokenConfig{Name: "T255", Symbol: "T255", Decimals: 255})
+		cfg.AddToken(addr255, token.ERC20Token{Name: "T255", Symbol: "T255", Decimals: 255})
 		svc := token.NewTokenService(cfg, nil, nil, nil)
 		erc20 := token.NewERC20(addr255, svc)
 
@@ -109,7 +108,7 @@ func TestERC20_Decimals(t *testing.T) {
 	t.Run("decimals value 256 (> MaxUint8) returns zero", func(t *testing.T) {
 		cfg := newCfg()
 		addr256 := common.HexToAddress("0x4000000000000000000000000000000000000004")
-		cfg.AddToken(addr256, config.TokenConfig{Name: "T256", Symbol: "T256", Decimals: 256})
+		cfg.AddToken(addr256, token.ERC20Token{Name: "T256", Symbol: "T256", Decimals: 256})
 		svc := token.NewTokenService(cfg, nil, nil, nil)
 		erc20 := token.NewERC20(addr256, svc)
 

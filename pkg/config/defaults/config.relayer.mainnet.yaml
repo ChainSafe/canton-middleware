@@ -1,0 +1,84 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${RELAYER_DATABASE_URL}"
+  ssl_mode: "require"
+  timeout: 10
+  pool_size: 10
+
+ethereum:
+  rpc_url: "${ETHEREUM_RPC_URL}"
+  ws_url: "${ETHEREUM_WS_URL}"
+  chain_id: ${ETHEREUM_CHAIN_ID}
+  bridge_contract: "${ETHEREUM_BRIDGE_CONTRACT}"
+  token_contract: "${ETHEREUM_TOKEN_CONTRACT}"
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 12
+  gas_limit: 300000
+  max_gas_price: ""
+  polling_interval: "15s"
+  start_block: 0
+  lookback_blocks: 5000
+
+canton:
+  domain_id: "${CANTON_DOMAIN_ID}"
+  issuer_party: "${CANTON_ISSUER_PARTY}"
+
+  ledger:
+    rpc_url: "${CANTON_LEDGER_RPC_URL}"
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: true
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "${CANTON_AUTH_AUDIENCE}"
+      token_url: "${CANTON_AUTH_TOKEN_URL}"
+      expiry_leeway: "60s"
+
+  identity:
+    package_id: "${CANTON_IDENTITY_PACKAGE_ID}"
+
+  token:
+    cip56_package_id: "${CANTON_CIP56_PACKAGE_ID}"
+    splice_transfer_package_id: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+
+  bridge:
+    package_id: "${CANTON_BRIDGE_PACKAGE_ID}"
+    module: "Wayfinder.Bridge"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 5
+  retry_delay: "60s"
+  processing_interval: "15s"
+  canton_chain_id: "canton"
+  canton_start_block: 0
+  canton_lookback_blocks: 5000
+  eth_chain_id: "${ETHEREUM_CHAIN_ID}"
+  eth_start_block: 0
+  eth_lookback_blocks: 5000
+  eth_token_contract: "${ETHEREUM_TOKEN_CONTRACT}"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "info"
+  format: "json"
+  output_path: "stdout"

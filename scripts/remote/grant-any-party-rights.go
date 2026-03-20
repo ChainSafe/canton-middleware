@@ -8,7 +8,7 @@
 // wallet operations where the API server submits commands on behalf of users.
 //
 // Usage:
-//   go run scripts/remote/grant-any-party-rights.go -config config.api-server.devnet.local.yaml
+//   go run scripts/remote/grant-any-party-rights.go -config pkg/config/defaults/config.api-server.local-devnet.yaml
 //
 // Prerequisites:
 //   - Valid OAuth credentials in config
@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	cantonclient "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
@@ -37,7 +38,7 @@ import (
 )
 
 var (
-	configPath = flag.String("config", "config.api-server.devnet.local.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	userID     = flag.String("user", "", "User ID to grant rights to (default: OAuth client sub)")
 	listOnly   = flag.Bool("list", false, "Only list current rights, don't grant new ones")
 )
@@ -56,12 +57,12 @@ func main() {
 		fatalf("Failed to load config: %v", err)
 	}
 
-	fmt.Printf(">>> Canton endpoint: %s\n", cfg.Canton.RPCURL)
+	fmt.Printf(">>> Canton endpoint: %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Println()
 
 	// Get OAuth token
 	fmt.Println(">>> Fetching OAuth token...")
-	token, sub, err := getOAuthToken(&cfg.Canton)
+	token, sub, err := getOAuthToken(cfg.Canton)
 	if err != nil {
 		fatalf("Failed to get OAuth token: %v", err)
 	}
@@ -78,7 +79,7 @@ func main() {
 
 	// Connect to Canton
 	fmt.Println(">>> Connecting to Canton...")
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -223,20 +224,20 @@ func main() {
 	fmt.Println("Your OAuth user can now ActAs and ReadAs any party on this participant.")
 	fmt.Println("Try running the interop demo again:")
 	fmt.Println()
-	fmt.Println("  go run scripts/testing/interop-demo.go -config config.api-server.devnet.local.yaml")
+	fmt.Println("  go run scripts/testing/interop-demo.go -config pkg/config/defaults/config.api-server.local-devnet.yaml")
 	fmt.Println()
 }
 
-func getOAuthToken(cfg *config.CantonConfig) (token string, subject string, err error) {
+func getOAuthToken(cfg *cantonclient.Config) (token string, subject string, err error) {
 	payload := map[string]string{
-		"client_id":     cfg.Auth.ClientID,
-		"client_secret": cfg.Auth.ClientSecret,
-		"audience":      cfg.Auth.Audience,
+		"client_id":     cfg.Ledger.Auth.ClientID,
+		"client_secret": cfg.Ledger.Auth.ClientSecret,
+		"audience":      cfg.Ledger.Auth.Audience,
 		"grant_type":    "client_credentials",
 	}
 	bodyBytes, _ := json.Marshal(payload)
 
-	resp, err := http.Post(cfg.Auth.TokenURL, "application/json", bytes.NewBuffer(bodyBytes))
+	resp, err := http.Post(cfg.Ledger.Auth.TokenURL, "application/json", bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return "", "", fmt.Errorf("token request failed: %w", err)
 	}

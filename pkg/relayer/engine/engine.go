@@ -15,7 +15,6 @@ import (
 
 	"github.com/chainsafe/canton-middleware/internal/metrics"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
@@ -67,14 +66,14 @@ type BridgeStore interface {
 	// IncrementRetryCount atomically increments the retry_count for a transfer.
 	IncrementRetryCount(ctx context.Context, id string) error
 	GetChainState(ctx context.Context, chainID string) (*relayer.ChainState, error)
-	SetChainState(ctx context.Context, chainID string, blockNumber int64, offset string) error
+	SetChainState(ctx context.Context, chainID string, blockNumber uint64, offset string) error
 	GetPendingTransfers(ctx context.Context, direction relayer.TransferDirection) ([]*relayer.Transfer, error)
 	ListTransfers(ctx context.Context, limit int) ([]*relayer.Transfer, error)
 }
 
 // Engine orchestrates the bridge relayer operations.
 type Engine struct {
-	config       *config.Config
+	config       *relayer.Config
 	cantonClient CantonBridgeClient
 	ethClient    EthereumBridgeClient
 	store        BridgeStore
@@ -104,21 +103,14 @@ type Engine struct {
 
 // NewEngine creates a new relayer engine.
 func NewEngine(
-	cfg *config.Config,
+	cfg *relayer.Config,
 	cantonClient CantonBridgeClient,
 	ethClient EthereumBridgeClient,
 	store BridgeStore,
 	logger *zap.Logger,
 ) *Engine {
-	cantonKey := relayer.ChainCanton
-	if cfg.Canton.ChainID != "" {
-		cantonKey = cfg.Canton.ChainID
-	}
-
-	ethereumKey := relayer.ChainEthereum
-	if cfg.Ethereum.ChainID != 0 {
-		ethereumKey = strconv.FormatInt(cfg.Ethereum.ChainID, 10)
-	}
+	cantonKey := cfg.CantonChainID
+	ethereumKey := cfg.EthChainID
 
 	return &Engine{
 		config:       cfg,
@@ -140,10 +132,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to load offsets: %w", err)
 	}
 
-	cantonSrc := NewCantonSource(e.cantonClient, e.config.Ethereum.TokenContract, e.cantonKey)
+	cantonSrc := NewCantonSource(e.cantonClient, e.config.EthTokenContract, e.cantonKey)
 	e.ethDest = NewEthereumDestination(e.ethClient, e.ethereumKey, e.logger)
 
-	ethSource := NewEthereumSource(e.ethClient, &e.config.Ethereum, e.ethereumKey)
+	ethSource := NewEthereumSource(e.ethClient, e.ethereumKey)
 	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey, e.logger)
 
 	// After each Canton→Ethereum withdrawal is submitted on EVM, mark it complete on Canton.
@@ -283,8 +275,8 @@ func (e *Engine) loadCantonOffset(ctx context.Context) error {
 	}
 
 	// No stored state — determine start offset from config.
-	if e.config.Canton.StartBlock > 0 {
-		e.cantonOffset = strconv.FormatInt(e.config.Canton.StartBlock, 10)
+	if e.config.CantonStartBlock > 0 {
+		e.cantonOffset = strconv.FormatUint(e.config.CantonStartBlock, 10)
 		e.logger.Info("Starting Canton stream from configured start_block", zap.String("offset", e.cantonOffset))
 		return nil
 	}
@@ -329,7 +321,7 @@ func (e *Engine) cantonOffsetFromLedgerEnd(ctx context.Context) error {
 		return nil
 	}
 
-	lookback := e.config.Canton.LookbackBlocks
+	lookback := e.config.CantonLookback
 	if lookback <= 0 {
 		e.cantonOffset = strconv.FormatInt(ledgerEnd, 10)
 		e.logger.Info("Starting Canton stream from current ledger end (lookback disabled)",
@@ -346,7 +338,7 @@ func (e *Engine) cantonOffsetFromLedgerEnd(ctx context.Context) error {
 }
 
 func (e *Engine) safeCantonOffset(ledgerEnd int64) string {
-	lookback := e.config.Canton.LookbackBlocks
+	lookback := e.config.CantonLookback
 	if lookback <= 0 {
 		lookback = 1
 	}
@@ -363,14 +355,14 @@ func (e *Engine) loadEthereumOffset(ctx context.Context) error {
 	}
 
 	if state != nil {
-		e.ethLastBlock = uint64(state.LastBlock) //nolint:gosec // LastBlock is always non-negative
+		e.ethLastBlock = state.LastBlock
 		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
 		return nil
 	}
 
 	// No stored state — determine start block from config.
-	if e.config.Ethereum.StartBlock > 0 {
-		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock) //nolint:gosec // StartBlock is always non-negative
+	if e.config.EthStartBlock > 0 {
+		e.ethLastBlock = e.config.EthStartBlock
 		e.logger.Info("Starting Ethereum from configured start_block", zap.Uint64("block", e.ethLastBlock))
 		return nil
 	}
@@ -379,7 +371,7 @@ func (e *Engine) loadEthereumOffset(ctx context.Context) error {
 }
 
 func (e *Engine) ethBlockFromChainHead(ctx context.Context) error {
-	lookback := e.config.Ethereum.LookbackBlocks
+	lookback := e.config.EthLookbackBlocks
 	if lookback <= 0 {
 		e.ethLastBlock = 0
 		e.logger.Info("Starting Ethereum from genesis (lookback disabled)")
@@ -388,7 +380,7 @@ func (e *Engine) ethBlockFromChainHead(ctx context.Context) error {
 
 	headBlock, err := e.ethClient.GetLatestBlockNumber(ctx)
 	if err != nil {
-		e.ethLastBlock = uint64(e.config.Ethereum.StartBlock) //nolint:gosec // StartBlock is always non-negative
+		e.ethLastBlock = e.config.EthStartBlock
 		e.logger.Warn("Failed to get Ethereum latest block, falling back to configured start_block",
 			zap.Error(err), zap.Uint64("start_block", e.ethLastBlock))
 		return nil
@@ -409,10 +401,10 @@ func (e *Engine) ethBlockFromChainHead(ctx context.Context) error {
 // saveChainOffset persists the last processed offset for a chain.
 // The DB write happens first; in-memory state is only updated on success.
 func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset string) error {
-	var blockNumber int64
+	var blockNumber uint64
 
 	if chainID == e.ethereumKey {
-		n, err := strconv.ParseInt(offset, 10, 64)
+		n, err := strconv.ParseUint(offset, 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid ethereum offset %q: %w", offset, err)
 		}
@@ -426,7 +418,7 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 	// Update in-memory state only after the DB write succeeds.
 	e.mu.Lock()
 	if chainID == e.ethereumKey {
-		e.ethLastBlock = uint64(blockNumber) //nolint:gosec // block number parsed from our own offset string, always non-negative
+		e.ethLastBlock = blockNumber
 	} else {
 		e.cantonOffset = offset
 	}
@@ -477,8 +469,8 @@ func (e *Engine) runReconciliation(ctx context.Context) error {
 	metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
 
 	// Retry transfers stuck longer than RetryDelay, up to MaxRetries attempts.
-	maxRetries := e.config.Bridge.MaxRetries
-	retryDelay := e.config.Bridge.RetryDelay
+	maxRetries := e.config.MaxRetries
+	retryDelay := e.config.RetryDelay
 	if retryDelay <= 0 {
 		retryDelay = stuckTransferThreshold
 	}

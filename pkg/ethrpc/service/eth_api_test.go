@@ -11,7 +11,6 @@ import (
 	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	canton "github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
@@ -417,7 +416,7 @@ func TestEthAPI_SendRawTransaction(t *testing.T) {
 	// (not a mock) so they reach the code paths changed above.
 	realSvc := func(t *testing.T) (*rpc.Client, func()) {
 		t.Helper()
-		cfg := &config.EthRPCConfig{ChainID: chainID.Uint64()}
+		cfg := &ethrpc.Config{ChainID: chainID.Uint64()}
 		// Store and TokenService are nil because these validation paths never reach them.
 		_, rpcClient, cleanup := newTestServer(t, service.NewService(cfg, nil, nil))
 		return rpcClient, cleanup

@@ -3,13 +3,13 @@
 // register-user.go - Register a user's fingerprint mapping on Canton
 //
 // Usage:
-//   go run scripts/register-user.go -config config.yaml \
+//   go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml \
 //     -party "Alice::1220abc...def" \
 //     -fingerprint "abc...def" \
 //     -evm-address "0x..."
 //
 // For testing with the BridgeIssuer (uses config relayer_party by default):
-//   go run scripts/register-user.go -config config.yaml
+//   go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml
 
 package main
 
@@ -28,6 +28,7 @@ import (
 	"time"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -38,7 +39,7 @@ import (
 )
 
 var (
-	ruConfigPath  = flag.String("config", "config.yaml", "Path to config file")
+	ruConfigPath  = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	ruPartyID     = flag.String("party", "", "Full Canton Party ID (uses config relayer_party if not specified)")
 	ruFingerprint = flag.String("fingerprint", "", "Fingerprint (32-byte hex, without 0x1220 prefix)")
 	ruEvmAddress  = flag.String("evm-address", "", "Optional EVM address for withdrawals")
@@ -54,7 +55,7 @@ var (
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*ruConfigPath)
+	cfg, err := config.LoadAPIServer(*ruConfigPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
@@ -62,12 +63,12 @@ func main() {
 
 	partyID := *ruPartyID
 	if partyID == "" {
-		partyID = cfg.Canton.RelayerParty
+		partyID = cfg.Canton.IssuerParty
 	}
 
 	if partyID == "" {
 		fmt.Println("Error: -party is required (or set canton.relayer_party in config)")
-		fmt.Println("Usage: go run scripts/register-user.go -config config.yaml -party 'PartyID' -fingerprint 'hex'")
+		fmt.Println("Usage: go run scripts/testing/register-user.go -config pkg/config/defaults/config.api-server.docker.yaml -party 'PartyID' -fingerprint 'hex'")
 		os.Exit(1)
 	}
 
@@ -99,7 +100,7 @@ func main() {
 	ctx := context.Background()
 
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 			NextProtos:         []string{"h2"},
@@ -110,14 +111,14 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(cfg.Canton.RPCURL, opts...)
+	conn, err := grpc.NewClient(cfg.Canton.Ledger.RPCURL, opts...)
 	if err != nil {
 		fmt.Printf("Failed to connect to Canton: %v\n", err)
 		os.Exit(1)
 	}
 	defer conn.Close()
 
-	ctx, err = ruGetAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = ruGetAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		fmt.Printf("Failed to get auth context: %v\n", err)
 		os.Exit(1)
@@ -139,11 +140,11 @@ func main() {
 
 	fmt.Println(">>> Checking for existing FingerprintMapping...")
 	// Use common_package_id with fallback to bridge_package_id for FingerprintMapping
-	commonPkgID := cfg.Canton.CommonPackageID
-	if commonPkgID == "" {
-		commonPkgID = cfg.Canton.BridgePackageID
+	commonPkgID := cfg.Canton.Identity.PackageID
+	if commonPkgID == "" && cfg.Canton.Bridge != nil {
+		commonPkgID = cfg.Canton.Bridge.PackageID
 	}
-	existingCid, err := ruFindFingerprintMapping(ctx, stateClient, cfg.Canton.RelayerParty, commonPkgID, ledgerEndResp.Offset, fingerprint)
+	existingCid, err := ruFindFingerprintMapping(ctx, stateClient, cfg.Canton.IssuerParty, commonPkgID, ledgerEndResp.Offset, fingerprint)
 	if err == nil && existingCid != "" {
 		fmt.Printf("    [EXISTS] FingerprintMapping already exists: %s\n", existingCid)
 		fmt.Println("\n✓ User is already registered!")
@@ -154,7 +155,7 @@ func main() {
 	domainID := cfg.Canton.DomainID
 	if domainID == "" {
 		domainResp, err := stateClient.GetConnectedSynchronizers(ctx, &lapiv2.GetConnectedSynchronizersRequest{
-			Party: cfg.Canton.RelayerParty,
+			Party: cfg.Canton.IssuerParty,
 		})
 		if err != nil {
 			fmt.Printf("Failed to get domain ID: %v\n", err)
@@ -169,7 +170,7 @@ func main() {
 	fmt.Printf("    Domain ID: %s\n\n", domainID)
 
 	fmt.Println(">>> Creating FingerprintMapping directly...")
-	mappingCid, err := ruCreateFingerprintMapping(ctx, cmdClient, cfg.Canton.RelayerParty, commonPkgID, domainID, partyID, fingerprint, *ruEvmAddress)
+	mappingCid, err := ruCreateFingerprintMapping(ctx, cmdClient, cfg.Canton.IssuerParty, commonPkgID, domainID, partyID, fingerprint, *ruEvmAddress)
 	if err != nil {
 		fmt.Printf("Failed to register user: %v\n", err)
 		os.Exit(1)
@@ -188,8 +189,8 @@ func main() {
 	fmt.Printf("  CANTON_RECIPIENT=\"0x%s\"\n", fingerprint)
 }
 
-func ruGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func ruGetAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, fmt.Errorf("OAuth2 client credentials not configured")
 	}
 
@@ -202,7 +203,7 @@ func ruGetAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Con
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func ruGetOAuthToken(auth *config.AuthConfig) (string, error) {
+func ruGetOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	ruTokenMu.Lock()
 	defer ruTokenMu.Unlock()
 

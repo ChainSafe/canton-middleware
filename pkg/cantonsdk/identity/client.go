@@ -187,7 +187,7 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 	}
 
 	authCtx := c.ledger.AuthContext(ctx)
-	packageID := c.cfg.GetPackageID()
+	packageID := c.cfg.PackageID
 	module := "Common.FingerprintAuth"
 	entity := "FingerprintMapping"
 
@@ -200,7 +200,7 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 					EntityName: entity,
 				},
 				CreateArguments: encodeFingerprintMappingCreate(
-					c.cfg.RelayerParty,
+					c.cfg.IssuerParty,
 					req.UserParty,
 					req.Fingerprint,
 					req.EvmAddress,
@@ -214,7 +214,7 @@ func (c *Client) CreateFingerprintMapping(ctx context.Context, req CreateFingerp
 			SynchronizerId: c.cfg.DomainID,
 			CommandId:      uuid.NewString(),
 			UserId:         c.cfg.UserID,
-			ActAs:          []string{c.cfg.RelayerParty},
+			ActAs:          []string{c.cfg.IssuerParty},
 			ReadAs:         []string{req.UserParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
@@ -248,12 +248,12 @@ func (c *Client) GetFingerprintMapping(ctx context.Context, fingerprint string) 
 	}
 
 	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.GetPackageID(),
+		PackageId:  c.cfg.PackageID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "FingerprintMapping",
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.IssuerParty}, tid)
 	if err != nil {
 		return nil, err
 	}
