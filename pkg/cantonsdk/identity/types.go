@@ -1,6 +1,8 @@
 package identity
 
-import "errors"
+import (
+	"errors"
+)
 
 // Party contains the result of allocating a new Canton party.
 type Party struct {
@@ -15,6 +17,14 @@ type FingerprintMapping struct {
 	UserParty   string
 	Fingerprint string
 	EvmAddress  string
+}
+
+// ExternalPartyTopology holds the intermediate state from GenerateExternalPartyTopology
+// needed to complete external party allocation with a client-provided signature.
+type ExternalPartyTopology struct {
+	TopologyTransactions [][]byte // Serialized topology transactions
+	MultiHash            []byte   // Hash to be signed by the party's key
+	Fingerprint          string   // Canton key fingerprint (multihash of SPKI public key)
 }
 
 // CreateFingerprintMappingRequest contains inputs for creating a FingerprintMapping.

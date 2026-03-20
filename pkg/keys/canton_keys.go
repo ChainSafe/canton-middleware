@@ -420,6 +420,27 @@ func MasterKeyToBase64(key []byte) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
+// Secp256k1 returns the secp256k1 elliptic curve.
+func Secp256k1() elliptic.Curve {
+	return crypto.S256()
+}
+
+// MarshalSPKIPublicKey encodes an uncompressed EC point (x, y) on secp256k1
+// as a DER-encoded X.509 SubjectPublicKeyInfo structure.
+func MarshalSPKIPublicKey(x, y *big.Int) ([]byte, error) {
+	uncompressed := elliptic.Marshal(crypto.S256(), x, y)
+	return asn1.Marshal(subjectPublicKeyInfo{
+		Algorithm: spkiAlgorithmIdentifier{
+			Algorithm:  oidECPublicKey,
+			Parameters: oidSecp256k1,
+		},
+		SubjectPublicKey: asn1.BitString{
+			Bytes:     uncompressed,
+			BitLength: len(uncompressed) * 8,
+		},
+	})
+}
+
 // DeriveEVMAddressFromPublicKey derives an EVM address from a compressed secp256k1 public key.
 // This is used for Canton native users to generate an EVM-compatible address for MetaMask access.
 //
