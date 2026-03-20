@@ -2,6 +2,7 @@ package pgutil
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,8 +10,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/uptrace/bun"
-
-	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // SetupTestDB creates a PostgreSQL testcontainer and returns a connection
@@ -48,13 +47,11 @@ func SetupTestDB(t *testing.T) (*bun.DB, func()) {
 	}
 
 	// Create database config
-	cfg := &config.DatabaseConfig{
-		Host:     host,
-		Port:     port.Int(),
-		User:     "test_user",
-		Password: "test_pass",
-		Database: "test_db",
+	cfg := &DatabaseConfig{
+		URL:      fmt.Sprintf("postgres://test_user:test_pass@%s:%s/test_db", host, port.Port()),
 		SSLMode:  "disable",
+		Timeout:  10,
+		PoolSize: 10,
 	}
 
 	// Connect to database with retry logic

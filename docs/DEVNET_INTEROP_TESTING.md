@@ -13,7 +13,7 @@ This guide walks you through running the DEMO token interoperability test agains
 - **Docker** with Docker Compose v2
 - **Go 1.24+** ([install guide](https://go.dev/doc/install))
 - **Foundry/Cast** ([install guide](https://book.getfoundry.sh/getting-started/installation)) -- used for EIP-191 signing and Ethereum interactions
-- **DevNet credentials** in `config.api-server.devnet.yaml` (OAuth2 client ID/secret, Canton endpoint)
+- **DevNet credentials** in `pkg/config/defaults/config.api-server.local-devnet.yaml` (OAuth2 client ID/secret, Canton endpoint)
 
 ## Quick Start (Three Commands)
 
@@ -23,11 +23,11 @@ This guide walks you through running the DEMO token interoperability test agains
 
 # 2. Test: runs DEMO interop steps (Part A only)
 DATABASE_HOST=localhost go run scripts/testing/interop-demo.go \
-  --config config.api-server.devnet.yaml --skip-prompt
+  --config pkg/config/defaults/config.api-server.local-devnet.yaml --skip-prompt
 
 # 3. Reset (optional): archive all holdings, remint 500 DEMO per user
 DATABASE_HOST=localhost go run scripts/utils/reset-demo-state.go \
-  -config config.api-server.devnet.yaml
+  -config pkg/config/defaults/config.api-server.local-devnet.yaml
 ```
 
 ## Architecture Overview
@@ -102,7 +102,7 @@ This single command:
 
 ```bash
 DATABASE_HOST=localhost go run scripts/testing/interop-demo.go \
-  --config config.api-server.devnet.yaml --skip-prompt
+  --config pkg/config/defaults/config.api-server.local-devnet.yaml --skip-prompt
 ```
 
 `DATABASE_HOST=localhost` overrides the config's `database.host` (which is set to `postgres` for Docker networking) so the Go script can connect directly.
@@ -131,7 +131,7 @@ To re-run the test from a clean state without rebuilding Docker:
 
 ```bash
 DATABASE_HOST=localhost go run scripts/utils/reset-demo-state.go \
-  -config config.api-server.devnet.yaml
+  -config pkg/config/defaults/config.api-server.local-devnet.yaml
 ```
 
 This script:
@@ -143,7 +143,7 @@ This script:
 Preview what will happen without making changes:
 ```bash
 DATABASE_HOST=localhost go run scripts/utils/reset-demo-state.go \
-  -config config.api-server.devnet.yaml --dry-run
+  -config pkg/config/defaults/config.api-server.local-devnet.yaml --dry-run
 ```
 
 ## Test Accounts
@@ -183,7 +183,7 @@ docker compose -f docker-compose.remote.yaml logs api-server
 ```
 
 Common causes:
-- DevNet OAuth2 credentials expired or misconfigured in `config.api-server.devnet.yaml`
+- DevNet OAuth2 credentials expired or misconfigured in `pkg/config/defaults/config.api-server.local-devnet.yaml`
 - Canton endpoint unreachable (firewall, VPN, DNS)
 - Missing `CANTON_MASTER_KEY` (bootstrap script auto-generates this)
 
@@ -222,7 +222,7 @@ psql -h localhost -U postgres -d erc20_api -c "SELECT count(*) FROM users;"
 ```bash
 # Option A: Reset via script (preserves registered users, remints DEMO)
 DATABASE_HOST=localhost go run scripts/utils/reset-demo-state.go \
-  -config config.api-server.devnet.yaml
+  -config pkg/config/defaults/config.api-server.local-devnet.yaml
 
 # Option B: Full clean slate (destroys all state)
 docker compose -f docker-compose.remote.yaml down -v

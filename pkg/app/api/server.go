@@ -17,6 +17,7 @@ import (
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
+	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
@@ -35,7 +36,7 @@ const defaultRequestTimeout = 60
 
 // Server holds cfg to init the api server.
 type Server struct {
-	cfg *config.APIServerConfig
+	cfg *config.APIServer
 }
 
 type userKeyStore interface {
@@ -43,7 +44,7 @@ type userKeyStore interface {
 }
 
 // NewServer initializes new api server.
-func NewServer(cfg *config.APIServerConfig) *Server {
+func NewServer(cfg *config.APIServer) *Server {
 	return &Server{cfg: cfg}
 }
 
@@ -56,7 +57,7 @@ func (s *Server) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger, err := config.NewLogger(cfg.Logging)
+	logger, err := log.NewLogger(cfg.Logging)
 	if err != nil {
 		return fmt.Errorf("setup logger: %w", err)
 	}
@@ -72,7 +73,7 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	dbBun, err := pgutil.ConnectDB(&cfg.Database)
+	dbBun, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		return err
 	}
@@ -87,7 +88,7 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = cantonClient.Close() }()
 
-	logger.Info("Connected to Canton", zap.String("rpc_url", cfg.Canton.RPCURL))
+	logger.Info("Connected to Canton")
 
 	recStore := reconcilerstore.NewStore(dbBun)
 	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
@@ -103,19 +104,16 @@ func (s *Server) Run() error {
 		cantonClient.Identity,
 		cipher,
 		logger,
-		os.Getenv("SKIP_CANTON_SIG_VERIFY") == "true", // TODO: populate in config
+		cfg.SkipCantonSigVerify,
 	)
 
-	tokenConfig := token.NewConfig(cfg.EthRPC.NativeBalanceWei)
-	tokenConfig.AddToken(cfg.EthRPC.TokenAddress, cfg.Token)
-	tokenConfig.AddToken(cfg.EthRPC.DemoTokenAddress, cfg.DemoToken)
 	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
-	tokenService := token.NewTokenService(tokenConfig, tokenDataProvider, userStore, cantonClient.Token)
+	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
 	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
 
-	err = apphttp.ServeAndWait(ctx, router, logger, &cfg.Server)
+	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 
 	// Stop background work before deferred DB/client closes kick in.
 	stopReconcile()
@@ -156,9 +154,9 @@ func (s *Server) openCantonClient(
 		return keys.CantonKeyPairFromPrivateKey(privKey)
 	}
 
-	client, err := canton.NewFromAppConfig(
+	client, err := canton.New(
 		ctx,
-		&s.cfg.Canton,
+		s.cfg.Canton,
 		canton.WithLogger(logger),
 		canton.WithKeyResolver(keyResolver),
 	)
@@ -238,7 +236,7 @@ func (s *Server) setupRouter(
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
-		coreEthSvc := ethrpc.NewService(&s.cfg.EthRPC, evmStore, tokenService)
+		coreEthSvc := ethrpc.NewService(s.cfg.EthRPC, evmStore, tokenService)
 		ethrpc.RegisterRoutes(r, ethrpc.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
 	}
 

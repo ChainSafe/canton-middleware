@@ -1,0 +1,41 @@
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+database:
+  url: "${TEST_API_DB_URL}"
+  ssl_mode: "disable"
+
+canton:
+  domain_id: "${TEST_API_DOMAIN_ID}"
+  issuer_party: "${TEST_API_ISSUER}"
+  ledger:
+    rpc_url: "localhost:5011"
+    tls: {}
+    auth:
+      client_id: "${TEST_API_CLIENT_ID}"
+      client_secret: "${TEST_API_CLIENT_SECRET}"
+      audience: "audience"
+      token_url: "http://localhost/token"
+  identity:
+    package_id: "identity-package"
+  token:
+    cip56_package_id: "cip56-package"
+    splice_transfer_package_id: "splice-package"
+
+token:
+  supported_tokens:
+    "0x0000000000000000000000000000000000000001":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+
+eth_rpc:
+  chain_id: 31337
+
+logging:
+  level: "info"
+  format: "json"
+
+reconciliation: {}
+key_management: {}

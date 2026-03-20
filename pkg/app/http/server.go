@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-	"github.com/chainsafe/canton-middleware/pkg/config"
 )
 
 // ServeAndWait starts an HTTP server with the given handler and config in a goroutine
@@ -22,7 +20,7 @@ import (
 // Returns a non-nil error if:
 //   - the server exits unexpectedly (not ErrServerClosed), or
 //   - shutdown fails.
-func ServeAndWait(ctx context.Context, handler http.Handler, logger *zap.Logger, cfg *config.ServerConfig) error {
+func ServeAndWait(ctx context.Context, handler http.Handler, logger *zap.Logger, cfg *ServerConfig) error {
 	if handler == nil {
 		return fmt.Errorf("nil handler")
 	}
