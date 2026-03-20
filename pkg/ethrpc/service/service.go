@@ -8,7 +8,6 @@ import (
 	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/token"
@@ -69,7 +68,7 @@ type Service interface {
 
 // ethService is the concrete implementation of Service.
 type ethService struct {
-	cfg          config.EthRPCConfig
+	cfg          ethrpc.Config
 	store        Store
 	tokenService TokenService
 	chainID      *big.Int
@@ -89,7 +88,7 @@ const (
 
 // NewService creates a new ethService.
 func NewService(
-	cfg *config.EthRPCConfig,
+	cfg *ethrpc.Config,
 	evmStore Store,
 	tokenSvc TokenService,
 ) Service {
@@ -169,13 +168,14 @@ func (s *ethService) GetTransactionCount(ctx context.Context, address common.Add
 }
 
 func (s *ethService) GetCode(_ context.Context, address common.Address) (hexutil.Bytes, error) {
-	// TODO: get from the token service
-	switch address {
-	case s.cfg.TokenAddress, s.cfg.DemoTokenAddress:
-		return hexutil.Bytes{0x60, 0x80}, nil
-	default:
+	if s.tokenService == nil {
 		return hexutil.Bytes{}, nil
 	}
+	if _, err := s.tokenService.ERC20(address); err == nil {
+		// Return minimal non-empty bytecode for supported ERC20 contracts.
+		return hexutil.Bytes{0x60, 0x80}, nil
+	}
+	return hexutil.Bytes{}, nil
 }
 
 func (*ethService) Syncing(_ context.Context) bool {

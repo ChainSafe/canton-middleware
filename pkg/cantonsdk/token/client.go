@@ -124,7 +124,7 @@ func (c *Client) GetTokenConfigCID(ctx context.Context, tokenSymbol string) (str
 		EntityName: entityTokenConfig,
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.IssuerParty}, tid)
 	if err != nil {
 		return "", fmt.Errorf("error getting contracts: %w", err)
 	}
@@ -173,7 +173,7 @@ func (c *Client) Mint(ctx context.Context, req *MintRequest) (string, error) {
 			SynchronizerId: c.cfg.DomainID,
 			CommandId:      uuid.NewString(),
 			UserId:         c.cfg.UserID,
-			ActAs:          []string{c.cfg.RelayerParty},
+			ActAs:          []string{c.cfg.IssuerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
 	})
@@ -229,7 +229,7 @@ func (c *Client) Burn(ctx context.Context, req *BurnRequest) error {
 			SynchronizerId: c.cfg.DomainID,
 			CommandId:      uuid.NewString(),
 			UserId:         c.cfg.UserID,
-			ActAs:          []string{c.cfg.RelayerParty},
+			ActAs:          []string{c.cfg.IssuerParty},
 			Commands:       []*lapiv2.Command{cmd},
 		},
 	})
@@ -279,7 +279,7 @@ func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
 		EntityName: entityHolding,
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.IssuerParty}, tid)
 	if err != nil {
 		return nil, fmt.Errorf("query holdings: %w", err)
 	}
@@ -336,7 +336,7 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 		EntityName: entityHolding,
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.IssuerParty}, tid)
 	if err != nil {
 		return "0", fmt.Errorf("query holdings: %w", err)
 	}
@@ -463,7 +463,7 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 		CommandId:      uuid.NewString(),
 		UserId:         c.cfg.UserID,
 		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.RelayerParty},
+		ReadAs:         []string{c.cfg.IssuerParty},
 		Commands:       []*lapiv2.Command{cmd},
 	}
 
@@ -496,7 +496,7 @@ func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, 
 	authCtx := c.ledger.AuthContext(ctx)
 
 	filtersByParty := map[string]*lapiv2.Filters{
-		c.cfg.RelayerParty: {
+		c.cfg.IssuerParty: {
 			Cumulative: []*lapiv2.CumulativeFilter{
 				{
 					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
@@ -665,7 +665,7 @@ func (c *Client) GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEv
 		ctx,
 		c.ledger,
 		c.cfg.CIP56PackageID,
-		c.cfg.RelayerParty,
+		c.cfg.IssuerParty,
 		"TokenTransferEvent",
 		decodeTokenTransferEvent,
 	)

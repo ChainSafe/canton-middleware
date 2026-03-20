@@ -93,12 +93,12 @@ func (c *Client) GetWayfinderBridgeConfigCID(ctx context.Context) (string, error
 	}
 
 	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
-		ModuleName: c.cfg.BridgeModule,
+		PackageId:  c.cfg.PackageID,
+		ModuleName: c.cfg.Module,
 		EntityName: "WayfinderBridgeConfig",
 	}
 
-	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.OperatorParty}, tid)
 	if err != nil {
 		return "", fmt.Errorf("query WayfinderBridgeConfig: %w", err)
 	}
@@ -125,19 +125,19 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 	// We enforce module/entity filtering via template id. This assumes deposits live in the same package/module.
 	// If your deposits are in a different package/module, adjust these template IDs accordingly.
 	pendingTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
+		PackageId:  c.cfg.PackageID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "PendingDeposit",
 	}
 	receiptTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.BridgePackageID,
+		PackageId:  c.cfg.PackageID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "DepositReceipt",
 	}
 
 	check := func(tid *lapiv2.Identifier) (bool, error) {
 		var events []*lapiv2.CreatedEvent
-		events, err = c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.RelayerParty}, tid)
+		events, err = c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.OperatorParty}, tid)
 		if err != nil {
 			return false, err
 		}
@@ -185,8 +185,8 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req CreatePendingDepo
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -203,7 +203,7 @@ func (c *Client) CreatePendingDeposit(ctx context.Context, req CreatePendingDepo
 				SynchronizerId: c.cfg.DomainID,
 				CommandId:      uuid.NewString(),
 				UserId:         c.cfg.UserID,
-				ActAs:          []string{c.cfg.RelayerParty},
+				ActAs:          []string{c.cfg.OperatorParty},
 				Commands:       []*lapiv2.Command{cmd},
 			},
 		},
@@ -247,8 +247,8 @@ func (c *Client) ProcessDepositAndMint(ctx context.Context, req ProcessDepositRe
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -265,7 +265,7 @@ func (c *Client) ProcessDepositAndMint(ctx context.Context, req ProcessDepositRe
 				SynchronizerId: c.cfg.DomainID,
 				CommandId:      uuid.NewString(),
 				UserId:         c.cfg.UserID,
-				ActAs:          []string{c.cfg.RelayerParty},
+				ActAs:          []string{c.cfg.OperatorParty},
 				Commands:       []*lapiv2.Command{cmd},
 			},
 		},
@@ -305,8 +305,8 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalR
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.BridgePackageID,
-					ModuleName: c.cfg.BridgeModule,
+					PackageId:  c.cfg.PackageID,
+					ModuleName: c.cfg.Module,
 					EntityName: "WayfinderBridgeConfig",
 				},
 				ContractId:     configCID,
@@ -323,7 +323,7 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalR
 				SynchronizerId: c.cfg.DomainID,
 				CommandId:      uuid.NewString(),
 				UserId:         c.cfg.UserID,
-				ActAs:          []string{c.cfg.RelayerParty},
+				ActAs:          []string{c.cfg.OperatorParty},
 				Commands:       []*lapiv2.Command{cmd},
 			},
 		},
@@ -353,13 +353,11 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 		return fmt.Errorf("invalid request: %w", err)
 	}
 
-	corePkg := c.cfg.effectiveCorePackageID()
-
 	cmd := &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  corePkg,
+					PackageId:  c.cfg.PackageID,
 					ModuleName: "Bridge.Contracts",
 					EntityName: "WithdrawalEvent",
 				},
@@ -377,7 +375,7 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 				SynchronizerId: c.cfg.DomainID,
 				CommandId:      uuid.NewString(),
 				UserId:         c.cfg.UserID,
-				ActAs:          []string{c.cfg.RelayerParty},
+				ActAs:          []string{c.cfg.OperatorParty},
 				Commands:       []*lapiv2.Command{cmd},
 			},
 		},
@@ -439,19 +437,17 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 		return err
 	}
 
-	corePkg := c.cfg.effectiveCorePackageID()
-
 	updateFormat := &lapiv2.UpdateFormat{
 		IncludeTransactions: &lapiv2.TransactionFormat{
 			EventFormat: &lapiv2.EventFormat{
 				FiltersByParty: map[string]*lapiv2.Filters{
-					c.cfg.RelayerParty: {
+					c.cfg.OperatorParty: {
 						Cumulative: []*lapiv2.CumulativeFilter{
 							{
 								IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
 									TemplateFilter: &lapiv2.TemplateFilter{
 										TemplateId: &lapiv2.Identifier{
-											PackageId:  corePkg,
+											PackageId:  c.cfg.PackageID,
 											ModuleName: "Bridge.Contracts",
 											EntityName: "WithdrawalEvent",
 										},

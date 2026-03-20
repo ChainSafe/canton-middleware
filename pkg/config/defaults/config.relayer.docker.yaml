@@ -1,0 +1,84 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${RELAYER_DATABASE_URL}"
+  ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
+
+ethereum:
+  rpc_url: "http://anvil:8545"
+  ws_url: "ws://anvil:8545"
+  chain_id: 31337
+  bridge_contract: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+  token_contract: "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 1
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0
+  lookback_blocks: 1000
+
+canton:
+  domain_id: "${CANTON_DOMAIN_ID}"  # Auto-detected by bootstrap
+  issuer_party: "${CANTON_ISSUER_PARTY}"  # Auto-detected by bootstrap
+
+  ledger:
+    rpc_url: "canton:5011"
+    ledger_id: "canton-ledger-id"
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "http://canton:5011"
+      token_url: "http://mock-oauth2:8088/oauth/token"
+      expiry_leeway: "60s"
+
+  identity:
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000"
+  min_transfer_amount: "1000000000000000"
+  rate_limit_per_hour: 100
+  max_retries: 3
+  retry_delay: "10s"
+  processing_interval: "5s"
+  canton_chain_id: "canton"
+  canton_start_block: 0
+  canton_lookback_blocks: 100
+  eth_chain_id: "31337"
+  eth_start_block: 0
+  eth_lookback_blocks: 1000
+  eth_token_contract: "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_url: "/health"
+
+logging:
+  level: "debug"
+  format: "console"
+  output_path: "stdout"

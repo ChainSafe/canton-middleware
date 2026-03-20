@@ -6,7 +6,7 @@
 // bridge-core, common) so new contracts can be created with updated packages.
 //
 // Usage:
-//   go run scripts/archive-cip56.go -config config.devnet.yaml [-dry-run]
+//   go run scripts/archive/archive-cip56.go -config pkg/config/defaults/config.api-server.docker.yaml [-dry-run]
 //
 // Flags:
 //   -config       Path to config file (for Canton connection and auth)
@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
@@ -98,22 +99,22 @@ var templatesByPackageType = map[string][]TemplateInfo{
 }
 
 // buildPackagesFromConfig creates the oldPackages map from config package IDs
-func buildPackagesFromConfig(cfg *config.Config) map[string][]TemplateInfo {
+func buildPackagesFromConfig(cfg *config.APIServer, corePackageID string) map[string][]TemplateInfo {
 	packages := make(map[string][]TemplateInfo)
 
 	// Bridge package (bridge-wayfinder)
-	if cfg.Canton.BridgePackageID != "" {
-		packages[cfg.Canton.BridgePackageID] = templatesByPackageType["bridge"]
+	if cfg.Canton.Bridge != nil && cfg.Canton.Bridge.PackageID != "" {
+		packages[cfg.Canton.Bridge.PackageID] = templatesByPackageType["bridge"]
 	}
 
-	// Core package (bridge-core)
-	if cfg.Canton.CorePackageID != "" {
-		packages[cfg.Canton.CorePackageID] = templatesByPackageType["core"]
+	// Core package (bridge-core) — from CLI flag, no SDK equivalent
+	if corePackageID != "" {
+		packages[corePackageID] = templatesByPackageType["core"]
 	}
 
 	// CIP56 package
-	if cfg.Canton.CIP56PackageID != "" {
-		packages[cfg.Canton.CIP56PackageID] = templatesByPackageType["cip56"]
+	if cfg.Canton.Token != nil && cfg.Canton.Token.CIP56PackageID != "" {
+		packages[cfg.Canton.Token.CIP56PackageID] = templatesByPackageType["cip56"]
 	}
 
 	return packages
@@ -139,9 +140,10 @@ func splitIDs(s string) []string {
 }
 
 func main() {
-	configPath := flag.String("config", "config.devnet.yaml", "Path to config file")
+	configPath := flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	dryRun := flag.Bool("dry-run", true, "List contracts without archiving")
 	doArchive := flag.Bool("archive", false, "Actually archive the contracts")
+	corePackageID := flag.String("core-package-id", "", "Bridge-core package ID to archive")
 	extraCoreIDs := flag.String("extra-core-ids", "", "Comma-separated extra bridge-core package IDs to archive")
 	extraCIP56IDs := flag.String("extra-cip56-ids", "", "Comma-separated extra cip56-token package IDs to archive")
 	extraBridgeIDs := flag.String("extra-bridge-ids", "", "Comma-separated extra bridge-wayfinder package IDs to archive")
@@ -152,7 +154,7 @@ func main() {
 	}
 
 	// Load config
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -162,7 +164,7 @@ func main() {
 
 	// Connect to Canton
 	var opts []grpc.DialOption
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -172,7 +174,7 @@ func main() {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	target := cfg.Canton.RPCURL
+	target := cfg.Canton.Ledger.RPCURL
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
@@ -183,16 +185,16 @@ func main() {
 	defer conn.Close()
 
 	// Get OAuth2 token
-	ctx, err = getAuthContext(ctx, &cfg.Canton.Auth)
+	ctx, err = getAuthContext(ctx, cfg.Canton.Ledger.Auth)
 	if err != nil {
 		log.Fatalf("Failed to get auth context: %v", err)
 	}
 
-	issuerParty := cfg.Canton.RelayerParty
+	issuerParty := cfg.Canton.IssuerParty
 	domainID := cfg.Canton.DomainID
 
 	// Build package map from config
-	oldPackages := buildPackagesFromConfig(cfg)
+	oldPackages := buildPackagesFromConfig(cfg, *corePackageID)
 
 	// Add extra package IDs from flags
 	for _, id := range splitIDs(*extraCoreIDs) {
@@ -206,20 +208,20 @@ func main() {
 	}
 
 	printHeader("Contract Archive Tool")
-	fmt.Printf("Canton RPC:     %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("Canton RPC:     %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("Issuer Party:   %s\n", issuerParty)
 	fmt.Printf("Domain ID:      %s\n", domainID)
 	fmt.Printf("Mode:           %s\n", modeString(*dryRun))
 	fmt.Println()
 	fmt.Println("Packages to archive (from config):")
-	if cfg.Canton.BridgePackageID != "" {
-		fmt.Printf("  - bridge:       %s\n", cfg.Canton.BridgePackageID[:16]+"...")
+	if cfg.Canton.Bridge != nil && cfg.Canton.Bridge.PackageID != "" {
+		fmt.Printf("  - bridge:       %s\n", cfg.Canton.Bridge.PackageID[:16]+"...")
 	}
-	if cfg.Canton.CorePackageID != "" {
-		fmt.Printf("  - core:         %s\n", cfg.Canton.CorePackageID[:16]+"...")
+	if *corePackageID != "" {
+		fmt.Printf("  - core:         %s\n", (*corePackageID)[:16]+"...")
 	}
-	if cfg.Canton.CIP56PackageID != "" {
-		fmt.Printf("  - cip56:        %s\n", cfg.Canton.CIP56PackageID[:16]+"...")
+	if cfg.Canton.Token != nil && cfg.Canton.Token.CIP56PackageID != "" {
+		fmt.Printf("  - cip56:        %s\n", cfg.Canton.Token.CIP56PackageID[:16]+"...")
 	}
 	if len(oldPackages) == 0 {
 		printWarning("No package IDs configured - nothing to archive")
@@ -467,8 +469,8 @@ func archiveContract(ctx context.Context, client lapiv2.CommandServiceClient, ac
 	return nil
 }
 
-func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Context, error) {
-	if auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
+func getAuthContext(ctx context.Context, auth *ledger.AuthConfig) (context.Context, error) {
+	if auth == nil || auth.ClientID == "" || auth.ClientSecret == "" || auth.Audience == "" || auth.TokenURL == "" {
 		return ctx, nil // No auth configured
 	}
 
@@ -481,7 +483,7 @@ func getAuthContext(ctx context.Context, auth *config.AuthConfig) (context.Conte
 	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-func getOAuthToken(auth *config.AuthConfig) (string, error) {
+func getOAuthToken(auth *ledger.AuthConfig) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 

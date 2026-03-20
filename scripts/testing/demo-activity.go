@@ -3,9 +3,9 @@
 // demo-activity.go - Display token holdings on Canton (DEMO and PROMPT)
 //
 // Usage:
-//   go run scripts/demo-activity.go -config config.devnet.yaml           # DevNet
-//   go run scripts/demo-activity.go -config .test-config.yaml            # Local Docker
-//   go run scripts/demo-activity.go -config config.devnet.yaml -debug    # Show raw contract data
+//   go run scripts/testing/demo-activity.go -config pkg/config/defaults/config.api-server.docker.yaml
+//   go run scripts/testing/demo-activity.go -config .test-config.yaml
+//   go run scripts/testing/demo-activity.go -config pkg/config/defaults/config.api-server.local-devnet.yaml -debug
 //
 // This script shows:
 //   - Active CIP56Holdings grouped by token (DEMO, PROMPT) and user
@@ -45,7 +45,7 @@ import (
 const maxMessageSize = 50 * 1024 * 1024 // 50MB
 
 var (
-	configPath = flag.String("config", "config.devnet.yaml", "Path to config file")
+	configPath = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	debug      = flag.Bool("debug", false, "Show debug info about all contracts found")
 	showAll    = flag.Bool("all", false, "Show all events (not just recent)")
 )
@@ -99,19 +99,19 @@ type TokenConfig struct {
 func main() {
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	partyID := cfg.Canton.RelayerParty
+	partyID := cfg.Canton.IssuerParty
 	if partyID == "" {
-		fmt.Println("Error: canton.relayer_party is required in config")
+		fmt.Println("Error: canton.issuer_party is required in config")
 		os.Exit(1)
 	}
 
-	cip56Pkg := cfg.Canton.CIP56PackageID
+	cip56Pkg := cfg.Canton.Token.CIP56PackageID
 
 	if cip56Pkg == "" {
 		fmt.Println("Error: cip56_package_id is required in config")
@@ -127,7 +127,7 @@ func main() {
 	defer conn.Close()
 
 	ctx := context.Background()
-	if cfg.Canton.Auth.TokenURL != "" {
+	if cfg.Canton.Ledger.Auth != nil && cfg.Canton.Ledger.Auth.TokenURL != "" {
 		token, err := getOAuthToken(cfg)
 		if err != nil {
 			fmt.Printf("Failed to get OAuth token: %v\n", err)
@@ -152,7 +152,7 @@ func main() {
 	fmt.Println("  Canton Token Activity (DEMO + PROMPT)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
-	fmt.Printf("  Canton RPC:     %s\n", cfg.Canton.RPCURL)
+	fmt.Printf("  Canton RPC:     %s\n", cfg.Canton.Ledger.RPCURL)
 	fmt.Printf("  Party:          %s...\n", partyID[:50])
 	fmt.Printf("  Ledger Offset:  %d\n", ledgerEnd)
 	fmt.Printf("  CIP56 Package:  %s...\n", cip56Pkg[:16])
@@ -362,22 +362,13 @@ func main() {
 	printUserBalances(cfg)
 }
 
-func printUserBalances(cfg *config.Config) {
+func printUserBalances(cfg *config.APIServer) {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  User Balances (MetaMask View)")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Use erc20_api database (where user balances are stored)
-	// Override database name since relayer config uses 'relayer' db
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -436,15 +427,8 @@ func printUserBalances(cfg *config.Config) {
 }
 
 // printPromptTransfers queries the database for PROMPT transfers via MetaMask
-func printPromptTransfers(cfg *config.Config) {
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+func printPromptTransfers(cfg *config.APIServer) {
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -518,17 +502,10 @@ func printPromptTransfers(cfg *config.Config) {
 }
 
 // getUserFingerprints returns a map of registered user fingerprints
-func getUserFingerprints(cfg *config.Config) map[string]string {
+func getUserFingerprints(cfg *config.APIServer) map[string]string {
 	result := make(map[string]string)
 
-	dbName := cfg.Database.Database
-	if dbName == "relayer" {
-		dbName = "erc20_api"
-	}
-
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, dbName, cfg.Database.SSLMode)
+	connStr := cfg.Database.GetConnectionString()
 
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
@@ -578,10 +555,10 @@ func truncateParty(partyID string) string {
 	return partyID
 }
 
-func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
+func connectToCanton(cfg *config.APIServer) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
 
-	if cfg.Canton.TLS.Enabled {
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -594,10 +571,10 @@ func connectToCanton(cfg *config.Config) (*grpc.ClientConn, error) {
 		grpc.MaxCallRecvMsgSize(maxMessageSize),
 	))
 
-	return grpc.Dial(cfg.Canton.RPCURL, opts...)
+	return grpc.Dial(cfg.Canton.Ledger.RPCURL, opts...)
 }
 
-func getOAuthToken(cfg *config.Config) (string, error) {
+func getOAuthToken(cfg *config.APIServer) (string, error) {
 	tokenMu.Lock()
 	defer tokenMu.Unlock()
 
@@ -606,14 +583,14 @@ func getOAuthToken(cfg *config.Config) (string, error) {
 	}
 
 	payload := map[string]string{
-		"client_id":     cfg.Canton.Auth.ClientID,
-		"client_secret": cfg.Canton.Auth.ClientSecret,
-		"audience":      cfg.Canton.Auth.Audience,
+		"client_id":     cfg.Canton.Ledger.Auth.ClientID,
+		"client_secret": cfg.Canton.Ledger.Auth.ClientSecret,
+		"audience":      cfg.Canton.Ledger.Auth.Audience,
 		"grant_type":    "client_credentials",
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := http.Post(cfg.Canton.Auth.TokenURL, "application/json", bytes.NewReader(body))
+	resp, err := http.Post(cfg.Canton.Ledger.Auth.TokenURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}

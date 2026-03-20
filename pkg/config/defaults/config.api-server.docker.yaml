@@ -1,0 +1,95 @@
+# =============================================================================
+# ERC-20 API Server Configuration (Docker)
+# =============================================================================
+# This config is used by the api-server container. Values are populated by
+# the bootstrap script at runtime.
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8081
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${API_SERVER_DATABASE_URL}"
+  ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
+
+canton:
+  domain_id: "${CANTON_DOMAIN_ID}"  # Auto-detected by bootstrap
+  issuer_party: "${CANTON_ISSUER_PARTY}"  # Auto-detected by bootstrap
+
+  ledger:
+    rpc_url: "canton:5011"
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "http://canton:5011"
+      token_url: "http://mock-oauth2:8088/oauth/token"
+      expiry_leeway: "60s"
+
+  identity:
+    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+
+  token:
+    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+
+  bridge:
+    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    module: "Wayfinder.Bridge"
+
+# Token metadata
+token:
+  supported_tokens:
+    "0x5FbDB2315678afecb367f032d93F642f64180aa3":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+    "0xDE30000000000000000000000000000000000001":
+      name: "Demo Token"
+      symbol: "DEMO"
+      decimals: 18
+  native_balance_wei: "1000000000000000000000"
+
+# Ethereum JSON-RPC facade (MetaMask compatibility)
+eth_rpc:
+  enabled: true
+  chain_id: 31337  # Anvil local chain ID
+  gas_price_wei: "1000000000"
+  gas_limit: 21000
+  native_balance_wei: "1000000000000000000000"
+  request_timeout: "30s"
+
+# JWKS endpoint for JWT validation (optional - if not using EVM signatures)
+jwks:
+  url: ""
+  issuer: ""
+
+logging:
+  level: "debug"
+  format: "json"
+  output_path: "stdout"
+
+# Reconciliation settings
+reconciliation:
+  initial_timeout: "2m"
+  interval: "10s"  # Faster reconciliation for testing
+
+key_management:
+  master_key_env: "CANTON_MASTER_KEY"
+  key_derivation: "generate"
+
+skip_canton_sig_verify: ${SKIP_CANTON_SIG_VERIFY}

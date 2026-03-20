@@ -72,10 +72,10 @@ deployments/production/*.secret.yaml
 deployments/staging/*.secret.yaml
 
 # Config files for non-local setup that have secrets in them
-config.devnet.yaml
-config.mainnet.yaml
-config.api-server.devnet.yaml
-config.api-server.mainnet.yaml
+/config.devnet.yaml
+/config.mainnet.yaml
+/config.api-server.devnet.yaml
+/config.api-server.mainnet.yaml
 # Auto-generated test config
 .test-config.yaml
 
@@ -83,8 +83,8 @@ config.api-server.mainnet.yaml
 config.e2e-test.yaml
 
 # Local devnet configs (contain OAuth secrets)
-config.local-devnet.yaml
-config.api-server.local-devnet.yaml
+/config.local-devnet.yaml
+pkg/config/defaults/config.api-server.local-devnet.yaml
 
 # Demo documentation (internal presentation materials)
 docs/demo/

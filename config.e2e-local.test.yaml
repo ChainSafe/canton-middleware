@@ -1,0 +1,49 @@
+# =============================================================================
+# Local E2E Test Configuration (script-only)
+# =============================================================================
+# Used by scripts/testing/e2e-local.go.
+#
+# This file intentionally keeps the old test-oriented shape (users/services/etc)
+# while config.e2e-local.yaml is used by API-server-based demo scripts.
+# =============================================================================
+
+users:
+  user1:
+    private_key: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+    address: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    fingerprint: ""
+  user2:
+    private_key: "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+    address: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    fingerprint: ""
+
+services:
+  relayer_url: "http://localhost:8080"
+  api_server_url: "http://localhost:8081"
+
+eth_rpc:
+  chain_id: 31337
+
+database:
+  url: "postgres://postgres:p%40ssw0rd@localhost:5432/erc20_api"
+  ssl_mode: "disable"
+
+amounts:
+  total_deposit: "100.0"
+  transfer_amount: "25.0"
+
+contracts:
+  token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  bridge_address: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+
+timeouts:
+  deposit_confirmation: "60s"
+  balance_update: "30s"
+  rpc_call: "15s"
+
+local:
+  compose_files:
+    - "docker-compose.yaml"
+    - "docker-compose.local-test.yaml"
+  anvil_url: "http://localhost:8545"
+  canton_url: "http://localhost:5013"

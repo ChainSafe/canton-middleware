@@ -54,7 +54,7 @@ const (
 )
 
 var (
-	configPath    = flag.String("config", "config.docker.yaml", "Path to config file")
+	configPath    = flag.String("config", "pkg/config/defaults/config.api-server.docker.yaml", "Path to config file")
 	verbose       = flag.Bool("verbose", false, "Enable verbose output")
 	fullReconcile = flag.Bool("full-reconcile", false, "Reset all balances and rebuild from events")
 )
@@ -66,7 +66,7 @@ func main() {
 
 	// Load configuration
 	printStep("Loading configuration from %s...", *configPath)
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
 		printError("Failed to load config: %v", err)
 		os.Exit(1)
@@ -85,14 +85,14 @@ func main() {
 	defer logger.Sync()
 
 	// Override Canton URL for local access (Docker uses internal hostnames)
-	localCantonCfg := cfg.Canton
-	localCantonCfg.RPCURL = "localhost:5011"
-	localCantonCfg.Auth.TokenURL = "http://localhost:8088/oauth/token"
-	localCantonCfg.Auth.Audience = "http://localhost:5011"
+	localCantonCfg := *cfg.Canton
+	localCantonCfg.Ledger.RPCURL = "localhost:5011"
+	localCantonCfg.Ledger.Auth.TokenURL = "http://localhost:8088/oauth/token"
+	localCantonCfg.Ledger.Auth.Audience = "http://localhost:5011"
 
-	// Try to get relayer_party from .test-config.yaml if not set
-	if localCantonCfg.RelayerParty == "" {
-		testCfg, err := config.Load(".test-config.yaml")
+	// Try to get issuer_party from .test-config.yaml if not set
+	if localCantonCfg.IssuerParty == "" {
+		testCfg, err := config.LoadAPIServer(".test-config.yaml")
 		if err != nil {
 			if *verbose {
 				printInfo("Could not load .test-config.yaml: %v", err)
@@ -100,16 +100,16 @@ func main() {
 			// Try reading party directly from bootstrap output
 			partyBytes, err := os.ReadFile(".test-config.yaml")
 			if err == nil {
-				// Parse YAML manually for just the relayer_party field
+				// Parse YAML manually for just the issuer_party field
 				lines := strings.Split(string(partyBytes), "\n")
 				for _, line := range lines {
-					if strings.Contains(line, "relayer_party:") {
+					if strings.Contains(line, "issuer_party:") {
 						parts := strings.SplitN(line, ":", 2)
 						if len(parts) == 2 {
 							party := strings.Trim(strings.TrimSpace(parts[1]), `"`)
 							if party != "" {
-								localCantonCfg.RelayerParty = party
-								printInfo("Using relayer_party from .test-config.yaml: %s", truncate(party, 40))
+								localCantonCfg.IssuerParty = party
+								printInfo("Using issuer_party from .test-config.yaml: %s", truncate(party, 40))
 							}
 						}
 					}
@@ -124,20 +124,20 @@ func main() {
 					}
 				}
 			}
-		} else if testCfg.Canton.RelayerParty != "" {
-			localCantonCfg.RelayerParty = testCfg.Canton.RelayerParty
+		} else if testCfg.Canton.IssuerParty != "" {
+			localCantonCfg.IssuerParty = testCfg.Canton.IssuerParty
 			localCantonCfg.DomainID = testCfg.Canton.DomainID
-			printInfo("Using relayer_party from .test-config.yaml: %s", truncate(localCantonCfg.RelayerParty, 40))
+			printInfo("Using issuer_party from .test-config.yaml: %s", truncate(localCantonCfg.IssuerParty, 40))
 		}
 
-		if localCantonCfg.RelayerParty == "" {
-			printWarning("relayer_party not set - run e2e-local.go first to bootstrap Canton")
+		if localCantonCfg.IssuerParty == "" {
+			printWarning("issuer_party not set - run e2e-local.go first to bootstrap Canton")
 		}
 	}
 
 	// Connect to Canton
-	printStep("Connecting to Canton at %s...", localCantonCfg.RPCURL)
-	cantonClient, err := canton.NewFromAppConfig(context.Background(), &localCantonCfg, canton.WithLogger(logger))
+	printStep("Connecting to Canton at %s...", localCantonCfg.Ledger.RPCURL)
+	cantonClient, err := canton.New(context.Background(), &localCantonCfg, canton.WithLogger(logger))
 	if err != nil {
 		printError("Failed to connect to Canton: %v", err)
 		os.Exit(1)
@@ -145,9 +145,8 @@ func main() {
 	defer cantonClient.Close()
 	printSuccess("Connected to Canton")
 
-	// Connect to PostgreSQL (use local host for testing)
-	dsn := fmt.Sprintf("host=localhost port=%d user=%s password=%s dbname=erc20_api sslmode=disable",
-		cfg.Database.Port, cfg.Database.User, cfg.Database.Password)
+	// Connect to PostgreSQL
+	dsn := cfg.Database.GetConnectionString()
 	printStep("Connecting to PostgreSQL...")
 	apiStore, err := apidb.NewStore(dsn)
 	if err != nil {
@@ -156,15 +155,7 @@ func main() {
 	}
 	defer apiStore.Close()
 
-	localDBCfg := config.DatabaseConfig{
-		Host:     "localhost",
-		Port:     cfg.Database.Port,
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		Database: "erc20_api",
-		SSLMode:  "disable",
-	}
-	bunDB, err := pgutil.ConnectDB(&localDBCfg)
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
 	if err != nil {
 		printError("Failed to connect to PostgreSQL (bun): %v", err)
 		os.Exit(1)

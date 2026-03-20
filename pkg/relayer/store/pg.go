@@ -173,7 +173,7 @@ func (s *PGStore) GetChainState(ctx context.Context, chainID string) (*relayer.C
 }
 
 // SetChainState upserts the last processed offset for a chain.
-func (s *PGStore) SetChainState(ctx context.Context, chainID string, blockNumber int64, offset string) error {
+func (s *PGStore) SetChainState(ctx context.Context, chainID string, blockNumber uint64, offset string) error {
 	dao := &ChainStateDao{
 		ChainID:       chainID,
 		LastBlock:     blockNumber,

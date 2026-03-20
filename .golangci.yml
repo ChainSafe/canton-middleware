@@ -139,9 +139,7 @@ linters:
     # NOTE: exclusions.paths are REGEX (not globs, not plain paths).
     # Anchor them so you only exclude those directories.
     paths:
-      - ^pkg/apidb
       - ^pkg/auth
-      - ^pkg/config
       - ^pkg/ethereum
       - ^pkg/keys
       - ^internal
@@ -169,9 +167,7 @@ formatters:
   exclusions:
     # NOTE: these are REGEX patterns (not globs)
     paths:
-      - ^pkg/apidb
       - ^pkg/auth
-      - ^pkg/config
       - ^pkg/ethereum
       - ^pkg/keys
       - ^internal
