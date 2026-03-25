@@ -123,13 +123,13 @@ func TestPGStore_BlockRollback(t *testing.T) {
 		t.Fatalf("second Rollback should be no-op: %v", err)
 	}
 
-	// Block counter must not have advanced after rollback
+	// Block counter should still be advanced after rollback, creating a gap.
 	latest, err := store.GetLatestEvmBlockNumber(ctx)
 	if err != nil {
 		t.Fatalf("GetLatestEvmBlockNumber failed: %v", err)
 	}
-	if latest != 0 {
-		t.Fatalf("block counter should not advance after rollback: got %d want 0", latest)
+	if latest != 1 {
+		t.Fatalf("block counter should advance even after rollback: got %d want 1", latest)
 	}
 }
 
