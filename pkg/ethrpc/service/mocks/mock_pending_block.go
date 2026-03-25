@@ -68,94 +68,96 @@ func (_c *PendingBlock_Abort_Call) RunAndReturn(run func(context.Context) error)
 	return _c
 }
 
-// BlockHash provides a mock function with no fields
-func (_m *PendingBlock) BlockHash() []byte {
-	ret := _m.Called()
+// AddEvmLog provides a mock function with given fields: ctx, log
+func (_m *PendingBlock) AddEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
+	ret := _m.Called(ctx, log)
 
 	if len(ret) == 0 {
-		panic("no return value specified for BlockHash")
+		panic("no return value specified for AddEvmLog")
 	}
 
-	var r0 []byte
-	if rf, ok := ret.Get(0).(func() []byte); ok {
-		r0 = rf()
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmLog) error); ok {
+		r0 = rf(ctx, log)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]byte)
-		}
+		r0 = ret.Error(0)
 	}
 
 	return r0
 }
 
-// PendingBlock_BlockHash_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BlockHash'
-type PendingBlock_BlockHash_Call struct {
+// PendingBlock_AddEvmLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddEvmLog'
+type PendingBlock_AddEvmLog_Call struct {
 	*mock.Call
 }
 
-// BlockHash is a helper method to define mock.On call
-func (_e *PendingBlock_Expecter) BlockHash() *PendingBlock_BlockHash_Call {
-	return &PendingBlock_BlockHash_Call{Call: _e.mock.On("BlockHash")}
+// AddEvmLog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - log *ethrpc.EvmLog
+func (_e *PendingBlock_Expecter) AddEvmLog(ctx interface{}, log interface{}) *PendingBlock_AddEvmLog_Call {
+	return &PendingBlock_AddEvmLog_Call{Call: _e.mock.On("AddEvmLog", ctx, log)}
 }
 
-func (_c *PendingBlock_BlockHash_Call) Run(run func()) *PendingBlock_BlockHash_Call {
+func (_c *PendingBlock_AddEvmLog_Call) Run(run func(ctx context.Context, log *ethrpc.EvmLog)) *PendingBlock_AddEvmLog_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context), args[1].(*ethrpc.EvmLog))
 	})
 	return _c
 }
 
-func (_c *PendingBlock_BlockHash_Call) Return(_a0 []byte) *PendingBlock_BlockHash_Call {
+func (_c *PendingBlock_AddEvmLog_Call) Return(_a0 error) *PendingBlock_AddEvmLog_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *PendingBlock_BlockHash_Call) RunAndReturn(run func() []byte) *PendingBlock_BlockHash_Call {
+func (_c *PendingBlock_AddEvmLog_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmLog) error) *PendingBlock_AddEvmLog_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// BlockNumber provides a mock function with no fields
-func (_m *PendingBlock) BlockNumber() uint64 {
-	ret := _m.Called()
+// AddEvmTransaction provides a mock function with given fields: ctx, tx
+func (_m *PendingBlock) AddEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
+	ret := _m.Called(ctx, tx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for BlockNumber")
+		panic("no return value specified for AddEvmTransaction")
 	}
 
-	var r0 uint64
-	if rf, ok := ret.Get(0).(func() uint64); ok {
-		r0 = rf()
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmTransaction) error); ok {
+		r0 = rf(ctx, tx)
 	} else {
-		r0 = ret.Get(0).(uint64)
+		r0 = ret.Error(0)
 	}
 
 	return r0
 }
 
-// PendingBlock_BlockNumber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BlockNumber'
-type PendingBlock_BlockNumber_Call struct {
+// PendingBlock_AddEvmTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddEvmTransaction'
+type PendingBlock_AddEvmTransaction_Call struct {
 	*mock.Call
 }
 
-// BlockNumber is a helper method to define mock.On call
-func (_e *PendingBlock_Expecter) BlockNumber() *PendingBlock_BlockNumber_Call {
-	return &PendingBlock_BlockNumber_Call{Call: _e.mock.On("BlockNumber")}
+// AddEvmTransaction is a helper method to define mock.On call
+//   - ctx context.Context
+//   - tx *ethrpc.EvmTransaction
+func (_e *PendingBlock_Expecter) AddEvmTransaction(ctx interface{}, tx interface{}) *PendingBlock_AddEvmTransaction_Call {
+	return &PendingBlock_AddEvmTransaction_Call{Call: _e.mock.On("AddEvmTransaction", ctx, tx)}
 }
 
-func (_c *PendingBlock_BlockNumber_Call) Run(run func()) *PendingBlock_BlockNumber_Call {
+func (_c *PendingBlock_AddEvmTransaction_Call) Run(run func(ctx context.Context, tx *ethrpc.EvmTransaction)) *PendingBlock_AddEvmTransaction_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context), args[1].(*ethrpc.EvmTransaction))
 	})
 	return _c
 }
 
-func (_c *PendingBlock_BlockNumber_Call) Return(_a0 uint64) *PendingBlock_BlockNumber_Call {
+func (_c *PendingBlock_AddEvmTransaction_Call) Return(_a0 error) *PendingBlock_AddEvmTransaction_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *PendingBlock_BlockNumber_Call) RunAndReturn(run func() uint64) *PendingBlock_BlockNumber_Call {
+func (_c *PendingBlock_AddEvmTransaction_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmTransaction) error) *PendingBlock_AddEvmTransaction_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -206,96 +208,94 @@ func (_c *PendingBlock_Finalize_Call) RunAndReturn(run func(context.Context) err
 	return _c
 }
 
-// SaveEvmLog provides a mock function with given fields: ctx, log
-func (_m *PendingBlock) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
-	ret := _m.Called(ctx, log)
+// Hash provides a mock function with no fields
+func (_m *PendingBlock) Hash() []byte {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
-		panic("no return value specified for SaveEvmLog")
+		panic("no return value specified for Hash")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmLog) error); ok {
-		r0 = rf(ctx, log)
+	var r0 []byte
+	if rf, ok := ret.Get(0).(func() []byte); ok {
+		r0 = rf()
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
 	}
 
 	return r0
 }
 
-// PendingBlock_SaveEvmLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveEvmLog'
-type PendingBlock_SaveEvmLog_Call struct {
+// PendingBlock_Hash_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Hash'
+type PendingBlock_Hash_Call struct {
 	*mock.Call
 }
 
-// SaveEvmLog is a helper method to define mock.On call
-//   - ctx context.Context
-//   - log *ethrpc.EvmLog
-func (_e *PendingBlock_Expecter) SaveEvmLog(ctx interface{}, log interface{}) *PendingBlock_SaveEvmLog_Call {
-	return &PendingBlock_SaveEvmLog_Call{Call: _e.mock.On("SaveEvmLog", ctx, log)}
+// Hash is a helper method to define mock.On call
+func (_e *PendingBlock_Expecter) Hash() *PendingBlock_Hash_Call {
+	return &PendingBlock_Hash_Call{Call: _e.mock.On("Hash")}
 }
 
-func (_c *PendingBlock_SaveEvmLog_Call) Run(run func(ctx context.Context, log *ethrpc.EvmLog)) *PendingBlock_SaveEvmLog_Call {
+func (_c *PendingBlock_Hash_Call) Run(run func()) *PendingBlock_Hash_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*ethrpc.EvmLog))
+		run()
 	})
 	return _c
 }
 
-func (_c *PendingBlock_SaveEvmLog_Call) Return(_a0 error) *PendingBlock_SaveEvmLog_Call {
+func (_c *PendingBlock_Hash_Call) Return(_a0 []byte) *PendingBlock_Hash_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *PendingBlock_SaveEvmLog_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmLog) error) *PendingBlock_SaveEvmLog_Call {
+func (_c *PendingBlock_Hash_Call) RunAndReturn(run func() []byte) *PendingBlock_Hash_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// SaveEvmTransaction provides a mock function with given fields: ctx, tx
-func (_m *PendingBlock) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
-	ret := _m.Called(ctx, tx)
+// Number provides a mock function with no fields
+func (_m *PendingBlock) Number() uint64 {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
-		panic("no return value specified for SaveEvmTransaction")
+		panic("no return value specified for Number")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmTransaction) error); ok {
-		r0 = rf(ctx, tx)
+	var r0 uint64
+	if rf, ok := ret.Get(0).(func() uint64); ok {
+		r0 = rf()
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(uint64)
 	}
 
 	return r0
 }
 
-// PendingBlock_SaveEvmTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveEvmTransaction'
-type PendingBlock_SaveEvmTransaction_Call struct {
+// PendingBlock_Number_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Number'
+type PendingBlock_Number_Call struct {
 	*mock.Call
 }
 
-// SaveEvmTransaction is a helper method to define mock.On call
-//   - ctx context.Context
-//   - tx *ethrpc.EvmTransaction
-func (_e *PendingBlock_Expecter) SaveEvmTransaction(ctx interface{}, tx interface{}) *PendingBlock_SaveEvmTransaction_Call {
-	return &PendingBlock_SaveEvmTransaction_Call{Call: _e.mock.On("SaveEvmTransaction", ctx, tx)}
+// Number is a helper method to define mock.On call
+func (_e *PendingBlock_Expecter) Number() *PendingBlock_Number_Call {
+	return &PendingBlock_Number_Call{Call: _e.mock.On("Number")}
 }
 
-func (_c *PendingBlock_SaveEvmTransaction_Call) Run(run func(ctx context.Context, tx *ethrpc.EvmTransaction)) *PendingBlock_SaveEvmTransaction_Call {
+func (_c *PendingBlock_Number_Call) Run(run func()) *PendingBlock_Number_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*ethrpc.EvmTransaction))
+		run()
 	})
 	return _c
 }
 
-func (_c *PendingBlock_SaveEvmTransaction_Call) Return(_a0 error) *PendingBlock_SaveEvmTransaction_Call {
+func (_c *PendingBlock_Number_Call) Return(_a0 uint64) *PendingBlock_Number_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *PendingBlock_SaveEvmTransaction_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmTransaction) error) *PendingBlock_SaveEvmTransaction_Call {
+func (_c *PendingBlock_Number_Call) RunAndReturn(run func() uint64) *PendingBlock_Number_Call {
 	_c.Call.Return(run)
 	return _c
 }

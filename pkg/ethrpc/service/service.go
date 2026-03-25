@@ -282,12 +282,12 @@ func (s *ethService) recordSyntheticTransfer(
 		Input:       input,
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: block.BlockNumber(),
-		BlockHash:   block.BlockHash(),
+		BlockNumber: block.Number(),
+		BlockHash:   block.Hash(),
 		TxIndex:     0,
 		GasUsed:     s.cfg.GasLimit,
 	}
-	if err = block.SaveEvmTransaction(ctx, evmTx); err != nil {
+	if err = block.AddEvmTransaction(ctx, evmTx); err != nil {
 		return apperr.DependencyError(err, "save EVM transaction")
 	}
 
@@ -302,12 +302,12 @@ func (s *ethService) recordSyntheticTransfer(
 		Address:     contractAddress.Bytes(),
 		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:        amountBytes,
-		BlockNumber: block.BlockNumber(),
-		BlockHash:   block.BlockHash(),
+		BlockNumber: block.Number(),
+		BlockHash:   block.Hash(),
 		TxIndex:     0,
 		Removed:     false,
 	}
-	if err = block.SaveEvmLog(ctx, evmLog); err != nil {
+	if err = block.AddEvmLog(ctx, evmLog); err != nil {
 		return apperr.DependencyError(err, "save EVM log")
 	}
 

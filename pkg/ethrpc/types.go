@@ -11,15 +11,15 @@ import (
 )
 
 // PendingBlock represents an atomic context for constructing a synthetic EVM block.
-// All SaveEvmTransaction and SaveEvmLog calls are grouped as part of this block context.
+// All AddEvmTransaction and AddEvmLog calls are grouped as part of this block context.
 // Finalize applies all changes; Abort discards them. Abort is a no-op after Finalize and is safe to defer.
 //
 //go:generate mockery --name PendingBlock --output service/mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
 type PendingBlock interface {
-	BlockNumber() uint64
-	BlockHash() []byte
-	SaveEvmTransaction(ctx context.Context, tx *EvmTransaction) error
-	SaveEvmLog(ctx context.Context, log *EvmLog) error
+	Number() uint64
+	Hash() []byte
+	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
+	AddEvmLog(ctx context.Context, log *EvmLog) error
 	Finalize(ctx context.Context) error
 	Abort(ctx context.Context) error
 }

@@ -62,10 +62,10 @@ type pendingBlock struct {
 	done        bool // guards against double-commit/rollback
 }
 
-func (b *pendingBlock) BlockNumber() uint64 { return b.blockNumber }
-func (b *pendingBlock) BlockHash() []byte   { return b.blockHash }
+func (b *pendingBlock) Number() uint64 { return b.blockNumber }
+func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 
-func (b *pendingBlock) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
+func (b *pendingBlock) AddEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
 	dao := toEvmTransactionDao(tx)
 	if _, err := b.tx.NewInsert().
 		Model(dao).
@@ -76,7 +76,7 @@ func (b *pendingBlock) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTra
 	return nil
 }
 
-func (b *pendingBlock) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
+func (b *pendingBlock) AddEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
 	dao := toEvmLogDao(log)
 	if _, err := b.tx.NewInsert().
 		Model(dao).
