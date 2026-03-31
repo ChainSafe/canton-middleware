@@ -216,14 +216,14 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	if err != nil {
 		return common.Hash{}, apperr.BadRequestError(err, fmt.Sprintf("contract not supported: %s", contractAddress.Hex()))
 	}
-	if err = erc20.TransferFrom(ctx, from, toAddr, *amount); err != nil {
+
+	txHash := tx.Hash()
+	if err = erc20.TransferFrom(ctx, txHash.Hex(), from, toAddr, *amount); err != nil {
 		// Pass categorized errors from the token service through directly so
 		// callers receive the correct JSON-RPC error code (e.g. -32602 for
 		// "sender not found", not the generic -32000 dependency failure).
 		return common.Hash{}, err
 	}
-
-	txHash := tx.Hash()
 	if err = s.recordSyntheticTransfer(ctx, txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
 		return common.Hash{}, err
 	}

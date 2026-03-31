@@ -237,7 +237,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		mockERC20 := mocks.NewERC20(t)
 		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, recipient, mock.Anything).
+			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
 		store := mocks.NewStore(t)
@@ -272,7 +272,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		mockERC20 := mocks.NewERC20(t)
 		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(apperr.BadRequestError(errors.New("user not found"), "failed to get sender"))
 
 		mockTokenSvc := mocks.NewTokenService(t)
@@ -289,7 +289,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		mockERC20 := mocks.NewERC20(t)
 		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, recipient, mock.Anything).
+			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
 		store := mocks.NewStore(t)
@@ -309,7 +309,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		mockERC20 := mocks.NewERC20(t)
 		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, recipient, mock.Anything).
+			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
 		store := mocks.NewStore(t)
@@ -330,7 +330,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		mockERC20 := mocks.NewERC20(t)
 		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, recipient, mock.Anything).
+			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
 		store := mocks.NewStore(t)

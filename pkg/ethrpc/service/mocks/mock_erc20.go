@@ -351,17 +351,17 @@ func (_c *ERC20_TotalSupply_Call) RunAndReturn(run func(context.Context) big.Int
 	return _c
 }
 
-// TransferFrom provides a mock function with given fields: ctx, from, to, amount
-func (_m *ERC20) TransferFrom(ctx context.Context, from common.Address, to common.Address, amount big.Int) error {
-	ret := _m.Called(ctx, from, to, amount)
+// TransferFrom provides a mock function with given fields: ctx, idempotencyKey, from, to, amount
+func (_m *ERC20) TransferFrom(ctx context.Context, idempotencyKey string, from common.Address, to common.Address, amount big.Int) error {
+	ret := _m.Called(ctx, idempotencyKey, from, to, amount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransferFrom")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, common.Address, common.Address, big.Int) error); ok {
-		r0 = rf(ctx, from, to, amount)
+	if rf, ok := ret.Get(0).(func(context.Context, string, common.Address, common.Address, big.Int) error); ok {
+		r0 = rf(ctx, idempotencyKey, from, to, amount)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -376,16 +376,17 @@ type ERC20_TransferFrom_Call struct {
 
 // TransferFrom is a helper method to define mock.On call
 //   - ctx context.Context
+//   - idempotencyKey string
 //   - from common.Address
 //   - to common.Address
 //   - amount big.Int
-func (_e *ERC20_Expecter) TransferFrom(ctx interface{}, from interface{}, to interface{}, amount interface{}) *ERC20_TransferFrom_Call {
-	return &ERC20_TransferFrom_Call{Call: _e.mock.On("TransferFrom", ctx, from, to, amount)}
+func (_e *ERC20_Expecter) TransferFrom(ctx interface{}, idempotencyKey interface{}, from interface{}, to interface{}, amount interface{}) *ERC20_TransferFrom_Call {
+	return &ERC20_TransferFrom_Call{Call: _e.mock.On("TransferFrom", ctx, idempotencyKey, from, to, amount)}
 }
 
-func (_c *ERC20_TransferFrom_Call) Run(run func(ctx context.Context, from common.Address, to common.Address, amount big.Int)) *ERC20_TransferFrom_Call {
+func (_c *ERC20_TransferFrom_Call) Run(run func(ctx context.Context, idempotencyKey string, from common.Address, to common.Address, amount big.Int)) *ERC20_TransferFrom_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(common.Address), args[2].(common.Address), args[3].(big.Int))
+		run(args[0].(context.Context), args[1].(string), args[2].(common.Address), args[3].(common.Address), args[4].(big.Int))
 	})
 	return _c
 }
@@ -395,7 +396,7 @@ func (_c *ERC20_TransferFrom_Call) Return(_a0 error) *ERC20_TransferFrom_Call {
 	return _c
 }
 
-func (_c *ERC20_TransferFrom_Call) RunAndReturn(run func(context.Context, common.Address, common.Address, big.Int) error) *ERC20_TransferFrom_Call {
+func (_c *ERC20_TransferFrom_Call) RunAndReturn(run func(context.Context, string, common.Address, common.Address, big.Int) error) *ERC20_TransferFrom_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -17,7 +17,7 @@ type ERC20 interface {
 	Decimals(ctx context.Context) uint8
 	TotalSupply(ctx context.Context) big.Int
 	BalanceOf(ctx context.Context, address common.Address) big.Int
-	TransferFrom(ctx context.Context, from, to common.Address, amount big.Int) error
+	TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) error
 	Approve(ctx context.Context, spender common.Address, amount big.Int) error
 	Allowance(ctx context.Context, owner, spender common.Address) big.Int
 }
@@ -83,8 +83,8 @@ func (e *erc20Impl) BalanceOf(ctx context.Context, address common.Address) big.I
 	return balance
 }
 
-func (e *erc20Impl) TransferFrom(ctx context.Context, from, to common.Address, amount big.Int) error {
-	return e.svc.transfer(ctx, e.address, from, to, bigIntToDecimal(amount, e.Decimals(ctx)))
+func (e *erc20Impl) TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) error {
+	return e.svc.transfer(ctx, idempotencyKey, e.address, from, to, bigIntToDecimal(amount, e.Decimals(ctx)))
 }
 
 func (erc20Impl) Approve(_ context.Context, _ common.Address, _ big.Int) error {
