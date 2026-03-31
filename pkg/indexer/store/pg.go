@@ -167,6 +167,12 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 		return fmt.Errorf("parse delta %q: %w", delta, err)
 	}
 	newAmount := oldAmount.Add(d)
+	if newAmount.IsNegative() {
+		return fmt.Errorf(
+			"negative balance for party %s on %s/%s: current=%s delta=%s",
+			partyID, instrumentAdmin, instrumentID, oldAmount.String(), delta,
+		)
+	}
 
 	_, err = s.db.NewInsert().
 		Model(&BalanceDao{
