@@ -367,7 +367,8 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 	return total, nil
 }
 
-func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
+func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
+	toFingerprint, amount, tokenSymbol string) error {
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
