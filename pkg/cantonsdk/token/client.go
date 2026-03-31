@@ -367,7 +367,7 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 	return total, nil
 }
 
-func (c *Client) TransferByFingerprint(ctx context.Context, commandID, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
+func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
@@ -377,10 +377,10 @@ func (c *Client) TransferByFingerprint(ctx context.Context, commandID, fromFinge
 		return fmt.Errorf("recipient not found: %w", err)
 	}
 
-	return c.TransferByPartyID(ctx, commandID, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol)
+	return c.TransferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol)
 }
 
-func (c *Client) TransferByPartyID(ctx context.Context, commandID, fromParty, toParty, amount, tokenSymbol string) error {
+func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
 	if fromParty == "" || toParty == "" {
 		return fmt.Errorf("from/to party is required")
 	}
@@ -406,7 +406,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, commandID, fromParty, to
 	}
 
 	return c.transferViaFactory(ctx, &transferFactoryRequest{
-		CommandID:        commandID,
+		CommandID:        idempotencyKey,
 		FromPartyID:      fromParty,
 		ToPartyID:        toParty,
 		Amount:           amount,
