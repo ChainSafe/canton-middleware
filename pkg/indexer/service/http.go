@@ -48,7 +48,7 @@ func (h *HTTP) listTokens(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, page)
+	h.writeJSON(w, http.StatusOK, page)
 	return nil
 }
 
@@ -59,7 +59,7 @@ func (h *HTTP) getToken(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, t)
+	h.writeJSON(w, http.StatusOK, t)
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (h *HTTP) getTokenSupply(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, map[string]string{"total_supply": supply})
+	h.writeJSON(w, http.StatusOK, map[string]string{"total_supply": supply})
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (h *HTTP) listTokenBalances(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, page)
+	h.writeJSON(w, http.StatusOK, page)
 	return nil
 }
 
@@ -104,7 +104,7 @@ func (h *HTTP) listTokenEvents(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, page)
+	h.writeJSON(w, http.StatusOK, page)
 	return nil
 }
 
@@ -118,7 +118,7 @@ func (h *HTTP) listPartyBalances(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, page)
+	h.writeJSON(w, http.StatusOK, page)
 	return nil
 }
 
@@ -130,7 +130,7 @@ func (h *HTTP) getPartyBalance(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, b)
+	h.writeJSON(w, http.StatusOK, b)
 	return nil
 }
 
@@ -148,7 +148,7 @@ func (h *HTTP) listPartyEvents(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, page)
+	h.writeJSON(w, http.StatusOK, page)
 	return nil
 }
 
@@ -158,7 +158,7 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	h.writeJSON(w, e)
+	h.writeJSON(w, http.StatusOK, e)
 	return nil
 }
 
@@ -194,9 +194,9 @@ func parseEventType(r *http.Request) (indexer.EventType, error) {
 	}
 }
 
-func (h *HTTP) writeJSON(w http.ResponseWriter, data any) {
+func (h *HTTP) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		h.logger.Error("failed to write JSON response", zap.Error(err))
 	}
