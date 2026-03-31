@@ -382,6 +382,9 @@ func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, from
 }
 
 func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotencyKey is required")
+	}
 	if fromParty == "" || toParty == "" {
 		return fmt.Errorf("from/to party is required")
 	}
