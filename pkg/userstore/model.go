@@ -10,16 +10,18 @@ import (
 
 // UserDao is a data access object that maps directly to the 'users' table in PostgreSQL.
 type UserDao struct {
-	bun.BaseModel             `bun:"table:users,alias:u"`
-	ID                        int64      `bun:"id,pk,autoincrement"`
-	EVMAddress                string     `bun:"evm_address,unique,notnull,type:varchar(42)"`
-	CantonParty               string     `bun:"canton_party,notnull,type:varchar(255)"`
-	Fingerprint               string     `bun:"fingerprint,notnull,type:varchar(128)"`
-	MappingCID                *string    `bun:"mapping_cid,type:varchar(255)"`
-	CreatedAt                 time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
-	CantonPartyID             *string    `bun:"canton_party_id,type:varchar(255)"`
-	CantonPrivateKeyEncrypted *string    `bun:"canton_private_key_encrypted,type:text"`
-	CantonKeyCreatedAt        *time.Time `bun:"canton_key_created_at"`
+	bun.BaseModel              `bun:"table:users,alias:u"`
+	ID                         int64      `bun:"id,pk,autoincrement"`
+	EVMAddress                 string     `bun:"evm_address,unique,notnull,type:varchar(42)"`
+	CantonParty                string     `bun:"canton_party,notnull,type:varchar(255)"`
+	Fingerprint                string     `bun:"fingerprint,notnull,type:varchar(128)"`
+	MappingCID                 *string    `bun:"mapping_cid,type:varchar(255)"`
+	CreatedAt                  time.Time  `bun:"created_at,nullzero,default:current_timestamp"`
+	CantonPartyID              *string    `bun:"canton_party_id,type:varchar(255)"`
+	CantonPrivateKeyEncrypted  *string    `bun:"canton_private_key_encrypted,type:text"`
+	CantonKeyCreatedAt         *time.Time `bun:"canton_key_created_at"`
+	KeyMode                    string     `bun:"key_mode,notnull,default:'custodial',type:varchar(20)"`
+	CantonPublicKeyFingerprint *string    `bun:"canton_public_key_fingerprint,type:text"`
 }
 
 // toUserDao converts a user.User to UserDao.
@@ -28,6 +30,7 @@ func toUserDao(usr *user.User) *UserDao {
 		EVMAddress:  usr.EVMAddress,
 		CantonParty: usr.CantonParty,
 		Fingerprint: usr.Fingerprint,
+		KeyMode:     usr.KeyMode,
 	}
 
 	if usr.MappingCID != "" {
@@ -42,6 +45,9 @@ func toUserDao(usr *user.User) *UserDao {
 	if usr.CantonPrivateKeyEncrypted != "" {
 		dao.CantonPrivateKeyEncrypted = &usr.CantonPrivateKeyEncrypted
 	}
+	if usr.CantonPublicKeyFingerprint != "" {
+		dao.CantonPublicKeyFingerprint = &usr.CantonPublicKeyFingerprint
+	}
 
 	return dao
 }
@@ -52,6 +58,7 @@ func toUser(dao *UserDao) *user.User {
 		EVMAddress:  dao.EVMAddress,
 		CantonParty: dao.CantonParty,
 		Fingerprint: dao.Fingerprint,
+		KeyMode:     dao.KeyMode,
 	}
 
 	if dao.MappingCID != nil {
@@ -65,6 +72,9 @@ func toUser(dao *UserDao) *user.User {
 	}
 	if dao.CantonPrivateKeyEncrypted != nil {
 		usr.CantonPrivateKeyEncrypted = *dao.CantonPrivateKeyEncrypted
+	}
+	if dao.CantonPublicKeyFingerprint != nil {
+		usr.CantonPublicKeyFingerprint = *dao.CantonPublicKeyFingerprint
 	}
 
 	return usr

@@ -75,6 +75,13 @@ type Token interface {
 	// GetTransferFactory returns the active CIP56TransferFactory contract ID and its
 	// CreatedEventBlob for explicit contract disclosure by external wallets (Splice Registry API).
 	GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error)
+
+	// PrepareTransfer builds a Canton transaction for a non-custodial transfer and returns
+	// the hash that the client must sign externally.
+	PrepareTransfer(ctx context.Context, req *PrepareTransferRequest) (*PreparedTransfer, error)
+
+	// ExecuteTransfer completes a previously prepared transfer using the client's DER signature.
+	ExecuteTransfer(ctx context.Context, req *ExecuteTransferRequest) error
 }
 
 // Client implements CIP-56 token operations.
@@ -427,9 +434,26 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 		return fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
 	}
 
+	cmd := c.buildTransferCommand(req)
+
+	commands := &lapiv2.Commands{
+		SynchronizerId: c.cfg.DomainID,
+		CommandId:      uuid.NewString(),
+		UserId:         c.cfg.UserID,
+		ActAs:          []string{req.FromPartyID},
+		ReadAs:         []string{c.cfg.IssuerParty},
+		Commands:       []*lapiv2.Command{cmd},
+	}
+
+	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
+}
+
+// buildTransferCommand creates the exercise command for a TransferFactory_Transfer.
+// Shared between custodial (transferViaFactory) and non-custodial (PrepareTransfer) paths.
+func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Command {
 	now := time.Now().UTC()
 
-	cmd := &lapiv2.Command{
+	return &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
@@ -457,17 +481,6 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 			},
 		},
 	}
-
-	commands := &lapiv2.Commands{
-		SynchronizerId: c.cfg.DomainID,
-		CommandId:      uuid.NewString(),
-		UserId:         c.cfg.UserID,
-		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.IssuerParty},
-		Commands:       []*lapiv2.Command{cmd},
-	}
-
-	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
 }
 
 func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
@@ -658,6 +671,118 @@ func selectHoldingsForTransfer(holdings []*Holding, requiredAmount string) (*sel
 
 	return nil, fmt.Errorf("%w: total unlocked balance %s, need %s",
 		ErrInsufficientBalance, total, requiredAmount)
+}
+
+func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferRequest) (*PreparedTransfer, error) {
+	if err := req.validate(); err != nil {
+		return nil, fmt.Errorf("invalid request: %w", err)
+	}
+
+	holdings, err := c.GetHoldings(ctx, req.FromPartyID, req.TokenSymbol)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := selectHoldingsForTransfer(holdings, req.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("select holdings for transfer: %w", err)
+	}
+
+	factoryCID, err := c.getTransferFactoryCID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	factoryReq := &transferFactoryRequest{
+		FromPartyID:      req.FromPartyID,
+		ToPartyID:        req.ToPartyID,
+		Amount:           req.Amount,
+		InstrumentAdmin:  selected.InstrumentAdmin,
+		InstrumentID:     selected.InstrumentID,
+		InputHoldingCIDs: selected.CIDs,
+		FactoryCID:       factoryCID,
+	}
+	cmd := c.buildTransferCommand(factoryReq)
+
+	commands := &lapiv2.Commands{
+		SynchronizerId: c.cfg.DomainID,
+		CommandId:      uuid.NewString(),
+		UserId:         c.cfg.UserID,
+		ActAs:          []string{req.FromPartyID},
+		ReadAs:         []string{c.cfg.IssuerParty},
+		Commands:       []*lapiv2.Command{cmd},
+	}
+
+	authCtx := c.ledger.AuthContext(ctx)
+	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
+		UserId:         commands.UserId,
+		CommandId:      commands.CommandId,
+		Commands:       commands.Commands,
+		ActAs:          commands.ActAs,
+		ReadAs:         commands.ReadAs,
+		SynchronizerId: commands.SynchronizerId,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("prepare submission: %w", err)
+	}
+
+	pt := &PreparedTransfer{
+		TransferID:           uuid.NewString(),
+		TransactionHash:      prepResp.PreparedTransactionHash,
+		PreparedTransaction:  prepResp.PreparedTransaction,
+		HashingSchemeVersion: prepResp.HashingSchemeVersion,
+		PartyID:              req.FromPartyID,
+	}
+
+	c.logger.Info("Prepared non-custodial transfer",
+		zap.String("transfer_id", pt.TransferID),
+		zap.String("from_party", req.FromPartyID),
+		zap.String("to_party", req.ToPartyID),
+		zap.String("amount", req.Amount),
+		zap.String("token", req.TokenSymbol))
+
+	return pt, nil
+}
+
+func (c *Client) ExecuteTransfer(ctx context.Context, req *ExecuteTransferRequest) error {
+	if err := req.validate(); err != nil {
+		return fmt.Errorf("invalid request: %w", err)
+	}
+
+	pt := req.PreparedTransfer
+	authCtx := c.ledger.AuthContext(ctx)
+
+	partySigs := &interactivev2.PartySignatures{
+		Signatures: []*interactivev2.SinglePartySignatures{
+			{
+				Party: pt.PartyID,
+				Signatures: []*lapiv2.Signature{
+					{
+						Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+						Signature:            req.Signature,
+						SignedBy:             req.SignedBy,
+						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
+					},
+				},
+			},
+		},
+	}
+
+	_, err := c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
+		PreparedTransaction:  pt.PreparedTransaction,
+		PartySignatures:      partySigs,
+		SubmissionId:         uuid.NewString(),
+		UserId:               c.cfg.UserID,
+		HashingSchemeVersion: pt.HashingSchemeVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("execute submission: %w", err)
+	}
+
+	c.logger.Info("Executed non-custodial transfer",
+		zap.String("transfer_id", pt.TransferID),
+		zap.String("party", pt.PartyID))
+
+	return nil
 }
 
 func (c *Client) GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error) {

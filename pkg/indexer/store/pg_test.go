@@ -329,6 +329,22 @@ func TestPGStore_ApplyBalanceDelta(t *testing.T) {
 		t.Fatalf("expected HolderCount=1 (no change), got %d", tok.HolderCount)
 	}
 
+	// underflow is rejected and leaves balance / holder count unchanged
+	err = s.RunInTx(ctx, func(ctx context.Context, tx engine.Store) error {
+		return tx.ApplyBalanceDelta(ctx, "alice", "admin-1", "DEMO", "-600")
+	})
+	if err == nil {
+		t.Fatal("ApplyBalanceDelta underflow expected error, got nil")
+	}
+	bal, _ = s.GetBalance(ctx, "alice", "admin-1", "DEMO")
+	if bal.Amount != "500" {
+		t.Fatalf("expected balance=500 after rejected underflow, got %s", bal.Amount)
+	}
+	tok, _ = s.GetToken(ctx, "admin-1", "DEMO")
+	if tok.HolderCount != 1 {
+		t.Fatalf("expected HolderCount=1 after rejected underflow, got %d", tok.HolderCount)
+	}
+
 	// second holder joins
 	err = s.RunInTx(ctx, func(ctx context.Context, tx engine.Store) error {
 		return tx.ApplyBalanceDelta(ctx, "bob", "admin-1", "DEMO", "100")
