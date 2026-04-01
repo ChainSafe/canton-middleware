@@ -165,6 +165,7 @@ services:
     volumes:
       - ./contracts/ethereum-wayfinder/broadcast:/app/broadcast:ro
       - config_state:/app/state
+      - e2e-deploy:/tmp
     depends_on:
       canton:
         condition: service_healthy
@@ -304,3 +305,4 @@ networks:
 
 volumes:
   config_state:
+  e2e-deploy:
