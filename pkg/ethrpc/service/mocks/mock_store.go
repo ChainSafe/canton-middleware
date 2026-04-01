@@ -419,64 +419,6 @@ func (_c *Store_InsertMempoolEntry_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// MineBlock provides a mock function with given fields: ctx, chainID, gasLimit
-func (_m *Store) MineBlock(ctx context.Context, chainID uint64, gasLimit uint64) (int, error) {
-	ret := _m.Called(ctx, chainID, gasLimit)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MineBlock")
-	}
-
-	var r0 int
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) (int, error)); ok {
-		return rf(ctx, chainID, gasLimit)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) int); ok {
-		r0 = rf(ctx, chainID, gasLimit)
-	} else {
-		r0 = ret.Get(0).(int)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, uint64, uint64) error); ok {
-		r1 = rf(ctx, chainID, gasLimit)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Store_MineBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MineBlock'
-type Store_MineBlock_Call struct {
-	*mock.Call
-}
-
-// MineBlock is a helper method to define mock.On call
-//   - ctx context.Context
-//   - chainID uint64
-//   - gasLimit uint64
-func (_e *Store_Expecter) MineBlock(ctx interface{}, chainID interface{}, gasLimit interface{}) *Store_MineBlock_Call {
-	return &Store_MineBlock_Call{Call: _e.mock.On("MineBlock", ctx, chainID, gasLimit)}
-}
-
-func (_c *Store_MineBlock_Call) Run(run func(ctx context.Context, chainID uint64, gasLimit uint64)) *Store_MineBlock_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64), args[2].(uint64))
-	})
-	return _c
-}
-
-func (_c *Store_MineBlock_Call) Return(_a0 int, _a1 error) *Store_MineBlock_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Store_MineBlock_Call) RunAndReturn(run func(context.Context, uint64, uint64) (int, error)) *Store_MineBlock_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UpdateMempoolStatus provides a mock function with given fields: ctx, txHash, status, errMsg
 func (_m *Store) UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error {
 	ret := _m.Called(ctx, txHash, status, errMsg)

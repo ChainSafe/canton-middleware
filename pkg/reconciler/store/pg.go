@@ -45,7 +45,7 @@ func (s *PGStore) SetBalanceByCantonPartyID(ctx context.Context, partyID, tokenS
 
 	_, err = s.db.NewInsert().
 		Model(row).
-		On("CONFLICT (canton_party_id, token_symbol) DO UPDATE").
+		On("CONFLICT (canton_party_id, token_symbol) WHERE canton_party_id IS NOT NULL DO UPDATE").
 		Set("balance = EXCLUDED.balance").
 		Set("updated_at = NOW()").
 		Exec(ctx)
@@ -76,7 +76,7 @@ func (s *PGStore) IncrementBalanceByFingerprint(ctx context.Context, fingerprint
 
 	_, err = s.db.NewInsert().
 		Model(row).
-		On("CONFLICT (fingerprint, token_symbol) DO UPDATE").
+		On("CONFLICT (fingerprint, token_symbol) WHERE fingerprint IS NOT NULL DO UPDATE").
 		Set("balance = COALESCE(utb.balance, 0) + EXCLUDED.balance").
 		Set("updated_at = NOW()").
 		Exec(ctx)
@@ -106,7 +106,7 @@ func (s *PGStore) DecrementBalanceByEVMAddress(ctx context.Context, evmAddress, 
 
 	_, err = s.db.NewInsert().
 		Model(row).
-		On("CONFLICT (evm_address, token_symbol) DO UPDATE").
+		On("CONFLICT (evm_address, token_symbol) WHERE evm_address IS NOT NULL DO UPDATE").
 		Set("balance = COALESCE(utb.balance, 0) - EXCLUDED.balance").
 		Set("updated_at = NOW()").
 		Exec(ctx)
@@ -416,7 +416,7 @@ func (s *PGStore) storeBridgeEvent(ctx context.Context, params *bridgeEventParam
 		}
 		if _, err = tx.NewInsert().
 			Model(row).
-			On("CONFLICT (fingerprint, token_symbol) DO UPDATE").
+			On("CONFLICT (fingerprint, token_symbol) WHERE fingerprint IS NOT NULL DO UPDATE").
 			Set("balance = " + balanceExpr).
 			Set("updated_at = NOW()").
 			Exec(ctx); err != nil {

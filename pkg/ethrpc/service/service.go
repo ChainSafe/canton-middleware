@@ -33,7 +33,6 @@ type Store interface {
 	// Mempool intent log — written by SendRawTransaction, consumed by the miner.
 	InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error
 	UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error
-	MineBlock(ctx context.Context, chainID, gasLimit uint64) (int, error)
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.

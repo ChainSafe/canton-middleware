@@ -1,6 +1,7 @@
 package ethrpc
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
@@ -8,6 +9,24 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 )
+
+// PendingBlock represents an atomic context for constructing a synthetic EVM block.
+// All writes are grouped in a single DB transaction that also holds an exclusive
+// lock on the evm_state row, serializing concurrent miners automatically.
+// Call Finalize to commit; Abort is a no-op after Finalize and is safe to defer.
+//
+//go:generate mockery --name PendingBlock --output service/mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
+type PendingBlock interface {
+	Number() uint64
+	Hash() []byte
+	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
+	AddEvmLog(ctx context.Context, log *EvmLog) error
+	// MarkMined updates mempool entries to status=mined within the same
+	// transaction, so the update commits atomically with the block.
+	MarkMined(ctx context.Context, txHashes [][]byte) error
+	Finalize(ctx context.Context) error
+	Abort(ctx context.Context) error
+}
 
 // RPCBlock represents a block in JSON-RPC format
 type RPCBlock struct {
@@ -178,9 +197,9 @@ type MempoolStatus string
 
 const (
 	MempoolPending   MempoolStatus = "pending"   // Canton transfer submitted, not yet confirmed
-	MempoolCompleted MempoolStatus = "completed"  // Canton transfer succeeded; awaiting miner
-	MempoolFailed    MempoolStatus = "failed"     // Canton transfer failed
-	MempoolMined     MempoolStatus = "mined"      // Included in a synthetic EVM block
+	MempoolCompleted MempoolStatus = "completed" // Canton transfer succeeded; awaiting miner
+	MempoolFailed    MempoolStatus = "failed"    // Canton transfer failed
+	MempoolMined     MempoolStatus = "mined"     // Included in a synthetic EVM block
 )
 
 // MempoolEntry is the intent log record written by SendRawTransaction
