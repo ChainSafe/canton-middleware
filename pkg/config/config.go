@@ -9,8 +9,10 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	pgdb "github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/reconciler"
@@ -83,6 +85,32 @@ func LoadAPIServer(configPath string) (*APIServer, error) {
 // LoadRelayerServer loads, defaults, and validates relayer configuration from file.
 func LoadRelayerServer(configPath string) (*RelayerServer, error) {
 	var cfg RelayerServer
+	if err := loadConfigFromFile(configPath, &cfg); err != nil {
+		return nil, err
+	}
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// IndexerServer represents the configuration for the standalone indexer process.
+// It wires a Canton ledger stream (write path) with an HTTP read API.
+type IndexerServer struct {
+	Server *http.ServerConfig `yaml:"server" validate:"required"`
+	// Database holds PostgreSQL connection settings for the indexer DB.
+	Database *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
+	// CantonLedger holds the Canton participant connection settings. The indexer only
+	// needs the ledger gRPC connection (for streaming) — Identity, Token, and
+	// Bridge sub-clients are not required.
+	CantonLedger *ledger.Config  `yaml:"canton_ledger" validate:"required"`
+	Indexer      *indexer.Config `yaml:"indexer" validate:"required"`
+	Logging      *log.Config     `yaml:"logging" validate:"required"`
+}
+
+// LoadIndexerServer loads, defaults, and validates indexer configuration from file.
+func LoadIndexerServer(configPath string) (*IndexerServer, error) {
+	var cfg IndexerServer
 	if err := loadConfigFromFile(configPath, &cfg); err != nil {
 		return nil, err
 	}

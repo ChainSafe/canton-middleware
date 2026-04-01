@@ -27,6 +27,9 @@ services:
   api-server:
     profiles: ["disabled"]
 
+  indexer:
+    profiles: ["disabled"]
+
   relayer:
     depends_on: !override
       postgres:

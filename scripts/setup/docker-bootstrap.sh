@@ -16,6 +16,7 @@ set -e
 
 CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
 API_SERVER_CONFIG_FILE="${API_SERVER_CONFIG_FILE:-/app/api-server-config.yaml}"
+INDEXER_CONFIG_FILE="${INDEXER_CONFIG_FILE:-/app/indexer-config.yaml}"
 SELECTED_ENV="${ENV:-docker}"
 CONFIG_DEFAULTS_DIR="${CONFIG_DEFAULTS_DIR:-/app/config/defaults}"
 CANTON_HTTP="${CANTON_HTTP:-http://canton:5013}"
@@ -36,10 +37,12 @@ case "$SELECTED_ENV" in
     docker)
         RELAYER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.relayer.docker.yaml"
         API_SERVER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.api-server.docker.yaml"
+        INDEXER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.indexer.docker.yaml"
         ;;
     devnet|local-devnet)
         RELAYER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.relayer.local-devnet.yaml"
         API_SERVER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.api-server.local-devnet.yaml"
+        INDEXER_TEMPLATE="${CONFIG_DEFAULTS_DIR}/config.indexer.local-devnet.yaml"
         ;;
     *)
         echo "ERROR: Unsupported ENV '$SELECTED_ENV' (expected docker|devnet)"
@@ -47,19 +50,22 @@ case "$SELECTED_ENV" in
         ;;
 esac
 
-if [ ! -f "$RELAYER_TEMPLATE" ] || [ ! -f "$API_SERVER_TEMPLATE" ]; then
+if [ ! -f "$RELAYER_TEMPLATE" ] || [ ! -f "$API_SERVER_TEMPLATE" ] || [ ! -f "$INDEXER_TEMPLATE" ]; then
     echo "ERROR: Missing config templates in ${CONFIG_DEFAULTS_DIR}"
     echo "  relayer template: $RELAYER_TEMPLATE"
     echo "  api template:     $API_SERVER_TEMPLATE"
+    echo "  indexer template: $INDEXER_TEMPLATE"
     exit 1
 fi
 
-mkdir -p "$(dirname "$CONFIG_FILE")" "$(dirname "$API_SERVER_CONFIG_FILE")"
+mkdir -p "$(dirname "$CONFIG_FILE")" "$(dirname "$API_SERVER_CONFIG_FILE")" "$(dirname "$INDEXER_CONFIG_FILE")"
 cp "$RELAYER_TEMPLATE" "$CONFIG_FILE"
 cp "$API_SERVER_TEMPLATE" "$API_SERVER_CONFIG_FILE"
+cp "$INDEXER_TEMPLATE" "$INDEXER_CONFIG_FILE"
 echo ">>> Selected templates:"
 echo "    Relayer:    $RELAYER_TEMPLATE"
 echo "    API Server: $API_SERVER_TEMPLATE"
+echo "    Indexer:    $INDEXER_TEMPLATE"
 echo ""
 
 # =============================================================================
@@ -214,6 +220,16 @@ if [ -f "$API_SERVER_CONFIG_FILE" ]; then
     sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
     sed -i "s|issuer_party: \".*\"|issuer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
     echo "    API server config updated with issuer_party and domain_id"
+fi
+
+# =============================================================================
+# Update indexer config file
+# =============================================================================
+if [ -f "$INDEXER_CONFIG_FILE" ]; then
+    echo ""
+    echo ">>> Updating indexer config file..."
+    sed -i "s|party: \".*\"|party: \"$PARTY_ID\"|" "$INDEXER_CONFIG_FILE"
+    echo "    Indexer config updated with party=$PARTY_ID"
 fi
 
 # =============================================================================

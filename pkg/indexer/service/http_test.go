@@ -34,7 +34,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	svcMock := mocks.NewService(t)
 
 	r := chi.NewRouter()
-	service.RegisterRoutes(r, svcMock, zap.NewNop())
+	service.RegisterPrivateRoutes(r, svcMock, zap.NewNop())
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
@@ -68,7 +68,7 @@ func decodeJSON[T any](t *testing.T, resp *http.Response) T {
 	return v
 }
 
-// ─── GET /indexer/v1/tokens ───────────────────────────────────────────────────
+// ─── GET /indexer/v1/admin/tokens ───────────────────────────────────────────────────
 
 func TestHTTP_ListTokens(t *testing.T) {
 	token := &indexer.Token{
@@ -84,7 +84,7 @@ func TestHTTP_ListTokens(t *testing.T) {
 		e.svc.EXPECT().ListTokens(mock.Anything, indexer.Pagination{Page: 1, Limit: 50}).
 			Return(&indexer.Page[*indexer.Token]{Items: []*indexer.Token{token}, Total: 1, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens")
+		resp := e.get(t, "/indexer/v1/admin/tokens")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -99,7 +99,7 @@ func TestHTTP_ListTokens(t *testing.T) {
 		e.svc.EXPECT().ListTokens(mock.Anything, indexer.Pagination{Page: 2, Limit: 10}).
 			Return(&indexer.Page[*indexer.Token]{Items: nil, Total: 0, Page: 2, Limit: 10}, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens?page=2&limit=10")
+		resp := e.get(t, "/indexer/v1/admin/tokens?page=2&limit=10")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusOK)
 	})
@@ -107,7 +107,7 @@ func TestHTTP_ListTokens(t *testing.T) {
 	t.Run("invalid page returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
-		resp := e.get(t, "/indexer/v1/tokens?page=0")
+		resp := e.get(t, "/indexer/v1/admin/tokens?page=0")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusBadRequest)
 	})
@@ -115,7 +115,7 @@ func TestHTTP_ListTokens(t *testing.T) {
 	t.Run("invalid limit returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
-		resp := e.get(t, "/indexer/v1/tokens?limit=999")
+		resp := e.get(t, "/indexer/v1/admin/tokens?limit=999")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusBadRequest)
 	})
@@ -125,13 +125,13 @@ func TestHTTP_ListTokens(t *testing.T) {
 		e.svc.EXPECT().ListTokens(mock.Anything, mock.Anything).
 			Return(nil, errors.New("db error"))
 
-		resp := e.get(t, "/indexer/v1/tokens")
+		resp := e.get(t, "/indexer/v1/admin/tokens")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
-// ─── GET /indexer/v1/tokens/{admin}/{id} ──────────────────────────────────────
+// ─── GET /indexer/v1/admin/tokens/{admin}/{id} ──────────────────────────────────────
 
 func TestHTTP_GetToken(t *testing.T) {
 	token := &indexer.Token{
@@ -144,7 +144,7 @@ func TestHTTP_GetToken(t *testing.T) {
 		e := newTestEnv(t)
 		e.svc.EXPECT().GetToken(mock.Anything, "admin-party", "DEMO").Return(token, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -158,7 +158,7 @@ func TestHTTP_GetToken(t *testing.T) {
 		e.svc.EXPECT().GetToken(mock.Anything, "admin-party", "NOPE").
 			Return(nil, apperr.ResourceNotFoundError(nil, "token not found"))
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/NOPE")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/NOPE")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusNotFound)
 	})
@@ -168,20 +168,20 @@ func TestHTTP_GetToken(t *testing.T) {
 		e.svc.EXPECT().GetToken(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, errors.New("db error"))
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
-// ─── GET /indexer/v1/tokens/{admin}/{id}/supply ───────────────────────────────
+// ─── GET /indexer/v1/admin/tokens/{admin}/{id}/supply ───────────────────────────────
 
 func TestHTTP_GetTokenSupply(t *testing.T) {
 	t.Run("success returns total_supply", func(t *testing.T) {
 		e := newTestEnv(t)
 		e.svc.EXPECT().TotalSupply(mock.Anything, "admin-party", "DEMO").Return("1000.0", nil)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/supply")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/supply")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -194,13 +194,13 @@ func TestHTTP_GetTokenSupply(t *testing.T) {
 		e.svc.EXPECT().TotalSupply(mock.Anything, mock.Anything, mock.Anything).
 			Return("", apperr.ResourceNotFoundError(nil, "token not found"))
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/NOPE/supply")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/NOPE/supply")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusNotFound)
 	})
 }
 
-// ─── GET /indexer/v1/tokens/{admin}/{id}/balances ─────────────────────────────
+// ─── GET /indexer/v1/admin/tokens/{admin}/{id}/balances ─────────────────────────────
 
 func TestHTTP_ListTokenBalances(t *testing.T) {
 	balance := &indexer.Balance{
@@ -215,7 +215,7 @@ func TestHTTP_ListTokenBalances(t *testing.T) {
 		e.svc.EXPECT().ListBalancesForToken(mock.Anything, "admin-party", "DEMO", indexer.Pagination{Page: 1, Limit: 50}).
 			Return(&indexer.Page[*indexer.Balance]{Items: []*indexer.Balance{balance}, Total: 1, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/balances")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/balances")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -230,13 +230,13 @@ func TestHTTP_ListTokenBalances(t *testing.T) {
 		e.svc.EXPECT().ListBalancesForToken(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, errors.New("db error"))
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/balances")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/balances")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusInternalServerError)
 	})
 }
 
-// ─── GET /indexer/v1/tokens/{admin}/{id}/events ───────────────────────────────
+// ─── GET /indexer/v1/admin/tokens/{admin}/{id}/events ───────────────────────────────
 
 func TestHTTP_ListTokenEvents(t *testing.T) {
 	event := &indexer.ParsedEvent{
@@ -252,7 +252,7 @@ func TestHTTP_ListTokenEvents(t *testing.T) {
 		e.svc.EXPECT().ListTokenEvents(mock.Anything, "admin-party", "DEMO", indexer.EventFilter{}, indexer.Pagination{Page: 1, Limit: 50}).
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: []*indexer.ParsedEvent{event}, Total: 1, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/events")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -265,7 +265,7 @@ func TestHTTP_ListTokenEvents(t *testing.T) {
 		e.svc.EXPECT().ListTokenEvents(mock.Anything, "admin-party", "DEMO", indexer.EventFilter{EventType: indexer.EventMint}, mock.Anything).
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: nil, Total: 0, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events?event_type=MINT")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/events?event_type=MINT")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusOK)
 	})
@@ -273,13 +273,13 @@ func TestHTTP_ListTokenEvents(t *testing.T) {
 	t.Run("invalid event_type returns 400", func(t *testing.T) {
 		e := newTestEnv(t)
 
-		resp := e.get(t, "/indexer/v1/tokens/admin-party/DEMO/events?event_type=INVALID")
+		resp := e.get(t, "/indexer/v1/admin/tokens/admin-party/DEMO/events?event_type=INVALID")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusBadRequest)
 	})
 }
 
-// ─── GET /indexer/v1/parties/{partyID}/balances ───────────────────────────────
+// ─── GET /indexer/v1/admin/parties/{partyID}/balances ───────────────────────────────
 
 func TestHTTP_ListPartyBalances(t *testing.T) {
 	balance := &indexer.Balance{
@@ -294,7 +294,7 @@ func TestHTTP_ListPartyBalances(t *testing.T) {
 		e.svc.EXPECT().ListBalancesForParty(mock.Anything, e.partyID, indexer.Pagination{Page: 1, Limit: 50}).
 			Return(&indexer.Page[*indexer.Balance]{Items: []*indexer.Balance{balance}, Total: 1, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances")
+		resp := e.get(t, "/indexer/v1/admin/parties/"+e.partyID+"/balances")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -303,7 +303,7 @@ func TestHTTP_ListPartyBalances(t *testing.T) {
 	})
 }
 
-// ─── GET /indexer/v1/parties/{partyID}/balances/{admin}/{id} ─────────────────
+// ─── GET /indexer/v1/admin/parties/{partyID}/balances/{admin}/{id} ─────────────────
 
 func TestHTTP_GetPartyBalance(t *testing.T) {
 	balance := &indexer.Balance{
@@ -317,7 +317,7 @@ func TestHTTP_GetPartyBalance(t *testing.T) {
 		e := newTestEnv(t)
 		e.svc.EXPECT().GetBalance(mock.Anything, e.partyID, "admin-party", "DEMO").Return(balance, nil)
 
-		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances/admin-party/DEMO")
+		resp := e.get(t, "/indexer/v1/admin/parties/"+e.partyID+"/balances/admin-party/DEMO")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -330,13 +330,13 @@ func TestHTTP_GetPartyBalance(t *testing.T) {
 		e.svc.EXPECT().GetBalance(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, apperr.ResourceNotFoundError(nil, "balance not found"))
 
-		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/balances/admin-party/DEMO")
+		resp := e.get(t, "/indexer/v1/admin/parties/"+e.partyID+"/balances/admin-party/DEMO")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusNotFound)
 	})
 }
 
-// ─── GET /indexer/v1/parties/{partyID}/events ────────────────────────────────
+// ─── GET /indexer/v1/admin/parties/{partyID}/events ────────────────────────────────
 
 func TestHTTP_ListPartyEvents(t *testing.T) {
 	event := &indexer.ParsedEvent{
@@ -350,7 +350,7 @@ func TestHTTP_ListPartyEvents(t *testing.T) {
 		e.svc.EXPECT().ListPartyEvents(mock.Anything, e.partyID, indexer.EventFilter{}, indexer.Pagination{Page: 1, Limit: 50}).
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: []*indexer.ParsedEvent{event}, Total: 1, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/events")
+		resp := e.get(t, "/indexer/v1/admin/parties/"+e.partyID+"/events")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -363,13 +363,13 @@ func TestHTTP_ListPartyEvents(t *testing.T) {
 		e.svc.EXPECT().ListPartyEvents(mock.Anything, e.partyID, indexer.EventFilter{EventType: indexer.EventBurn}, mock.Anything).
 			Return(&indexer.Page[*indexer.ParsedEvent]{Items: nil, Total: 0, Page: 1, Limit: 50}, nil)
 
-		resp := e.get(t, "/indexer/v1/parties/"+e.partyID+"/events?event_type=BURN")
+		resp := e.get(t, "/indexer/v1/admin/parties/"+e.partyID+"/events?event_type=BURN")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusOK)
 	})
 }
 
-// ─── GET /indexer/v1/events/{contractID} ─────────────────────────────────────
+// ─── GET /indexer/v1/admin/events/{contractID} ─────────────────────────────────────
 
 func TestHTTP_GetEvent(t *testing.T) {
 	event := &indexer.ParsedEvent{
@@ -382,7 +382,7 @@ func TestHTTP_GetEvent(t *testing.T) {
 		e := newTestEnv(t)
 		e.svc.EXPECT().GetEvent(mock.Anything, "contract-abc").Return(event, nil)
 
-		resp := e.get(t, "/indexer/v1/events/contract-abc")
+		resp := e.get(t, "/indexer/v1/admin/events/contract-abc")
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -396,7 +396,7 @@ func TestHTTP_GetEvent(t *testing.T) {
 		e.svc.EXPECT().GetEvent(mock.Anything, "unknown").
 			Return(nil, apperr.ResourceNotFoundError(nil, "event not found"))
 
-		resp := e.get(t, "/indexer/v1/events/unknown")
+		resp := e.get(t, "/indexer/v1/admin/events/unknown")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusNotFound)
 	})
@@ -406,7 +406,7 @@ func TestHTTP_GetEvent(t *testing.T) {
 		e.svc.EXPECT().GetEvent(mock.Anything, mock.Anything).
 			Return(nil, errors.New("db error"))
 
-		resp := e.get(t, "/indexer/v1/events/contract-abc")
+		resp := e.get(t, "/indexer/v1/admin/events/contract-abc")
 		defer resp.Body.Close()
 		assertStatus(t, resp, http.StatusInternalServerError)
 	})

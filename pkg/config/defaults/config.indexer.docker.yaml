@@ -1,0 +1,49 @@
+# =============================================================================
+# Indexer Configuration (Docker / local)
+# =============================================================================
+# Used by the indexer container in docker-compose.yaml.
+# Values marked ${...} are injected at runtime via environment variables.
+# =============================================================================
+
+server:
+  host: "0.0.0.0"
+  port: 8082
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${INDEXER_DATABASE_URL}"
+  ssl_mode: "disable"
+  timeout: 10
+  pool_size: 10
+
+canton_ledger:
+  rpc_url: "canton:5011"
+  ledger_id: ""
+  max_inbound_message_size: 52428800
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    insecure_skip_verify: false
+  auth:
+    client_id: "${CANTON_AUTH_CLIENT_ID}"
+    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+    audience: "http://canton:5011"
+    token_url: "http://mock-oauth2:8088/oauth/token"
+    expiry_leeway: "60s"
+
+indexer:
+  # party must have read visibility into TokenTransferEvent contracts.
+  # The issuer party is used here as it has full visibility into all token events.
+  party: "${CANTON_ISSUER_PARTY}"
+  cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+  filter_mode: "all"
+
+logging:
+  level: "debug"
+  format: "json"
+  output_path: "stdout"
