@@ -17,7 +17,9 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user/service/mocks"
 )
 
-func signEIP191Message(t *testing.T, message string) (string, string) {
+const testMessage = "register-me"
+
+func signEIP191Message(t *testing.T) (string, string) {
 	t.Helper()
 
 	privateKey, err := crypto.GenerateKey()
@@ -25,7 +27,7 @@ func signEIP191Message(t *testing.T, message string) (string, string) {
 		t.Fatalf("GenerateKey() failed: %v", err)
 	}
 
-	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	prefixedMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(testMessage), testMessage)
 	hash := crypto.Keccak256Hash([]byte(prefixedMessage))
 
 	signature, err := crypto.Sign(hash.Bytes(), privateKey)
@@ -39,16 +41,16 @@ func signEIP191Message(t *testing.T, message string) (string, string) {
 
 func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
-		Message:   message,
+		Message:   testMessage,
 		Signature: signature,
 	})
 	if err == nil {
@@ -64,18 +66,67 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 
 func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	ctx := context.Background()
-	message := "register-me"
-	evmAddress, signature := signEIP191Message(t, message)
+	evmAddress, signature := signEIP191Message(t)
+
+	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
+
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+
+	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
+		Message:   testMessage,
+		Signature: signature,
+	})
+	if err == nil {
+		t.Fatal("expected forbidden error, got nil")
+	}
+	if !errors.Is(err, ErrNotWhitelisted) {
+		t.Fatalf("expected ErrNotWhitelisted, got %v", err)
+	}
+	if !apperrors.Is(err, apperrors.CategoryForbidden) {
+		t.Fatalf("expected CategoryForbidden, got %v", err)
+	}
+}
+
+func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
+	ctx := context.Background()
+	evmAddress, signature := signEIP191Message(t)
+
+	storeMock := mocks.NewStore(t)
+	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
+
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+
+	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
+		Message:         testMessage,
+		Signature:       signature,
+		CantonPublicKey: "02deadbeef",
+	})
+	if err == nil {
+		t.Fatal("expected conflict error, got nil")
+	}
+	if !errors.Is(err, ErrUserAlreadyRegistered) {
+		t.Fatalf("expected ErrUserAlreadyRegistered, got %v", err)
+	}
+	if !apperrors.Is(err, apperrors.CategoryDataConflict) {
+		t.Fatalf("expected CategoryDataConflict, got %v", err)
+	}
+}
+
+func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
+	ctx := context.Background()
+	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
 
-	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
-		Message:   message,
-		Signature: signature,
+	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
+		Message:         testMessage,
+		Signature:       signature,
+		CantonPublicKey: "02deadbeef",
 	})
 	if err == nil {
 		t.Fatal("expected forbidden error, got nil")
@@ -96,7 +147,7 @@ func TestRegistrationService_RegisterCantonNativeUser_StoreError(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(nil, storeErr).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -119,7 +170,7 @@ func TestRegistrationService_RegisterCantonNativeUser_PartyAlreadyRegistered(t *
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(&user.User{CantonPartyID: partyID}, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,

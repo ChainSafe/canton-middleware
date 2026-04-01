@@ -69,6 +69,53 @@ func (_c *Token_Burn_Call) RunAndReturn(run func(context.Context, *token.BurnReq
 	return _c
 }
 
+// ExecuteTransfer provides a mock function with given fields: ctx, req
+func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteTransfer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.ExecuteTransferRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_ExecuteTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteTransfer'
+type Token_ExecuteTransfer_Call struct {
+	*mock.Call
+}
+
+// ExecuteTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.ExecuteTransferRequest
+func (_e *Token_Expecter) ExecuteTransfer(ctx interface{}, req interface{}) *Token_ExecuteTransfer_Call {
+	return &Token_ExecuteTransfer_Call{Call: _e.mock.On("ExecuteTransfer", ctx, req)}
+}
+
+func (_c *Token_ExecuteTransfer_Call) Run(run func(ctx context.Context, req *token.ExecuteTransferRequest)) *Token_ExecuteTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.ExecuteTransferRequest))
+	})
+	return _c
+}
+
+func (_c *Token_ExecuteTransfer_Call) Return(_a0 error) *Token_ExecuteTransfer_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_ExecuteTransfer_Call) RunAndReturn(run func(context.Context, *token.ExecuteTransferRequest) error) *Token_ExecuteTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetAllHoldings provides a mock function with given fields: ctx
 func (_m *Token) GetAllHoldings(ctx context.Context) ([]*token.Holding, error) {
 	ret := _m.Called(ctx)
@@ -532,6 +579,65 @@ func (_c *Token_Mint_Call) RunAndReturn(run func(context.Context, *token.MintReq
 	return _c
 }
 
+// PrepareTransfer provides a mock function with given fields: ctx, req
+func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareTransfer")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *token.PrepareTransferRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_PrepareTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareTransfer'
+type Token_PrepareTransfer_Call struct {
+	*mock.Call
+}
+
+// PrepareTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.PrepareTransferRequest
+func (_e *Token_Expecter) PrepareTransfer(ctx interface{}, req interface{}) *Token_PrepareTransfer_Call {
+	return &Token_PrepareTransfer_Call{Call: _e.mock.On("PrepareTransfer", ctx, req)}
+}
+
+func (_c *Token_PrepareTransfer_Call) Run(run func(ctx context.Context, req *token.PrepareTransferRequest)) *Token_PrepareTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.PrepareTransferRequest))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareTransfer_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareTransfer_Call) RunAndReturn(run func(context.Context, *token.PrepareTransferRequest) (*token.PreparedTransfer, error)) *Token_PrepareTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // TransferByFingerprint provides a mock function with given fields: ctx, fromFingerprint, toFingerprint, amount, tokenSymbol
 func (_m *Token) TransferByFingerprint(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string) error {
 	ret := _m.Called(ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)
@@ -630,54 +736,6 @@ func (_c *Token_TransferByPartyID_Call) Return(_a0 error) *Token_TransferByParty
 func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *Token_TransferByPartyID_Call {
 	_c.Call.Return(run)
 	return _c
-}
-
-// PrepareTransfer provides a mock function with given fields: ctx, req
-func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
-	ret := _m.Called(ctx, req)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PrepareTransfer")
-	}
-
-	var r0 *token.PreparedTransfer
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) (*token.PreparedTransfer, error)); ok {
-		return rf(ctx, req)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareTransferRequest) *token.PreparedTransfer); ok {
-		r0 = rf(ctx, req)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*token.PreparedTransfer)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, *token.PrepareTransferRequest) error); ok {
-		r1 = rf(ctx, req)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// ExecuteTransfer provides a mock function with given fields: ctx, req
-func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
-	ret := _m.Called(ctx, req)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ExecuteTransfer")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *token.ExecuteTransferRequest) error); ok {
-		r0 = rf(ctx, req)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
 }
 
 // NewToken creates a new instance of Token. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

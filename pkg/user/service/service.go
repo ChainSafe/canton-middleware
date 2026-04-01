@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -11,11 +12,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+
+	"github.com/google/uuid"
 )
 
 // Constants for registration operations
@@ -54,6 +59,7 @@ type Store interface {
 type Service interface {
 	RegisterWeb3User(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	RegisterCantonNativeUser(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
+	PrepareExternalRegistration(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error)
 }
 
 type registrationService struct {
@@ -62,6 +68,7 @@ type registrationService struct {
 	logger                          *zap.Logger
 	keyCipher                       keys.KeyCipher
 	skipCantonSignatureVerification bool
+	topologyCache                   TopologyCacheProvider
 }
 
 // NewService creates a new registration service
@@ -71,6 +78,7 @@ func NewService(
 	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
+	topologyCache TopologyCacheProvider,
 ) Service {
 	return &registrationService{
 		store:                           store,
@@ -78,6 +86,7 @@ func NewService(
 		logger:                          logger,
 		keyCipher:                       keyCipher,
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
+		topologyCache:                   topologyCache,
 	}
 }
 
@@ -106,7 +115,23 @@ func (s *registrationService) RegisterWeb3User(
 	}
 
 	evmAddress := auth.NormalizeAddress(recoveredAddr.Hex())
-	s.logger.Info("Web3 registration initiated", zap.String("evm_address", evmAddress))
+	s.logger.Info("Web3 registration initiated",
+		zap.String("evm_address", evmAddress),
+		zap.String("key_mode", req.KeyMode))
+
+	// Check whitelist (before any registration path)
+	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check whitelist: %w", err)
+	}
+	if !whitelisted {
+		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	}
+
+	// External (non-custodial) registration: second step of two-step flow
+	if req.KeyMode == user.KeyModeExternal {
+		return s.registerExternalWeb3User(ctx, evmAddress, req)
+	}
 
 	// Check if user already exists
 	exists, err := s.store.UserExists(ctx, evmAddress)
@@ -115,15 +140,6 @@ func (s *registrationService) RegisterWeb3User(
 	}
 	if exists {
 		return nil, apperrors.ConflictError(ErrUserAlreadyRegistered, "user already registered")
-	}
-
-	// Check whitelist
-	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check whitelist: %w", err)
-	}
-	if !whitelisted {
-		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
 	}
 
 	// Compute fingerprint
@@ -290,6 +306,167 @@ func (s *registrationService) RegisterCantonNativeUser(
 		EVMAddress:  evmAddress,
 		PrivateKey:  evmKeyPair.PrivateKeyHex(),
 	}, nil
+}
+
+// RegisterExternalWeb3User handles the second step of external (non-custodial) user registration.
+// It retrieves the pending topology from cache, allocates the party with the client signature,
+// creates the fingerprint mapping, and saves the user.
+func (s *registrationService) registerExternalWeb3User(
+	ctx context.Context,
+	evmAddress string,
+	req *user.RegisterRequest,
+) (*user.RegisterResponse, error) {
+	// Re-check user existence to guard against concurrent registrations between step 1 and step 2.
+	exists, err := s.store.UserExists(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if exists {
+		return nil, apperrors.ConflictError(ErrUserAlreadyRegistered, "user already registered")
+	}
+
+	pending, err := s.topologyCache.GetAndDelete(req.RegistrationToken)
+	if err != nil {
+		if errors.Is(err, ErrTopologyNotFound) {
+			return nil, apperrors.ResourceNotFoundError(err, "registration token not found or already used")
+		}
+		if errors.Is(err, ErrTopologyExpired) {
+			return nil, apperrors.GoneError(err, "registration token expired")
+		}
+		return nil, fmt.Errorf("topology cache lookup: %w", err)
+	}
+
+	// Verify the public key matches what was submitted in step 1
+	step2SPKI, err := compressedKeyToSPKI(req.CantonPublicKey)
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid canton_public_key")
+	}
+	if !bytes.Equal(step2SPKI, pending.PublicKey) {
+		return nil, apperrors.BadRequestError(nil, "canton_public_key does not match the key from prepare-topology")
+	}
+
+	derSig, err := hex.DecodeString(strings.TrimPrefix(req.TopologySignature, "0x"))
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid topology_signature hex")
+	}
+
+	partyResult, err := s.cantonClient.AllocateExternalPartyWithSignature(ctx, pending.Topology, derSig)
+	if err != nil {
+		if isPartyAlreadyAllocatedError(err) {
+			return nil, apperrors.ConflictError(ErrPartyAlreadyAllocated, "Canton party already allocated for this user")
+		}
+		return nil, fmt.Errorf("external party allocation failed: %w", err)
+	}
+
+	cantonPartyID := partyResult.PartyID
+	fingerprint := auth.ComputeFingerprint(evmAddress)
+
+	mapping, err := s.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
+		UserParty:   cantonPartyID,
+		Fingerprint: fingerprint,
+		EvmAddress:  evmAddress,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint mapping creation failed: %w", err)
+	}
+
+	regUser := user.NewExternal(
+		evmAddress,
+		cantonPartyID,
+		fingerprint,
+		mapping.ContractID,
+		pending.Topology.Fingerprint,
+	)
+
+	if err := s.store.CreateUser(ctx, regUser); err != nil {
+		return nil, fmt.Errorf("failed to save user: %w", err)
+	}
+
+	return &user.RegisterResponse{
+		Party:       cantonPartyID,
+		Fingerprint: fingerprint,
+		MappingCID:  mapping.ContractID,
+		EVMAddress:  evmAddress,
+		KeyMode:     user.KeyModeExternal,
+	}, nil
+}
+
+// PrepareExternalRegistration is step 1 of external (non-custodial) user registration.
+// It generates the topology transactions and multi-hash that the client must sign.
+func (s *registrationService) PrepareExternalRegistration(
+	ctx context.Context,
+	req *user.RegisterRequest,
+) (*user.PrepareTopologyResponse, error) {
+	// Verify EVM signature
+	recoveredAddr, err := auth.VerifyEIP191Signature(req.Message, req.Signature)
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid signature")
+	}
+	evmAddress := auth.NormalizeAddress(recoveredAddr.Hex())
+
+	// Check if user already exists
+	exists, err := s.store.UserExists(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if exists {
+		return nil, apperrors.ConflictError(ErrUserAlreadyRegistered, "user already registered")
+	}
+
+	// Check whitelist
+	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check whitelist: %w", err)
+	}
+	if !whitelisted {
+		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	}
+
+	// Parse compressed public key and derive SPKI
+	spkiKey, err := compressedKeyToSPKI(req.CantonPublicKey)
+	if err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid canton_public_key")
+	}
+
+	partyHint := generatePartyHint(evmAddress)
+
+	topology, err := s.cantonClient.GenerateExternalPartyTopology(ctx, partyHint, spkiKey)
+	if err != nil {
+		return nil, fmt.Errorf("generate topology failed: %w", err)
+	}
+
+	registrationToken := uuid.NewString()
+	s.topologyCache.Put(registrationToken, topology, spkiKey)
+
+	s.logger.Info("Prepared external registration topology",
+		zap.String("evm_address", evmAddress),
+		zap.String("fingerprint", topology.Fingerprint))
+
+	return &user.PrepareTopologyResponse{
+		TopologyHash:         "0x" + hex.EncodeToString(topology.MultiHash),
+		PublicKeyFingerprint: topology.Fingerprint,
+		RegistrationToken:    registrationToken,
+	}, nil
+}
+
+// compressedKeyToSPKI derives an SPKI DER public key from a hex-encoded compressed secp256k1 public key.
+func compressedKeyToSPKI(hexKey string) ([]byte, error) {
+	raw, err := hex.DecodeString(strings.TrimPrefix(hexKey, "0x"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex: %w", err)
+	}
+	const compressedPubKeyLen = 33
+	if len(raw) != compressedPubKeyLen {
+		return nil, fmt.Errorf("expected %d-byte compressed public key, got %d bytes", compressedPubKeyLen, len(raw))
+	}
+
+	// Decompress using go-ethereum (works with secp256k1 unlike elliptic.UnmarshalCompressed)
+	ecdsaPub, err := crypto.DecompressPubkey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid compressed secp256k1 public key: %w", err)
+	}
+
+	return keys.MarshalSPKIPublicKey(ecdsaPub.X, ecdsaPub.Y)
 }
 
 // Helper methods

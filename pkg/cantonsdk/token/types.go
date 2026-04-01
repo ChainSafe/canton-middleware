@@ -3,6 +3,8 @@ package token
 import (
 	"fmt"
 	"time"
+
+	interactivev2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive"
 )
 
 // Signer can produce DER-encoded ECDSA signatures for Canton Interactive Submission.
@@ -131,6 +133,57 @@ func (e *TokenTransferEvent) UserFingerprint() string {
 		return ""
 	}
 	return e.Meta["bridge.fingerprint"]
+}
+
+// PrepareTransferRequest contains the parameters for preparing a non-custodial transfer.
+type PrepareTransferRequest struct {
+	FromPartyID string
+	ToPartyID   string
+	Amount      string
+	TokenSymbol string
+}
+
+func (r *PrepareTransferRequest) validate() error {
+	if r.FromPartyID == "" || r.ToPartyID == "" {
+		return fmt.Errorf("from/to party is required")
+	}
+	if r.Amount == "" {
+		return fmt.Errorf("amount is required")
+	}
+	if r.TokenSymbol == "" {
+		return fmt.Errorf("token symbol is required")
+	}
+	return nil
+}
+
+// PreparedTransfer holds the result of a prepare step for non-custodial signing.
+type PreparedTransfer struct {
+	TransferID           string                             // UUID
+	TransactionHash      []byte                             // PreparedTransactionHash from Canton (what client signs)
+	PreparedTransaction  *interactivev2.PreparedTransaction // Opaque protobuf message (passed back on execute)
+	HashingSchemeVersion interactivev2.HashingSchemeVersion // Must match on execute
+	PartyID              string                             // The acting party
+	ExpiresAt            time.Time                          // Cache TTL deadline
+}
+
+// ExecuteTransferRequest contains the client-signed data to complete a non-custodial transfer.
+type ExecuteTransferRequest struct {
+	PreparedTransfer *PreparedTransfer // The prepared transfer to execute
+	Signature        []byte            // DER-encoded ECDSA signature of TransactionHash
+	SignedBy         string            // Canton multihash fingerprint of signing key
+}
+
+func (r *ExecuteTransferRequest) validate() error {
+	if r.PreparedTransfer == nil {
+		return fmt.Errorf("prepared transfer is required")
+	}
+	if len(r.Signature) == 0 {
+		return fmt.Errorf("signature is required")
+	}
+	if r.SignedBy == "" {
+		return fmt.Errorf("signed by is required")
+	}
+	return nil
 }
 
 // TransferFactoryInfo contains the CIP56TransferFactory contract details
