@@ -240,10 +240,15 @@ func TestService_SendRawTransaction(t *testing.T) {
 			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
+		pendingBlock := mocks.NewPendingBlock(t)
+		pendingBlock.EXPECT().Number().Return(uint64(1))
+		pendingBlock.EXPECT().Hash().Return(blockHashBytes)
+		pendingBlock.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
+		pendingBlock.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil)
+		pendingBlock.EXPECT().Finalize(mock.Anything).Return(nil)
+		pendingBlock.EXPECT().Abort(mock.Anything).Return(nil)
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().NewBlock(mock.Anything, uint64(31337)).Return(pendingBlock, nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -284,7 +289,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
 	})
 
-	t.Run("NextEvmBlock error propagates", func(t *testing.T) {
+	t.Run("NewBlock error propagates", func(t *testing.T) {
 		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
 		mockERC20 := mocks.NewERC20(t)
@@ -293,7 +298,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(0), nil, 0, errors.New("next block failed"))
+		store.EXPECT().NewBlock(mock.Anything, uint64(31337)).Return(nil, errors.New("begin tx failed"))
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -312,9 +317,13 @@ func TestService_SendRawTransaction(t *testing.T) {
 			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
+		pendingBlock := mocks.NewPendingBlock(t)
+		pendingBlock.EXPECT().Number().Return(uint64(1))
+		pendingBlock.EXPECT().Hash().Return(blockHashBytes)
+		pendingBlock.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(errors.New("save tx failed"))
+		pendingBlock.EXPECT().Abort(mock.Anything).Return(nil)
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(errors.New("save tx failed"))
+		store.EXPECT().NewBlock(mock.Anything, uint64(31337)).Return(pendingBlock, nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -333,10 +342,14 @@ func TestService_SendRawTransaction(t *testing.T) {
 			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
 			Return(nil)
 
+		pendingBlock := mocks.NewPendingBlock(t)
+		pendingBlock.EXPECT().Number().Return(uint64(1))
+		pendingBlock.EXPECT().Hash().Return(blockHashBytes)
+		pendingBlock.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
+		pendingBlock.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(errors.New("save log failed"))
+		pendingBlock.EXPECT().Abort(mock.Anything).Return(nil)
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(errors.New("save log failed"))
+		store.EXPECT().NewBlock(mock.Anything, uint64(31337)).Return(pendingBlock, nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
