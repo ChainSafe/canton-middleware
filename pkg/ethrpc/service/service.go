@@ -23,11 +23,9 @@ import (
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
+	NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error)
 	GetLatestEvmBlockNumber(ctx context.Context) (uint64, error)
 	GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error)
-	NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error)
-	SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error
-	SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error
 	GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error)
 	GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error)
 	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error)
@@ -270,10 +268,11 @@ func (s *ethService) recordSyntheticTransfer(
 	toAddr common.Address,
 	amount *big.Int,
 ) error {
-	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(ctx, s.chainID.Uint64())
+	block, err := s.store.NewBlock(ctx, s.chainID.Uint64())
 	if err != nil {
-		return apperr.DependencyError(err, "get next EVM block")
+		return apperr.DependencyError(err, "start new EVM block")
 	}
+	defer block.Abort(ctx) //nolint:errcheck // safe to ignore error: abort is a no-op after commit
 
 	evmTx := &ethrpc.EvmTransaction{
 		TxHash:      txHash.Bytes(),
@@ -283,12 +282,12 @@ func (s *ethService) recordSyntheticTransfer(
 		Input:       input,
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,
-		TxIndex:     txIndex,
+		BlockNumber: block.Number(),
+		BlockHash:   block.Hash(),
+		TxIndex:     0,
 		GasUsed:     s.cfg.GasLimit,
 	}
-	if err = s.store.SaveEvmTransaction(ctx, evmTx); err != nil {
+	if err = block.AddEvmTransaction(ctx, evmTx); err != nil {
 		return apperr.DependencyError(err, "save EVM transaction")
 	}
 
@@ -303,16 +302,16 @@ func (s *ethService) recordSyntheticTransfer(
 		Address:     contractAddress.Bytes(),
 		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:        amountBytes,
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,
-		TxIndex:     txIndex,
+		BlockNumber: block.Number(),
+		BlockHash:   block.Hash(),
+		TxIndex:     0,
 		Removed:     false,
 	}
-	if err = s.store.SaveEvmLog(ctx, evmLog); err != nil {
+	if err = block.AddEvmLog(ctx, evmLog); err != nil {
 		return apperr.DependencyError(err, "save EVM log")
 	}
 
-	return nil
+	return block.Finalize(ctx)
 }
 
 func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {

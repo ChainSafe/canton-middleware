@@ -3,7 +3,9 @@ package auth
 import (
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -68,4 +70,31 @@ func ValidateEVMAddress(address string) bool {
 // NormalizeAddress returns a checksummed EVM address
 func NormalizeAddress(address string) string {
 	return common.HexToAddress(address).Hex()
+}
+
+// ValidateTimedMessage checks that a message contains a Unix timestamp suffix
+// (format: "{prefix}:{unix_seconds}") and that it is within maxAge of now.
+// This provides replay protection: captured signatures expire after maxAge.
+func ValidateTimedMessage(msg string, maxAge time.Duration) error {
+	idx := strings.LastIndex(msg, ":")
+	if idx < 0 || idx == len(msg)-1 {
+		return fmt.Errorf("message must contain a colon-separated Unix timestamp (e.g. transfer:1710000000)")
+	}
+
+	tsStr := msg[idx+1:]
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid timestamp in message: %w", err)
+	}
+
+	msgTime := time.Unix(ts, 0)
+	age := time.Since(msgTime)
+	if age < 0 {
+		age = -age
+	}
+	if age > maxAge {
+		return fmt.Errorf("message expired: timestamp is %s old (max %s)", age.Truncate(time.Second), maxAge)
+	}
+
+	return nil
 }
