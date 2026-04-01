@@ -1,0 +1,10 @@
+# E2E test compose entry point.
+#
+# Pulls in the full stack from the root compose file. All services already
+# expose fixed ports (8545, 5011, 5013, 8080, 8081, 8082, 5432, 8088) so
+# ServiceDiscovery can resolve them via `docker compose port`.
+#
+# Usage:
+#   docker compose -f tests/e2e/docker-compose.e2e.yaml up --wait
+include:
+  - path: ../../docker-compose.yaml
