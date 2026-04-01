@@ -28,7 +28,7 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Printf("Running migrations for indexer database (%s)...\n", cfg.Database.URL)
+	log.Printf("Running migrations for indexer database")
 
 	if err = mghelper.RunMigrations(migrate.NewMigrator(db, indexerdb.Migrations), flag.Args()...); err != nil {
 		mghelper.Exitf(err.Error())
