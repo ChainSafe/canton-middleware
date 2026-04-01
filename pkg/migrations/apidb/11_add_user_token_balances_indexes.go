@@ -26,8 +26,6 @@ func init() {
 		log.Println("adding unique indexes to user_token_balances...")
 
 		// These unique indexes back the ON CONFLICT upserts in reconciler/store/pg.go.
-		// Because the identifier columns are nullable, PostgreSQL allows multiple NULL rows
-		// in a unique index (NULL != NULL), so rows without a given identifier do not conflict.
 		for _, idx := range utbIndexes {
 			if _, err := db.NewCreateIndex().
 				Model((*reconcilerstore.UserTokenBalanceDao)(nil)).
