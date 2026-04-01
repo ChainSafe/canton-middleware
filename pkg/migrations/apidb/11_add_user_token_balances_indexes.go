@@ -4,6 +4,9 @@ import (
 	"context"
 	"log"
 
+	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
+	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
+
 	"github.com/uptrace/bun"
 )
 
@@ -14,30 +17,17 @@ func init() {
 		// These unique indexes back the ON CONFLICT upserts in reconciler/store/pg.go.
 		// Because the identifier columns are nullable, PostgreSQL allows multiple NULL rows
 		// in a unique index (NULL != NULL), so rows without a given identifier do not conflict.
-		for _, ddl := range []string{
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_utb_fingerprint_token
-				ON user_token_balances (fingerprint, token_symbol)`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_utb_evm_address_token
-				ON user_token_balances (evm_address, token_symbol)`,
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_utb_canton_party_token
-				ON user_token_balances (canton_party_id, token_symbol)`,
-		} {
-			if _, err := db.ExecContext(ctx, ddl); err != nil {
-				return err
-			}
-		}
-		return nil
+		return mghelper.CreateModelUniqueIndexes(ctx, db, &reconcilerstore.UserTokenBalanceDao{},
+			"fingerprint,token_symbol",
+			"evm_address,token_symbol",
+			"canton_party_id,token_symbol",
+		)
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping unique indexes from user_token_balances...")
-		for _, ddl := range []string{
-			`DROP INDEX IF EXISTS idx_utb_fingerprint_token`,
-			`DROP INDEX IF EXISTS idx_utb_evm_address_token`,
-			`DROP INDEX IF EXISTS idx_utb_canton_party_token`,
-		} {
-			if _, err := db.ExecContext(ctx, ddl); err != nil {
-				return err
-			}
-		}
-		return nil
+		return mghelper.DropModelIndexes(ctx, db, &reconcilerstore.UserTokenBalanceDao{},
+			"fingerprint,token_symbol",
+			"evm_address,token_symbol",
+			"canton_party_id,token_symbol",
+		)
 	})
 }
