@@ -284,6 +284,63 @@ func (kp *CantonKeyPair) Verify(message, signature []byte) bool {
 	return false
 }
 
+// VerifyDER verifies a DER-encoded ECDSA signature against a compressed public key and a pre-hashed 32-byte digest.
+// Used by the transfer execute endpoint to validate client-provided signatures before forwarding to Canton.
+func VerifyDER(compressedPubKey []byte, hash []byte, derSig []byte) error {
+	if len(hash) != 32 {
+		return fmt.Errorf("hash must be 32 bytes, got %d", len(hash))
+	}
+
+	pubKey, err := crypto.DecompressPubkey(compressedPubKey)
+	if err != nil {
+		return fmt.Errorf("invalid compressed public key: %w", err)
+	}
+
+	var sig ecdsaSignature
+	rest, err := asn1.Unmarshal(derSig, &sig)
+	if err != nil {
+		return fmt.Errorf("invalid DER signature: %w", err)
+	}
+	if len(rest) > 0 {
+		return fmt.Errorf("trailing bytes after DER signature")
+	}
+
+	if sig.R.Sign() <= 0 || sig.S.Sign() <= 0 {
+		return fmt.Errorf("signature contains non-positive values")
+	}
+
+	// Verify low-S normalization (BIP-62): s must be <= n/2
+	secp256k1N, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
+	halfN := new(big.Int).Rsh(secp256k1N, 1)
+	if sig.S.Cmp(halfN) > 0 {
+		return fmt.Errorf("signature is not low-S normalized")
+	}
+
+	// Reconstruct the 64-byte [R || S] signature padded to 32 bytes each
+	rBytes := sig.R.Bytes()
+	sBytes := sig.S.Bytes()
+	rawSig := make([]byte, 64)
+	copy(rawSig[32-len(rBytes):32], rBytes)
+	copy(rawSig[64-len(sBytes):64], sBytes)
+
+	// Try recovery IDs 0 and 1 to find which one recovers the correct public key
+	for v := byte(0); v <= 1; v++ {
+		recoverSig := make([]byte, 65)
+		copy(recoverSig, rawSig)
+		recoverSig[64] = v
+
+		recoveredPub, recErr := crypto.SigToPub(hash, recoverSig)
+		if recErr != nil {
+			continue
+		}
+		if crypto.PubkeyToAddress(*recoveredPub) == crypto.PubkeyToAddress(*pubKey) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("signature verification failed")
+}
+
 // KeyCipher encrypts and decrypts Canton private keys.
 type KeyCipher interface {
 	Encrypt(key []byte) (string, error)
