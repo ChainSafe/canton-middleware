@@ -28,6 +28,8 @@ const (
 	CategoryDataConflict
 	// CategoryLocked The client is not able to access the requested resource due to its locked state
 	CategoryLocked
+	// CategoryGone The resource existed but is no longer available (e.g. expired)
+	CategoryGone
 	// CategoryDependencyFailure A dependent service is throwing errors
 	CategoryDependencyFailure
 	// CategoryGeneralError The service failed in an unexpected way
@@ -54,6 +56,8 @@ func (c Category) String() string {
 		return "CategoryDataConflict"
 	case CategoryLocked:
 		return "CategoryLocked"
+	case CategoryGone:
+		return "CategoryGone"
 	case CategoryDependencyFailure:
 		return "CategoryDependencyFailure"
 	case CategoryRecovering:
@@ -208,6 +212,19 @@ func DependencyError(err error, message string) error {
 	}
 }
 
+// GoneError returns an error with category CategoryGone (HTTP 410).
+// Use when a resource existed but is no longer available (e.g. expired transfers).
+func GoneError(err error, message string) error {
+	if err == nil {
+		err = errors.New("gone: " + message)
+	}
+	return &ServiceError{
+		Category: CategoryGone,
+		Message:  message,
+		Err:      err,
+	}
+}
+
 // ConflictError returns an error with category CategoryDataConflict
 // the error message provided is returned to the user
 // the error object provided is logged in logger
@@ -253,6 +270,8 @@ func (err ServiceError) StatusCode() int {
 		return http.StatusConflict
 	case CategoryLocked:
 		return http.StatusLocked
+	case CategoryGone:
+		return http.StatusGone
 	case CategoryDependencyFailure:
 		return http.StatusBadGateway
 	case CategoryGeneralError:

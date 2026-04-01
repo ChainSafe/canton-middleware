@@ -70,32 +70,32 @@ func TestPGStore_BlockMeta(t *testing.T) {
 		t.Fatalf("unexpected initial latest block: got %d want 0", latest)
 	}
 
-	blockNum1, blockHash1, txIndex1, err := store.NextEvmBlock(ctx, testChainID)
+	block1, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NextEvmBlock(1) failed: %v", err)
+		t.Fatalf("NewBlock(1) failed: %v", err)
 	}
-	if blockNum1 != 1 {
-		t.Fatalf("unexpected first block number: got %d want 1", blockNum1)
+	if block1.Number() != 1 {
+		t.Fatalf("unexpected first block number: got %d want 1", block1.Number())
 	}
-	if txIndex1 != 0 {
-		t.Fatalf("unexpected first tx index: got %d want 0", txIndex1)
-	}
-	if !bytes.Equal(blockHash1, ethereum.ComputeBlockHash(testChainID, 1)) {
+	if !bytes.Equal(block1.Hash(), ethereum.ComputeBlockHash(testChainID, 1)) {
 		t.Fatalf("unexpected first block hash")
 	}
+	if err = block1.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block1) failed: %v", err)
+	}
 
-	blockNum2, blockHash2, txIndex2, err := store.NextEvmBlock(ctx, testChainID)
+	block2, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NextEvmBlock(2) failed: %v", err)
+		t.Fatalf("NewBlock(2) failed: %v", err)
 	}
-	if blockNum2 != 2 {
-		t.Fatalf("unexpected second block number: got %d want 2", blockNum2)
+	if block2.Number() != 2 {
+		t.Fatalf("unexpected second block number: got %d want 2", block2.Number())
 	}
-	if txIndex2 != 0 {
-		t.Fatalf("unexpected second tx index: got %d want 0", txIndex2)
-	}
-	if !bytes.Equal(blockHash2, ethereum.ComputeBlockHash(testChainID, 2)) {
+	if !bytes.Equal(block2.Hash(), ethereum.ComputeBlockHash(testChainID, 2)) {
 		t.Fatalf("unexpected second block hash")
+	}
+	if err = block2.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block2) failed: %v", err)
 	}
 
 	latest, err = store.GetLatestEvmBlockNumber(ctx)
@@ -107,6 +107,32 @@ func TestPGStore_BlockMeta(t *testing.T) {
 	}
 }
 
+func TestPGStore_BlockRollback(t *testing.T) {
+	ctx := context.Background()
+	store, _ := setupEVMStore(t)
+
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock failed: %v", err)
+	}
+	if err = block.Abort(ctx); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	// Second rollback must be a no-op
+	if err = block.Abort(ctx); err != nil {
+		t.Fatalf("second Rollback should be no-op: %v", err)
+	}
+
+	// Block counter should still be advanced after rollback, creating a gap.
+	latest, err := store.GetLatestEvmBlockNumber(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestEvmBlockNumber failed: %v", err)
+	}
+	if latest != 1 {
+		t.Fatalf("block counter should advance even after rollback: got %d want 1", latest)
+	}
+}
+
 func TestPGStore_Transactions(t *testing.T) {
 	ctx := context.Background()
 	store, db := setupEVMStore(t)
@@ -114,6 +140,11 @@ func TestPGStore_Transactions(t *testing.T) {
 	fromA := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	fromB := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
+	// Block 1: two transactions from fromA
+	block1, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(1) failed: %v", err)
+	}
 	tx1 := &ethrpc.EvmTransaction{
 		TxHash:      []byte{0x01},
 		FromAddress: fromA,
@@ -122,8 +153,8 @@ func TestPGStore_Transactions(t *testing.T) {
 		Input:       []byte{0xaa, 0xbb},
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: 10,
-		BlockHash:   []byte{0xa1},
+		BlockNumber: block1.Number(),
+		BlockHash:   block1.Hash(),
 		TxIndex:     0,
 		GasUsed:     21000,
 	}
@@ -135,10 +166,25 @@ func TestPGStore_Transactions(t *testing.T) {
 		Input:       []byte{0x11, 0x22},
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: 11,
-		BlockHash:   []byte{0xa2},
+		BlockNumber: block1.Number(),
+		BlockHash:   block1.Hash(),
 		TxIndex:     1,
 		GasUsed:     22000,
+	}
+	if err = block1.AddEvmTransaction(ctx, tx1); err != nil {
+		t.Fatalf("SaveEvmTransaction(tx1) failed: %v", err)
+	}
+	if err = block1.AddEvmTransaction(ctx, tx2); err != nil {
+		t.Fatalf("SaveEvmTransaction(tx2) failed: %v", err)
+	}
+	if err = block1.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block1) failed: %v", err)
+	}
+
+	// Block 2: one transaction from fromB
+	block2, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(2) failed: %v", err)
 	}
 	tx3 := &ethrpc.EvmTransaction{
 		TxHash:      []byte{0x03},
@@ -148,24 +194,28 @@ func TestPGStore_Transactions(t *testing.T) {
 		Input:       []byte{0x33},
 		ValueWei:    "0",
 		Status:      1,
-		BlockNumber: 12,
-		BlockHash:   []byte{0xa3},
+		BlockNumber: block2.Number(),
+		BlockHash:   block2.Hash(),
 		TxIndex:     0,
 		GasUsed:     23000,
 	}
-
-	if err := store.SaveEvmTransaction(ctx, tx1); err != nil {
-		t.Fatalf("SaveEvmTransaction(tx1) failed: %v", err)
-	}
-	if err := store.SaveEvmTransaction(ctx, tx2); err != nil {
-		t.Fatalf("SaveEvmTransaction(tx2) failed: %v", err)
-	}
-	if err := store.SaveEvmTransaction(ctx, tx3); err != nil {
+	if err = block2.AddEvmTransaction(ctx, tx3); err != nil {
 		t.Fatalf("SaveEvmTransaction(tx3) failed: %v", err)
 	}
+	if err = block2.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block2) failed: %v", err)
+	}
 
-	if err := store.SaveEvmTransaction(ctx, tx1); err != nil {
+	// Duplicate insert must be ignored
+	block3, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(3) failed: %v", err)
+	}
+	if err = block3.AddEvmTransaction(ctx, tx1); err != nil {
 		t.Fatalf("SaveEvmTransaction(tx1 duplicate) failed: %v", err)
+	}
+	if err = block3.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block3) failed: %v", err)
 	}
 
 	countRows, err := db.NewSelect().
@@ -222,13 +272,12 @@ func TestPGStore_Transactions(t *testing.T) {
 		t.Fatalf("unexpected nonce for missing address: got %d want 0", nonceMissing)
 	}
 
-	blockNum, err := store.GetBlockNumberByHash(ctx, tx2.BlockHash)
+	blockNum, err := store.GetBlockNumberByHash(ctx, block2.Hash())
 	if err != nil {
 		t.Fatalf("GetBlockNumberByHash(existing) failed: %v", err)
 	}
-	const expectedBlockNum = uint64(11)
-	if blockNum != expectedBlockNum {
-		t.Fatalf("unexpected block number: got %d want %d", blockNum, expectedBlockNum)
+	if blockNum != block2.Number() {
+		t.Fatalf("unexpected block number: got %d want %d", blockNum, block2.Number())
 	}
 
 	missingBlockNum, err := store.GetBlockNumberByHash(ctx, []byte{0x00, 0x00})
@@ -250,16 +299,10 @@ func TestPGStore_Logs(t *testing.T) {
 	topicB := []byte{0x02}
 	topicC := []byte{0x03}
 
-	log1 := &ethrpc.EvmLog{
-		TxHash:      []byte{0x10},
-		LogIndex:    1,
-		Address:     addressA,
-		Topics:      [][]byte{topicA, topicB},
-		Data:        []byte{0xde, 0xad},
-		BlockNumber: 10,
-		BlockHash:   []byte{0xa0},
-		TxIndex:     2,
-		Removed:     false,
+	// Block 1: two logs for the same tx (tx hash 0x10)
+	block1, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(1) failed: %v", err)
 	}
 	log0 := &ethrpc.EvmLog{
 		TxHash:      []byte{0x10},
@@ -267,10 +310,34 @@ func TestPGStore_Logs(t *testing.T) {
 		Address:     addressA,
 		Topics:      [][]byte{topicA, topicC},
 		Data:        []byte{0xbe, 0xef},
-		BlockNumber: 10,
-		BlockHash:   []byte{0xa0},
+		BlockNumber: block1.Number(),
+		BlockHash:   block1.Hash(),
 		TxIndex:     2,
-		Removed:     false,
+	}
+	log1 := &ethrpc.EvmLog{
+		TxHash:      []byte{0x10},
+		LogIndex:    1,
+		Address:     addressA,
+		Topics:      [][]byte{topicA, topicB},
+		Data:        []byte{0xde, 0xad},
+		BlockNumber: block1.Number(),
+		BlockHash:   block1.Hash(),
+		TxIndex:     2,
+	}
+	if err = block1.AddEvmLog(ctx, log0); err != nil {
+		t.Fatalf("SaveEvmLog(log0) failed: %v", err)
+	}
+	if err = block1.AddEvmLog(ctx, log1); err != nil {
+		t.Fatalf("SaveEvmLog(log1) failed: %v", err)
+	}
+	if err = block1.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block1) failed: %v", err)
+	}
+
+	// Block 2: log from addressB
+	block2, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(2) failed: %v", err)
 	}
 	log2 := &ethrpc.EvmLog{
 		TxHash:      []byte{0x11},
@@ -278,10 +345,21 @@ func TestPGStore_Logs(t *testing.T) {
 		Address:     addressB,
 		Topics:      [][]byte{topicA},
 		Data:        []byte{0xca},
-		BlockNumber: 11,
-		BlockHash:   []byte{0xa1},
+		BlockNumber: block2.Number(),
+		BlockHash:   block2.Hash(),
 		TxIndex:     0,
-		Removed:     false,
+	}
+	if err = block2.AddEvmLog(ctx, log2); err != nil {
+		t.Fatalf("SaveEvmLog(log2) failed: %v", err)
+	}
+	if err = block2.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block2) failed: %v", err)
+	}
+
+	// Block 3: log from addressA with topicC
+	block3, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(3) failed: %v", err)
 	}
 	log3 := &ethrpc.EvmLog{
 		TxHash:      []byte{0x12},
@@ -289,27 +367,27 @@ func TestPGStore_Logs(t *testing.T) {
 		Address:     addressA,
 		Topics:      [][]byte{topicC},
 		Data:        []byte{0xfe},
-		BlockNumber: 12,
-		BlockHash:   []byte{0xa2},
+		BlockNumber: block3.Number(),
+		BlockHash:   block3.Hash(),
 		TxIndex:     1,
-		Removed:     false,
 	}
-
-	if err := store.SaveEvmLog(ctx, log1); err != nil {
-		t.Fatalf("SaveEvmLog(log1) failed: %v", err)
-	}
-	if err := store.SaveEvmLog(ctx, log0); err != nil {
-		t.Fatalf("SaveEvmLog(log0) failed: %v", err)
-	}
-	if err := store.SaveEvmLog(ctx, log2); err != nil {
-		t.Fatalf("SaveEvmLog(log2) failed: %v", err)
-	}
-	if err := store.SaveEvmLog(ctx, log3); err != nil {
+	if err = block3.AddEvmLog(ctx, log3); err != nil {
 		t.Fatalf("SaveEvmLog(log3) failed: %v", err)
 	}
+	if err = block3.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block3) failed: %v", err)
+	}
 
-	if err := store.SaveEvmLog(ctx, log0); err != nil {
+	// Duplicate insert must be ignored
+	block4, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(4) failed: %v", err)
+	}
+	if err = block4.AddEvmLog(ctx, log0); err != nil {
 		t.Fatalf("SaveEvmLog(log0 duplicate) failed: %v", err)
+	}
+	if err = block4.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block4) failed: %v", err)
 	}
 
 	countRows, err := db.NewSelect().
@@ -322,6 +400,11 @@ func TestPGStore_Logs(t *testing.T) {
 	}
 	if countRows != 1 {
 		t.Fatalf("duplicate log insert should be ignored: got %d rows want 1", countRows)
+	}
+
+	latestBlock, err := store.GetLatestEvmBlockNumber(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestEvmBlockNumber failed: %v", err)
 	}
 
 	logsByTx, err := store.GetEvmLogsByTxHash(ctx, log0.TxHash)
@@ -338,18 +421,18 @@ func TestPGStore_Logs(t *testing.T) {
 		t.Fatalf("unexpected topics length for first tx log: got %d want 2", len(logsByTx[0].Topics))
 	}
 
-	logsByAddress, err := store.GetEvmLogs(ctx, addressA, nil, 9, 12)
+	logsByAddress, err := store.GetEvmLogs(ctx, addressA, nil, 0, latestBlock)
 	if err != nil {
 		t.Fatalf("GetEvmLogs(address filter) failed: %v", err)
 	}
 	if len(logsByAddress) != 3 {
 		t.Fatalf("unexpected address-filtered log count: got %d want 3", len(logsByAddress))
 	}
-	if logsByAddress[0].BlockNumber != 10 || logsByAddress[0].LogIndex != 0 {
+	if logsByAddress[0].BlockNumber != block1.Number() || logsByAddress[0].LogIndex != 0 {
 		t.Fatalf("unexpected first ordered log for address filter: %+v", logsByAddress[0])
 	}
 
-	logsByTopic, err := store.GetEvmLogs(ctx, nil, topicA, 9, 12)
+	logsByTopic, err := store.GetEvmLogs(ctx, nil, topicA, 0, latestBlock)
 	if err != nil {
 		t.Fatalf("GetEvmLogs(topic filter) failed: %v", err)
 	}
@@ -357,7 +440,7 @@ func TestPGStore_Logs(t *testing.T) {
 		t.Fatalf("unexpected topic-filtered log count: got %d want 3", len(logsByTopic))
 	}
 
-	logsByAddressAndTopic, err := store.GetEvmLogs(ctx, addressA, topicA, 9, 12)
+	logsByAddressAndTopic, err := store.GetEvmLogs(ctx, addressA, topicA, 0, latestBlock)
 	if err != nil {
 		t.Fatalf("GetEvmLogs(address+topic filter) failed: %v", err)
 	}
@@ -365,14 +448,14 @@ func TestPGStore_Logs(t *testing.T) {
 		t.Fatalf("unexpected address+topic log count: got %d want 2", len(logsByAddressAndTopic))
 	}
 
-	logsByRange, err := store.GetEvmLogs(ctx, nil, nil, 11, 11)
+	logsByRange, err := store.GetEvmLogs(ctx, nil, nil, block2.Number(), block2.Number())
 	if err != nil {
 		t.Fatalf("GetEvmLogs(block range filter) failed: %v", err)
 	}
 	if len(logsByRange) != 1 {
 		t.Fatalf("unexpected block-range log count: got %d want 1", len(logsByRange))
 	}
-	if logsByRange[0].BlockNumber != 11 {
-		t.Fatalf("unexpected block number from block-range query: got %d want 11", logsByRange[0].BlockNumber)
+	if logsByRange[0].BlockNumber != block2.Number() {
+		t.Fatalf("unexpected block number from block-range query: got %d want %d", logsByRange[0].BlockNumber, block2.Number())
 	}
 }

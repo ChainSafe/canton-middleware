@@ -24,6 +24,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
+	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
@@ -32,7 +33,12 @@ import (
 	"go.uber.org/zap"
 )
 
-const defaultRequestTimeout = 60
+const (
+	defaultRequestTimeout = 60
+	topologyCacheTTL      = 5 * time.Minute
+	transferCacheTTL      = 2 * time.Minute
+	transferCacheMaxSize  = 10000
+)
 
 // Server holds cfg to init the api server.
 type Server struct {
@@ -99,19 +105,28 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
+	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
+	go topologyCache.Start(ctx)
+
 	registrationService := userservice.NewService(
 		userStore,
 		cantonClient.Identity,
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
+		topologyCache,
 	)
 
 	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
-	router := s.setupRouter(evmStore, cantonClient, tokenService, userservice.NewLog(registrationService, logger), logger)
+	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
+	go transferCache.Start(ctx)
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
+	regSvcLog := userservice.NewLog(registrationService, logger)
+	transferSvcLog := transfer.NewLog(transferSvc, logger)
+	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 
@@ -210,6 +225,7 @@ func (s *Server) setupRouter(
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
+	transferSvc transfer.Service,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -229,6 +245,9 @@ func (s *Server) setupRouter(
 	// Registration endpoints
 	userservice.RegisterRoutes(r, registrationService, logger)
 
+	// Non-custodial transfer endpoints (prepare/execute)
+	transfer.RegisterRoutes(r, transferSvc, logger)
+
 	registryHandler := registry.NewHandler(cantonClient.Token, logger)
 	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)
 	logger.Info("Splice Registry API enabled",
@@ -241,4 +260,17 @@ func (s *Server) setupRouter(
 	}
 
 	return r
+}
+
+// tokenSymbols extracts the unique symbol strings from the token config.
+func tokenSymbols(cfg *token.Config) []string {
+	seen := make(map[string]bool, len(cfg.SupportedTokens))
+	var symbols []string
+	for _, tkn := range cfg.SupportedTokens {
+		if !seen[tkn.Symbol] {
+			seen[tkn.Symbol] = true
+			symbols = append(symbols, tkn.Symbol)
+		}
+	}
+	return symbols
 }

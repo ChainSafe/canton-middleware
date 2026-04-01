@@ -29,6 +29,7 @@ func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
 	}
 
 	r.Post("/register", apphttp.HandleError(h.register))
+	r.Post("/register/prepare-topology", apphttp.HandleError(h.prepareTopology))
 }
 
 // register handles HTTP requests
@@ -63,11 +64,51 @@ func (h *HTTP) register(w http.ResponseWriter, r *http.Request) error {
 		if req.Signature == "" || req.Message == "" {
 			return apperrors.UnAuthorizedError(nil, "signature and message required")
 		}
+		if req.KeyMode == "external" {
+			if req.RegistrationToken == "" || req.TopologySignature == "" || req.CantonPublicKey == "" {
+				return apperrors.BadRequestError(
+					nil, "registration_token, topology_signature, and canton_public_key are required for external registration",
+				)
+			}
+		}
 		resp, regErr = h.service.RegisterWeb3User(r.Context(), &req)
 	}
 
 	if regErr != nil {
 		return regErr
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+	return nil
+}
+
+// prepareTopology handles step 1 of external user registration.
+func (h *HTTP) prepareTopology(w http.ResponseWriter, r *http.Request) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes))
+	if err != nil {
+		return apperrors.BadRequestError(err, "failed to read request")
+	}
+
+	var req user.RegisterRequest
+	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		return apperrors.BadRequestError(jsonErr, "invalid JSON")
+	}
+
+	// Try headers if not in body
+	if req.Signature == "" {
+		req.Signature = r.Header.Get("X-Signature")
+		req.Message = r.Header.Get("X-Message")
+	}
+	if req.Signature == "" || req.Message == "" {
+		return apperrors.UnAuthorizedError(nil, "signature and message required")
+	}
+	if req.CantonPublicKey == "" {
+		return apperrors.BadRequestError(nil, "canton_public_key is required")
+	}
+
+	resp, err := h.service.PrepareExternalRegistration(r.Context(), &req)
+	if err != nil {
+		return err
 	}
 
 	h.writeJSON(w, http.StatusOK, resp)
