@@ -230,9 +230,8 @@ func TestService_SendRawTransaction(t *testing.T) {
 	tokenAddr := common.HexToAddress("0x1000000000000000000000000000000000000001")
 	recipient := common.HexToAddress("0x3000000000000000000000000000000000000003")
 	amount := big.NewInt(42_000_000_000_000_000)
-	blockHashBytes := make([]byte, 32)
 
-	t.Run("success stores tx and log then returns hash", func(t *testing.T) {
+	t.Run("success inserts mempool entry and returns hash", func(t *testing.T) {
 		payload, expectedHash := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
 		mockERC20 := mocks.NewERC20(t)
@@ -241,9 +240,8 @@ func TestService_SendRawTransaction(t *testing.T) {
 			Return(nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().UpdateMempoolStatus(mock.Anything, mock.Anything, ethrpc.MempoolCompleted, "").Return(nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -267,7 +265,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
 	})
 
-	t.Run("TransferFrom categorized error is passed through", func(t *testing.T) {
+	t.Run("TransferFrom categorized error updates mempool and is passed through", func(t *testing.T) {
 		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
 		mockERC20 := mocks.NewERC20(t)
@@ -275,71 +273,27 @@ func TestService_SendRawTransaction(t *testing.T) {
 			TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(apperr.BadRequestError(errors.New("user not found"), "failed to get sender"))
 
+		store := mocks.NewStore(t)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().UpdateMempoolStatus(mock.Anything, mock.Anything, ethrpc.MempoolFailed, mock.AnythingOfType("string")).Return(nil)
+
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
 
-		svc := newSvc(t, defaultCfg(), nil, mockTokenSvc)
+		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
 		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
 	})
 
-	t.Run("NextEvmBlock error propagates", func(t *testing.T) {
+	t.Run("InsertMempoolEntry error propagates", func(t *testing.T) {
 		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
-		mockERC20 := mocks.NewERC20(t)
-		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
-			Return(nil)
+		mockTokenSvc := mocks.NewTokenService(t)
+		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mocks.NewERC20(t), nil)
 
 		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(0), nil, 0, errors.New("next block failed"))
-
-		mockTokenSvc := mocks.NewTokenService(t)
-		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
-
-		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
-		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
-		require.Error(t, err)
-		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
-	})
-
-	t.Run("SaveEvmTransaction error propagates", func(t *testing.T) {
-		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
-
-		mockERC20 := mocks.NewERC20(t)
-		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
-			Return(nil)
-
-		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(errors.New("save tx failed"))
-
-		mockTokenSvc := mocks.NewTokenService(t)
-		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
-
-		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
-		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
-		require.Error(t, err)
-		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
-	})
-
-	t.Run("SaveEvmLog error propagates", func(t *testing.T) {
-		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
-
-		mockERC20 := mocks.NewERC20(t)
-		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
-			Return(nil)
-
-		store := mocks.NewStore(t)
-		store.EXPECT().NextEvmBlock(mock.Anything, uint64(31337)).Return(uint64(1), blockHashBytes, 0, nil)
-		store.EXPECT().SaveEvmTransaction(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().SaveEvmLog(mock.Anything, mock.Anything).Return(errors.New("save log failed"))
-
-		mockTokenSvc := mocks.NewTokenService(t)
-		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(errors.New("db error"))
 
 		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
 		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))

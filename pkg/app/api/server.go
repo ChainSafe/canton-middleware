@@ -15,6 +15,7 @@ import (
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
+	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
@@ -126,6 +127,12 @@ func (s *Server) Run() error {
 	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
 	regSvcLog := userservice.NewLog(registrationService, logger)
 	transferSvcLog := transfer.NewLog(transferSvc, logger)
+
+	if cfg.EthRPC.Enabled {
+		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerInterval)
+		go m.Start(ctx)
+	}
+
 	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)

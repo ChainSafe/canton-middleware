@@ -372,90 +372,122 @@ func (_c *Store_GetLatestEvmBlockNumber_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// NextEvmBlock provides a mock function with given fields: ctx, chainID
-func (_m *Store) NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error) {
-	ret := _m.Called(ctx, chainID)
+// InsertMempoolEntry provides a mock function with given fields: ctx, entry
+func (_m *Store) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error {
+	ret := _m.Called(ctx, entry)
 
 	if len(ret) == 0 {
-		panic("no return value specified for NextEvmBlock")
+		panic("no return value specified for InsertMempoolEntry")
 	}
 
-	var r0 uint64
-	var r1 []byte
-	var r2 uint
-	var r3 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64) (uint64, []byte, uint, error)); ok {
-		return rf(ctx, chainID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, uint64) uint64); ok {
-		r0 = rf(ctx, chainID)
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.MempoolEntry) error); ok {
+		r0 = rf(ctx, entry)
 	} else {
-		r0 = ret.Get(0).(uint64)
+		r0 = ret.Error(0)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, uint64) []byte); ok {
-		r1 = rf(ctx, chainID)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).([]byte)
-		}
-	}
-
-	if rf, ok := ret.Get(2).(func(context.Context, uint64) uint); ok {
-		r2 = rf(ctx, chainID)
-	} else {
-		r2 = ret.Get(2).(uint)
-	}
-
-	if rf, ok := ret.Get(3).(func(context.Context, uint64) error); ok {
-		r3 = rf(ctx, chainID)
-	} else {
-		r3 = ret.Error(3)
-	}
-
-	return r0, r1, r2, r3
+	return r0
 }
 
-// Store_NextEvmBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NextEvmBlock'
-type Store_NextEvmBlock_Call struct {
+// Store_InsertMempoolEntry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertMempoolEntry'
+type Store_InsertMempoolEntry_Call struct {
 	*mock.Call
 }
 
-// NextEvmBlock is a helper method to define mock.On call
+// InsertMempoolEntry is a helper method to define mock.On call
+//   - ctx context.Context
+//   - entry *ethrpc.MempoolEntry
+func (_e *Store_Expecter) InsertMempoolEntry(ctx interface{}, entry interface{}) *Store_InsertMempoolEntry_Call {
+	return &Store_InsertMempoolEntry_Call{Call: _e.mock.On("InsertMempoolEntry", ctx, entry)}
+}
+
+func (_c *Store_InsertMempoolEntry_Call) Run(run func(ctx context.Context, entry *ethrpc.MempoolEntry)) *Store_InsertMempoolEntry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*ethrpc.MempoolEntry))
+	})
+	return _c
+}
+
+func (_c *Store_InsertMempoolEntry_Call) Return(_a0 error) *Store_InsertMempoolEntry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_InsertMempoolEntry_Call) RunAndReturn(run func(context.Context, *ethrpc.MempoolEntry) error) *Store_InsertMempoolEntry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// MineBlock provides a mock function with given fields: ctx, chainID, gasLimit
+func (_m *Store) MineBlock(ctx context.Context, chainID uint64, gasLimit uint64) (int, error) {
+	ret := _m.Called(ctx, chainID, gasLimit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MineBlock")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) (int, error)); ok {
+		return rf(ctx, chainID, gasLimit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) int); ok {
+		r0 = rf(ctx, chainID, gasLimit)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, uint64) error); ok {
+		r1 = rf(ctx, chainID, gasLimit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_MineBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MineBlock'
+type Store_MineBlock_Call struct {
+	*mock.Call
+}
+
+// MineBlock is a helper method to define mock.On call
 //   - ctx context.Context
 //   - chainID uint64
-func (_e *Store_Expecter) NextEvmBlock(ctx interface{}, chainID interface{}) *Store_NextEvmBlock_Call {
-	return &Store_NextEvmBlock_Call{Call: _e.mock.On("NextEvmBlock", ctx, chainID)}
+//   - gasLimit uint64
+func (_e *Store_Expecter) MineBlock(ctx interface{}, chainID interface{}, gasLimit interface{}) *Store_MineBlock_Call {
+	return &Store_MineBlock_Call{Call: _e.mock.On("MineBlock", ctx, chainID, gasLimit)}
 }
 
-func (_c *Store_NextEvmBlock_Call) Run(run func(ctx context.Context, chainID uint64)) *Store_NextEvmBlock_Call {
+func (_c *Store_MineBlock_Call) Run(run func(ctx context.Context, chainID uint64, gasLimit uint64)) *Store_MineBlock_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(uint64))
 	})
 	return _c
 }
 
-func (_c *Store_NextEvmBlock_Call) Return(_a0 uint64, _a1 []byte, _a2 uint, _a3 error) *Store_NextEvmBlock_Call {
-	_c.Call.Return(_a0, _a1, _a2, _a3)
+func (_c *Store_MineBlock_Call) Return(_a0 int, _a1 error) *Store_MineBlock_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Store_NextEvmBlock_Call) RunAndReturn(run func(context.Context, uint64) (uint64, []byte, uint, error)) *Store_NextEvmBlock_Call {
+func (_c *Store_MineBlock_Call) RunAndReturn(run func(context.Context, uint64, uint64) (int, error)) *Store_MineBlock_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// SaveEvmLog provides a mock function with given fields: ctx, log
-func (_m *Store) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
-	ret := _m.Called(ctx, log)
+// UpdateMempoolStatus provides a mock function with given fields: ctx, txHash, status, errMsg
+func (_m *Store) UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error {
+	ret := _m.Called(ctx, txHash, status, errMsg)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SaveEvmLog")
+		panic("no return value specified for UpdateMempoolStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmLog) error); ok {
-		r0 = rf(ctx, log)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, ethrpc.MempoolStatus, string) error); ok {
+		r0 = rf(ctx, txHash, status, errMsg)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -463,78 +495,33 @@ func (_m *Store) SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error {
 	return r0
 }
 
-// Store_SaveEvmLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveEvmLog'
-type Store_SaveEvmLog_Call struct {
+// Store_UpdateMempoolStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateMempoolStatus'
+type Store_UpdateMempoolStatus_Call struct {
 	*mock.Call
 }
 
-// SaveEvmLog is a helper method to define mock.On call
+// UpdateMempoolStatus is a helper method to define mock.On call
 //   - ctx context.Context
-//   - log *ethrpc.EvmLog
-func (_e *Store_Expecter) SaveEvmLog(ctx interface{}, log interface{}) *Store_SaveEvmLog_Call {
-	return &Store_SaveEvmLog_Call{Call: _e.mock.On("SaveEvmLog", ctx, log)}
+//   - txHash []byte
+//   - status ethrpc.MempoolStatus
+//   - errMsg string
+func (_e *Store_Expecter) UpdateMempoolStatus(ctx interface{}, txHash interface{}, status interface{}, errMsg interface{}) *Store_UpdateMempoolStatus_Call {
+	return &Store_UpdateMempoolStatus_Call{Call: _e.mock.On("UpdateMempoolStatus", ctx, txHash, status, errMsg)}
 }
 
-func (_c *Store_SaveEvmLog_Call) Run(run func(ctx context.Context, log *ethrpc.EvmLog)) *Store_SaveEvmLog_Call {
+func (_c *Store_UpdateMempoolStatus_Call) Run(run func(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string)) *Store_UpdateMempoolStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*ethrpc.EvmLog))
+		run(args[0].(context.Context), args[1].([]byte), args[2].(ethrpc.MempoolStatus), args[3].(string))
 	})
 	return _c
 }
 
-func (_c *Store_SaveEvmLog_Call) Return(_a0 error) *Store_SaveEvmLog_Call {
+func (_c *Store_UpdateMempoolStatus_Call) Return(_a0 error) *Store_UpdateMempoolStatus_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Store_SaveEvmLog_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmLog) error) *Store_SaveEvmLog_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SaveEvmTransaction provides a mock function with given fields: ctx, tx
-func (_m *Store) SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
-	ret := _m.Called(ctx, tx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SaveEvmTransaction")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *ethrpc.EvmTransaction) error); ok {
-		r0 = rf(ctx, tx)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_SaveEvmTransaction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveEvmTransaction'
-type Store_SaveEvmTransaction_Call struct {
-	*mock.Call
-}
-
-// SaveEvmTransaction is a helper method to define mock.On call
-//   - ctx context.Context
-//   - tx *ethrpc.EvmTransaction
-func (_e *Store_Expecter) SaveEvmTransaction(ctx interface{}, tx interface{}) *Store_SaveEvmTransaction_Call {
-	return &Store_SaveEvmTransaction_Call{Call: _e.mock.On("SaveEvmTransaction", ctx, tx)}
-}
-
-func (_c *Store_SaveEvmTransaction_Call) Run(run func(ctx context.Context, tx *ethrpc.EvmTransaction)) *Store_SaveEvmTransaction_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*ethrpc.EvmTransaction))
-	})
-	return _c
-}
-
-func (_c *Store_SaveEvmTransaction_Call) Return(_a0 error) *Store_SaveEvmTransaction_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_SaveEvmTransaction_Call) RunAndReturn(run func(context.Context, *ethrpc.EvmTransaction) error) *Store_SaveEvmTransaction_Call {
+func (_c *Store_UpdateMempoolStatus_Call) RunAndReturn(run func(context.Context, []byte, ethrpc.MempoolStatus, string) error) *Store_UpdateMempoolStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

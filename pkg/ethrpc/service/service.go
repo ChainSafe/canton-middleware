@@ -16,22 +16,24 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // Store is the narrow data-access interface consumed by the EthRPC service.
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
+	// Read-only queries used by JSON-RPC handlers.
 	GetLatestEvmBlockNumber(ctx context.Context) (uint64, error)
 	GetEvmTransactionCount(ctx context.Context, fromAddress string) (uint64, error)
-	NextEvmBlock(ctx context.Context, chainID uint64) (uint64, []byte, uint, error)
-	SaveEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error
-	SaveEvmLog(ctx context.Context, log *ethrpc.EvmLog) error
 	GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error)
 	GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error)
 	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error)
 	GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error)
+
+	// Mempool intent log — written by SendRawTransaction, consumed by the miner.
+	InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error
+	UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error
+	MineBlock(ctx context.Context, chainID, gasLimit uint64) (int, error)
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
@@ -218,14 +220,40 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	}
 
 	txHash := tx.Hash()
-	if err = erc20.TransferFrom(ctx, txHash.Hex(), from, toAddr, *amount); err != nil {
-		// Pass categorized errors from the token service through directly so
-		// callers receive the correct JSON-RPC error code (e.g. -32602 for
-		// "sender not found", not the generic -32000 dependency failure).
-		return common.Hash{}, err
+
+	// Record intent in mempool before executing the Canton transfer.
+	entry := &ethrpc.MempoolEntry{
+		TxHash:           txHash.Bytes(),
+		FromAddress:      from.Hex(),
+		ContractAddress:  contractAddress.Hex(),
+		RecipientAddress: toAddr.Hex(),
+		Nonce:            tx.Nonce(),
+		Input:            input,
+		AmountData:       amount.Bytes(),
 	}
-	if err = s.recordSyntheticTransfer(ctx, txHash, input, tx.Nonce(), from, *contractAddress, toAddr, amount); err != nil {
-		return common.Hash{}, err
+	if err = s.store.InsertMempoolEntry(ctx, entry); err != nil {
+		return common.Hash{}, apperr.DependencyError(err, "insert mempool entry")
+	}
+
+	// Execute the Canton transfer.
+	transferErr := erc20.TransferFrom(ctx, txHash.Hex(), from, toAddr, *amount)
+
+	// Update mempool status regardless of transfer outcome.
+	status := ethrpc.MempoolCompleted
+	errMsg := ""
+	if transferErr != nil {
+		status = ethrpc.MempoolFailed
+		errMsg = transferErr.Error()
+	}
+	if updateErr := s.store.UpdateMempoolStatus(ctx, txHash.Bytes(), status, errMsg); updateErr != nil {
+		// Non-fatal: the miner's reconciler will handle stuck pending entries.
+		_ = updateErr
+	}
+
+	if transferErr != nil {
+		// Pass categorized errors through so callers receive the correct
+		// JSON-RPC error code (e.g. -32602 for "sender not found").
+		return common.Hash{}, transferErr
 	}
 
 	return txHash, nil
@@ -260,60 +288,6 @@ func (s *ethService) decodeTransferCall(input []byte) (common.Address, *big.Int,
 	return toAddr, amount, nil
 }
 
-func (s *ethService) recordSyntheticTransfer(
-	ctx context.Context,
-	txHash common.Hash,
-	input []byte,
-	nonce uint64,
-	from common.Address,
-	contractAddress common.Address,
-	toAddr common.Address,
-	amount *big.Int,
-) error {
-	blockNumber, blockHash, txIndex, err := s.store.NextEvmBlock(ctx, s.chainID.Uint64())
-	if err != nil {
-		return apperr.DependencyError(err, "get next EVM block")
-	}
-
-	evmTx := &ethrpc.EvmTransaction{
-		TxHash:      txHash.Bytes(),
-		FromAddress: from.Hex(),
-		ToAddress:   contractAddress.Hex(),
-		Nonce:       nonce,
-		Input:       input,
-		ValueWei:    "0",
-		Status:      1,
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,
-		TxIndex:     txIndex,
-		GasUsed:     s.cfg.GasLimit,
-	}
-	if err = s.store.SaveEvmTransaction(ctx, evmTx); err != nil {
-		return apperr.DependencyError(err, "save EVM transaction")
-	}
-
-	transferTopic := crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
-	fromTopic := common.BytesToHash(common.LeftPadBytes(from.Bytes(), topicSizeBytes))
-	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), topicSizeBytes))
-	amountBytes := common.LeftPadBytes(amount.Bytes(), topicSizeBytes)
-
-	evmLog := &ethrpc.EvmLog{
-		TxHash:      txHash.Bytes(),
-		LogIndex:    0,
-		Address:     contractAddress.Bytes(),
-		Topics:      [][]byte{transferTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
-		Data:        amountBytes,
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,
-		TxIndex:     txIndex,
-		Removed:     false,
-	}
-	if err = s.store.SaveEvmLog(ctx, evmLog); err != nil {
-		return apperr.DependencyError(err, "save EVM log")
-	}
-
-	return nil
-}
 
 func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
 	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())

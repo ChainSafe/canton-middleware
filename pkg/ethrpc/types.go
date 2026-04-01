@@ -173,6 +173,31 @@ type EvmLog struct {
 	Removed     bool
 }
 
+// MempoolStatus is the lifecycle state of a mempool intent entry.
+type MempoolStatus string
+
+const (
+	MempoolPending   MempoolStatus = "pending"   // Canton transfer submitted, not yet confirmed
+	MempoolCompleted MempoolStatus = "completed"  // Canton transfer succeeded; awaiting miner
+	MempoolFailed    MempoolStatus = "failed"     // Canton transfer failed
+	MempoolMined     MempoolStatus = "mined"      // Included in a synthetic EVM block
+)
+
+// MempoolEntry is the intent log record written by SendRawTransaction
+// and consumed by the miner goroutine.
+type MempoolEntry struct {
+	ID               int64
+	TxHash           []byte        // EVM transaction hash
+	FromAddress      string        // sender EVM address (hex)
+	ContractAddress  string        // ERC-20 contract address (hex); ToAddress in EVM tx
+	RecipientAddress string        // transfer target EVM address (hex); used in Transfer log
+	Nonce            uint64
+	Input            []byte        // raw EVM calldata
+	AmountData       []byte        // big.Int.Bytes() of the transfer amount; used in Transfer log
+	Status           MempoolStatus
+	ErrorMessage     string
+}
+
 // SyncStatus represents the syncing status response
 type SyncStatus struct {
 	StartingBlock hexutil.Uint64 `json:"startingBlock"`
