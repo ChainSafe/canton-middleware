@@ -2,7 +2,6 @@ package miner
 
 import (
 	"context"
-	"math/big"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -124,13 +123,12 @@ func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex
 	toAddr := common.HexToAddress(e.RecipientAddress)
 	fromTopic := common.BytesToHash(common.LeftPadBytes(fromAddr.Bytes(), 32))
 	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), 32))
-	amount := new(big.Int).SetBytes(e.AmountData)
-	amountData := common.LeftPadBytes(amount.Bytes(), 32)
+	amountData := common.LeftPadBytes(e.AmountData, 32)
 	contractAddr := common.HexToAddress(e.ContractAddress)
 
 	return &ethrpc.EvmLog{
 		TxHash:      e.TxHash,
-		LogIndex:    0,
+		LogIndex:    txIndex,
 		Address:     contractAddr.Bytes(),
 		Topics:      [][]byte{transferEventTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:        amountData,

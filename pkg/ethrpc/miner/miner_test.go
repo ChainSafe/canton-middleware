@@ -247,7 +247,7 @@ func TestBuildTransferLog_CorrectTopicsAndData(t *testing.T) {
 	assert.Equal(t, uint64(7), log.BlockNumber)
 	assert.Equal(t, blockHash, log.BlockHash)
 	assert.Equal(t, uint(3), log.TxIndex)
-	assert.Equal(t, uint(0), log.LogIndex)
+	assert.Equal(t, uint(3), log.LogIndex)
 	assert.False(t, log.Removed)
 
 	// Address = contract address.
