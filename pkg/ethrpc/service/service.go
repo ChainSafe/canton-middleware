@@ -33,7 +33,8 @@ type Store interface {
 
 	// Mempool intent log — written by SendRawTransaction, consumed by the miner.
 	InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error
-	UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error
+	CompleteMempoolEntry(ctx context.Context, txHash []byte) error
+	FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
@@ -239,21 +240,18 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	transferErr := erc20.TransferFrom(ctx, txHash.Hex(), from, toAddr, *amount)
 
 	// Update mempool status regardless of transfer outcome.
-	status := ethrpc.MempoolCompleted
-	errMsg := ""
 	if transferErr != nil {
-		status = ethrpc.MempoolFailed
-		errMsg = transferErr.Error()
-	}
-	if updateErr := s.store.UpdateMempoolStatus(ctx, txHash.Bytes(), status, errMsg); updateErr != nil {
-		// Non-fatal: the miner's reconciler will handle stuck pending entries.
-		_ = updateErr
-	}
-
-	if transferErr != nil {
+		if updateErr := s.store.FailMempoolEntry(ctx, txHash.Bytes(), transferErr.Error()); updateErr != nil {
+			// Non-fatal: the miner's reconciler will handle stuck pending entries.
+			_ = updateErr
+		}
 		// Pass categorized errors through so callers receive the correct
 		// JSON-RPC error code (e.g. -32602 for "sender not found").
 		return common.Hash{}, transferErr
+	}
+	if updateErr := s.store.CompleteMempoolEntry(ctx, txHash.Bytes()); updateErr != nil {
+		// Non-fatal: the miner's reconciler will handle stuck pending entries.
+		_ = updateErr
 	}
 
 	return txHash, nil

@@ -162,6 +162,64 @@ func (_c *PendingBlock_AddEvmTransaction_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// ClaimMempoolEntries provides a mock function with given fields: ctx
+func (_m *PendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimMempoolEntries")
+	}
+
+	var r0 []ethrpc.MempoolEntry
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]ethrpc.MempoolEntry, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []ethrpc.MempoolEntry); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]ethrpc.MempoolEntry)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PendingBlock_ClaimMempoolEntries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClaimMempoolEntries'
+type PendingBlock_ClaimMempoolEntries_Call struct {
+	*mock.Call
+}
+
+// ClaimMempoolEntries is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *PendingBlock_Expecter) ClaimMempoolEntries(ctx interface{}) *PendingBlock_ClaimMempoolEntries_Call {
+	return &PendingBlock_ClaimMempoolEntries_Call{Call: _e.mock.On("ClaimMempoolEntries", ctx)}
+}
+
+func (_c *PendingBlock_ClaimMempoolEntries_Call) Run(run func(ctx context.Context)) *PendingBlock_ClaimMempoolEntries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *PendingBlock_ClaimMempoolEntries_Call) Return(_a0 []ethrpc.MempoolEntry, _a1 error) *PendingBlock_ClaimMempoolEntries_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *PendingBlock_ClaimMempoolEntries_Call) RunAndReturn(run func(context.Context) ([]ethrpc.MempoolEntry, error)) *PendingBlock_ClaimMempoolEntries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Finalize provides a mock function with given fields: ctx
 func (_m *PendingBlock) Finalize(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -296,53 +354,6 @@ func (_c *PendingBlock_Number_Call) Return(_a0 uint64) *PendingBlock_Number_Call
 }
 
 func (_c *PendingBlock_Number_Call) RunAndReturn(run func() uint64) *PendingBlock_Number_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SealMempoolEntries provides a mock function with given fields: ctx, txHashes
-func (_m *PendingBlock) SealMempoolEntries(ctx context.Context, txHashes [][]byte) error {
-	ret := _m.Called(ctx, txHashes)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SealMempoolEntries")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, [][]byte) error); ok {
-		r0 = rf(ctx, txHashes)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// PendingBlock_SealMempoolEntries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SealMempoolEntries'
-type PendingBlock_SealMempoolEntries_Call struct {
-	*mock.Call
-}
-
-// SealMempoolEntries is a helper method to define mock.On call
-//   - ctx context.Context
-//   - txHashes [][]byte
-func (_e *PendingBlock_Expecter) SealMempoolEntries(ctx interface{}, txHashes interface{}) *PendingBlock_SealMempoolEntries_Call {
-	return &PendingBlock_SealMempoolEntries_Call{Call: _e.mock.On("SealMempoolEntries", ctx, txHashes)}
-}
-
-func (_c *PendingBlock_SealMempoolEntries_Call) Run(run func(ctx context.Context, txHashes [][]byte)) *PendingBlock_SealMempoolEntries_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([][]byte))
-	})
-	return _c
-}
-
-func (_c *PendingBlock_SealMempoolEntries_Call) Return(_a0 error) *PendingBlock_SealMempoolEntries_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *PendingBlock_SealMempoolEntries_Call) RunAndReturn(run func(context.Context, [][]byte) error) *PendingBlock_SealMempoolEntries_Call {
 	_c.Call.Return(run)
 	return _c
 }

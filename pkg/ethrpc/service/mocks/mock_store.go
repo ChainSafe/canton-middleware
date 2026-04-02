@@ -22,6 +22,101 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
+// CompleteMempoolEntry provides a mock function with given fields: ctx, txHash
+func (_m *Store) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+	ret := _m.Called(ctx, txHash)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompleteMempoolEntry")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) error); ok {
+		r0 = rf(ctx, txHash)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_CompleteMempoolEntry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteMempoolEntry'
+type Store_CompleteMempoolEntry_Call struct {
+	*mock.Call
+}
+
+// CompleteMempoolEntry is a helper method to define mock.On call
+//   - ctx context.Context
+//   - txHash []byte
+func (_e *Store_Expecter) CompleteMempoolEntry(ctx interface{}, txHash interface{}) *Store_CompleteMempoolEntry_Call {
+	return &Store_CompleteMempoolEntry_Call{Call: _e.mock.On("CompleteMempoolEntry", ctx, txHash)}
+}
+
+func (_c *Store_CompleteMempoolEntry_Call) Run(run func(ctx context.Context, txHash []byte)) *Store_CompleteMempoolEntry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte))
+	})
+	return _c
+}
+
+func (_c *Store_CompleteMempoolEntry_Call) Return(_a0 error) *Store_CompleteMempoolEntry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_CompleteMempoolEntry_Call) RunAndReturn(run func(context.Context, []byte) error) *Store_CompleteMempoolEntry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FailMempoolEntry provides a mock function with given fields: ctx, txHash, errMsg
+func (_m *Store) FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error {
+	ret := _m.Called(ctx, txHash, errMsg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FailMempoolEntry")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) error); ok {
+		r0 = rf(ctx, txHash, errMsg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_FailMempoolEntry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FailMempoolEntry'
+type Store_FailMempoolEntry_Call struct {
+	*mock.Call
+}
+
+// FailMempoolEntry is a helper method to define mock.On call
+//   - ctx context.Context
+//   - txHash []byte
+//   - errMsg string
+func (_e *Store_Expecter) FailMempoolEntry(ctx interface{}, txHash interface{}, errMsg interface{}) *Store_FailMempoolEntry_Call {
+	return &Store_FailMempoolEntry_Call{Call: _e.mock.On("FailMempoolEntry", ctx, txHash, errMsg)}
+}
+
+func (_c *Store_FailMempoolEntry_Call) Run(run func(ctx context.Context, txHash []byte, errMsg string)) *Store_FailMempoolEntry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Store_FailMempoolEntry_Call) Return(_a0 error) *Store_FailMempoolEntry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_FailMempoolEntry_Call) RunAndReturn(run func(context.Context, []byte, string) error) *Store_FailMempoolEntry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBlockNumberByHash provides a mock function with given fields: ctx, blockHash
 func (_m *Store) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error) {
 	ret := _m.Called(ctx, blockHash)
@@ -415,55 +510,6 @@ func (_c *Store_InsertMempoolEntry_Call) Return(_a0 error) *Store_InsertMempoolE
 }
 
 func (_c *Store_InsertMempoolEntry_Call) RunAndReturn(run func(context.Context, *ethrpc.MempoolEntry) error) *Store_InsertMempoolEntry_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateMempoolStatus provides a mock function with given fields: ctx, txHash, status, errMsg
-func (_m *Store) UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error {
-	ret := _m.Called(ctx, txHash, status, errMsg)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateMempoolStatus")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, ethrpc.MempoolStatus, string) error); ok {
-		r0 = rf(ctx, txHash, status, errMsg)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_UpdateMempoolStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateMempoolStatus'
-type Store_UpdateMempoolStatus_Call struct {
-	*mock.Call
-}
-
-// UpdateMempoolStatus is a helper method to define mock.On call
-//   - ctx context.Context
-//   - txHash []byte
-//   - status ethrpc.MempoolStatus
-//   - errMsg string
-func (_e *Store_Expecter) UpdateMempoolStatus(ctx interface{}, txHash interface{}, status interface{}, errMsg interface{}) *Store_UpdateMempoolStatus_Call {
-	return &Store_UpdateMempoolStatus_Call{Call: _e.mock.On("UpdateMempoolStatus", ctx, txHash, status, errMsg)}
-}
-
-func (_c *Store_UpdateMempoolStatus_Call) Run(run func(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string)) *Store_UpdateMempoolStatus_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].(ethrpc.MempoolStatus), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *Store_UpdateMempoolStatus_Call) Return(_a0 error) *Store_UpdateMempoolStatus_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_UpdateMempoolStatus_Call) RunAndReturn(run func(context.Context, []byte, ethrpc.MempoolStatus, string) error) *Store_UpdateMempoolStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

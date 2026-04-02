@@ -1,7 +1,6 @@
 package miner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"math/big"
@@ -57,10 +56,10 @@ func setupBlock(t *testing.T, number uint64) *mocks.PendingBlock {
 
 func TestMine_NoEntries_AbortsBlock(t *testing.T) {
 	block := setupBlock(t, 1)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).Return(nil, nil)
 
 	m := newTestMiner(store)
 	require.NoError(t, m.mine(context.Background()))
@@ -86,15 +85,11 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 			tx.GasUsed == testGasLimit
 	})).Return(nil).Once()
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once()
-	block.EXPECT().SealMempoolEntries(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
-		return len(hashes) == 1 && bytes.Equal(hashes[0], entry.TxHash)
-	})).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	m := newTestMiner(store)
 	require.NoError(t, m.mine(context.Background()))
@@ -125,15 +120,11 @@ func TestMine_MultipleEntries_CorrectTxIndexAndHashes(t *testing.T) {
 			return log.TxIndex == idx
 		})).Return(nil).Once()
 	}
-	block.EXPECT().SealMempoolEntries(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
-		return len(hashes) == 3
-	})).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(entries, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return(entries, nil)
 
 	m := newTestMiner(store)
 	require.NoError(t, m.mine(context.Background()))
@@ -152,11 +143,10 @@ func TestMine_NewBlockError(t *testing.T) {
 
 func TestMine_GetEntriesError(t *testing.T) {
 	block := setupBlock(t, 1)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, errors.New("db read failed"))
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return(nil, errors.New("db read failed"))
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
@@ -170,10 +160,10 @@ func TestMine_AddEvmTransactionError_ReturnsEarly(t *testing.T) {
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
@@ -189,10 +179,10 @@ func TestMine_AddEvmLogError_ReturnsEarly(t *testing.T) {
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
@@ -200,23 +190,16 @@ func TestMine_AddEvmLogError_ReturnsEarly(t *testing.T) {
 	block.AssertNotCalled(t, "Finalize", mock.Anything)
 }
 
-func TestMine_SealMempoolEntriesError_ReturnsEarly(t *testing.T) {
+func TestMine_ClaimMempoolEntriesError_ReturnsEarly(t *testing.T) {
 	block := setupBlock(t, 1)
-	block.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
-	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil)
-	block.EXPECT().SealMempoolEntries(mock.Anything, mock.Anything).Return(errors.New("seal mempool entries failed"))
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, errors.New("claim mempool entries failed"))
 
-	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
-		"0xcccc000000000000000000000000000000000001",
-		"0xdddd000000000000000000000000000000000001", 0, 100)
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
-	require.EqualError(t, err, "seal mempool entries failed")
+	require.EqualError(t, err, "claim mempool entries failed")
 	block.AssertNotCalled(t, "Finalize", mock.Anything)
 }
 
@@ -224,16 +207,15 @@ func TestMine_FinalizeError(t *testing.T) {
 	block := setupBlock(t, 1)
 	block.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil)
-	block.EXPECT().SealMempoolEntries(mock.Anything, mock.Anything).Return(nil)
 	block.EXPECT().Finalize(mock.Anything).Return(errors.New("commit failed"))
 
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).
-		Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
@@ -318,9 +300,10 @@ func TestStart_StopsOnContextCancel(t *testing.T) {
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 	block.EXPECT().Abort(mock.Anything).Return(nil).Maybe()
 
+	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, nil).Maybe()
+
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil).Maybe()
-	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolCompleted).Return(nil, nil).Maybe()
 
 	m := New(store, testChainID, testGasLimit, 10*time.Millisecond, zap.NewNop())
 

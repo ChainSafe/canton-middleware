@@ -23,65 +23,6 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
-// GetMempoolEntriesByStatus provides a mock function with given fields: ctx, status
-func (_m *Store) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error) {
-	ret := _m.Called(ctx, status)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetMempoolEntriesByStatus")
-	}
-
-	var r0 []ethrpc.MempoolEntry
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error)); ok {
-		return rf(ctx, status)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, ethrpc.MempoolStatus) []ethrpc.MempoolEntry); ok {
-		r0 = rf(ctx, status)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]ethrpc.MempoolEntry)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, ethrpc.MempoolStatus) error); ok {
-		r1 = rf(ctx, status)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Store_GetMempoolEntriesByStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMempoolEntriesByStatus'
-type Store_GetMempoolEntriesByStatus_Call struct {
-	*mock.Call
-}
-
-// GetMempoolEntriesByStatus is a helper method to define mock.On call
-//   - ctx context.Context
-//   - status ethrpc.MempoolStatus
-func (_e *Store_Expecter) GetMempoolEntriesByStatus(ctx interface{}, status interface{}) *Store_GetMempoolEntriesByStatus_Call {
-	return &Store_GetMempoolEntriesByStatus_Call{Call: _e.mock.On("GetMempoolEntriesByStatus", ctx, status)}
-}
-
-func (_c *Store_GetMempoolEntriesByStatus_Call) Run(run func(ctx context.Context, status ethrpc.MempoolStatus)) *Store_GetMempoolEntriesByStatus_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(ethrpc.MempoolStatus))
-	})
-	return _c
-}
-
-func (_c *Store_GetMempoolEntriesByStatus_Call) Return(_a0 []ethrpc.MempoolEntry, _a1 error) *Store_GetMempoolEntriesByStatus_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Store_GetMempoolEntriesByStatus_Call) RunAndReturn(run func(context.Context, ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error)) *Store_GetMempoolEntriesByStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewBlock provides a mock function with given fields: ctx, chainID
 func (_m *Store) NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error) {
 	ret := _m.Called(ctx, chainID)

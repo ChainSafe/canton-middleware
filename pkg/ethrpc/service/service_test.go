@@ -241,7 +241,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		store := mocks.NewStore(t)
 		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().UpdateMempoolStatus(mock.Anything, mock.Anything, ethrpc.MempoolCompleted, "").Return(nil)
+		store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything).Return(nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
@@ -275,7 +275,7 @@ func TestService_SendRawTransaction(t *testing.T) {
 
 		store := mocks.NewStore(t)
 		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().UpdateMempoolStatus(mock.Anything, mock.Anything, ethrpc.MempoolFailed, mock.AnythingOfType("string")).Return(nil)
+		store.EXPECT().FailMempoolEntry(mock.Anything, mock.Anything, mock.AnythingOfType("string")).Return(nil)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)

@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 const evmLogsQueryLimit = 10000
@@ -72,6 +72,46 @@ type pendingBlock struct {
 func (b *pendingBlock) Number() uint64 { return b.blockNumber }
 func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 
+// ClaimMempoolEntries atomically marks all completed mempool entries as mined
+// and returns them, using a single UPDATE … RETURNING within the block's
+// transaction. Because the transaction already holds the evm_state row lock,
+// concurrent miners are serialised: by the time a second miner acquires the
+// lock, the first miner's commit has already flipped these rows to mined.
+func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
+	var daos []MempoolEntryDao
+	if _, err := b.tx.NewUpdate().
+		TableExpr("mempool").
+		Set("status = ?", string(ethrpc.MempoolMined)).
+		Set("updated_at = current_timestamp").
+		Where("status = ?", string(ethrpc.MempoolCompleted)).
+		Returning("*").
+		Exec(ctx, &daos); err != nil {
+		return nil, fmt.Errorf("claim mempool entries: %w", err)
+	}
+	if len(daos) == 0 {
+		return nil, nil
+	}
+
+	// RETURNING does not guarantee row order; sort by insertion ID so the
+	// miner assigns deterministic, monotonic txIndex values.
+	sort.Slice(daos, func(i, j int) bool { return daos[i].ID < daos[j].ID })
+
+	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
+	for _, dao := range daos {
+		entries = append(entries, ethrpc.MempoolEntry{
+			TxHash:           dao.TxHash,
+			FromAddress:      dao.FromAddress,
+			ContractAddress:  dao.ContractAddress,
+			RecipientAddress: dao.RecipientAddress,
+			Nonce:            dao.Nonce,
+			Input:            dao.Input,
+			AmountData:       dao.AmountData,
+			Status:           ethrpc.MempoolMined,
+		})
+	}
+	return entries, nil
+}
+
 func (b *pendingBlock) AddEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
 	dao := toEvmTransactionDao(tx)
 	if _, err := b.tx.NewInsert().
@@ -90,24 +130,6 @@ func (b *pendingBlock) AddEvmLog(ctx context.Context, log *ethrpc.EvmLog) error 
 		On("CONFLICT (tx_hash, log_index) DO NOTHING").
 		Exec(ctx); err != nil {
 		return fmt.Errorf("save evm log: %w", err)
-	}
-	return nil
-}
-
-// SealMempoolEntries transitions the given mempool entries to status=mined within the
-// same transaction as the block writes, so the update is atomic with the commit.
-func (b *pendingBlock) SealMempoolEntries(ctx context.Context, txHashes [][]byte) error {
-	if len(txHashes) == 0 {
-		return nil
-	}
-	_, err := b.tx.NewUpdate().
-		TableExpr("mempool").
-		Set("status = ?", string(ethrpc.MempoolMined)).
-		Set("updated_at = current_timestamp").
-		Where("tx_hash = ANY(?)", pgdialect.Array(txHashes)).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("seal mempool entries: %w", err)
 	}
 	return nil
 }
@@ -268,19 +290,33 @@ func (s *PGStore) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolE
 	return nil
 }
 
-// UpdateMempoolStatus sets the status (and optional error message) for a mempool entry.
-func (s *PGStore) UpdateMempoolStatus(ctx context.Context, txHash []byte, status ethrpc.MempoolStatus, errMsg string) error {
-	q := s.db.NewUpdate().
+// CompleteMempoolEntry transitions a mempool entry from pending → completed after
+// a successful Canton transfer.  This is the only non-miner write path.
+func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+	_, err := s.db.NewUpdate().
 		TableExpr("mempool").
-		Set("status = ?", string(status)).
+		Set("status = ?", string(ethrpc.MempoolCompleted)).
 		Set("updated_at = current_timestamp").
-		Where("tx_hash = ?", txHash)
-	if errMsg != "" {
-		q = q.Set("error_message = ?", errMsg)
-	}
-	_, err := q.Exec(ctx)
+		Where("tx_hash = ?", txHash).
+		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("update mempool status: %w", err)
+		return fmt.Errorf("complete mempool entry: %w", err)
+	}
+	return nil
+}
+
+// FailMempoolEntry transitions a mempool entry from pending → failed after a
+// Canton transfer error, recording the error message for diagnostics.
+func (s *PGStore) FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error {
+	_, err := s.db.NewUpdate().
+		TableExpr("mempool").
+		Set("status = ?", string(ethrpc.MempoolFailed)).
+		Set("error_message = ?", errMsg).
+		Set("updated_at = current_timestamp").
+		Where("tx_hash = ?", txHash).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("fail mempool entry: %w", err)
 	}
 	return nil
 }

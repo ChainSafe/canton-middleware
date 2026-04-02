@@ -17,11 +17,11 @@ import (
 type PendingBlock interface {
 	Number() uint64
 	Hash() []byte
+	// ClaimMempoolEntries fetches all completed mempool entries and atomically
+	// marks them as mined.
+	ClaimMempoolEntries(ctx context.Context) ([]MempoolEntry, error)
 	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
 	AddEvmLog(ctx context.Context, log *EvmLog) error
-	// SealMempoolEntries updates mempool entries to status=mined within the same
-	// transaction, so the update commits atomically with the block.
-	SealMempoolEntries(ctx context.Context, txHashes [][]byte) error
 	Finalize(ctx context.Context) error
 	Abort(ctx context.Context) error
 }

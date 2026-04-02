@@ -24,8 +24,6 @@ type Store interface {
 	// evm_state row, serializing concurrent miners. The lock is held until
 	// Finalize or Abort is called on the returned PendingBlock.
 	NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error)
-	// GetMempoolEntriesByStatus returns all entries with the given status.
-	GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error)
 }
 
 // Miner periodically claims completed mempool entries and commits them as a
@@ -74,7 +72,7 @@ func (m *Miner) mine(ctx context.Context) error {
 	}
 	defer block.Abort(ctx) //nolint:errcheck // safe: Abort is a no-op after Finalize
 
-	entries, err := m.store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
+	entries, err := block.ClaimMempoolEntries(ctx)
 	if err != nil {
 		return err
 	}
@@ -82,7 +80,6 @@ func (m *Miner) mine(ctx context.Context) error {
 		return nil // Abort via defer; block number is not consumed.
 	}
 
-	txHashes := make([][]byte, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
 		txIndex := uint(i)
@@ -107,12 +104,6 @@ func (m *Miner) mine(ctx context.Context) error {
 		if err = block.AddEvmLog(ctx, buildTransferLog(e, block, txIndex)); err != nil {
 			return err
 		}
-
-		txHashes = append(txHashes, e.TxHash)
-	}
-
-	if err = block.SealMempoolEntries(ctx, txHashes); err != nil {
-		return err
 	}
 
 	if err = block.Finalize(ctx); err != nil {

@@ -3,9 +3,11 @@ package store
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/uptrace/bun"
@@ -524,11 +526,11 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 
 	// Transition entry1 → completed, entry3 → failed with error message.
-	if err = store.UpdateMempoolStatus(ctx, entry1.TxHash, ethrpc.MempoolCompleted, ""); err != nil {
-		t.Fatalf("UpdateMempoolStatus(entry1, completed) failed: %v", err)
+	if err = store.CompleteMempoolEntry(ctx, entry1.TxHash); err != nil {
+		t.Fatalf("CompleteMempoolEntry(entry1) failed: %v", err)
 	}
-	if err = store.UpdateMempoolStatus(ctx, entry3.TxHash, ethrpc.MempoolFailed, "canton error: insufficient funds"); err != nil {
-		t.Fatalf("UpdateMempoolStatus(entry3, failed) failed: %v", err)
+	if err = store.FailMempoolEntry(ctx, entry3.TxHash, "canton error: insufficient funds"); err != nil {
+		t.Fatalf("FailMempoolEntry(entry3) failed: %v", err)
 	}
 
 	pending, err = store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolPending)
@@ -539,14 +541,6 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected only entry2 pending, got %d entries", len(pending))
 	}
 
-	completed, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
-	if err != nil {
-		t.Fatalf("GetMempoolEntriesByStatus(completed) failed: %v", err)
-	}
-	if len(completed) != 1 || !bytes.Equal(completed[0].TxHash, entry1.TxHash) {
-		t.Fatalf("expected only entry1 completed, got %d entries", len(completed))
-	}
-
 	failed, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolFailed)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(failed) failed: %v", err)
@@ -555,17 +549,21 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected only entry3 failed, got %d entries", len(failed))
 	}
 
-	// SealMempoolEntries: seal entry1 within a pending block. The mempool update must commit
-	// atomically with the block — if Finalize succeeds, the entry is sealed.
+	// ClaimMempoolEntries: entry1 is completed; claiming it must atomically mark it mined
+	// and return it. The block transaction commits via Finalize.
 	block, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NewBlock for SealMempoolEntries failed: %v", err)
+		t.Fatalf("NewBlock for ClaimMempoolEntries failed: %v", err)
 	}
-	if err = block.SealMempoolEntries(ctx, [][]byte{entry1.TxHash}); err != nil {
-		t.Fatalf("SealMempoolEntries failed: %v", err)
+	claimed, err := block.ClaimMempoolEntries(ctx)
+	if err != nil {
+		t.Fatalf("ClaimMempoolEntries failed: %v", err)
+	}
+	if len(claimed) != 1 || !bytes.Equal(claimed[0].TxHash, entry1.TxHash) {
+		t.Fatalf("ClaimMempoolEntries: expected entry1, got %d entries", len(claimed))
 	}
 	if err = block.Finalize(ctx); err != nil {
-		t.Fatalf("Finalize after SealMempoolEntries failed: %v", err)
+		t.Fatalf("Finalize after ClaimMempoolEntries failed: %v", err)
 	}
 
 	mined, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolMined)
@@ -576,27 +574,153 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected entry1 mined after Finalize, got %d mined entries", len(mined))
 	}
 
-	// SealMempoolEntries inside an aborted block must NOT persist the status change.
-	if err = store.UpdateMempoolStatus(ctx, entry2.TxHash, ethrpc.MempoolCompleted, ""); err != nil {
-		t.Fatalf("UpdateMempoolStatus(entry2, completed) failed: %v", err)
+	// ClaimMempoolEntries inside an aborted block must NOT persist the status change.
+	if err = store.CompleteMempoolEntry(ctx, entry2.TxHash); err != nil {
+		t.Fatalf("CompleteMempoolEntry(entry2) failed: %v", err)
 	}
 	abortBlock, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NewBlock for aborted SealMempoolEntries failed: %v", err)
+		t.Fatalf("NewBlock for aborted ClaimMempoolEntries failed: %v", err)
 	}
-	if err = abortBlock.SealMempoolEntries(ctx, [][]byte{entry2.TxHash}); err != nil {
-		t.Fatalf("SealMempoolEntries (aborted block) failed: %v", err)
+	if _, err = abortBlock.ClaimMempoolEntries(ctx); err != nil {
+		t.Fatalf("ClaimMempoolEntries (aborted block) failed: %v", err)
 	}
 	if err = abortBlock.Abort(ctx); err != nil {
 		t.Fatalf("Abort failed: %v", err)
 	}
 
-	// entry2 must still be completed — the SealMempoolEntries was rolled back with the block.
-	completed, err = store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
+	// entry2 must still be completed — the claim was rolled back with the block.
+	stillCompleted, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(completed after abort) failed: %v", err)
 	}
-	if len(completed) != 1 || !bytes.Equal(completed[0].TxHash, entry2.TxHash) {
-		t.Fatalf("SealMempoolEntries in aborted block must not persist: got %d completed entries", len(completed))
+	if len(stillCompleted) != 1 || !bytes.Equal(stillCompleted[0].TxHash, entry2.TxHash) {
+		t.Fatalf("ClaimMempoolEntries in aborted block must not persist: got %d completed entries", len(stillCompleted))
 	}
+}
+
+// TestPGStore_ConcurrentMiners verifies the store's behaviour under concurrent miner
+// goroutines — the scenario expected in multi-instance deployments.
+//
+// NewBlock holds an exclusive row lock on evm_state (SELECT … FOR UPDATE) for the
+// lifetime of the block transaction, which serialises miners at the database level.
+// While miner A holds the lock and processes entries, miner B blocks at NewBlock.
+// By the time B acquires the lock, A has already committed and sealed the entries
+// as mined, so B's GetMempoolEntriesByStatus returns nothing and B aborts cleanly.
+//
+// The store must guarantee:
+//
+//  1. All completed entries end up in exactly one block — the winner's block.
+//  2. Losing miners that find no work abort without persisting anything.
+//  3. No miner goroutine returns an error.
+//
+// Run with -race to surface any data races in the store layer.
+func TestPGStore_ConcurrentMiners(t *testing.T) {
+	ctx := context.Background()
+	store, db := setupEVMStore(t)
+
+	// Seed completed mempool entries directly — InsertMempoolEntry always sets
+	// status=pending, so we insert via the DAO to set status=completed up-front.
+	const numEntries = 20
+	for i := 0; i < numEntries; i++ {
+		dao := &MempoolEntryDao{
+			TxHash:           []byte{0xcc, byte(i)},
+			FromAddress:      fmt.Sprintf("0x%040x", i),
+			ContractAddress:  "0xcccccccccccccccccccccccccccccccccccccccc",
+			RecipientAddress: fmt.Sprintf("0x%040x", i+100),
+			Nonce:            uint64(i),
+			Input:            []byte{byte(i)},
+			AmountData:       []byte{0x01},
+			Status:           string(ethrpc.MempoolCompleted),
+		}
+		if _, err := db.NewInsert().Model(dao).Exec(ctx); err != nil {
+			t.Fatalf("seed mempool entry %d: %v", i, err)
+		}
+	}
+
+	// Run three concurrent miners, each performing a full mine cycle.
+	const numMiners = 3
+	errs := make([]error, numMiners)
+	var wg sync.WaitGroup
+	for i := range numMiners {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			errs[id] = runMinerCycle(ctx, store)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("miner %d failed: %v", i, err)
+		}
+	}
+
+	// 1. All entries landed in exactly one block — miners are serialised by the
+	//    evm_state lock, so only the winning miner commits transactions.
+	var txRows []EvmTransactionDao
+	if err := db.NewSelect().Model(&txRows).Scan(ctx); err != nil {
+		t.Fatalf("query evm_transactions: %v", err)
+	}
+	if len(txRows) != numEntries {
+		t.Errorf("expected %d evm_transactions, got %d", numEntries, len(txRows))
+	}
+	blockNums := make(map[uint64]bool, numEntries)
+	for _, row := range txRows {
+		blockNums[row.BlockNumber] = true
+	}
+	if len(blockNums) != 1 {
+		t.Errorf("all transactions must be in one block; found %d distinct block numbers: %v", len(blockNums), blockNums)
+	}
+
+	// 2. Every entry is sealed as mined — no entry left behind.
+	var mempoolRows []MempoolEntryDao
+	if err := db.NewSelect().Model(&mempoolRows).Scan(ctx); err != nil {
+		t.Fatalf("query mempool: %v", err)
+	}
+	for _, row := range mempoolRows {
+		if row.Status != string(ethrpc.MempoolMined) {
+			t.Errorf("entry %x has status %q, want %q", row.TxHash, row.Status, ethrpc.MempoolMined)
+		}
+	}
+}
+
+// runMinerCycle simulates one miner iteration: claim a block, fetch completed entries,
+// write transactions, seal mempool entries, and commit.
+func runMinerCycle(ctx context.Context, store *PGStore) error {
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		return fmt.Errorf("NewBlock: %w", err)
+	}
+	defer block.Abort(ctx) //nolint:errcheck
+
+	entries, err := block.ClaimMempoolEntries(ctx)
+	if err != nil {
+		return fmt.Errorf("ClaimMempoolEntries: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil // nothing to mine; Abort via defer — block number not consumed
+	}
+
+	for i := range entries {
+		e := &entries[i]
+		evmTx := &ethrpc.EvmTransaction{
+			TxHash:      e.TxHash,
+			FromAddress: e.FromAddress,
+			ToAddress:   e.ContractAddress,
+			Nonce:       e.Nonce,
+			Input:       e.Input,
+			ValueWei:    "0",
+			Status:      1,
+			BlockNumber: block.Number(),
+			BlockHash:   block.Hash(),
+			TxIndex:     uint(i),
+			GasUsed:     21000,
+		}
+		if err = block.AddEvmTransaction(ctx, evmTx); err != nil {
+			return fmt.Errorf("AddEvmTransaction: %w", err)
+		}
+	}
+	return block.Finalize(ctx)
 }
