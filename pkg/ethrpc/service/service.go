@@ -287,7 +287,6 @@ func (s *ethService) decodeTransferCall(input []byte) (common.Address, *big.Int,
 	return toAddr, amount, nil
 }
 
-
 func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash) (*ethrpc.RPCReceipt, error) {
 	row, err := s.store.GetEvmTransaction(ctx, hash.Bytes())
 	if err != nil {

@@ -68,6 +68,9 @@ if [ "$HAS_CONFIG_ARG" = "false" ]; then
         api-server)
             CONFIG_PATH="/app/config/defaults/config.api-server.${CONFIG_SUFFIX}.yaml"
             ;;
+        indexer)
+            CONFIG_PATH="/app/config/defaults/config.indexer.${CONFIG_SUFFIX}.yaml"
+            ;;
         *)
             CONFIG_PATH=""
             ;;

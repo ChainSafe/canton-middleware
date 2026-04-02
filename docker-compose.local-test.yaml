@@ -22,6 +22,12 @@ services:
       LOG_LEVEL: debug
       E2E_TEST_MODE: "true"
 
+  # Override indexer environment
+  indexer:
+    environment:
+      LOG_LEVEL: debug
+      E2E_TEST_MODE: "true"
+
   # Override postgres to skip persistent volume for clean test state
   postgres:
     # No persistent volume - fresh DB each run

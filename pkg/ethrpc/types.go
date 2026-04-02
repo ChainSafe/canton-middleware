@@ -206,13 +206,13 @@ const (
 // and consumed by the miner goroutine.
 type MempoolEntry struct {
 	ID               int64
-	TxHash           []byte        // EVM transaction hash
-	FromAddress      string        // sender EVM address (hex)
-	ContractAddress  string        // ERC-20 contract address (hex); ToAddress in EVM tx
-	RecipientAddress string        // transfer target EVM address (hex); used in Transfer log
+	TxHash           []byte // EVM transaction hash
+	FromAddress      string // sender EVM address (hex)
+	ContractAddress  string // ERC-20 contract address (hex); ToAddress in EVM tx
+	RecipientAddress string // transfer target EVM address (hex); used in Transfer log
 	Nonce            uint64
-	Input            []byte        // raw EVM calldata
-	AmountData       []byte        // big.Int.Bytes() of the transfer amount; used in Transfer log
+	Input            []byte // raw EVM calldata
+	AmountData       []byte // big.Int.Bytes() of the transfer amount; used in Transfer log
 	Status           MempoolStatus
 	ErrorMessage     string
 }

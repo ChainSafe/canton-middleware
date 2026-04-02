@@ -59,7 +59,21 @@ services:
       CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"
 
-  # Postgres stays enabled for relayer and API server state
+  # Indexer connecting to 5North DevNet
+  indexer:
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+    volumes: []
+    command: []
+    environment:
+      ENV: devnet
+      INDEXER_DATABASE_URL: "${INDEXER_DATABASE_URL:-postgres://postgres:p%40ssw0rd@postgres:5432/canton_indexer}"
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET}"
+      CANTON_ISSUER_PARTY: "${CANTON_ISSUER_PARTY}"
+
+  # Postgres stays enabled for relayer, API server, and indexer state
 
 volumes:
   postgres_data:

@@ -18,8 +18,10 @@ COPY . .
 # CGO_ENABLED=0 creates static binaries compatible with alpine
 RUN CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
+    CGO_ENABLED=0 go build -o /app/bin/indexer ./cmd/indexer && \
     CGO_ENABLED=0 go build -o /app/bin/api-server-migrate ./cmd/api-server/migrate && \
     CGO_ENABLED=0 go build -o /app/bin/relayer-migrate ./cmd/relayer/migrate && \
+    CGO_ENABLED=0 go build -o /app/bin/indexer-migrate ./cmd/indexer/migrate && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/setup/bootstrap-bridge.go && \
     CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/testing/register-user.go && \
     CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/utils/mock-oauth2-server.go
@@ -68,6 +70,24 @@ RUN chmod +x /app/docker-bootstrap.sh
 ENV ENV=docker
 
 ENTRYPOINT ["/app/docker-bootstrap.sh"]
+
+# Runtime stage for indexer
+FROM alpine:latest AS indexer
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/bin/indexer /app/indexer
+COPY --from=builder /app/bin/indexer-migrate /app/indexer-migrate
+COPY --from=builder /app/pkg/config/defaults /app/config/defaults
+COPY scripts/setup/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENV DEFAULT_BINARY=/app/indexer
+ENV ENV=docker
+
+EXPOSE 8082
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Runtime stage for api-server
 FROM alpine:latest AS api-server

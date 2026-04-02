@@ -117,6 +117,33 @@ func TestPGStore_BlockMeta(t *testing.T) {
 	}
 }
 
+func TestPGStore_BlockRollback(t *testing.T) {
+	ctx := context.Background()
+	store, _ := setupEVMStore(t)
+
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock failed: %v", err)
+	}
+	if err = block.Abort(ctx); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+	// Second rollback must be a no-op
+	if err = block.Abort(ctx); err != nil {
+		t.Fatalf("second Rollback should be no-op: %v", err)
+	}
+
+	// With SELECT … FOR UPDATE, the block number is only persisted on Finalize.
+	// An aborted block does NOT consume a number — latest_block stays at 0.
+	latest, err := store.GetLatestEvmBlockNumber(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestEvmBlockNumber failed: %v", err)
+	}
+	if latest != 0 {
+		t.Fatalf("aborted block should not advance counter: got %d want 0", latest)
+	}
+}
+
 func TestPGStore_Transactions(t *testing.T) {
 	ctx := context.Background()
 	store, db := setupEVMStore(t)
@@ -198,6 +225,9 @@ func TestPGStore_Transactions(t *testing.T) {
 	if err = block3.Finalize(ctx); err != nil {
 		t.Fatalf("Finalize(block3) failed: %v", err)
 	}
+	if err = block2.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block2) failed: %v", err)
+	}
 
 	// Duplicate add is idempotent (ON CONFLICT DO NOTHING).
 	block1dup, err := store.NewBlock(ctx, testChainID)
@@ -212,6 +242,9 @@ func TestPGStore_Transactions(t *testing.T) {
 	}
 	if err = block1dup.Finalize(ctx); err != nil {
 		t.Fatalf("Finalize(block1dup) failed: %v", err)
+	}
+	if err = block3.Finalize(ctx); err != nil {
+		t.Fatalf("Commit(block3) failed: %v", err)
 	}
 
 	countRows, err := db.NewSelect().
@@ -270,7 +303,7 @@ func TestPGStore_Transactions(t *testing.T) {
 		t.Fatalf("unexpected nonce for missing address: got %d want 0", nonceMissing)
 	}
 
-	blockNum, err := store.GetBlockNumberByHash(ctx, tx2.BlockHash)
+	blockNum, err := store.GetBlockNumberByHash(ctx, block2.Hash())
 	if err != nil {
 		t.Fatalf("GetBlockNumberByHash(existing) failed: %v", err)
 	}
@@ -304,23 +337,22 @@ func TestPGStore_Logs(t *testing.T) {
 	blockHash := block.Hash()
 	blockNum := block.Number()
 
-	log1 := &ethrpc.EvmLog{
-		TxHash:      []byte{0x10},
-		LogIndex:    1,
-		Address:     addressA,
-		Topics:      [][]byte{topicA, topicB},
-		Data:        []byte{0xde, 0xad},
-		BlockNumber: blockNum,
-		BlockHash:   blockHash,
-		TxIndex:     2,
-		Removed:     false,
-	}
 	log0 := &ethrpc.EvmLog{
 		TxHash:      []byte{0x10},
 		LogIndex:    0,
 		Address:     addressA,
 		Topics:      [][]byte{topicA, topicC},
 		Data:        []byte{0xbe, 0xef},
+		BlockNumber: blockNum,
+		BlockHash:   blockHash,
+		TxIndex:     2,
+	}
+	log1 := &ethrpc.EvmLog{
+		TxHash:      []byte{0x10},
+		LogIndex:    1,
+		Address:     addressA,
+		Topics:      [][]byte{topicA, topicB},
+		Data:        []byte{0xde, 0xad},
 		BlockNumber: blockNum,
 		BlockHash:   blockHash,
 		TxIndex:     2,
@@ -335,7 +367,6 @@ func TestPGStore_Logs(t *testing.T) {
 		BlockNumber: blockNum,
 		BlockHash:   blockHash,
 		TxIndex:     0,
-		Removed:     false,
 	}
 	log3 := &ethrpc.EvmLog{
 		TxHash:      []byte{0x12},
@@ -346,7 +377,6 @@ func TestPGStore_Logs(t *testing.T) {
 		BlockNumber: blockNum,
 		BlockHash:   blockHash,
 		TxIndex:     1,
-		Removed:     false,
 	}
 
 	for _, l := range []*ethrpc.EvmLog{log1, log0, log2, log3} {
@@ -383,6 +413,11 @@ func TestPGStore_Logs(t *testing.T) {
 	}
 	if countRows != 1 {
 		t.Fatalf("duplicate log insert should be ignored: got %d rows want 1", countRows)
+	}
+
+	_, err = store.GetLatestEvmBlockNumber(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestEvmBlockNumber failed: %v", err)
 	}
 
 	logsByTx, err := store.GetEvmLogsByTxHash(ctx, log0.TxHash)
