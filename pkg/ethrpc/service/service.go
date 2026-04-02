@@ -21,6 +21,7 @@ import (
 // Store is the narrow data-access interface consumed by the EthRPC service.
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/ethrpc --name PendingBlock --output mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
 type Store interface {
 	// Read-only queries used by JSON-RPC handlers.
 	GetLatestEvmBlockNumber(ctx context.Context) (uint64, error)

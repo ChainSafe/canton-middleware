@@ -16,6 +16,9 @@ import (
 var transferEventTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 
 // Store is the narrow data-access interface the miner needs.
+//
+//go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/ethrpc --name PendingBlock --output mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
 type Store interface {
 	// NewBlock opens a DB transaction and acquires an exclusive lock on the
 	// evm_state row, serializing concurrent miners. The lock is held until

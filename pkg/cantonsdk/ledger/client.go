@@ -58,10 +58,6 @@ type Ledger interface {
 	// for prepare/sign/execute transaction flows with external parties.
 	Interactive() interactivev2.InteractiveSubmissionServiceClient
 
-	// CommandCompletion returns the CommandCompletionService client
-	// for streaming command completions by commandId.
-	CommandCompletion() lapiv2.CommandCompletionServiceClient
-
 	// GetLedgerEnd retrieves the current absolute ledger offset.
 	GetLedgerEnd(ctx context.Context) (int64, error)
 
@@ -100,10 +96,9 @@ type Client struct {
 
 	conn *grpc.ClientConn
 
-	state             lapiv2.StateServiceClient
-	command           lapiv2.CommandServiceClient
-	commandCompletion lapiv2.CommandCompletionServiceClient
-	update            lapiv2.UpdateServiceClient
+	state   lapiv2.StateServiceClient
+	command lapiv2.CommandServiceClient
+	update  lapiv2.UpdateServiceClient
 
 	partyAdmin  adminv2.PartyManagementServiceClient
 	userAdmin   adminv2.UserManagementServiceClient
@@ -146,17 +141,16 @@ func New(cfg *Config, opts ...Option) (*Client, error) {
 	)
 
 	return &Client{
-		cfg:               cfg,
-		logger:            s.logger,
-		conn:              conn,
-		state:             lapiv2.NewStateServiceClient(conn),
-		command:           lapiv2.NewCommandServiceClient(conn),
-		commandCompletion: lapiv2.NewCommandCompletionServiceClient(conn),
-		update:            lapiv2.NewUpdateServiceClient(conn),
-		partyAdmin:        adminv2.NewPartyManagementServiceClient(conn),
-		userAdmin:         adminv2.NewUserManagementServiceClient(conn),
-		interactive:       interactivev2.NewInteractiveSubmissionServiceClient(conn),
-		auth:              ap,
+		cfg:         cfg,
+		logger:      s.logger,
+		conn:        conn,
+		state:       lapiv2.NewStateServiceClient(conn),
+		command:     lapiv2.NewCommandServiceClient(conn),
+		update:      lapiv2.NewUpdateServiceClient(conn),
+		partyAdmin:  adminv2.NewPartyManagementServiceClient(conn),
+		userAdmin:   adminv2.NewUserManagementServiceClient(conn),
+		interactive: interactivev2.NewInteractiveSubmissionServiceClient(conn),
+		auth:        ap,
 	}, nil
 }
 
@@ -180,10 +174,6 @@ func (c *Client) UserAdmin() adminv2.UserManagementServiceClient {
 
 func (c *Client) Interactive() interactivev2.InteractiveSubmissionServiceClient {
 	return c.interactive
-}
-
-func (c *Client) CommandCompletion() lapiv2.CommandCompletionServiceClient {
-	return c.commandCompletion
 }
 
 func (c *Client) AuthContext(ctx context.Context) context.Context {

@@ -14,8 +14,6 @@ import (
 // All writes are grouped in a single DB transaction that also holds an exclusive
 // lock on the evm_state row, serializing concurrent miners automatically.
 // Call Finalize to commit; Abort is a no-op after Finalize and is safe to defer.
-//
-//go:generate mockery --name PendingBlock --output service/mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
 type PendingBlock interface {
 	Number() uint64
 	Hash() []byte
