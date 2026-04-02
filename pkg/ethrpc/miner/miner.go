@@ -14,6 +14,10 @@ import (
 // transferEventTopic is the keccak256 hash of the ERC-20 Transfer event signature.
 var transferEventTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 
+// evmWordSize is the EVM word width (256 bits / 32 bytes). ABI-encoded topics
+// and data segments are always left-padded to this size.
+const evmWordSize = 32
+
 // Store is the narrow data-access interface the miner needs.
 //
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
@@ -47,7 +51,7 @@ func New(store Store, chainID, gasLimit uint64, interval time.Duration, logger *
 	}
 }
 
-// Start runs the mining loop until ctx is cancelled.
+// Start runs the mining loop until ctx is canceled.
 func (m *Miner) Start(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
@@ -81,7 +85,7 @@ func (m *Miner) mine(ctx context.Context) error {
 
 	for i := range entries {
 		e := &entries[i]
-		txIndex := uint(i)
+		txIndex := uint(i) //nolint:gosec // i is bounded by len(entries) which fits in uint
 
 		evmTx := &ethrpc.EvmTransaction{
 			TxHash:      e.TxHash,
@@ -121,9 +125,9 @@ func (m *Miner) mine(ctx context.Context) error {
 func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex uint) *ethrpc.EvmLog {
 	fromAddr := common.HexToAddress(e.FromAddress)
 	toAddr := common.HexToAddress(e.RecipientAddress)
-	fromTopic := common.BytesToHash(common.LeftPadBytes(fromAddr.Bytes(), 32))
-	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), 32))
-	amountData := common.LeftPadBytes(e.AmountData, 32)
+	fromTopic := common.BytesToHash(common.LeftPadBytes(fromAddr.Bytes(), evmWordSize))
+	toTopic := common.BytesToHash(common.LeftPadBytes(toAddr.Bytes(), evmWordSize))
+	amountData := common.LeftPadBytes(e.AmountData, evmWordSize)
 	contractAddr := common.HexToAddress(e.ContractAddress)
 
 	return &ethrpc.EvmLog{

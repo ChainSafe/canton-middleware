@@ -30,7 +30,7 @@ func NewStore(db *bun.DB) *PGStore {
 // caller calls Finalize or Abort on the returned PendingBlock, which serializes
 // concurrent miner instances at the database level.
 // If the transaction is rolled back the block number is skipped (gap) — an
-// intentional tradeoff accepted in favour of simplicity.
+// intentional tradeoff accepted in favor of simplicity.
 func (s *PGStore) NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -75,7 +75,7 @@ func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 // ClaimMempoolEntries atomically marks all completed mempool entries as mined
 // and returns them, using a single UPDATE … RETURNING within the block's
 // transaction. Because the transaction already holds the evm_state row lock,
-// concurrent miners are serialised: by the time a second miner acquires the
+// concurrent miners are serialized: by the time a second miner acquires the
 // lock, the first miner's commit has already flipped these rows to mined.
 func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
 	var daos []MempoolEntryDao
@@ -97,7 +97,8 @@ func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.Mempoo
 	sort.Slice(daos, func(i, j int) bool { return daos[i].ID < daos[j].ID })
 
 	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
-	for _, dao := range daos {
+	for i := range daos {
+		dao := &daos[i]
 		entries = append(entries, ethrpc.MempoolEntry{
 			TxHash:           dao.TxHash,
 			FromAddress:      dao.FromAddress,
@@ -335,7 +336,8 @@ func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.M
 	}
 
 	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
-	for _, dao := range daos {
+	for i := range daos {
+		dao := &daos[i]
 		entries = append(entries, ethrpc.MempoolEntry{
 			TxHash:           dao.TxHash,
 			FromAddress:      dao.FromAddress,

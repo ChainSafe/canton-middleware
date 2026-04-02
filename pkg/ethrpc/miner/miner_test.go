@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
-	"github.com/chainsafe/canton-middleware/pkg/ethrpc/miner/mocks"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
+	"github.com/chainsafe/canton-middleware/pkg/ethrpc/miner/mocks"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -112,7 +113,7 @@ func TestMine_MultipleEntries_CorrectTxIndexAndHashes(t *testing.T) {
 
 	// Expect 3 transactions with sequential TxIndex.
 	for i := range entries {
-		idx := uint(i)
+		idx := uint(i) //nolint:gosec // i is bounded by len(entries) which fits in uint
 		block.EXPECT().AddEvmTransaction(mock.Anything, mock.MatchedBy(func(tx *ethrpc.EvmTransaction) bool {
 			return tx.TxIndex == idx && tx.BlockNumber == 10
 		})).Return(nil).Once()

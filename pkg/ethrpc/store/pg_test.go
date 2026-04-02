@@ -599,14 +599,14 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 }
 
-// TestPGStore_ConcurrentMiners verifies the store's behaviour under concurrent miner
+// TestPGStore_ConcurrentMiners verifies the store's behavior under concurrent miner
 // goroutines — the scenario expected in multi-instance deployments.
 //
 // NewBlock holds an exclusive row lock on evm_state (SELECT … FOR UPDATE) for the
-// lifetime of the block transaction, which serialises miners at the database level.
+// lifetime of the block transaction, which serializes miners at the database level.
 // While miner A holds the lock and processes entries, miner B blocks at NewBlock.
 // By the time B acquires the lock, A has already committed and sealed the entries
-// as mined, so B's GetMempoolEntriesByStatus returns nothing and B aborts cleanly.
+// as mined, so B's ClaimMempoolEntries returns nothing and B aborts cleanly.
 //
 // The store must guarantee:
 //
@@ -622,13 +622,13 @@ func TestPGStore_ConcurrentMiners(t *testing.T) {
 	// Seed completed mempool entries directly — InsertMempoolEntry always sets
 	// status=pending, so we insert via the DAO to set status=completed up-front.
 	const numEntries = 20
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		dao := &MempoolEntryDao{
 			TxHash:           []byte{0xcc, byte(i)},
 			FromAddress:      fmt.Sprintf("0x%040x", i),
 			ContractAddress:  "0xcccccccccccccccccccccccccccccccccccccccc",
 			RecipientAddress: fmt.Sprintf("0x%040x", i+100),
-			Nonce:            uint64(i),
+			Nonce:            uint64(i), //nolint:gosec // i is bounded by numEntries=20
 			Input:            []byte{byte(i)},
 			AmountData:       []byte{0x01},
 			Status:           string(ethrpc.MempoolCompleted),
@@ -657,7 +657,7 @@ func TestPGStore_ConcurrentMiners(t *testing.T) {
 		}
 	}
 
-	// 1. All entries landed in exactly one block — miners are serialised by the
+	// 1. All entries landed in exactly one block — miners are serialized by the
 	//    evm_state lock, so only the winning miner commits transactions.
 	var txRows []EvmTransactionDao
 	if err := db.NewSelect().Model(&txRows).Scan(ctx); err != nil {
@@ -693,7 +693,7 @@ func runMinerCycle(ctx context.Context, store *PGStore) error {
 	if err != nil {
 		return fmt.Errorf("NewBlock: %w", err)
 	}
-	defer block.Abort(ctx) //nolint:errcheck
+	defer block.Abort(ctx) //nolint:errcheck // Abort is a no-op after Finalize; error is not actionable in a defer
 
 	entries, err := block.ClaimMempoolEntries(ctx)
 	if err != nil {
@@ -715,7 +715,7 @@ func runMinerCycle(ctx context.Context, store *PGStore) error {
 			Status:      1,
 			BlockNumber: block.Number(),
 			BlockHash:   block.Hash(),
-			TxIndex:     uint(i),
+			TxIndex:     uint(i), //nolint:gosec // i is bounded by len(entries) which fits in uint
 			GasUsed:     21000,
 		}
 		if err = block.AddEvmTransaction(ctx, evmTx); err != nil {
