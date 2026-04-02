@@ -29,8 +29,8 @@ func NewStore(db *bun.DB) *PGStore {
 // the evm_state singleton (SELECT … FOR UPDATE). The lock is held until the
 // caller calls Finalize or Abort on the returned PendingBlock, which serializes
 // concurrent miner instances at the database level.
-// If the transaction is rolled back the block number is skipped (gap) — an
-// intentional tradeoff accepted in favor of simplicity.
+// The block number is only persisted to evm_state inside Finalize, so a
+// rolled-back transaction does not consume a number and creates no gaps.
 func (s *PGStore) NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -80,7 +80,7 @@ func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
 	var daos []MempoolEntryDao
 	if _, err := b.tx.NewUpdate().
-		TableExpr("mempool").
+		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolMined)).
 		Set("updated_at = current_timestamp").
 		Where("status = ?", string(ethrpc.MempoolCompleted)).
@@ -292,13 +292,15 @@ func (s *PGStore) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolE
 }
 
 // CompleteMempoolEntry transitions a mempool entry from pending → completed after
-// a successful Canton transfer.  This is the only non-miner write path.
+// a successful Canton transfer.  Only entries with status=pending are affected;
+// entries already completed, failed, or mined are left untouched.
 func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
 	_, err := s.db.NewUpdate().
-		TableExpr("mempool").
+		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolCompleted)).
 		Set("updated_at = current_timestamp").
 		Where("tx_hash = ?", txHash).
+		Where("status = ?", string(ethrpc.MempoolPending)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("complete mempool entry: %w", err)
@@ -307,14 +309,16 @@ func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error
 }
 
 // FailMempoolEntry transitions a mempool entry from pending → failed after a
-// Canton transfer error, recording the error message for diagnostics.
+// Canton transfer error, recording the error message for diagnostics.  Only
+// entries with status=pending are affected.
 func (s *PGStore) FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error {
 	_, err := s.db.NewUpdate().
-		TableExpr("mempool").
+		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolFailed)).
 		Set("error_message = ?", errMsg).
 		Set("updated_at = current_timestamp").
 		Where("tx_hash = ?", txHash).
+		Where("status = ?", string(ethrpc.MempoolPending)).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("fail mempool entry: %w", err)
