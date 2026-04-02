@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -24,32 +25,38 @@ func NewStore(db *bun.DB) *PGStore {
 	return &PGStore{db: db}
 }
 
-// NewBlock allocates the next block number using an atomic counter outside the transaction,
-// then begins a new transaction for all block writes. This improves concurrency and reduces
-// lock contention when running multiple service instances, as block number allocation is decoupled
-// from the lifetime of the transaction. Note: If the transaction is rolled back or fails,
-// the allocated block number will be skipped, resulting in a possible empty block (gap).
-// This is an intentional tradeoff for scalability and is safe as long as clients tolerate gaps.
+// NewBlock opens a DB transaction and takes an explicit exclusive row lock on
+// the evm_state singleton (SELECT … FOR UPDATE). The lock is held until the
+// caller calls Finalize or Abort on the returned PendingBlock, which serializes
+// concurrent miner instances at the database level.
+// The block number is only persisted to evm_state inside Finalize, so a
+// rolled-back transaction does not consume a number and creates no gaps.
 func (s *PGStore) NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingBlock, error) {
-	state := new(EvmStateDao)
-	if err := s.db.NewInsert().
-		Model(&EvmStateDao{ID: 1, LatestBlock: 1}).
-		On("CONFLICT (id) DO UPDATE").
-		Set("latest_block = ?TableAlias.latest_block + 1").
-		Returning("*").
-		Scan(ctx, state); err != nil {
-		return nil, fmt.Errorf("claim block number: %w", err)
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 
-	blockHash := ethereum.ComputeBlockHash(chainID, state.LatestBlock)
+	// Acquire an exclusive row lock. Concurrent callers block here until the
+	// previous miner's transaction commits or rolls back.
+	// The singleton row is guaranteed to exist by migration 8_create_evm_state.
+	state := new(EvmStateDao)
+	if err = tx.NewSelect().
+		Model(state).
+		Where("id = 1").
+		For("UPDATE").
+		Scan(ctx); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("lock evm_state: %w", err)
+	}
+
+	// Pre-compute the next block number and hash. The counter is written to
+	// evm_state only in Finalize, so a rolled-back block never consumes a number.
+	nextBlock := state.LatestBlock + 1
+	blockHash := ethereum.ComputeBlockHash(chainID, nextBlock)
 	return &pendingBlock{
 		tx:          tx,
-		blockNumber: state.LatestBlock,
+		blockNumber: nextBlock,
 		blockHash:   blockHash,
 	}, nil
 }
@@ -64,6 +71,47 @@ type pendingBlock struct {
 
 func (b *pendingBlock) Number() uint64 { return b.blockNumber }
 func (b *pendingBlock) Hash() []byte   { return b.blockHash }
+
+// ClaimMempoolEntries atomically marks all completed mempool entries as mined
+// and returns them, using a single UPDATE … RETURNING within the block's
+// transaction. Because the transaction already holds the evm_state row lock,
+// concurrent miners are serialized: by the time a second miner acquires the
+// lock, the first miner's commit has already flipped these rows to mined.
+func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
+	var daos []MempoolEntryDao
+	if _, err := b.tx.NewUpdate().
+		Model((*MempoolEntryDao)(nil)).
+		Set("status = ?", string(ethrpc.MempoolMined)).
+		Set("updated_at = current_timestamp").
+		Where("status = ?", string(ethrpc.MempoolCompleted)).
+		Returning("*").
+		Exec(ctx, &daos); err != nil {
+		return nil, fmt.Errorf("claim mempool entries: %w", err)
+	}
+	if len(daos) == 0 {
+		return nil, nil
+	}
+
+	// RETURNING does not guarantee row order; sort by insertion ID so the
+	// miner assigns deterministic, monotonic txIndex values.
+	sort.Slice(daos, func(i, j int) bool { return daos[i].ID < daos[j].ID })
+
+	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
+	for i := range daos {
+		dao := &daos[i]
+		entries = append(entries, ethrpc.MempoolEntry{
+			TxHash:           dao.TxHash,
+			FromAddress:      dao.FromAddress,
+			ContractAddress:  dao.ContractAddress,
+			RecipientAddress: dao.RecipientAddress,
+			Nonce:            dao.Nonce,
+			Input:            dao.Input,
+			AmountData:       dao.AmountData,
+			Status:           ethrpc.MempoolMined,
+		})
+	}
+	return entries, nil
+}
 
 func (b *pendingBlock) AddEvmTransaction(ctx context.Context, tx *ethrpc.EvmTransaction) error {
 	dao := toEvmTransactionDao(tx)
@@ -87,16 +135,24 @@ func (b *pendingBlock) AddEvmLog(ctx context.Context, log *ethrpc.EvmLog) error 
 	return nil
 }
 
-// Finalize commits the block transaction. Safe to call at most once.
-func (b *pendingBlock) Finalize(_ context.Context) error {
+// Finalize increments evm_state.latest_block to the pre-computed block number
+// and commits the transaction. Safe to call at most once.
+func (b *pendingBlock) Finalize(ctx context.Context) error {
 	if b.done {
 		return nil
 	}
 	b.done = true
+	if _, err := b.tx.NewUpdate().
+		Model(&EvmStateDao{ID: 1, LatestBlock: b.blockNumber}).
+		Where("id = 1").
+		Exec(ctx); err != nil {
+		_ = b.tx.Rollback()
+		return fmt.Errorf("update evm_state block number: %w", err)
+	}
 	return b.tx.Commit()
 }
 
-// Abort rolls back the block transaction. No-op after Commit; safe to defer.
+// Abort rolls back the block transaction. No-op after Finalize; safe to defer.
 func (b *pendingBlock) Abort(_ context.Context) error {
 	if b.done {
 		return nil
@@ -210,4 +266,92 @@ func (s *PGStore) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte,
 		logs = append(logs, fromEvmLogDao(&daos[i]))
 	}
 	return logs, nil
+}
+
+// InsertMempoolEntry records a new transfer intent with status=pending.
+// DO NOTHING on tx_hash conflict so duplicate submissions are safe.
+func (s *PGStore) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error {
+	dao := &MempoolEntryDao{
+		TxHash:           entry.TxHash,
+		FromAddress:      entry.FromAddress,
+		ContractAddress:  entry.ContractAddress,
+		RecipientAddress: entry.RecipientAddress,
+		Nonce:            entry.Nonce,
+		Input:            entry.Input,
+		AmountData:       entry.AmountData,
+		Status:           string(ethrpc.MempoolPending),
+	}
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (tx_hash) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert mempool entry: %w", err)
+	}
+	return nil
+}
+
+// CompleteMempoolEntry transitions a mempool entry from pending → completed after
+// a successful Canton transfer.  Only entries with status=pending are affected;
+// entries already completed, failed, or mined are left untouched.
+func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+	_, err := s.db.NewUpdate().
+		Model((*MempoolEntryDao)(nil)).
+		Set("status = ?", string(ethrpc.MempoolCompleted)).
+		Set("updated_at = current_timestamp").
+		Where("tx_hash = ?", txHash).
+		Where("status = ?", string(ethrpc.MempoolPending)).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("complete mempool entry: %w", err)
+	}
+	return nil
+}
+
+// FailMempoolEntry transitions a mempool entry from pending → failed after a
+// Canton transfer error, recording the error message for diagnostics.  Only
+// entries with status=pending are affected.
+func (s *PGStore) FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error {
+	_, err := s.db.NewUpdate().
+		Model((*MempoolEntryDao)(nil)).
+		Set("status = ?", string(ethrpc.MempoolFailed)).
+		Set("error_message = ?", errMsg).
+		Set("updated_at = current_timestamp").
+		Where("tx_hash = ?", txHash).
+		Where("status = ?", string(ethrpc.MempoolPending)).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("fail mempool entry: %w", err)
+	}
+	return nil
+}
+
+// GetMempoolEntriesByStatus returns all mempool entries with the given status,
+// ordered by insertion ID.
+func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error) {
+	var daos []MempoolEntryDao
+	err := s.db.NewSelect().
+		Model(&daos).
+		Where("status = ?", string(status)).
+		OrderExpr("id ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get mempool entries by status %q: %w", status, err)
+	}
+
+	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
+	for i := range daos {
+		dao := &daos[i]
+		entries = append(entries, ethrpc.MempoolEntry{
+			TxHash:           dao.TxHash,
+			FromAddress:      dao.FromAddress,
+			ContractAddress:  dao.ContractAddress,
+			RecipientAddress: dao.RecipientAddress,
+			Nonce:            dao.Nonce,
+			Input:            dao.Input,
+			AmountData:       dao.AmountData,
+			Status:           status,
+		})
+	}
+	return entries, nil
 }

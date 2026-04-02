@@ -11,13 +11,15 @@ import (
 )
 
 // PendingBlock represents an atomic context for constructing a synthetic EVM block.
-// All AddEvmTransaction and AddEvmLog calls are grouped as part of this block context.
-// Finalize applies all changes; Abort discards them. Abort is a no-op after Finalize and is safe to defer.
-//
-//go:generate mockery --name PendingBlock --output service/mocks --outpkg mocks --filename mock_pending_block.go --with-expecter
+// All writes are grouped in a single DB transaction that also holds an exclusive
+// lock on the evm_state row, serializing concurrent miners automatically.
+// Call Finalize to commit; Abort is a no-op after Finalize and is safe to defer.
 type PendingBlock interface {
 	Number() uint64
 	Hash() []byte
+	// ClaimMempoolEntries fetches all completed mempool entries and atomically
+	// marks them as mined.
+	ClaimMempoolEntries(ctx context.Context) ([]MempoolEntry, error)
 	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
 	AddEvmLog(ctx context.Context, log *EvmLog) error
 	Finalize(ctx context.Context) error
@@ -186,6 +188,31 @@ type EvmLog struct {
 	BlockHash   []byte
 	TxIndex     uint
 	Removed     bool
+}
+
+// MempoolStatus is the lifecycle state of a mempool intent entry.
+type MempoolStatus string
+
+const (
+	MempoolPending   MempoolStatus = "pending"   // Canton transfer submitted, not yet confirmed
+	MempoolCompleted MempoolStatus = "completed" // Canton transfer succeeded; awaiting miner
+	MempoolFailed    MempoolStatus = "failed"    // Canton transfer failed
+	MempoolMined     MempoolStatus = "mined"     // Included in a synthetic EVM block
+)
+
+// MempoolEntry is the intent log record written by SendRawTransaction
+// and consumed by the miner goroutine.
+type MempoolEntry struct {
+	ID               int64
+	TxHash           []byte // EVM transaction hash
+	FromAddress      string // sender EVM address (hex)
+	ContractAddress  string // ERC-20 contract address (hex); ToAddress in EVM tx
+	RecipientAddress string // transfer target EVM address (hex); used in Transfer log
+	Nonce            uint64
+	Input            []byte // raw EVM calldata
+	AmountData       []byte // big.Int.Bytes() of the transfer amount; used in Transfer log
+	Status           MempoolStatus
+	ErrorMessage     string
 }
 
 // SyncStatus represents the syncing status response

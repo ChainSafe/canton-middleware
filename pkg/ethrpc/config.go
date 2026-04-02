@@ -12,4 +12,5 @@ type Config struct {
 	GasLimit         uint64        `yaml:"gas_limit" default:"21000"`
 	NativeBalanceWei string        `yaml:"native_balance_wei" default:"1000000000000000000000"`
 	RequestTimeout   time.Duration `yaml:"request_timeout"  default:"30s"`
+	MinerInterval    time.Duration `yaml:"miner_interval"   default:"2s"`
 }
