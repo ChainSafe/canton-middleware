@@ -94,9 +94,9 @@ func (b *pendingBlock) AddEvmLog(ctx context.Context, log *ethrpc.EvmLog) error 
 	return nil
 }
 
-// MarkMined transitions the given mempool entries to status=mined within the
+// SealMempoolEntries transitions the given mempool entries to status=mined within the
 // same transaction as the block writes, so the update is atomic with the commit.
-func (b *pendingBlock) MarkMined(ctx context.Context, txHashes [][]byte) error {
+func (b *pendingBlock) SealMempoolEntries(ctx context.Context, txHashes [][]byte) error {
 	if len(txHashes) == 0 {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (b *pendingBlock) MarkMined(ctx context.Context, txHashes [][]byte) error {
 		Where("tx_hash = ANY(?)", pgdialect.Array(txHashes)).
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("mark mempool entries mined: %w", err)
+		return fmt.Errorf("seal mempool entries: %w", err)
 	}
 	return nil
 }

@@ -111,7 +111,7 @@ func (m *Miner) mine(ctx context.Context) error {
 		txHashes = append(txHashes, e.TxHash)
 	}
 
-	if err = block.MarkMined(ctx, txHashes); err != nil {
+	if err = block.SealMempoolEntries(ctx, txHashes); err != nil {
 		return err
 	}
 

@@ -255,53 +255,6 @@ func (_c *PendingBlock_Hash_Call) RunAndReturn(run func() []byte) *PendingBlock_
 	return _c
 }
 
-// MarkMined provides a mock function with given fields: ctx, txHashes
-func (_m *PendingBlock) MarkMined(ctx context.Context, txHashes [][]byte) error {
-	ret := _m.Called(ctx, txHashes)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MarkMined")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, [][]byte) error); ok {
-		r0 = rf(ctx, txHashes)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// PendingBlock_MarkMined_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkMined'
-type PendingBlock_MarkMined_Call struct {
-	*mock.Call
-}
-
-// MarkMined is a helper method to define mock.On call
-//   - ctx context.Context
-//   - txHashes [][]byte
-func (_e *PendingBlock_Expecter) MarkMined(ctx interface{}, txHashes interface{}) *PendingBlock_MarkMined_Call {
-	return &PendingBlock_MarkMined_Call{Call: _e.mock.On("MarkMined", ctx, txHashes)}
-}
-
-func (_c *PendingBlock_MarkMined_Call) Run(run func(ctx context.Context, txHashes [][]byte)) *PendingBlock_MarkMined_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([][]byte))
-	})
-	return _c
-}
-
-func (_c *PendingBlock_MarkMined_Call) Return(_a0 error) *PendingBlock_MarkMined_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *PendingBlock_MarkMined_Call) RunAndReturn(run func(context.Context, [][]byte) error) *PendingBlock_MarkMined_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Number provides a mock function with no fields
 func (_m *PendingBlock) Number() uint64 {
 	ret := _m.Called()
@@ -343,6 +296,53 @@ func (_c *PendingBlock_Number_Call) Return(_a0 uint64) *PendingBlock_Number_Call
 }
 
 func (_c *PendingBlock_Number_Call) RunAndReturn(run func() uint64) *PendingBlock_Number_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SealMempoolEntries provides a mock function with given fields: ctx, txHashes
+func (_m *PendingBlock) SealMempoolEntries(ctx context.Context, txHashes [][]byte) error {
+	ret := _m.Called(ctx, txHashes)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SealMempoolEntries")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, [][]byte) error); ok {
+		r0 = rf(ctx, txHashes)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// PendingBlock_SealMempoolEntries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SealMempoolEntries'
+type PendingBlock_SealMempoolEntries_Call struct {
+	*mock.Call
+}
+
+// SealMempoolEntries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - txHashes [][]byte
+func (_e *PendingBlock_Expecter) SealMempoolEntries(ctx interface{}, txHashes interface{}) *PendingBlock_SealMempoolEntries_Call {
+	return &PendingBlock_SealMempoolEntries_Call{Call: _e.mock.On("SealMempoolEntries", ctx, txHashes)}
+}
+
+func (_c *PendingBlock_SealMempoolEntries_Call) Run(run func(ctx context.Context, txHashes [][]byte)) *PendingBlock_SealMempoolEntries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([][]byte))
+	})
+	return _c
+}
+
+func (_c *PendingBlock_SealMempoolEntries_Call) Return(_a0 error) *PendingBlock_SealMempoolEntries_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *PendingBlock_SealMempoolEntries_Call) RunAndReturn(run func(context.Context, [][]byte) error) *PendingBlock_SealMempoolEntries_Call {
 	_c.Call.Return(run)
 	return _c
 }

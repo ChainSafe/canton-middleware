@@ -19,9 +19,9 @@ type PendingBlock interface {
 	Hash() []byte
 	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
 	AddEvmLog(ctx context.Context, log *EvmLog) error
-	// MarkMined updates mempool entries to status=mined within the same
+	// SealMempoolEntries updates mempool entries to status=mined within the same
 	// transaction, so the update commits atomically with the block.
-	MarkMined(ctx context.Context, txHashes [][]byte) error
+	SealMempoolEntries(ctx context.Context, txHashes [][]byte) error
 	Finalize(ctx context.Context) error
 	Abort(ctx context.Context) error
 }

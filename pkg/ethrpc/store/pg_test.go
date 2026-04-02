@@ -555,17 +555,17 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected only entry3 failed, got %d entries", len(failed))
 	}
 
-	// MarkMined: mine entry1 within a pending block. The mempool update must commit
-	// atomically with the block — if Finalize succeeds, the entry is mined.
+	// SealMempoolEntries: seal entry1 within a pending block. The mempool update must commit
+	// atomically with the block — if Finalize succeeds, the entry is sealed.
 	block, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NewBlock for MarkMined failed: %v", err)
+		t.Fatalf("NewBlock for SealMempoolEntries failed: %v", err)
 	}
-	if err = block.MarkMined(ctx, [][]byte{entry1.TxHash}); err != nil {
-		t.Fatalf("MarkMined failed: %v", err)
+	if err = block.SealMempoolEntries(ctx, [][]byte{entry1.TxHash}); err != nil {
+		t.Fatalf("SealMempoolEntries failed: %v", err)
 	}
 	if err = block.Finalize(ctx); err != nil {
-		t.Fatalf("Finalize after MarkMined failed: %v", err)
+		t.Fatalf("Finalize after SealMempoolEntries failed: %v", err)
 	}
 
 	mined, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolMined)
@@ -576,27 +576,27 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected entry1 mined after Finalize, got %d mined entries", len(mined))
 	}
 
-	// MarkMined inside an aborted block must NOT persist the status change.
+	// SealMempoolEntries inside an aborted block must NOT persist the status change.
 	if err = store.UpdateMempoolStatus(ctx, entry2.TxHash, ethrpc.MempoolCompleted, ""); err != nil {
 		t.Fatalf("UpdateMempoolStatus(entry2, completed) failed: %v", err)
 	}
 	abortBlock, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
-		t.Fatalf("NewBlock for aborted MarkMined failed: %v", err)
+		t.Fatalf("NewBlock for aborted SealMempoolEntries failed: %v", err)
 	}
-	if err = abortBlock.MarkMined(ctx, [][]byte{entry2.TxHash}); err != nil {
-		t.Fatalf("MarkMined (aborted block) failed: %v", err)
+	if err = abortBlock.SealMempoolEntries(ctx, [][]byte{entry2.TxHash}); err != nil {
+		t.Fatalf("SealMempoolEntries (aborted block) failed: %v", err)
 	}
 	if err = abortBlock.Abort(ctx); err != nil {
 		t.Fatalf("Abort failed: %v", err)
 	}
 
-	// entry2 must still be completed — the MarkMined was rolled back with the block.
+	// entry2 must still be completed — the SealMempoolEntries was rolled back with the block.
 	completed, err = store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(completed after abort) failed: %v", err)
 	}
 	if len(completed) != 1 || !bytes.Equal(completed[0].TxHash, entry2.TxHash) {
-		t.Fatalf("MarkMined in aborted block must not persist: got %d completed entries", len(completed))
+		t.Fatalf("SealMempoolEntries in aborted block must not persist: got %d completed entries", len(completed))
 	}
 }

@@ -86,7 +86,7 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 			tx.GasUsed == testGasLimit
 	})).Return(nil).Once()
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once()
-	block.EXPECT().MarkMined(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
+	block.EXPECT().SealMempoolEntries(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
 		return len(hashes) == 1 && bytes.Equal(hashes[0], entry.TxHash)
 	})).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
@@ -125,7 +125,7 @@ func TestMine_MultipleEntries_CorrectTxIndexAndHashes(t *testing.T) {
 			return log.TxIndex == idx
 		})).Return(nil).Once()
 	}
-	block.EXPECT().MarkMined(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
+	block.EXPECT().SealMempoolEntries(mock.Anything, mock.MatchedBy(func(hashes [][]byte) bool {
 		return len(hashes) == 3
 	})).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
@@ -200,11 +200,11 @@ func TestMine_AddEvmLogError_ReturnsEarly(t *testing.T) {
 	block.AssertNotCalled(t, "Finalize", mock.Anything)
 }
 
-func TestMine_MarkMinedError_ReturnsEarly(t *testing.T) {
+func TestMine_SealMempoolEntriesError_ReturnsEarly(t *testing.T) {
 	block := setupBlock(t, 1)
 	block.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil)
-	block.EXPECT().MarkMined(mock.Anything, mock.Anything).Return(errors.New("mark mined failed"))
+	block.EXPECT().SealMempoolEntries(mock.Anything, mock.Anything).Return(errors.New("seal mempool entries failed"))
 
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
@@ -216,7 +216,7 @@ func TestMine_MarkMinedError_ReturnsEarly(t *testing.T) {
 
 	m := newTestMiner(store)
 	err := m.mine(context.Background())
-	require.EqualError(t, err, "mark mined failed")
+	require.EqualError(t, err, "seal mempool entries failed")
 	block.AssertNotCalled(t, "Finalize", mock.Anything)
 }
 
@@ -224,7 +224,7 @@ func TestMine_FinalizeError(t *testing.T) {
 	block := setupBlock(t, 1)
 	block.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil)
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil)
-	block.EXPECT().MarkMined(mock.Anything, mock.Anything).Return(nil)
+	block.EXPECT().SealMempoolEntries(mock.Anything, mock.Anything).Return(nil)
 	block.EXPECT().Finalize(mock.Anything).Return(errors.New("commit failed"))
 
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
