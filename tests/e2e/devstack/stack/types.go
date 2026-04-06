@@ -24,11 +24,11 @@ type Account struct {
 // "test test test … test junk". Their keys are publicly known and must
 // never be used outside local dev environments.
 var (
-	AnvilAccount0 = &Account{
+	AnvilAccount0 = Account{
 		Address:    common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
 		PrivateKey: "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
 	}
-	AnvilAccount1 = &Account{
+	AnvilAccount1 = Account{
 		Address:    common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
 		PrivateKey: "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
 	}
@@ -63,9 +63,17 @@ type ServiceManifest struct {
 	// OAuthHTTP is the mock OAuth2 server base URL (e.g. "http://localhost:8088").
 	OAuthHTTP string
 
-	// PostgresDSN is the connection string for the shared PostgreSQL instance
+	// APIDatabaseDSN is the connection string for the api-server database
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
-	PostgresDSN string
+	APIDatabaseDSN string
+
+	// RelayerDatabaseDSN is the connection string for the relayer database
+	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/relayer").
+	RelayerDatabaseDSN string
+
+	// IndexerDatabaseDSN is the connection string for the indexer database
+	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/canton_indexer").
+	IndexerDatabaseDSN string
 
 	// PromptTokenAddr is the address of the deployed PromptToken ERC-20
 	// contract (e.g. "0x5FbDB2315678afecb367f032d93F642f64180aa3").

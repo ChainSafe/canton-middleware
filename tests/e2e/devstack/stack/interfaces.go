@@ -188,11 +188,12 @@ type Indexer interface {
 	ListTokenEvents(ctx context.Context, admin, id string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
-// Postgres is the interface for direct database access during E2E tests.
-// It is used for setup (whitelisting test addresses) and assertions
-// (verifying user records written by the api-server).
-type Postgres interface {
-	// DSN returns the PostgreSQL connection string.
+// APIDatabase is the interface for direct access to the api-server's database
+// during E2E tests. It is used for setup (whitelisting test addresses) and
+// assertions (verifying user records written by the api-server).
+type APIDatabase interface {
+	// DSN returns the api-server PostgreSQL connection string
+	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
 	DSN() string
 
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
