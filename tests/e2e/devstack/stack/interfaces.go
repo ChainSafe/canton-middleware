@@ -4,13 +4,6 @@
 // test framework. Every layer above this one (shim, system, dsl, presets)
 // depends only on these interfaces — never on concrete implementations —
 // so test code remains decoupled from network transport details.
-//
-// Build tag: this package is intentionally gated behind the "e2e" build tag.
-// Running `go test ./...` or `go build ./...` without `-tags e2e` excludes it,
-// preventing accidental execution of tests that require a live Docker stack.
-// To enable IDE type-checking, add to .vscode/settings.json:
-//
-//	"go.toolsEnvVars": { "GOFLAGS": "-tags=e2e" }
 package stack
 
 import (
@@ -18,6 +11,7 @@ import (
 	"math/big"
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
+	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
@@ -116,7 +110,7 @@ type APIServer interface {
 	// TransferFactory calls POST /registry/transfer-instruction/v1/transfer-factory
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
 	// discovery.
-	TransferFactory(ctx context.Context) (*TransferFactoryResponse, error)
+	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
 }
 
 // Relayer is the interface for the canton-bridge relayer service.
@@ -207,5 +201,5 @@ type Postgres interface {
 
 	// GetUserByEVMAddress returns the user row for evmAddress, or nil if no
 	// row exists.
-	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*UserRow, error)
+	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }
