@@ -5,6 +5,7 @@ package shim
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -93,8 +95,10 @@ func (a *APIServerShim) ExecuteTransfer(ctx context.Context, account *stack.Acco
 // ERC20Balance calls POST /eth with an eth_call JSON-RPC request to read the
 // ERC-20 balance of ownerAddr for tokenAddr through the api-server facade.
 func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr string) (string, error) {
-	// Encode the balanceOf(address) call: selector 0x70a08231 + padded address.
-	paddedOwner := fmt.Sprintf("%064s", ownerAddr[2:]) // strip 0x, zero-pad to 64 hex chars
+	// Encode the balanceOf(address) call: selector 0x70a08231 + 32-byte zero-padded address.
+	// common.LeftPadBytes ensures correct zero-padding (fmt.Sprintf %064s pads with spaces).
+	addr := common.HexToAddress(ownerAddr)
+	paddedOwner := hex.EncodeToString(common.LeftPadBytes(addr.Bytes(), 32))
 	data := "0x70a08231" + paddedOwner
 
 	rpcReq := map[string]any{

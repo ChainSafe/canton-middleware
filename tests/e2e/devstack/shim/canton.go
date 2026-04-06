@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
@@ -14,6 +15,7 @@ import (
 type CantonShim struct {
 	grpcEndpoint string
 	httpEndpoint string
+	client       *http.Client
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
@@ -21,6 +23,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 	return &CantonShim{
 		grpcEndpoint: manifest.CantonGRPC,
 		httpEndpoint: manifest.CantonHTTP,
+		client:       &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -34,7 +37,7 @@ func (c *CantonShim) IsHealthy(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return false
 	}

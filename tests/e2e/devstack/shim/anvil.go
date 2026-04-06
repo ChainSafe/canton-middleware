@@ -23,6 +23,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+// txGasLimit is a fixed gas ceiling for approve and depositToCanton transactions
+// on the local Anvil devnet. Anvil's instant mining makes estimation unnecessary.
+const txGasLimit = 300_000
+
 // AnvilShim implements stack.Anvil against a local Anvil node.
 type AnvilShim struct {
 	endpoint   string
@@ -138,7 +142,7 @@ func newTransactor(ctx context.Context, client *ethclient.Client, key *ecdsa.Pri
 		return nil, fmt.Errorf("suggest gas price: %w", err)
 	}
 	auth.GasPrice = gasPrice
-	auth.GasLimit = 300_000
+	auth.GasLimit = txGasLimit
 	return auth, nil
 }
 
