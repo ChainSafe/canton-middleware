@@ -4,92 +4,25 @@ package stack
 
 import "github.com/ethereum/go-ethereum/common"
 
-// Account represents a test account (EVM key + address).
+// ---------------------------------------------------------------------------
+// Test accounts
+// ---------------------------------------------------------------------------
+
+// Account represents an EVM test account used in E2E scenarios.
+// It is passed to shim methods that need to produce EIP-191 signatures or
+// submit Ethereum transactions on behalf of a test user.
 type Account struct {
-	Address    common.Address
-	PrivateKey string // hex, no 0x prefix
+	// Address is the 20-byte EVM address derived from PrivateKey.
+	Address common.Address
+
+	// PrivateKey is the hex-encoded raw private key without a 0x prefix.
+	PrivateKey string
 }
 
-// ServiceManifest holds all localhost endpoints discovered after Docker compose is up.
-type ServiceManifest struct {
-	AnvilRPC    string // "http://localhost:8545"
-	CantonGRPC  string // "localhost:5011"
-	CantonHTTP  string // "http://localhost:5013"
-	APIHTTP     string // "http://localhost:8081"
-	RelayerHTTP string // "http://localhost:8080"
-	IndexerHTTP string // "http://localhost:8082"
-	OAuthHTTP   string // "http://localhost:8088"
-	PostgresDSN string // "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api"
-
-	// Contract addresses (extracted from deployer logs or env)
-	PromptTokenAddr string // "0x5FbDB..."
-	BridgeAddr      string // "0xe7f172..."
-	DemoTokenAddr   string // virtual: "0xDE3000..."
-
-	// Canton instrument keys for indexer queries (populated after bootstrap)
-	PromptInstrumentAdmin string // Canton party ID of the PROMPT token admin
-	PromptInstrumentID    string // "PROMPT" — matches InstrumentKey.ID in indexer config
-	DemoInstrumentAdmin   string // Canton party ID of the DEMO token admin
-	DemoInstrumentID      string // "DEMO"
-}
-
-// IndexerToken mirrors indexer.Token — the ERC-20-like state tracked per instrument.
-type IndexerToken struct {
-	InstrumentAdmin string `json:"instrument_admin"`
-	InstrumentID    string `json:"instrument_id"`
-	Issuer          string `json:"issuer"`
-	TotalSupply     string `json:"total_supply"`
-	HolderCount     int64  `json:"holder_count"`
-}
-
-// IndexerBalance mirrors indexer.Balance — per-party holding for one instrument.
-type IndexerBalance struct {
-	PartyID         string `json:"party_id"`
-	InstrumentAdmin string `json:"instrument_admin"`
-	InstrumentID    string `json:"instrument_id"`
-	Amount          string `json:"amount"`
-}
-
-// IndexerEvent mirrors indexer.ParsedEvent — a decoded TokenTransferEvent from the ledger.
-type IndexerEvent struct {
-	ContractID      string  `json:"contract_id"`
-	TxID            string  `json:"tx_id"`
-	InstrumentAdmin string  `json:"instrument_admin"`
-	InstrumentID    string  `json:"instrument_id"`
-	EventType       string  `json:"event_type"` // "MINT" | "BURN" | "TRANSFER"
-	Amount          string  `json:"amount"`
-	FromPartyID     *string `json:"from_party_id,omitempty"`
-	ToPartyID       *string `json:"to_party_id,omitempty"`
-	ExternalTxID    *string `json:"external_tx_id,omitempty"`
-	ExternalAddress *string `json:"external_address,omitempty"`
-	LedgerOffset    int64   `json:"ledger_offset"`
-}
-
-// IndexerTokenPage is the paginated response for token list queries.
-type IndexerTokenPage struct {
-	Items []*IndexerToken `json:"items"`
-	Total int64           `json:"total"`
-	Page  int             `json:"page"`
-	Limit int             `json:"limit"`
-}
-
-// IndexerBalancePage is the paginated response for balance list queries.
-type IndexerBalancePage struct {
-	Items []*IndexerBalance `json:"items"`
-	Total int64             `json:"total"`
-	Page  int               `json:"page"`
-	Limit int               `json:"limit"`
-}
-
-// IndexerEventPage is the paginated response for event list queries.
-type IndexerEventPage struct {
-	Items []*IndexerEvent `json:"items"`
-	Total int64           `json:"total"`
-	Page  int             `json:"page"`
-	Limit int             `json:"limit"`
-}
-
-// Preconfigured Anvil test accounts (deterministic from mnemonic).
+// AnvilAccount0 and AnvilAccount1 are the first two deterministic accounts
+// produced by Anvil from the standard test mnemonic
+// "test test test … test junk". Their keys are publicly known and must
+// never be used outside local dev environments.
 var (
 	AnvilAccount0 = &Account{
 		Address:    common.HexToAddress("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
@@ -101,28 +34,113 @@ var (
 	}
 )
 
-type RegisterRequest struct {
-	EVMAddress string
-	Signature  string
-	Message    string
+// ---------------------------------------------------------------------------
+// Service manifest
+// ---------------------------------------------------------------------------
+
+// ServiceManifest holds the localhost endpoints and contract addresses
+// resolved by ServiceDiscovery after Docker Compose reports healthy. Tests
+// never hard-code addresses; they always read from the manifest.
+type ServiceManifest struct {
+	// AnvilRPC is the Anvil HTTP JSON-RPC URL (e.g. "http://localhost:8545").
+	AnvilRPC string
+
+	// CantonGRPC is the Canton Ledger API gRPC endpoint (e.g. "localhost:5011").
+	CantonGRPC string
+
+	// CantonHTTP is the Canton HTTP JSON API endpoint (e.g. "http://localhost:5013").
+	CantonHTTP string
+
+	// APIHTTP is the api-server base URL (e.g. "http://localhost:8081").
+	APIHTTP string
+
+	// RelayerHTTP is the relayer base URL (e.g. "http://localhost:8080").
+	RelayerHTTP string
+
+	// IndexerHTTP is the indexer base URL (e.g. "http://localhost:8082").
+	IndexerHTTP string
+
+	// OAuthHTTP is the mock OAuth2 server base URL (e.g. "http://localhost:8088").
+	OAuthHTTP string
+
+	// PostgresDSN is the connection string for the shared PostgreSQL instance
+	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
+	PostgresDSN string
+
+	// PromptTokenAddr is the address of the deployed PromptToken ERC-20
+	// contract (e.g. "0x5FbDB2315678afecb367f032d93F642f64180aa3").
+	PromptTokenAddr string
+
+	// BridgeAddr is the address of the deployed CantonBridge contract.
+	BridgeAddr string
+
+	// PromptInstrumentAdmin is the Canton party ID of the PROMPT token admin,
+	// used as the first key component for indexer queries.
+	PromptInstrumentAdmin string
+
+	// PromptInstrumentID is the instrument identifier of the PROMPT token
+	// (e.g. "PROMPT"), matching InstrumentKey.ID in the indexer config.
+	PromptInstrumentID string
+
+	// DemoInstrumentAdmin is the Canton party ID of the DEMO token admin.
+	DemoInstrumentAdmin string
+
+	// DemoInstrumentID is the instrument identifier of the DEMO token
+	// (e.g. "DEMO").
+	DemoInstrumentID string
 }
 
-type RegisterResponse struct {
-	EVMAddress    string
-	CantonPartyID string
-	Fingerprint   string
-	MappingCID    string
+// ---------------------------------------------------------------------------
+// Registry types
+//
+// TransferFactoryResponse and TransferFactoryTemplateID have no equivalent in
+// the service packages and are defined here. JSON tags are required because
+// the shim decodes HTTP response bodies directly into these structs.
+// ---------------------------------------------------------------------------
+
+// TransferFactoryResponse is the response body from
+// POST /registry/transfer-instruction/v1/transfer-factory.
+type TransferFactoryResponse struct {
+	// ContractID is the DAML contract ID of the transfer factory.
+	ContractID string `json:"contract_id"`
+
+	// CreatedEventBlob is the base64-encoded serialised CreatedEvent, used
+	// for Splice contract discovery.
+	CreatedEventBlob string `json:"created_event_blob"`
+
+	// TemplateID identifies the DAML template backing the factory contract.
+	TemplateID TransferFactoryTemplateID `json:"template_id"`
 }
 
-type TransferRequest struct {
-	From      common.Address
-	To        common.Address
-	Amount    string
-	TokenAddr string
+// TransferFactoryTemplateID is the fully qualified DAML template identifier
+// embedded in TransferFactoryResponse.
+type TransferFactoryTemplateID struct {
+	PackageID  string `json:"package_id"`
+	ModuleName string `json:"module_name"`
+	EntityName string `json:"entity_name"`
 }
 
+// ---------------------------------------------------------------------------
+// Postgres assertion types
+//
+// UserRow is a lightweight read-only view of the api-server's users table.
+// pkg/userstore.UserDao is not reused here because it embeds bun.BaseModel,
+// which would pull the ORM and database drivers into the test package.
+// ---------------------------------------------------------------------------
+
+// UserRow represents a row from the api-server's users table, used for
+// post-registration assertions in E2E tests.
 type UserRow struct {
-	EVMAddress    string
+	// EVMAddress is the 0x-prefixed Ethereum address, the primary lookup key.
+	EVMAddress string
+
+	// CantonPartyID is the allocated Canton party ID.
 	CantonPartyID string
-	Fingerprint   string
+
+	// Fingerprint is the keccak256 hash of the EVM address bytes (without the
+	// 0x1220 prefix), used as the bytes32 canton_recipient in bridge deposits.
+	Fingerprint string
+
+	// KeyMode is "custodial" or "external".
+	KeyMode string
 }
