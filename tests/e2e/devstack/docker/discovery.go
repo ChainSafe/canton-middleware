@@ -80,14 +80,6 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	if err != nil {
 		return nil, err
 	}
-	relayerDSN, err := d.serviceDSN(ctx, "relayer", "RELAYER_DATABASE_URL", postgresHost)
-	if err != nil {
-		return nil, err
-	}
-	indexerDSN, err := d.serviceDSN(ctx, "indexer", "INDEXER_DATABASE_URL", postgresHost)
-	if err != nil {
-		return nil, err
-	}
 
 	dm, err := d.readDeployManifest(ctx)
 	if err != nil {
@@ -103,8 +95,6 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		IndexerHTTP:           indexerHTTP,
 		OAuthHTTP:             oauthHTTP,
 		APIDatabaseDSN:        apiDSN,
-		RelayerDatabaseDSN:    relayerDSN,
-		IndexerDatabaseDSN:    indexerDSN,
 		PromptTokenAddr:       dm.PromptToken,
 		BridgeAddr:            dm.CantonBridge,
 		PromptInstrumentAdmin: dm.PromptInstrumentAdmin,

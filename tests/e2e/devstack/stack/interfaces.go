@@ -189,8 +189,8 @@ type Indexer interface {
 }
 
 // APIDatabase is the interface for direct access to the api-server's database
-// during E2E tests. It is used for setup (whitelisting test addresses) and
-// assertions (verifying user records written by the api-server).
+// during E2E tests. It is used only for test setup (whitelisting addresses).
+// Assertions on user state are made through the API, not the database directly.
 type APIDatabase interface {
 	// DSN returns the api-server PostgreSQL connection string
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
@@ -199,8 +199,4 @@ type APIDatabase interface {
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
 	// it permission to register with the api-server.
 	WhitelistAddress(ctx context.Context, evmAddress string) error
-
-	// GetUserByEVMAddress returns the user row for evmAddress, or nil if no
-	// row exists.
-	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }

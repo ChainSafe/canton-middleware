@@ -3,12 +3,9 @@
 package shim
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -22,16 +19,15 @@ import (
 
 // APIServerShim implements stack.APIServer via HTTP.
 type APIServerShim struct {
-	endpoint string
-	client   *http.Client
+	httpClient
 }
 
 // NewAPIServer returns an APIServerShim for the api-server endpoint in the manifest.
 func NewAPIServer(manifest *stack.ServiceManifest) *APIServerShim {
-	return &APIServerShim{
+	return &APIServerShim{httpClient{
 		endpoint: manifest.APIHTTP,
 		client:   &http.Client{Timeout: 30 * time.Second},
-	}
+	}}
 }
 
 func (a *APIServerShim) Endpoint() string { return a.endpoint }
@@ -41,10 +37,10 @@ func (a *APIServerShim) Health(ctx context.Context) error {
 	return a.getOK(ctx, "/health")
 }
 
-// Register sends POST /register with EIP-191 signature and message.
+// Register sends POST /register.
 func (a *APIServerShim) Register(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error) {
 	var resp user.RegisterResponse
-	if err := a.post(ctx, "/register", req, &resp); err != nil {
+	if err := a.post(ctx, "/register", "", "", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -53,7 +49,7 @@ func (a *APIServerShim) Register(ctx context.Context, req *user.RegisterRequest)
 // PrepareTopology sends POST /register/prepare-topology.
 func (a *APIServerShim) PrepareTopology(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error) {
 	var resp user.PrepareTopologyResponse
-	if err := a.post(ctx, "/register/prepare-topology", req, &resp); err != nil {
+	if err := a.post(ctx, "/register/prepare-topology", "", "", req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -72,7 +68,7 @@ func (a *APIServerShim) PrepareTransfer(ctx context.Context, account *stack.Acco
 		return nil, err
 	}
 	var resp transfer.PrepareResponse
-	if err := a.postAuth(ctx, "/api/v2/transfer/prepare", sig, msg, req, &resp); err != nil {
+	if err := a.post(ctx, "/api/v2/transfer/prepare", sig, msg, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -86,7 +82,7 @@ func (a *APIServerShim) ExecuteTransfer(ctx context.Context, account *stack.Acco
 		return nil, err
 	}
 	var resp transfer.ExecuteResponse
-	if err := a.postAuth(ctx, "/api/v2/transfer/execute", sig, msg, req, &resp); err != nil {
+	if err := a.post(ctx, "/api/v2/transfer/execute", sig, msg, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -116,7 +112,7 @@ func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr s
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := a.post(ctx, "/eth", rpcReq, &rpcResp); err != nil {
+	if err := a.post(ctx, "/eth", "", "", rpcReq, &rpcResp); err != nil {
 		return "", err
 	}
 	if rpcResp.Error != nil {
@@ -128,71 +124,10 @@ func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr s
 // TransferFactory sends POST /registry/transfer-instruction/v1/transfer-factory.
 func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error) {
 	var resp registry.TransferFactoryResponse
-	if err := a.post(ctx, "/registry/transfer-instruction/v1/transfer-factory", nil, &resp); err != nil {
+	if err := a.post(ctx, "/registry/transfer-instruction/v1/transfer-factory", "", "", nil, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
-}
-
-// --- internal helpers ---
-
-func (a *APIServerShim) post(ctx context.Context, path string, body, out any) error {
-	return a.do(ctx, path, "", "", body, out)
-}
-
-func (a *APIServerShim) postAuth(ctx context.Context, path, sig, msg string, body, out any) error {
-	return a.do(ctx, path, sig, msg, body, out)
-}
-
-func (a *APIServerShim) do(ctx context.Context, path, sig, msg string, body, out any) error {
-	var r io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("marshal request: %w", err)
-		}
-		r = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.endpoint+path, r)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if sig != "" {
-		req.Header.Set("X-Signature", sig)
-		req.Header.Set("X-Message", msg)
-	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("POST %s: %w", path, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("POST %s: status %d: %s", path, resp.StatusCode, string(raw))
-	}
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("decode response from %s: %w", path, err)
-		}
-	}
-	return nil
-}
-
-func (a *APIServerShim) getOK(ctx context.Context, path string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.endpoint+path, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
-	}
-	return nil
 }
 
 // signEIP191 produces a 0x-prefixed EIP-191 signature of message using the

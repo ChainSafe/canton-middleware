@@ -63,17 +63,10 @@ type ServiceManifest struct {
 	// OAuthHTTP is the mock OAuth2 server base URL (e.g. "http://localhost:8088").
 	OAuthHTTP string
 
-	// APIDatabaseDSN is the connection string for the api-server database
+	// APIDatabaseDSN is the connection string for the api-server database,
+	// used only for whitelisting addresses during test setup
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
 	APIDatabaseDSN string
-
-	// RelayerDatabaseDSN is the connection string for the relayer database
-	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/relayer").
-	RelayerDatabaseDSN string
-
-	// IndexerDatabaseDSN is the connection string for the indexer database
-	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/canton_indexer").
-	IndexerDatabaseDSN string
 
 	// PromptTokenAddr is the address of the deployed PromptToken ERC-20
 	// contract (e.g. "0x5FbDB2315678afecb367f032d93F642f64180aa3").
