@@ -129,7 +129,7 @@ func (s *Server) Run() error {
 	transferSvcLog := transfer.NewLog(transferSvc, logger)
 
 	if cfg.EthRPC.Enabled {
-		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerInterval, logger)
+		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
 		go m.Start(ctx)
 	}
 

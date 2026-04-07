@@ -555,7 +555,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBlock for ClaimMempoolEntries failed: %v", err)
 	}
-	claimed, err := block.ClaimMempoolEntries(ctx)
+	claimed, err := block.ClaimMempoolEntries(ctx, 200)
 	if err != nil {
 		t.Fatalf("ClaimMempoolEntries failed: %v", err)
 	}
@@ -582,7 +582,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBlock for aborted ClaimMempoolEntries failed: %v", err)
 	}
-	if _, err = abortBlock.ClaimMempoolEntries(ctx); err != nil {
+	if _, err = abortBlock.ClaimMempoolEntries(ctx, 200); err != nil {
 		t.Fatalf("ClaimMempoolEntries (aborted block) failed: %v", err)
 	}
 	if err = abortBlock.Abort(ctx); err != nil {
@@ -695,7 +695,7 @@ func runMinerCycle(ctx context.Context, store *PGStore) error {
 	}
 	defer block.Abort(ctx) //nolint:errcheck // Abort is a no-op after Finalize; error is not actionable in a defer
 
-	entries, err := block.ClaimMempoolEntries(ctx)
+	entries, err := block.ClaimMempoolEntries(ctx, 200)
 	if err != nil {
 		return fmt.Errorf("ClaimMempoolEntries: %w", err)
 	}

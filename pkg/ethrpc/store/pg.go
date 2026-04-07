@@ -72,18 +72,21 @@ type pendingBlock struct {
 func (b *pendingBlock) Number() uint64 { return b.blockNumber }
 func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 
-// ClaimMempoolEntries atomically marks all completed mempool entries as mined
-// and returns them, using a single UPDATE … RETURNING within the block's
-// transaction. Because the transaction already holds the evm_state row lock,
-// concurrent miners are serialized: by the time a second miner acquires the
-// lock, the first miner's commit has already flipped these rows to mined.
-func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
+// ClaimMempoolEntries atomically marks up to maxTxsPerBlock completed mempool
+// entries as mined and returns them, using a single UPDATE … RETURNING within
+// the block's transaction. The limit caps block size to prevent excessively
+// large blocks after traffic spikes or Canton downtime.
+// Because the transaction already holds the evm_state row lock, concurrent
+// miners are serialized: by the time a second miner acquires the lock, the
+// first miner's commit has already flipped these rows to mined.
+func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock int) ([]ethrpc.MempoolEntry, error) {
 	var daos []MempoolEntryDao
 	if _, err := b.tx.NewUpdate().
 		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolMined)).
 		Set("updated_at = current_timestamp").
-		Where("status = ?", string(ethrpc.MempoolCompleted)).
+		Where("id IN (SELECT id FROM mempool WHERE status = ? ORDER BY id LIMIT ?)",
+			string(ethrpc.MempoolCompleted), maxTxsPerBlock).
 		Returning("*").
 		Exec(ctx, &daos); err != nil {
 		return nil, fmt.Errorf("claim mempool entries: %w", err)

@@ -21,9 +21,10 @@ import (
 
 const testChainID = uint64(31337)
 const testGasLimit = uint64(21000)
+const testMaxTxsPerBlock = 200
 
 func newTestMiner(store Store) *Miner {
-	return New(store, testChainID, testGasLimit, time.Second, zap.NewNop())
+	return New(store, testChainID, testGasLimit, testMaxTxsPerBlock, time.Second, zap.NewNop())
 }
 
 func sampleEntry(txHash byte, from, contract, recipient string, nonce uint64, amount int64) ethrpc.MempoolEntry {
@@ -57,7 +58,7 @@ func setupBlock(t *testing.T, number uint64) *mocks.PendingBlock {
 
 func TestMine_NoEntries_AbortsBlock(t *testing.T) {
 	block := setupBlock(t, 1)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return(nil, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -87,7 +88,7 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 	})).Return(nil).Once()
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -122,7 +123,7 @@ func TestMine_MultipleEntries_CorrectTxIndexAndHashes(t *testing.T) {
 		})).Return(nil).Once()
 	}
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(entries, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return(entries, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -144,7 +145,7 @@ func TestMine_NewBlockError(t *testing.T) {
 
 func TestMine_GetEntriesError(t *testing.T) {
 	block := setupBlock(t, 1)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, errors.New("db read failed"))
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return(nil, errors.New("db read failed"))
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -161,7 +162,7 @@ func TestMine_AddEvmTransactionError_ReturnsEarly(t *testing.T) {
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -180,7 +181,7 @@ func TestMine_AddEvmLogError_ReturnsEarly(t *testing.T) {
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -193,7 +194,7 @@ func TestMine_AddEvmLogError_ReturnsEarly(t *testing.T) {
 
 func TestMine_ClaimMempoolEntriesError_ReturnsEarly(t *testing.T) {
 	block := setupBlock(t, 1)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, errors.New("claim mempool entries failed"))
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return(nil, errors.New("claim mempool entries failed"))
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -213,7 +214,7 @@ func TestMine_FinalizeError(t *testing.T) {
 	entry := sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
 		"0xcccc000000000000000000000000000000000001",
 		"0xdddd000000000000000000000000000000000001", 0, 100)
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return([]ethrpc.MempoolEntry{entry}, nil)
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
@@ -301,12 +302,12 @@ func TestStart_StopsOnContextCancel(t *testing.T) {
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 	block.EXPECT().Abort(mock.Anything).Return(nil).Maybe()
 
-	block.EXPECT().ClaimMempoolEntries(mock.Anything).Return(nil, nil).Maybe()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return(nil, nil).Maybe()
 
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil).Maybe()
 
-	m := New(store, testChainID, testGasLimit, 10*time.Millisecond, zap.NewNop())
+	m := New(store, testChainID, testGasLimit, testMaxTxsPerBlock, 10*time.Millisecond, zap.NewNop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

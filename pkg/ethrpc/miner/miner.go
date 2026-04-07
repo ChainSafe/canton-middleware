@@ -33,21 +33,23 @@ type Store interface {
 // synthetic EVM block. Business logic for EVM data construction lives here;
 // the Store only performs raw SQL operations.
 type Miner struct {
-	store    Store
-	chainID  uint64
-	gasLimit uint64
-	interval time.Duration
-	logger   *zap.Logger
+	store          Store
+	chainID        uint64
+	gasLimit       uint64
+	maxTxsPerBlock int
+	interval       time.Duration
+	logger         *zap.Logger
 }
 
 // New creates a new Miner.
-func New(store Store, chainID, gasLimit uint64, interval time.Duration, logger *zap.Logger) *Miner {
+func New(store Store, chainID, gasLimit uint64, maxTxsPerBlock int, interval time.Duration, logger *zap.Logger) *Miner {
 	return &Miner{
-		store:    store,
-		chainID:  chainID,
-		gasLimit: gasLimit,
-		interval: interval,
-		logger:   logger,
+		store:          store,
+		chainID:        chainID,
+		gasLimit:       gasLimit,
+		maxTxsPerBlock: maxTxsPerBlock,
+		interval:       interval,
+		logger:         logger,
 	}
 }
 
@@ -75,7 +77,7 @@ func (m *Miner) mine(ctx context.Context) error {
 	}
 	defer block.Abort(ctx) //nolint:errcheck // safe: Abort is a no-op after Finalize
 
-	entries, err := block.ClaimMempoolEntries(ctx)
+	entries, err := block.ClaimMempoolEntries(ctx, m.maxTxsPerBlock)
 	if err != nil {
 		return err
 	}

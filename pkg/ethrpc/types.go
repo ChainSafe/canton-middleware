@@ -17,9 +17,10 @@ import (
 type PendingBlock interface {
 	Number() uint64
 	Hash() []byte
-	// ClaimMempoolEntries fetches all completed mempool entries and atomically
-	// marks them as mined.
-	ClaimMempoolEntries(ctx context.Context) ([]MempoolEntry, error)
+	// ClaimMempoolEntries atomically marks up to maxTxsPerBlock completed
+	// mempool entries as mined and returns them. This caps block size to
+	// prevent excessively large blocks after traffic spikes or Canton downtime.
+	ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock int) ([]MempoolEntry, error)
 	AddEvmTransaction(ctx context.Context, tx *EvmTransaction) error
 	AddEvmLog(ctx context.Context, log *EvmLog) error
 	Finalize(ctx context.Context) error
