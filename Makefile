@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e
 
 MOCKERY_VERSION ?= v2.53.6
 
@@ -37,9 +37,14 @@ get_lint:
 		curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v2.9.0; \
 	fi;
 
-# Run linter
+# Run linter (main code + E2E tests)
 lint: get_lint
 	./bin/golangci-lint run
+	./bin/golangci-lint run --build-tags e2e ./tests/e2e/...
+
+# Run linter for E2E tests only
+lint-e2e: get_lint
+	./bin/golangci-lint run --build-tags e2e ./tests/e2e/...
 
 # Format code
 fmt:
