@@ -2,7 +2,8 @@
 
 // Package presets provides TestMain helpers and per-test System constructors
 // for E2E tests. It wires together the docker, system, and dsl layers so that
-// individual test packages only need to call DoMain and NewFullStack.
+// individual test packages only need to call DoMain and one of the New*Stack
+// helpers.
 package presets
 
 import (
@@ -12,17 +13,19 @@ import (
 	"testing"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/docker"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/system"
 )
 
 var (
-	mu     sync.Mutex
-	active *system.System
+	mu       sync.Mutex
+	manifest *stack.ServiceManifest
 )
 
-// DoMain starts the Docker Compose stack, runs all tests via m.Run(), and tears
-// down the stack when done. It must be called from TestMain. The exit code from
-// m.Run() is returned and the caller should pass it to os.Exit.
+// DoMain starts the Docker Compose stack, resolves the service manifest, runs
+// all tests via m.Run(), and tears down the stack when done. It must be called
+// from TestMain. The exit code from m.Run() is returned and the caller should
+// pass it to os.Exit.
 //
 //	func TestMain(m *testing.M) { os.Exit(presets.DoMain(m)) }
 func DoMain(m *testing.M, opts ...Option) int {
@@ -37,37 +40,60 @@ func DoMain(m *testing.M, opts ...Option) int {
 	defer func() { _ = orch.Stop(ctx) }()
 
 	disc := docker.NewServiceDiscovery(o.projectName)
-	manifest, err := disc.Manifest(ctx)
+	mfst, err := disc.Manifest(ctx)
 	if err != nil {
 		fmt.Printf("service discovery: %v\n", err)
 		return 1
 	}
 
-	// system.New requires a *testing.T — use a throwaway one for setup.
-	// Errors here are fatal: no test should run against a broken stack.
-	t := &testing.T{}
-	sys, err := system.New(ctx, t, manifest)
-	if err != nil {
-		fmt.Printf("system init: %v\n", err)
-		return 1
-	}
-
 	mu.Lock()
-	active = sys
+	manifest = mfst
 	mu.Unlock()
 
 	return m.Run()
 }
 
-// NewFullStack returns the shared System built by DoMain. It fails the test
-// immediately if DoMain was not called first.
-func NewFullStack(t *testing.T) *system.System {
+// resolvedManifest returns the manifest built by DoMain or fails the test.
+func resolvedManifest(t *testing.T) *stack.ServiceManifest {
 	t.Helper()
 	mu.Lock()
-	sys := active
+	mfst := manifest
 	mu.Unlock()
-	if sys == nil {
-		t.Fatal("presets.DoMain was not called before NewFullStack")
+	if mfst == nil {
+		t.Fatal("presets.DoMain was not called before New*Stack")
+	}
+	return mfst
+}
+
+// NewFullStack returns a System with all shims initialised. Use this when the
+// test exercises the full bridge flow (Anvil → Canton → Relayer → Indexer).
+func NewFullStack(t *testing.T) *system.System {
+	t.Helper()
+	mfst := resolvedManifest(t)
+	sys, err := system.New(context.Background(), t, mfst)
+	if err != nil {
+		t.Fatalf("full stack init: %v", err)
+	}
+	return sys
+}
+
+// NewIndexerStack returns an IndexerSystem with only the Canton and Indexer
+// shims initialised. Use this for tests that only query or assert on indexer
+// state without driving Ethereum transactions.
+func NewIndexerStack(t *testing.T) *system.IndexerSystem {
+	t.Helper()
+	return system.NewIndexerSystem(resolvedManifest(t))
+}
+
+// NewAPIStack returns an APISystem with Anvil, Canton, APIServer, and Postgres
+// shims initialised. Use this for tests that register users and call api-server
+// endpoints but do not need the relayer or indexer.
+func NewAPIStack(t *testing.T) *system.APISystem {
+	t.Helper()
+	mfst := resolvedManifest(t)
+	sys, err := system.NewAPISystem(context.Background(), t, mfst)
+	if err != nil {
+		t.Fatalf("api stack init: %v", err)
 	}
 	return sys
 }

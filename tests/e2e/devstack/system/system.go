@@ -66,3 +66,70 @@ func New(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*S
 	sys.DSL = dsl.New(sys.APIServer, sys.Relayer, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
 }
+
+// ---------------------------------------------------------------------------
+// Subset views
+// ---------------------------------------------------------------------------
+
+// IndexerSystem is a minimal view for indexer-focused tests. It only
+// initialises the Canton and Indexer shims — no Postgres connection, no Anvil.
+type IndexerSystem struct {
+	Manifest *stack.ServiceManifest
+	Canton   stack.Canton
+	Indexer  stack.Indexer
+}
+
+// NewIndexerSystem constructs an IndexerSystem from a resolved manifest.
+func NewIndexerSystem(manifest *stack.ServiceManifest) *IndexerSystem {
+	return &IndexerSystem{
+		Manifest: manifest,
+		Canton:   shim.NewCanton(manifest),
+		Indexer:  shim.NewIndexer(manifest),
+	}
+}
+
+// APISystem is a minimal view for api-server focused tests. It initialises
+// Anvil, Canton, APIServer, and Postgres shims together with the DSL and
+// pre-funded accounts.
+type APISystem struct {
+	Manifest  *stack.ServiceManifest
+	Anvil     stack.Anvil
+	Canton    stack.Canton
+	APIServer stack.APIServer
+	Postgres  stack.APIDatabase
+	DSL       *dsl.DSL
+	Accounts  *Accounts
+}
+
+// NewAPISystem constructs an APISystem from a resolved manifest. Returns an
+// error if the Anvil or Postgres shim fails to connect.
+func NewAPISystem(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*APISystem, error) {
+	t.Helper()
+
+	anvilShim, err := shim.NewAnvil(ctx, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("anvil shim: %w", err)
+	}
+
+	pgShim, err := shim.NewPostgres(manifest)
+	if err != nil {
+		return nil, fmt.Errorf("postgres shim: %w", err)
+	}
+	t.Cleanup(func() { _ = pgShim.Close() })
+
+	sys := &APISystem{
+		Manifest:  manifest,
+		Anvil:     anvilShim,
+		Canton:    shim.NewCanton(manifest),
+		APIServer: shim.NewAPIServer(manifest),
+		Postgres:  pgShim,
+		Accounts: &Accounts{
+			User1: stack.AnvilAccount0,
+			User2: stack.AnvilAccount1,
+		},
+	}
+	// DSL needs a Relayer and Indexer — pass nil shims; those methods are
+	// unavailable in an API-only test and will panic if called.
+	sys.DSL = dsl.New(sys.APIServer, nil, nil, sys.Postgres, sys.Anvil)
+	return sys, nil
+}
