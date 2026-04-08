@@ -17,7 +17,7 @@ import (
 // It is a thin adapter: symbol → admin lookup is handled here; all HTTP
 // concerns live in the indexer client.
 type Indexer struct {
-	client      indexerclient.Client
+	client indexerclient.Client
 	// instruments maps tokenSymbol (InstrumentID) → InstrumentAdmin party.
 	// Required because the indexer keys by (admin, id) but the Provider
 	// interface only receives the token symbol.

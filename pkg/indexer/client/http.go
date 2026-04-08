@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
@@ -45,13 +46,23 @@ type HTTP struct {
 }
 
 // New creates an HTTP-backed indexer client.
-// baseURL is the indexer's base URL without a trailing slash (e.g. "http://localhost:8080").
+// baseURL is the indexer's base URL (e.g. "http://localhost:8080" or "http://localhost:8080/").
+// The path component is cleaned so that appended paths are never double-slashed.
 // httpClient may be nil; http.DefaultClient is used in that case.
-func New(baseURL string, httpClient *http.Client) *HTTP {
+func New(baseURL string, httpClient *http.Client) (*HTTP, error) {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid indexer base URL %q: %w", baseURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("invalid indexer base URL %q: scheme must be http or https", baseURL)
+	}
+	// Strip trailing slash so every path helper can safely prepend "/...".
+	u.Path = strings.TrimSuffix(u.Path, "/")
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return &HTTP{baseURL: baseURL, httpClient: httpClient}
+	return &HTTP{baseURL: u.String(), httpClient: httpClient}, nil
 }
 
 // GetToken calls GET /indexer/v1/admin/tokens/{admin}/{id}.
@@ -189,14 +200,20 @@ func (c *HTTP) getJSON(ctx context.Context, rawURL string, dest any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Best-effort decode of the indexer's JSON error envelope.
+		// If the body is not JSON (e.g. an HTML gateway error page), errMsg
+		// stays empty and the status code alone is returned to the caller.
+		var errMsg string
 		var body struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(resp.Body).Decode(&body)
-		if resp.StatusCode == http.StatusNotFound {
-			return apperrors.ResourceNotFoundError(nil, body.Error)
+		if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+			errMsg = body.Error
 		}
-		return fmt.Errorf("indexer HTTP %d: %s", resp.StatusCode, body.Error)
+		if resp.StatusCode == http.StatusNotFound {
+			return apperrors.ResourceNotFoundError(nil, errMsg)
+		}
+		return fmt.Errorf("indexer HTTP %d: %s", resp.StatusCode, errMsg)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(dest); err != nil {
