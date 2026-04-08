@@ -5,7 +5,6 @@ package mocks
 import (
 	context "context"
 
-	token "github.com/chainsafe/canton-middleware/pkg/token"
 	mock "github.com/stretchr/testify/mock"
 
 	user "github.com/chainsafe/canton-middleware/pkg/user"
@@ -138,56 +137,6 @@ func (_c *UserStore_GetUserByEVMAddress_Call) Return(_a0 *user.User, _a1 error) 
 }
 
 func (_c *UserStore_GetUserByEVMAddress_Call) RunAndReturn(run func(context.Context, string) (*user.User, error)) *UserStore_GetUserByEVMAddress_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// TransferBalanceByFingerprint provides a mock function with given fields: ctx, fromFingerprint, toFingerprint, amount, tokenType
-func (_m *UserStore) TransferBalanceByFingerprint(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenType token.Type) error {
-	ret := _m.Called(ctx, fromFingerprint, toFingerprint, amount, tokenType)
-
-	if len(ret) == 0 {
-		panic("no return value specified for TransferBalanceByFingerprint")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, token.Type) error); ok {
-		r0 = rf(ctx, fromFingerprint, toFingerprint, amount, tokenType)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// UserStore_TransferBalanceByFingerprint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferBalanceByFingerprint'
-type UserStore_TransferBalanceByFingerprint_Call struct {
-	*mock.Call
-}
-
-// TransferBalanceByFingerprint is a helper method to define mock.On call
-//   - ctx context.Context
-//   - fromFingerprint string
-//   - toFingerprint string
-//   - amount string
-//   - tokenType token.Type
-func (_e *UserStore_Expecter) TransferBalanceByFingerprint(ctx interface{}, fromFingerprint interface{}, toFingerprint interface{}, amount interface{}, tokenType interface{}) *UserStore_TransferBalanceByFingerprint_Call {
-	return &UserStore_TransferBalanceByFingerprint_Call{Call: _e.mock.On("TransferBalanceByFingerprint", ctx, fromFingerprint, toFingerprint, amount, tokenType)}
-}
-
-func (_c *UserStore_TransferBalanceByFingerprint_Call) Run(run func(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenType token.Type)) *UserStore_TransferBalanceByFingerprint_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(token.Type))
-	})
-	return _c
-}
-
-func (_c *UserStore_TransferBalanceByFingerprint_Call) Return(_a0 error) *UserStore_TransferBalanceByFingerprint_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *UserStore_TransferBalanceByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, token.Type) error) *UserStore_TransferBalanceByFingerprint_Call {
 	_c.Call.Return(run)
 	return _c
 }
