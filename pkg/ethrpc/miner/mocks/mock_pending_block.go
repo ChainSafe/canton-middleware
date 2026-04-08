@@ -162,9 +162,9 @@ func (_c *PendingBlock_AddEvmTransaction_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// ClaimMempoolEntries provides a mock function with given fields: ctx
-func (_m *PendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.MempoolEntry, error) {
-	ret := _m.Called(ctx)
+// ClaimMempoolEntries provides a mock function with given fields: ctx, maxTxsPerBlock
+func (_m *PendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock int) ([]ethrpc.MempoolEntry, error) {
+	ret := _m.Called(ctx, maxTxsPerBlock)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ClaimMempoolEntries")
@@ -172,19 +172,19 @@ func (_m *PendingBlock) ClaimMempoolEntries(ctx context.Context) ([]ethrpc.Mempo
 
 	var r0 []ethrpc.MempoolEntry
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]ethrpc.MempoolEntry, error)); ok {
-		return rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, int) ([]ethrpc.MempoolEntry, error)); ok {
+		return rf(ctx, maxTxsPerBlock)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) []ethrpc.MempoolEntry); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, int) []ethrpc.MempoolEntry); ok {
+		r0 = rf(ctx, maxTxsPerBlock)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]ethrpc.MempoolEntry)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
+	if rf, ok := ret.Get(1).(func(context.Context, int) error); ok {
+		r1 = rf(ctx, maxTxsPerBlock)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -199,13 +199,14 @@ type PendingBlock_ClaimMempoolEntries_Call struct {
 
 // ClaimMempoolEntries is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *PendingBlock_Expecter) ClaimMempoolEntries(ctx interface{}) *PendingBlock_ClaimMempoolEntries_Call {
-	return &PendingBlock_ClaimMempoolEntries_Call{Call: _e.mock.On("ClaimMempoolEntries", ctx)}
+//   - maxTxsPerBlock int
+func (_e *PendingBlock_Expecter) ClaimMempoolEntries(ctx interface{}, maxTxsPerBlock interface{}) *PendingBlock_ClaimMempoolEntries_Call {
+	return &PendingBlock_ClaimMempoolEntries_Call{Call: _e.mock.On("ClaimMempoolEntries", ctx, maxTxsPerBlock)}
 }
 
-func (_c *PendingBlock_ClaimMempoolEntries_Call) Run(run func(ctx context.Context)) *PendingBlock_ClaimMempoolEntries_Call {
+func (_c *PendingBlock_ClaimMempoolEntries_Call) Run(run func(ctx context.Context, maxTxsPerBlock int)) *PendingBlock_ClaimMempoolEntries_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(int))
 	})
 	return _c
 }
@@ -215,7 +216,7 @@ func (_c *PendingBlock_ClaimMempoolEntries_Call) Return(_a0 []ethrpc.MempoolEntr
 	return _c
 }
 
-func (_c *PendingBlock_ClaimMempoolEntries_Call) RunAndReturn(run func(context.Context) ([]ethrpc.MempoolEntry, error)) *PendingBlock_ClaimMempoolEntries_Call {
+func (_c *PendingBlock_ClaimMempoolEntries_Call) RunAndReturn(run func(context.Context, int) ([]ethrpc.MempoolEntry, error)) *PendingBlock_ClaimMempoolEntries_Call {
 	_c.Call.Return(run)
 	return _c
 }
