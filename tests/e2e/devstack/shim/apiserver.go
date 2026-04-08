@@ -47,8 +47,8 @@ func NewAPIServer(ctx context.Context, manifest *stack.ServiceManifest) (*APISer
 	}, nil
 }
 
-func (a *APIServerShim) Endpoint() string          { return a.endpoint }
-func (a *APIServerShim) RPC() *ethclient.Client    { return a.evm }
+func (a *APIServerShim) Endpoint() string       { return a.endpoint }
+func (a *APIServerShim) RPC() *ethclient.Client { return a.evm }
 
 // Health returns nil when GET /health responds with 200.
 func (a *APIServerShim) Health(ctx context.Context) error {
