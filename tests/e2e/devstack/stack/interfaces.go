@@ -68,6 +68,11 @@ type APIServer interface {
 	// Endpoint returns the base HTTP URL (e.g. "http://localhost:8081").
 	Endpoint() string
 
+	// RPC returns the go-ethereum ethclient connected to the api-server's
+	// /eth JSON-RPC facade. Callers can use it for arbitrary eth_ calls
+	// without going through the shim's typed methods.
+	RPC() *ethclient.Client
+
 	// Health returns nil when the api-server is ready to accept requests.
 	Health(ctx context.Context) error
 
@@ -104,9 +109,10 @@ type APIServer interface {
 	ExecuteTransfer(ctx context.Context, account *Account, req *transfer.ExecuteRequest) (*transfer.ExecuteResponse, error)
 
 	// ERC20Balance returns the ERC-20 balance of ownerAddr for tokenAddr by
-	// calling eth_call through the api-server's Ethereum JSON-RPC facade at
-	// POST /eth.
-	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr string) (string, error)
+	// calling balanceOf through the api-server's Ethereum JSON-RPC facade at
+	// /eth. Uses go-ethereum's ethclient so the call exercises full
+	// JSON-RPC compatibility of the facade, not just a single raw method.
+	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr common.Address) (*big.Int, error)
 
 	// TransferFactory calls POST /registry/transfer-instruction/v1/transfer-factory
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
