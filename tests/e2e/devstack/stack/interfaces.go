@@ -10,13 +10,14 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // Anvil is the interface for the local Anvil Ethereum node.
@@ -180,12 +181,22 @@ type Indexer interface {
 	// ListPartyEvents returns events in which partyID appears as sender or
 	// receiver. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListPartyEvents(ctx context.Context, partyID string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListPartyEvents(
+		ctx context.Context,
+		partyID string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// ListTokenEvents returns all events for the token identified by admin
 	// and id. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListTokenEvents(ctx context.Context, admin, id string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListTokenEvents(
+		ctx context.Context,
+		admin, id string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
 // APIDatabase is the interface for direct access to the api-server's database
