@@ -10,6 +10,23 @@ permissions:
   pull-requests: write
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-22.04
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for E2E changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            e2e:
+              - 'tests/**'
+
   test:
     name: PR Test
     runs-on: ubuntu-22.04
@@ -52,3 +69,25 @@ jobs:
         with:
           version: v2.9.0
           args: --timeout=5m
+
+  lint-e2e:
+    name: PR Lint (E2E)
+    runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Run golangci-lint for E2E tests
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.9.0
+          args: --timeout=5m --build-tags e2e ./tests/e2e/...
