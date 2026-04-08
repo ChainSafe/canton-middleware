@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks
 
 MOCKERY_VERSION ?= v2.53.6
 
@@ -107,17 +107,3 @@ setup: deps db-up
 	$(MAKE) db-migrate
 	cp config.example.yaml config.yaml
 	@echo "Setup complete! Edit config.yaml and run 'make run'"
-
-# E2E tests
-E2E_COMPOSE := tests/e2e/docker-compose.e2e.yaml
-
-test-e2e: test-e2e-api test-e2e-bridge test-e2e-indexer
-
-test-e2e-api:
-	@echo "not yet implemented"
-
-test-e2e-bridge:
-	@echo "not yet implemented"
-
-test-e2e-indexer:
-	@echo "not yet implemented"

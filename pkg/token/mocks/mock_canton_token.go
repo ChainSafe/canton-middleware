@@ -69,6 +69,53 @@ func (_c *Token_Burn_Call) RunAndReturn(run func(context.Context, *token.BurnReq
 	return _c
 }
 
+// ExecuteTransfer provides a mock function with given fields: ctx, req
+func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExecuteTransfer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.ExecuteTransferRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_ExecuteTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteTransfer'
+type Token_ExecuteTransfer_Call struct {
+	*mock.Call
+}
+
+// ExecuteTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.ExecuteTransferRequest
+func (_e *Token_Expecter) ExecuteTransfer(ctx interface{}, req interface{}) *Token_ExecuteTransfer_Call {
+	return &Token_ExecuteTransfer_Call{Call: _e.mock.On("ExecuteTransfer", ctx, req)}
+}
+
+func (_c *Token_ExecuteTransfer_Call) Run(run func(ctx context.Context, req *token.ExecuteTransferRequest)) *Token_ExecuteTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.ExecuteTransferRequest))
+	})
+	return _c
+}
+
+func (_c *Token_ExecuteTransfer_Call) Return(_a0 error) *Token_ExecuteTransfer_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_ExecuteTransfer_Call) RunAndReturn(run func(context.Context, *token.ExecuteTransferRequest) error) *Token_ExecuteTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetAllHoldings provides a mock function with given fields: ctx
 func (_m *Token) GetAllHoldings(ctx context.Context) ([]*token.Holding, error) {
 	ret := _m.Called(ctx)
@@ -532,106 +579,6 @@ func (_c *Token_Mint_Call) RunAndReturn(run func(context.Context, *token.MintReq
 	return _c
 }
 
-// TransferByFingerprint provides a mock function with given fields: ctx, fromFingerprint, toFingerprint, amount, tokenSymbol
-func (_m *Token) TransferByFingerprint(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string) error {
-	ret := _m.Called(ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)
-
-	if len(ret) == 0 {
-		panic("no return value specified for TransferByFingerprint")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Token_TransferByFingerprint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferByFingerprint'
-type Token_TransferByFingerprint_Call struct {
-	*mock.Call
-}
-
-// TransferByFingerprint is a helper method to define mock.On call
-//   - ctx context.Context
-//   - fromFingerprint string
-//   - toFingerprint string
-//   - amount string
-//   - tokenSymbol string
-func (_e *Token_Expecter) TransferByFingerprint(ctx interface{}, fromFingerprint interface{}, toFingerprint interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByFingerprint_Call {
-	return &Token_TransferByFingerprint_Call{Call: _e.mock.On("TransferByFingerprint", ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)}
-}
-
-func (_c *Token_TransferByFingerprint_Call) Run(run func(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string)) *Token_TransferByFingerprint_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
-	})
-	return _c
-}
-
-func (_c *Token_TransferByFingerprint_Call) Return(_a0 error) *Token_TransferByFingerprint_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *Token_TransferByFingerprint_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// TransferByPartyID provides a mock function with given fields: ctx, fromParty, toParty, amount, tokenSymbol
-func (_m *Token) TransferByPartyID(ctx context.Context, fromParty string, toParty string, amount string, tokenSymbol string) error {
-	ret := _m.Called(ctx, fromParty, toParty, amount, tokenSymbol)
-
-	if len(ret) == 0 {
-		panic("no return value specified for TransferByPartyID")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, fromParty, toParty, amount, tokenSymbol)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Token_TransferByPartyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferByPartyID'
-type Token_TransferByPartyID_Call struct {
-	*mock.Call
-}
-
-// TransferByPartyID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - fromParty string
-//   - toParty string
-//   - amount string
-//   - tokenSymbol string
-func (_e *Token_Expecter) TransferByPartyID(ctx interface{}, fromParty interface{}, toParty interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByPartyID_Call {
-	return &Token_TransferByPartyID_Call{Call: _e.mock.On("TransferByPartyID", ctx, fromParty, toParty, amount, tokenSymbol)}
-}
-
-func (_c *Token_TransferByPartyID_Call) Run(run func(ctx context.Context, fromParty string, toParty string, amount string, tokenSymbol string)) *Token_TransferByPartyID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
-	})
-	return _c
-}
-
-func (_c *Token_TransferByPartyID_Call) Return(_a0 error) *Token_TransferByPartyID_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *Token_TransferByPartyID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // PrepareTransfer provides a mock function with given fields: ctx, req
 func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
 	ret := _m.Called(ctx, req)
@@ -662,22 +609,135 @@ func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransfer
 	return r0, r1
 }
 
-// ExecuteTransfer provides a mock function with given fields: ctx, req
-func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
-	ret := _m.Called(ctx, req)
+// Token_PrepareTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareTransfer'
+type Token_PrepareTransfer_Call struct {
+	*mock.Call
+}
+
+// PrepareTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.PrepareTransferRequest
+func (_e *Token_Expecter) PrepareTransfer(ctx interface{}, req interface{}) *Token_PrepareTransfer_Call {
+	return &Token_PrepareTransfer_Call{Call: _e.mock.On("PrepareTransfer", ctx, req)}
+}
+
+func (_c *Token_PrepareTransfer_Call) Run(run func(ctx context.Context, req *token.PrepareTransferRequest)) *Token_PrepareTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.PrepareTransferRequest))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareTransfer_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareTransfer_Call) RunAndReturn(run func(context.Context, *token.PrepareTransferRequest) (*token.PreparedTransfer, error)) *Token_PrepareTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TransferByFingerprint provides a mock function with given fields: ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol
+func (_m *Token) TransferByFingerprint(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string) error {
+	ret := _m.Called(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ExecuteTransfer")
+		panic("no return value specified for TransferByFingerprint")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *token.ExecuteTransferRequest) error); ok {
-		r0 = rf(ctx, req)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)
 	} else {
 		r0 = ret.Error(0)
 	}
 
 	return r0
+}
+
+// Token_TransferByFingerprint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferByFingerprint'
+type Token_TransferByFingerprint_Call struct {
+	*mock.Call
+}
+
+// TransferByFingerprint is a helper method to define mock.On call
+//   - ctx context.Context
+//   - idempotencyKey string
+//   - fromFingerprint string
+//   - toFingerprint string
+//   - amount string
+//   - tokenSymbol string
+func (_e *Token_Expecter) TransferByFingerprint(ctx interface{}, idempotencyKey interface{}, fromFingerprint interface{}, toFingerprint interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByFingerprint_Call {
+	return &Token_TransferByFingerprint_Call{Call: _e.mock.On("TransferByFingerprint", ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)}
+}
+
+func (_c *Token_TransferByFingerprint_Call) Run(run func(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string)) *Token_TransferByFingerprint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
+	})
+	return _c
+}
+
+func (_c *Token_TransferByFingerprint_Call) Return(_a0 error) *Token_TransferByFingerprint_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) error) *Token_TransferByFingerprint_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TransferByPartyID provides a mock function with given fields: ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol
+func (_m *Token) TransferByPartyID(ctx context.Context, idempotencyKey string, fromParty string, toParty string, amount string, tokenSymbol string) error {
+	ret := _m.Called(ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TransferByPartyID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_TransferByPartyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferByPartyID'
+type Token_TransferByPartyID_Call struct {
+	*mock.Call
+}
+
+// TransferByPartyID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - idempotencyKey string
+//   - fromParty string
+//   - toParty string
+//   - amount string
+//   - tokenSymbol string
+func (_e *Token_Expecter) TransferByPartyID(ctx interface{}, idempotencyKey interface{}, fromParty interface{}, toParty interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByPartyID_Call {
+	return &Token_TransferByPartyID_Call{Call: _e.mock.On("TransferByPartyID", ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)}
+}
+
+func (_c *Token_TransferByPartyID_Call) Run(run func(ctx context.Context, idempotencyKey string, fromParty string, toParty string, amount string, tokenSymbol string)) *Token_TransferByPartyID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
+	})
+	return _c
+}
+
+func (_c *Token_TransferByPartyID_Call) Return(_a0 error) *Token_TransferByPartyID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) error) *Token_TransferByPartyID_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // NewToken creates a new instance of Token. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
