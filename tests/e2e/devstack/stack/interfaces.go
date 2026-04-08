@@ -10,13 +10,14 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // Anvil is the interface for the local Anvil Ethereum node.
@@ -180,17 +181,27 @@ type Indexer interface {
 	// ListPartyEvents returns events in which partyID appears as sender or
 	// receiver. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListPartyEvents(ctx context.Context, partyID string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListPartyEvents(
+		ctx context.Context,
+		partyID string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// ListTokenEvents returns all events for the token identified by admin
 	// and id. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListTokenEvents(ctx context.Context, admin, id string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListTokenEvents(
+		ctx context.Context,
+		admin, id string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
 // APIDatabase is the interface for direct access to the api-server's database
-// during E2E tests. It is used only for test setup (whitelisting addresses).
-// Assertions on user state are made through the API, not the database directly.
+// during E2E tests. It is used for setup (whitelisting test addresses) and
+// assertions (verifying user records written by the api-server).
 type APIDatabase interface {
 	// DSN returns the api-server PostgreSQL connection string
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
@@ -199,4 +210,8 @@ type APIDatabase interface {
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
 	// it permission to register with the api-server.
 	WhitelistAddress(ctx context.Context, evmAddress string) error
+
+	// GetUserByEVMAddress returns the user row for evmAddress, or nil if no
+	// row exists.
+	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }
