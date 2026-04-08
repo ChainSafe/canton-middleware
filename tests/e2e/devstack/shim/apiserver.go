@@ -9,13 +9,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 )
+
+const evmWordSize = 32
 
 // APIServerShim implements stack.APIServer via HTTP.
 type APIServerShim struct {
@@ -61,7 +64,11 @@ func (a *APIServerShim) RegisterExternal(ctx context.Context, req *user.Register
 }
 
 // PrepareTransfer sends POST /api/v2/transfer/prepare with timed EIP-191 auth headers.
-func (a *APIServerShim) PrepareTransfer(ctx context.Context, account *stack.Account, req *transfer.PrepareRequest) (*transfer.PrepareResponse, error) {
+func (a *APIServerShim) PrepareTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	req *transfer.PrepareRequest,
+) (*transfer.PrepareResponse, error) {
 	msg := fmt.Sprintf("transfer:%d", time.Now().Unix())
 	sig, err := signEIP191(account.PrivateKey, msg)
 	if err != nil {
@@ -75,7 +82,11 @@ func (a *APIServerShim) PrepareTransfer(ctx context.Context, account *stack.Acco
 }
 
 // ExecuteTransfer sends POST /api/v2/transfer/execute with timed EIP-191 auth headers.
-func (a *APIServerShim) ExecuteTransfer(ctx context.Context, account *stack.Account, req *transfer.ExecuteRequest) (*transfer.ExecuteResponse, error) {
+func (a *APIServerShim) ExecuteTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	req *transfer.ExecuteRequest,
+) (*transfer.ExecuteResponse, error) {
 	msg := fmt.Sprintf("execute:%d", time.Now().Unix())
 	sig, err := signEIP191(account.PrivateKey, msg)
 	if err != nil {
@@ -94,7 +105,7 @@ func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr s
 	// Encode the balanceOf(address) call: selector 0x70a08231 + 32-byte zero-padded address.
 	// common.LeftPadBytes ensures correct zero-padding (fmt.Sprintf %064s pads with spaces).
 	addr := common.HexToAddress(ownerAddr)
-	paddedOwner := hex.EncodeToString(common.LeftPadBytes(addr.Bytes(), 32))
+	paddedOwner := hex.EncodeToString(common.LeftPadBytes(addr.Bytes(), evmWordSize))
 	data := "0x70a08231" + paddedOwner
 
 	rpcReq := map[string]any{

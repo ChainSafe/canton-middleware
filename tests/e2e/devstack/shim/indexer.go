@@ -70,12 +70,22 @@ func (s *IndexerShim) GetEvent(ctx context.Context, contractID string) (*indexer
 	return &out, s.get(ctx, fmt.Sprintf("/indexer/v1/admin/events/%s", contractID), nil, &out)
 }
 
-func (s *IndexerShim) ListPartyEvents(ctx context.Context, partyID string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (s *IndexerShim) ListPartyEvents(
+	ctx context.Context,
+	partyID string,
+	eventType indexer.EventType,
+	page, limit int,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	var out indexer.Page[*indexer.ParsedEvent]
 	return &out, s.get(ctx, fmt.Sprintf("/indexer/v1/admin/parties/%s/events", partyID), pageQuery(page, limit, string(eventType)), &out)
 }
 
-func (s *IndexerShim) ListTokenEvents(ctx context.Context, admin, id string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (s *IndexerShim) ListTokenEvents(
+	ctx context.Context,
+	admin, id string,
+	eventType indexer.EventType,
+	page, limit int,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	var out indexer.Page[*indexer.ParsedEvent]
 	return &out, s.get(ctx, fmt.Sprintf("/indexer/v1/admin/tokens/%s/%s/events", admin, id), pageQuery(page, limit, string(eventType)), &out)
 }

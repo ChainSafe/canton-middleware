@@ -6,10 +6,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
+
+	_ "github.com/lib/pq"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
-	_ "github.com/lib/pq"
 )
+
+const postgresPingTimeout = 5 * time.Second
 
 // PostgresShim implements stack.APIDatabase. It connects directly to the
 // api-server's erc20_api database and is used only for test setup operations
@@ -26,7 +30,9 @@ func NewPostgres(manifest *stack.ServiceManifest) (*PostgresShim, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), postgresPingTimeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return &PostgresShim{dsn: manifest.APIDatabaseDSN, db: db}, nil

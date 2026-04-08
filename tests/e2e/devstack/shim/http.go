@@ -12,6 +12,8 @@ import (
 	"net/url"
 )
 
+const httpErrorStatusFloor = http.StatusMultipleChoices
+
 // httpClient is a thin wrapper around *http.Client shared by all HTTP-based
 // shims. It binds a base endpoint and provides get/getOK/post helpers so
 // each shim only holds business logic.
@@ -54,7 +56,7 @@ func (h *httpClient) get(ctx context.Context, path string, query url.Values, out
 		return fmt.Errorf("GET %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	if resp.StatusCode >= httpErrorStatusFloor {
 		return fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
@@ -86,7 +88,7 @@ func (h *httpClient) post(ctx context.Context, path, sig, msg string, body, out 
 		return fmt.Errorf("POST %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	if resp.StatusCode >= httpErrorStatusFloor {
 		raw, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("POST %s: status %d: %s", path, resp.StatusCode, string(raw))
 	}
