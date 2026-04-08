@@ -31,6 +31,11 @@ func NewOrchestrator(composeFile, projectName string) *ComposeOrchestrator {
 	}
 }
 
+func dockerComposeCommand(ctx context.Context, args ...string) *exec.Cmd {
+	// #nosec G204 -- The E2E harness passes fixed Docker Compose args from test configuration, not shell-expanded user input.
+	return exec.CommandContext(ctx, "docker", append([]string{"compose"}, args...)...)
+}
+
 // Start brings up the full stack via:
 //
 //	docker compose -f <file> -p <project> up --build --wait --remove-orphans
@@ -38,8 +43,7 @@ func NewOrchestrator(composeFile, projectName string) *ComposeOrchestrator {
 // All combined output is streamed to os.Stderr. Returns an error immediately
 // if any container fails to reach a healthy state — no retries.
 func (c *ComposeOrchestrator) Start(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx,
-		"docker", "compose",
+	cmd := dockerComposeCommand(ctx,
 		"-f", c.composeFile,
 		"-p", c.projectName,
 		"up", "--build", "--wait", "--remove-orphans",
@@ -58,8 +62,7 @@ func (c *ComposeOrchestrator) Start(ctx context.Context) error {
 //
 // All combined output is streamed to os.Stderr. Leaves no dangling volumes.
 func (c *ComposeOrchestrator) Stop(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx,
-		"docker", "compose",
+	cmd := dockerComposeCommand(ctx,
 		"-f", c.composeFile,
 		"-p", c.projectName,
 		"down", "-v", "--remove-orphans",

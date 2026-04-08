@@ -16,6 +16,17 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+const (
+	anvilPort      = 8545
+	cantonGRPCPort = 5011
+	cantonHTTPPort = 5013
+	apiServerPort  = 8081
+	relayerPort    = 8080
+	indexerPort    = 8082
+	mockOAuth2Port = 8088
+	postgresPort   = 5432
+)
+
 // ServiceDiscovery resolves running container ports and reads the bootstrap
 // deploy manifest to produce a fully populated stack.ServiceManifest.
 type ServiceDiscovery struct {
@@ -43,7 +54,7 @@ type deployManifest struct {
 // running Docker Compose project and returns a fully populated ServiceManifest.
 //
 // All subprocess calls (docker compose port, docker inspect, docker compose run)
-// are issued concurrently via errgroup to minimise wall-clock time at test-suite
+// are issued concurrently via errgroup to minimize wall-clock time at test-suite
 // startup.
 //
 // DSNs are read directly from each service's own environment variables
@@ -65,14 +76,14 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	)
 
 	g1, gctx := errgroup.WithContext(ctx)
-	g1.Go(func() (err error) { anvilRPC, err = d.httpEndpoint(gctx, "anvil", 8545); return })
-	g1.Go(func() (err error) { cantonGRPC, err = d.tcpEndpoint(gctx, "canton", 5011); return })
-	g1.Go(func() (err error) { cantonHTTP, err = d.httpEndpoint(gctx, "canton", 5013); return })
-	g1.Go(func() (err error) { apiHTTP, err = d.httpEndpoint(gctx, "api-server", 8081); return })
-	g1.Go(func() (err error) { relayerHTTP, err = d.httpEndpoint(gctx, "relayer", 8080); return })
-	g1.Go(func() (err error) { indexerHTTP, err = d.httpEndpoint(gctx, "indexer", 8082); return })
-	g1.Go(func() (err error) { oauthHTTP, err = d.httpEndpoint(gctx, "mock-oauth2", 8088); return })
-	g1.Go(func() (err error) { postgresHost, err = d.publishedPort(gctx, "postgres", 5432); return })
+	g1.Go(func() (err error) { anvilRPC, err = d.httpEndpoint(gctx, "anvil", anvilPort); return })
+	g1.Go(func() (err error) { cantonGRPC, err = d.tcpEndpoint(gctx, "canton", cantonGRPCPort); return })
+	g1.Go(func() (err error) { cantonHTTP, err = d.httpEndpoint(gctx, "canton", cantonHTTPPort); return })
+	g1.Go(func() (err error) { apiHTTP, err = d.httpEndpoint(gctx, "api-server", apiServerPort); return })
+	g1.Go(func() (err error) { relayerHTTP, err = d.httpEndpoint(gctx, "relayer", relayerPort); return })
+	g1.Go(func() (err error) { indexerHTTP, err = d.httpEndpoint(gctx, "indexer", indexerPort); return })
+	g1.Go(func() (err error) { oauthHTTP, err = d.httpEndpoint(gctx, "mock-oauth2", mockOAuth2Port); return })
+	g1.Go(func() (err error) { postgresHost, err = d.publishedPort(gctx, "postgres", postgresPort); return })
 	g1.Go(func() (err error) { dm, err = d.readDeployManifest(gctx); return })
 	if err := g1.Wait(); err != nil {
 		return nil, err
@@ -148,8 +159,7 @@ func (d *ServiceDiscovery) serviceDSN(ctx context.Context, service, envVar, post
 //	docker inspect <id> --format '{{range .Config.Env}}{{println .}}{{end}}'
 func (d *ServiceDiscovery) containerEnv(ctx context.Context, service, key string) (string, error) {
 	// Resolve container ID.
-	psCmd := exec.CommandContext(ctx,
-		"docker", "compose",
+	psCmd := dockerComposeCommand(ctx,
 		"-p", d.projectName,
 		"ps", "-q", service,
 	)
@@ -207,8 +217,7 @@ func (d *ServiceDiscovery) tcpEndpoint(ctx context.Context, service string, cont
 // and returns the resolved "host:port" string (e.g. "0.0.0.0:54321" →
 // "localhost:54321").
 func (d *ServiceDiscovery) publishedPort(ctx context.Context, service string, containerPort int) (string, error) {
-	cmd := exec.CommandContext(ctx,
-		"docker", "compose",
+	cmd := dockerComposeCommand(ctx,
 		"-p", d.projectName,
 		"port", service, fmt.Sprintf("%d", containerPort),
 	)
@@ -236,8 +245,7 @@ func (d *ServiceDiscovery) publishedPort(ctx context.Context, service string, co
 //
 //	docker compose -p <project> run --rm bootstrap cat /tmp/e2e-deploy.json
 func (d *ServiceDiscovery) readDeployManifest(ctx context.Context) (*deployManifest, error) {
-	cmd := exec.CommandContext(ctx,
-		"docker", "compose",
+	cmd := dockerComposeCommand(ctx,
 		"-p", d.projectName,
 		"run", "--rm",
 		"bootstrap",
