@@ -17,6 +17,7 @@ import (
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
+	indexerclient "github.com/chainsafe/canton-middleware/pkg/indexer/client"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
@@ -118,7 +119,10 @@ func (s *Server) Run() error {
 		topologyCache,
 	)
 
-	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
+	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	if err != nil {
+		return fmt.Errorf("build token provider: %w", err)
+	}
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 	evmStore := ethrpcstore.NewStore(dbBun)
 
@@ -141,6 +145,26 @@ func (s *Server) Run() error {
 	stopReconcile()
 
 	return err
+}
+
+// buildTokenProvider constructs the token data provider according to the
+// configured mode.  canton is the default; indexer reads from the indexer's
+// pre-materialized HTTP API instead of issuing live gRPC ACS scans.
+func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token) (token.Provider, error) {
+	switch cfg.TokenProvider.Mode {
+	case config.TokenProviderIndexer:
+		ic := cfg.TokenProvider.Indexer
+		if ic == nil {
+			return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
+		}
+		c, err := indexerclient.New(ic.URL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create indexer client: %w", err)
+		}
+		return tokenprovider.NewIndexer(c, ic.Instruments), nil
+	default: // TokenProviderCanton
+		return tokenprovider.NewCanton(cantonToken), nil
+	}
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {
