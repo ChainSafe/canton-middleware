@@ -11,6 +11,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+var _ stack.Canton = (*CantonShim)(nil)
+
 // CantonShim implements stack.Canton.
 type CantonShim struct {
 	grpcEndpoint string

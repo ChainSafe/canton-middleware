@@ -15,6 +15,8 @@ import (
 
 const postgresPingTimeout = 5 * time.Second
 
+var _ stack.APIDatabase = (*PostgresShim)(nil)
+
 // PostgresShim implements stack.APIDatabase. It connects directly to the
 // api-server's erc20_api database and is used only for test setup operations
 // (whitelisting addresses). Assertions are made through the API, not the DB.

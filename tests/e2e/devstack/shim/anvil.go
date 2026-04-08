@@ -9,11 +9,13 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,6 +25,8 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
+
+var _ stack.Anvil = (*AnvilShim)(nil)
 
 // txGasLimit is a fixed gas ceiling for approve and depositToCanton transactions
 // on the local Anvil devnet. Anvil's instant mining makes estimation unnecessary.
@@ -64,6 +68,7 @@ func NewAnvil(ctx context.Context, manifest *stack.ServiceManifest) (*AnvilShim,
 func (a *AnvilShim) Endpoint() string       { return a.endpoint }
 func (a *AnvilShim) RPC() *ethclient.Client { return a.rpc }
 func (a *AnvilShim) ChainID() *big.Int      { return a.chainID }
+func (a *AnvilShim) Close()                 { a.rpc.Close() }
 
 // ERC20Balance returns the on-chain ERC-20 balance of owner for tokenAddr.
 func (a *AnvilShim) ERC20Balance(ctx context.Context, tokenAddr, owner common.Address) (*big.Int, error) {
@@ -152,9 +157,12 @@ func newTransactor(ctx context.Context, client *ethclient.Client, key *ecdsa.Pri
 }
 
 // waitForTx polls until the transaction is mined or the timeout is reached.
+// It returns immediately on any RPC error other than ethereum.NotFound (tx not
+// yet visible) to avoid masking genuine node failures.
 func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
 		receipt, err := client.TransactionReceipt(ctx, hash)
 		if err == nil {
 			if receipt.Status == 1 {
@@ -162,13 +170,15 @@ func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash, 
 			}
 			return fmt.Errorf("transaction %s reverted", hash.Hex())
 		}
+		if !errors.Is(err, ethereum.NotFound) {
+			return fmt.Errorf("receipt query for %s: %w", hash.Hex(), err)
+		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timeout waiting for tx %s: %w", hash.Hex(), ctx.Err())
 		case <-time.After(time.Second):
 		}
 	}
-	return fmt.Errorf("timeout waiting for tx %s", hash.Hex())
 }
 
 // parseKey decodes a hex-encoded ECDSA private key (without 0x prefix).

@@ -57,10 +57,9 @@ type deployManifest struct {
 // are issued concurrently via errgroup to minimize wall-clock time at test-suite
 // startup.
 //
-// DSNs are read directly from each service's own environment variables
-// (RELAYER_DATABASE_URL, API_SERVER_DATABASE_URL, INDEXER_DATABASE_URL) via
-// docker inspect, with the internal hostname replaced by the published
-// localhost:PORT. This avoids hardcoding credentials or database names.
+// The api-server DSN is read from the API_SERVER_DATABASE_URL environment
+// variable via docker inspect, with the internal hostname replaced by the
+// published localhost:PORT. This avoids hardcoding credentials or database names.
 func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest, error) {
 	// Phase 1: resolve all endpoints and the postgres host in parallel.
 	var (

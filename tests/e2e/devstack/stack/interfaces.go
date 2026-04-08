@@ -216,8 +216,4 @@ type APIDatabase interface {
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
 	// it permission to register with the api-server.
 	WhitelistAddress(ctx context.Context, evmAddress string) error
-
-	// GetUserByEVMAddress returns the user row for evmAddress, or nil if no
-	// row exists.
-	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }

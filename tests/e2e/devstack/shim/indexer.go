@@ -13,6 +13,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+var _ stack.Indexer = (*IndexerShim)(nil)
+
 // IndexerShim implements stack.Indexer via the admin HTTP API.
 type IndexerShim struct {
 	httpClient

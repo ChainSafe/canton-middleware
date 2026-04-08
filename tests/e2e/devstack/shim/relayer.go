@@ -12,6 +12,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+var _ stack.Relayer = (*RelayerShim)(nil)
+
 // RelayerShim implements stack.Relayer via HTTP.
 type RelayerShim struct {
 	httpClient

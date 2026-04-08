@@ -22,6 +22,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+var _ stack.APIServer = (*APIServerShim)(nil)
+
 // APIServerShim implements stack.APIServer. REST calls go through httpClient;
 // EVM calls go through the go-ethereum ethclient connected to /eth so that
 // JSON-RPC compatibility of the facade is exercised with real client code.
@@ -49,6 +51,7 @@ func NewAPIServer(ctx context.Context, manifest *stack.ServiceManifest) (*APISer
 
 func (a *APIServerShim) Endpoint() string       { return a.endpoint }
 func (a *APIServerShim) RPC() *ethclient.Client { return a.evm }
+func (a *APIServerShim) Close()                 { a.evm.Close() }
 
 // Health returns nil when GET /health responds with 200.
 func (a *APIServerShim) Health(ctx context.Context) error {
@@ -74,7 +77,12 @@ func (a *APIServerShim) PrepareTopology(ctx context.Context, req *user.RegisterR
 }
 
 // RegisterExternal sends POST /register with key_mode=external.
+// req.KeyMode must be user.KeyModeExternal; req must include RegistrationToken
+// and TopologySignature obtained from PrepareTopology.
 func (a *APIServerShim) RegisterExternal(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error) {
+	if req.KeyMode != user.KeyModeExternal {
+		return nil, fmt.Errorf("RegisterExternal: req.KeyMode must be %q, got %q", user.KeyModeExternal, req.KeyMode)
+	}
 	return a.Register(ctx, req)
 }
 
