@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
@@ -32,65 +34,71 @@ type deployManifest struct {
 	PromptToken           string `json:"prompt_token"`
 	CantonBridge          string `json:"canton_bridge"`
 	PromptInstrumentAdmin string `json:"prompt_instrument_admin"`
+	PromptInstrumentID    string `json:"prompt_instrument_id"`
 	DemoInstrumentAdmin   string `json:"demo_instrument_admin"`
+	DemoInstrumentID      string `json:"demo_instrument_id"`
 }
 
 // Manifest resolves all service endpoints and contract addresses from the
 // running Docker Compose project and returns a fully populated ServiceManifest.
+//
+// All subprocess calls (docker compose port, docker inspect, docker compose run)
+// are issued concurrently via errgroup to minimise wall-clock time at test-suite
+// startup.
 //
 // DSNs are read directly from each service's own environment variables
 // (RELAYER_DATABASE_URL, API_SERVER_DATABASE_URL, INDEXER_DATABASE_URL) via
 // docker inspect, with the internal hostname replaced by the published
 // localhost:PORT. This avoids hardcoding credentials or database names.
 func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest, error) {
-	anvilRPC, err := d.httpEndpoint(ctx, "anvil", 8545)
-	if err != nil {
-		return nil, err
-	}
-	cantonGRPC, err := d.tcpEndpoint(ctx, "canton", 5011)
-	if err != nil {
-		return nil, err
-	}
-	cantonHTTP, err := d.httpEndpoint(ctx, "canton", 5013)
-	if err != nil {
-		return nil, err
-	}
-	apiHTTP, err := d.httpEndpoint(ctx, "api-server", 8081)
-	if err != nil {
-		return nil, err
-	}
-	relayerHTTP, err := d.httpEndpoint(ctx, "relayer", 8080)
-	if err != nil {
-		return nil, err
-	}
-	indexerHTTP, err := d.httpEndpoint(ctx, "indexer", 8082)
-	if err != nil {
-		return nil, err
-	}
-	oauthHTTP, err := d.httpEndpoint(ctx, "mock-oauth2", 8088)
-	if err != nil {
-		return nil, err
-	}
-	postgresHost, err := d.publishedPort(ctx, "postgres", 5432)
-	if err != nil {
+	// Phase 1: resolve all endpoints and the postgres host in parallel.
+	var (
+		anvilRPC     string
+		cantonGRPC   string
+		cantonHTTP   string
+		apiHTTP      string
+		relayerHTTP  string
+		indexerHTTP  string
+		oauthHTTP    string
+		postgresHost string
+		dm           *deployManifest
+	)
+
+	g1, gctx := errgroup.WithContext(ctx)
+	g1.Go(func() (err error) { anvilRPC, err = d.httpEndpoint(gctx, "anvil", 8545); return })
+	g1.Go(func() (err error) { cantonGRPC, err = d.tcpEndpoint(gctx, "canton", 5011); return })
+	g1.Go(func() (err error) { cantonHTTP, err = d.httpEndpoint(gctx, "canton", 5013); return })
+	g1.Go(func() (err error) { apiHTTP, err = d.httpEndpoint(gctx, "api-server", 8081); return })
+	g1.Go(func() (err error) { relayerHTTP, err = d.httpEndpoint(gctx, "relayer", 8080); return })
+	g1.Go(func() (err error) { indexerHTTP, err = d.httpEndpoint(gctx, "indexer", 8082); return })
+	g1.Go(func() (err error) { oauthHTTP, err = d.httpEndpoint(gctx, "mock-oauth2", 8088); return })
+	g1.Go(func() (err error) { postgresHost, err = d.publishedPort(gctx, "postgres", 5432); return })
+	g1.Go(func() (err error) { dm, err = d.readDeployManifest(gctx); return })
+	if err := g1.Wait(); err != nil {
 		return nil, err
 	}
 
-	apiDSN, err := d.serviceDSN(ctx, "api-server", "API_SERVER_DATABASE_URL", postgresHost)
-	if err != nil {
-		return nil, err
-	}
-	relayerDSN, err := d.serviceDSN(ctx, "relayer", "RELAYER_DATABASE_URL", postgresHost)
-	if err != nil {
-		return nil, err
-	}
-	indexerDSN, err := d.serviceDSN(ctx, "indexer", "INDEXER_DATABASE_URL", postgresHost)
-	if err != nil {
-		return nil, err
-	}
+	// Phase 2: fetch DSNs in parallel (depend on postgresHost from phase 1).
+	var (
+		apiDSN     string
+		relayerDSN string
+		indexerDSN string
+	)
 
-	dm, err := d.readDeployManifest(ctx)
-	if err != nil {
+	g2, gctx2 := errgroup.WithContext(ctx)
+	g2.Go(func() (err error) {
+		apiDSN, err = d.serviceDSN(gctx2, "api-server", "API_SERVER_DATABASE_URL", postgresHost)
+		return
+	})
+	g2.Go(func() (err error) {
+		relayerDSN, err = d.serviceDSN(gctx2, "relayer", "RELAYER_DATABASE_URL", postgresHost)
+		return
+	})
+	g2.Go(func() (err error) {
+		indexerDSN, err = d.serviceDSN(gctx2, "indexer", "INDEXER_DATABASE_URL", postgresHost)
+		return
+	})
+	if err := g2.Wait(); err != nil {
 		return nil, err
 	}
 
@@ -108,9 +116,9 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		PromptTokenAddr:       dm.PromptToken,
 		BridgeAddr:            dm.CantonBridge,
 		PromptInstrumentAdmin: dm.PromptInstrumentAdmin,
-		PromptInstrumentID:    "PROMPT",
+		PromptInstrumentID:    dm.PromptInstrumentID,
 		DemoInstrumentAdmin:   dm.DemoInstrumentAdmin,
-		DemoInstrumentID:      "DEMO",
+		DemoInstrumentID:      dm.DemoInstrumentID,
 	}, nil
 }
 
@@ -151,10 +159,14 @@ func (d *ServiceDiscovery) containerEnv(ctx context.Context, service, key string
 	if err := psCmd.Run(); err != nil {
 		return "", fmt.Errorf("docker compose ps -q %s: %w — %s", service, err, psErr.String())
 	}
-	containerID := strings.TrimSpace(psOut.String())
-	if containerID == "" {
+	// strings.Fields splits on all whitespace, handling both the single-ID case
+	// and the multi-ID case (scaled replicas or orphaned containers from a prior
+	// run). We take the first ID; docker inspect expects exactly one argument.
+	ids := strings.Fields(psOut.String())
+	if len(ids) == 0 {
 		return "", fmt.Errorf("no running container found for service %q", service)
 	}
+	containerID := ids[0]
 
 	// Read all env vars from the container.
 	inspectCmd := exec.CommandContext(ctx,

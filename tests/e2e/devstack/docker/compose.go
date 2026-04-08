@@ -6,7 +6,6 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -65,11 +64,9 @@ func (c *ComposeOrchestrator) Stop(ctx context.Context) error {
 		"-p", c.projectName,
 		"down", "-v", "--remove-orphans",
 	)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		_, _ = os.Stderr.Write(out.Bytes())
 		return fmt.Errorf("docker compose down failed: %w", err)
 	}
 	return nil
