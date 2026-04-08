@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func (d *DSL) WaitForCantonBalance(ctx context.Context, t *testing.T, partyID, a
 	deadline := time.Now().Add(cantonBalanceTimeout)
 	for time.Now().Before(deadline) {
 		bal, err := d.Indexer.GetBalance(ctx, partyID, admin, id)
-		if err == nil && bal != nil && bal.Amount >= minAmount {
+		if err == nil && bal != nil && amountGTE(bal.Amount, minAmount) {
 			return
 		}
 		select {
@@ -100,6 +101,17 @@ func (d *DSL) WaitForIndexerEvent(ctx context.Context, t *testing.T, contractID 
 	}
 	t.Fatalf("timeout waiting for indexer event: contractID=%s", contractID)
 	return nil
+}
+
+// amountGTE returns true when amount >= min, comparing both as decimal numbers.
+// String comparison is intentionally avoided: "20" > "100" lexicographically.
+func amountGTE(amount, min string) bool {
+	a, ok1 := new(big.Float).SetString(amount)
+	m, ok2 := new(big.Float).SetString(min)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return a.Cmp(m) >= 0
 }
 
 // signEIP191 produces a 0x-prefixed EIP-191 signature. Recovery ID is set to

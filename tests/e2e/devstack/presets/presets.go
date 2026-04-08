@@ -9,7 +9,9 @@ package presets
 import (
 	"context"
 	"fmt"
+	"os/signal"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/docker"
@@ -27,17 +29,25 @@ var (
 // from TestMain. The exit code from m.Run() is returned and the caller should
 // pass it to os.Exit.
 //
+// SIGINT and SIGTERM are trapped so that Ctrl+C during a test run still
+// triggers a clean docker compose down.
+//
 //	func TestMain(m *testing.M) { os.Exit(presets.DoMain(m)) }
 func DoMain(m *testing.M, opts ...Option) int {
 	o := applyOptions(opts)
-	ctx := context.Background()
+
+	// Signal-aware context: cancels on SIGINT/SIGTERM so in-flight docker
+	// operations (Start) abort promptly. Stop always uses a fresh context so
+	// it is not affected by signal cancellation.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	orch := docker.NewOrchestrator(o.composeFile, o.projectName)
 	if err := orch.Start(ctx); err != nil {
 		fmt.Printf("devstack start: %v\n", err)
 		return 1
 	}
-	defer func() { _ = orch.Stop(ctx) }()
+	defer func() { _ = orch.Stop(context.Background()) }()
 
 	disc := docker.NewServiceDiscovery(o.projectName)
 	mfst, err := disc.Manifest(ctx)
@@ -69,11 +79,11 @@ func resolvedManifest(t *testing.T) *stack.ServiceManifest {
 // test exercises the full bridge flow (Anvil → Canton → Relayer → Indexer).
 func NewFullStack(t *testing.T) *system.System {
 	t.Helper()
-	mfst := resolvedManifest(t)
-	sys, err := system.New(context.Background(), t, mfst)
+	sys, err := system.New(context.Background(), resolvedManifest(t))
 	if err != nil {
 		t.Fatalf("full stack init: %v", err)
 	}
+	t.Cleanup(func() { _ = sys.Close() })
 	return sys
 }
 
@@ -90,10 +100,10 @@ func NewIndexerStack(t *testing.T) *system.IndexerSystem {
 // endpoints but do not need the relayer or indexer.
 func NewAPIStack(t *testing.T) *system.APISystem {
 	t.Helper()
-	mfst := resolvedManifest(t)
-	sys, err := system.NewAPISystem(context.Background(), t, mfst)
+	sys, err := system.NewAPISystem(context.Background(), resolvedManifest(t))
 	if err != nil {
 		t.Fatalf("api stack init: %v", err)
 	}
+	t.Cleanup(func() { _ = sys.Close() })
 	return sys
 }

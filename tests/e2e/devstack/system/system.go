@@ -7,7 +7,6 @@ package system
 import (
 	"context"
 	"fmt"
-	"testing"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/dsl"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/shim"
@@ -32,13 +31,23 @@ type System struct {
 	Postgres  stack.APIDatabase
 	DSL       *dsl.DSL
 	Accounts  *Accounts
+
+	closeFunc func() error
 }
 
-// New constructs a System from a resolved ServiceManifest, initialises all
-// shims, and wires the DSL. Returns an error if any shim fails to connect.
-func New(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*System, error) {
-	t.Helper()
+// Close releases resources held by the System (Postgres connection).
+// Callers should register this via t.Cleanup: t.Cleanup(func() { _ = sys.Close() })
+func (s *System) Close() error {
+	if s.closeFunc != nil {
+		return s.closeFunc()
+	}
+	return nil
+}
 
+// New constructs a System from a resolved ServiceManifest and initialises all
+// shims. Returns an error if any shim fails to connect. Call Close() to release
+// resources when done.
+func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) {
 	anvilShim, err := shim.NewAnvil(ctx, manifest)
 	if err != nil {
 		return nil, fmt.Errorf("anvil shim: %w", err)
@@ -48,7 +57,6 @@ func New(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*S
 	if err != nil {
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
-	t.Cleanup(func() { _ = pgShim.Close() })
 
 	sys := &System{
 		Manifest:  manifest,
@@ -62,6 +70,7 @@ func New(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*S
 			User1: stack.AnvilAccount0,
 			User2: stack.AnvilAccount1,
 		},
+		closeFunc: pgShim.Close,
 	}
 	sys.DSL = dsl.New(sys.APIServer, sys.Relayer, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
@@ -99,13 +108,22 @@ type APISystem struct {
 	Postgres  stack.APIDatabase
 	DSL       *dsl.DSL
 	Accounts  *Accounts
+
+	closeFunc func() error
+}
+
+// Close releases resources held by the APISystem (Postgres connection).
+func (s *APISystem) Close() error {
+	if s.closeFunc != nil {
+		return s.closeFunc()
+	}
+	return nil
 }
 
 // NewAPISystem constructs an APISystem from a resolved manifest. Returns an
-// error if the Anvil or Postgres shim fails to connect.
-func NewAPISystem(ctx context.Context, t *testing.T, manifest *stack.ServiceManifest) (*APISystem, error) {
-	t.Helper()
-
+// error if the Anvil or Postgres shim fails to connect. Call Close() to release
+// resources when done.
+func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISystem, error) {
 	anvilShim, err := shim.NewAnvil(ctx, manifest)
 	if err != nil {
 		return nil, fmt.Errorf("anvil shim: %w", err)
@@ -115,7 +133,6 @@ func NewAPISystem(ctx context.Context, t *testing.T, manifest *stack.ServiceMani
 	if err != nil {
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
-	t.Cleanup(func() { _ = pgShim.Close() })
 
 	sys := &APISystem{
 		Manifest:  manifest,
@@ -127,6 +144,7 @@ func NewAPISystem(ctx context.Context, t *testing.T, manifest *stack.ServiceMani
 			User1: stack.AnvilAccount0,
 			User2: stack.AnvilAccount1,
 		},
+		closeFunc: pgShim.Close,
 	}
 	// DSL needs a Relayer and Indexer — pass nil shims; those methods are
 	// unavailable in an API-only test and will panic if called.
