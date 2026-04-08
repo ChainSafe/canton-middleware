@@ -18,9 +18,9 @@ func NewCanton(client cantontoken.Token) *Canton {
 	}
 }
 
-// GetBalance returns token balance by token symbol and user fingerprint.
-func (p *Canton) GetBalance(ctx context.Context, tokenSymbol, fingerprint string) (string, error) {
-	return p.client.GetBalanceByFingerprint(ctx, fingerprint, tokenSymbol)
+// GetBalance returns token balance by token symbol and Canton party ID.
+func (p *Canton) GetBalance(ctx context.Context, tokenSymbol, partyID string) (string, error) {
+	return p.client.GetBalanceByPartyID(ctx, partyID, tokenSymbol)
 }
 
 // GetTotalSupply returns token total supply by token symbol.

@@ -21,9 +21,9 @@ func (_m *Provider) EXPECT() *Provider_Expecter {
 	return &Provider_Expecter{mock: &_m.Mock}
 }
 
-// GetBalance provides a mock function with given fields: ctx, tokenSymbol, fingerprint
-func (_m *Provider) GetBalance(ctx context.Context, tokenSymbol string, fingerprint string) (string, error) {
-	ret := _m.Called(ctx, tokenSymbol, fingerprint)
+// GetBalance provides a mock function with given fields: ctx, tokenSymbol, partyID
+func (_m *Provider) GetBalance(ctx context.Context, tokenSymbol string, partyID string) (string, error) {
+	ret := _m.Called(ctx, tokenSymbol, partyID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetBalance")
@@ -32,16 +32,16 @@ func (_m *Provider) GetBalance(ctx context.Context, tokenSymbol string, fingerpr
 	var r0 string
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) (string, error)); ok {
-		return rf(ctx, tokenSymbol, fingerprint)
+		return rf(ctx, tokenSymbol, partyID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) string); ok {
-		r0 = rf(ctx, tokenSymbol, fingerprint)
+		r0 = rf(ctx, tokenSymbol, partyID)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, tokenSymbol, fingerprint)
+		r1 = rf(ctx, tokenSymbol, partyID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -57,12 +57,12 @@ type Provider_GetBalance_Call struct {
 // GetBalance is a helper method to define mock.On call
 //   - ctx context.Context
 //   - tokenSymbol string
-//   - fingerprint string
-func (_e *Provider_Expecter) GetBalance(ctx interface{}, tokenSymbol interface{}, fingerprint interface{}) *Provider_GetBalance_Call {
-	return &Provider_GetBalance_Call{Call: _e.mock.On("GetBalance", ctx, tokenSymbol, fingerprint)}
+//   - partyID string
+func (_e *Provider_Expecter) GetBalance(ctx interface{}, tokenSymbol interface{}, partyID interface{}) *Provider_GetBalance_Call {
+	return &Provider_GetBalance_Call{Call: _e.mock.On("GetBalance", ctx, tokenSymbol, partyID)}
 }
 
-func (_c *Provider_GetBalance_Call) Run(run func(ctx context.Context, tokenSymbol string, fingerprint string)) *Provider_GetBalance_Call {
+func (_c *Provider_GetBalance_Call) Run(run func(ctx context.Context, tokenSymbol string, partyID string)) *Provider_GetBalance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
