@@ -34,8 +34,18 @@ type Client interface {
 
 	// Audit trail
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
-	ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error)
-	ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListTokenEvents(
+		ctx context.Context,
+		admin, id string,
+		f indexer.EventFilter,
+		p indexer.Pagination,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListPartyEvents(
+		ctx context.Context,
+		partyID string,
+		f indexer.EventFilter,
+		p indexer.Pagination,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -139,7 +149,12 @@ func (c *HTTP) GetEvent(ctx context.Context, contractID string) (*indexer.Parsed
 }
 
 // ListTokenEvents calls GET /indexer/v1/admin/tokens/{admin}/{id}/events.
-func (c *HTTP) ListTokenEvents(ctx context.Context, admin, id string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (c *HTTP) ListTokenEvents(
+	ctx context.Context,
+	admin, id string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	q := pageQuery(p)
 	if f.EventType != "" {
 		q.Set("event_type", string(f.EventType))
@@ -153,7 +168,12 @@ func (c *HTTP) ListTokenEvents(ctx context.Context, admin, id string, f indexer.
 }
 
 // ListPartyEvents calls GET /indexer/v1/admin/parties/{partyID}/events.
-func (c *HTTP) ListPartyEvents(ctx context.Context, partyID string, f indexer.EventFilter, p indexer.Pagination) (*indexer.Page[*indexer.ParsedEvent], error) {
+func (c *HTTP) ListPartyEvents(
+	ctx context.Context,
+	partyID string,
+	f indexer.EventFilter,
+	p indexer.Pagination,
+) (*indexer.Page[*indexer.ParsedEvent], error) {
 	q := pageQuery(p)
 	if f.EventType != "" {
 		q.Set("event_type", string(f.EventType))

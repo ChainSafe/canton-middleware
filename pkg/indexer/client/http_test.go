@@ -69,7 +69,7 @@ func mustNew(t *testing.T, baseURL string, httpClient *http.Client) *client.HTTP
 }
 
 func jsonResp(status int, body any) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(body)
@@ -179,7 +179,7 @@ func TestHTTP_TotalSupply_ServerError(t *testing.T) {
 }
 
 func TestHTTP_TotalSupply_NetworkError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	srv.Close()
 
 	c := mustNew(t, srv.URL, srv.Client())
@@ -190,7 +190,7 @@ func TestHTTP_TotalSupply_NetworkError(t *testing.T) {
 }
 
 func TestHTTP_TotalSupply_MalformedResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("not json"))
 	}))
@@ -207,7 +207,7 @@ func TestHTTP_TotalSupply_MalformedResponse(t *testing.T) {
 func TestHTTP_TotalSupply_NonJSONErrorBody(t *testing.T) {
 	// Gateway/proxy may return an HTML error page instead of JSON.
 	// The client should still return an error with the status code.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("<html><body>Bad Gateway</body></html>"))
@@ -269,7 +269,7 @@ func TestHTTP_GetBalance_ServerError(t *testing.T) {
 }
 
 func TestHTTP_GetBalance_NetworkError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	srv.Close()
 
 	c := mustNew(t, srv.URL, srv.Client())
