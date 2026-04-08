@@ -251,6 +251,20 @@ echo ">>> Running register-user..."
 }
 
 # =============================================================================
+# Write E2E deploy manifest
+# =============================================================================
+E2E_MANIFEST_FILE="${E2E_MANIFEST_FILE:-/tmp/e2e-deploy.json}"
+cat > "$E2E_MANIFEST_FILE" <<JSON
+{
+  "prompt_token":            "${TOKEN_ADDR}",
+  "canton_bridge":           "${BRIDGE_ADDR}",
+  "prompt_instrument_admin": "${PARTY_ID}",
+  "demo_instrument_admin":   "${PARTY_ID}"
+}
+JSON
+echo ">>> Deploy manifest written to $E2E_MANIFEST_FILE"
+
+# =============================================================================
 # Done
 # =============================================================================
 echo ""
