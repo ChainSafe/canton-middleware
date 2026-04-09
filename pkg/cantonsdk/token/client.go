@@ -60,14 +60,19 @@ type Token interface {
 	// GetBalanceByFingerprint returns the owner's total balance (sum of holdings) for the token symbol.
 	GetBalanceByFingerprint(ctx context.Context, fingerprint string, tokenSymbol string) (string, error)
 
+	// GetBalanceByPartyID returns the owner's total balance (sum of holdings) for the token symbol.
+	GetBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error)
+
 	// GetTotalSupply returns the total supply (sum across all holdings) for the token symbol.
 	GetTotalSupply(ctx context.Context, tokenSymbol string) (string, error)
 
 	// TransferByFingerprint transfers tokens by resolving fingerprints to parties.
-	TransferByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount, tokenSymbol string) error
+	// idempotencyKey is used as the Canton CommandId for idempotent submission.
+	TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string) error
 
 	// TransferByPartyID transfers tokens by party IDs.
-	TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error
+	// idempotencyKey is used as the Canton CommandId for idempotent submission.
+	TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error
 
 	// GetTokenTransferEvents returns all active CIP56.Events.TokenTransferEvent contracts visible to relayerParty.
 	GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error)
@@ -303,10 +308,10 @@ func (c *Client) GetBalanceByFingerprint(ctx context.Context, fingerprint string
 	if err != nil {
 		return "0", err
 	}
-	return c.getBalanceByPartyID(ctx, m.UserParty, tokenSymbol)
+	return c.GetBalanceByPartyID(ctx, m.UserParty, tokenSymbol)
 }
 
-func (c *Client) getBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error) {
+func (c *Client) GetBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error) {
 	holdings, err := c.GetHoldings(ctx, partyID, tokenSymbol)
 	if err != nil {
 		return "0", err
@@ -365,7 +370,8 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 	return total, nil
 }
 
-func (c *Client) TransferByFingerprint(ctx context.Context, fromFingerprint, toFingerprint, amount, tokenSymbol string) error {
+func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
+	toFingerprint, amount, tokenSymbol string) error {
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
@@ -375,10 +381,13 @@ func (c *Client) TransferByFingerprint(ctx context.Context, fromFingerprint, toF
 		return fmt.Errorf("recipient not found: %w", err)
 	}
 
-	return c.TransferByPartyID(ctx, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol)
+	return c.TransferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol)
 }
 
-func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amount, tokenSymbol string) error {
+func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotencyKey is required")
+	}
 	if fromParty == "" || toParty == "" {
 		return fmt.Errorf("from/to party is required")
 	}
@@ -404,6 +413,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 	}
 
 	return c.transferViaFactory(ctx, &transferFactoryRequest{
+		CommandID:        idempotencyKey,
 		FromPartyID:      fromParty,
 		ToPartyID:        toParty,
 		Amount:           amount,
@@ -415,6 +425,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, fromParty, toParty, amou
 }
 
 type transferFactoryRequest struct {
+	CommandID        string
 	FromPartyID      string
 	ToPartyID        string
 	Amount           string
@@ -438,7 +449,7 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 
 	commands := &lapiv2.Commands{
 		SynchronizerId: c.cfg.DomainID,
-		CommandId:      uuid.NewString(),
+		CommandId:      req.CommandID,
 		UserId:         c.cfg.UserID,
 		ActAs:          []string{req.FromPartyID},
 		ReadAs:         []string{c.cfg.IssuerParty},

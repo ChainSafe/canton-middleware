@@ -232,6 +232,64 @@ func (_c *Token_GetBalanceByFingerprint_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// GetBalanceByPartyID provides a mock function with given fields: ctx, partyID, tokenSymbol
+func (_m *Token) GetBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error) {
+	ret := _m.Called(ctx, partyID, tokenSymbol)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBalanceByPartyID")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (string, error)); ok {
+		return rf(ctx, partyID, tokenSymbol)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) string); ok {
+		r0 = rf(ctx, partyID, tokenSymbol)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, partyID, tokenSymbol)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_GetBalanceByPartyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBalanceByPartyID'
+type Token_GetBalanceByPartyID_Call struct {
+	*mock.Call
+}
+
+// GetBalanceByPartyID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - tokenSymbol string
+func (_e *Token_Expecter) GetBalanceByPartyID(ctx interface{}, partyID interface{}, tokenSymbol interface{}) *Token_GetBalanceByPartyID_Call {
+	return &Token_GetBalanceByPartyID_Call{Call: _e.mock.On("GetBalanceByPartyID", ctx, partyID, tokenSymbol)}
+}
+
+func (_c *Token_GetBalanceByPartyID_Call) Run(run func(ctx context.Context, partyID string, tokenSymbol string)) *Token_GetBalanceByPartyID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Token_GetBalanceByPartyID_Call) Return(_a0 string, _a1 error) *Token_GetBalanceByPartyID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_GetBalanceByPartyID_Call) RunAndReturn(run func(context.Context, string, string) (string, error)) *Token_GetBalanceByPartyID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetHoldings provides a mock function with given fields: ctx, ownerParty, tokenSymbol
 func (_m *Token) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*token.Holding, error) {
 	ret := _m.Called(ctx, ownerParty, tokenSymbol)
@@ -638,17 +696,17 @@ func (_c *Token_PrepareTransfer_Call) RunAndReturn(run func(context.Context, *to
 	return _c
 }
 
-// TransferByFingerprint provides a mock function with given fields: ctx, fromFingerprint, toFingerprint, amount, tokenSymbol
-func (_m *Token) TransferByFingerprint(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string) error {
-	ret := _m.Called(ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)
+// TransferByFingerprint provides a mock function with given fields: ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol
+func (_m *Token) TransferByFingerprint(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string) error {
+	ret := _m.Called(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransferByFingerprint")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -663,17 +721,18 @@ type Token_TransferByFingerprint_Call struct {
 
 // TransferByFingerprint is a helper method to define mock.On call
 //   - ctx context.Context
+//   - idempotencyKey string
 //   - fromFingerprint string
 //   - toFingerprint string
 //   - amount string
 //   - tokenSymbol string
-func (_e *Token_Expecter) TransferByFingerprint(ctx interface{}, fromFingerprint interface{}, toFingerprint interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByFingerprint_Call {
-	return &Token_TransferByFingerprint_Call{Call: _e.mock.On("TransferByFingerprint", ctx, fromFingerprint, toFingerprint, amount, tokenSymbol)}
+func (_e *Token_Expecter) TransferByFingerprint(ctx interface{}, idempotencyKey interface{}, fromFingerprint interface{}, toFingerprint interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByFingerprint_Call {
+	return &Token_TransferByFingerprint_Call{Call: _e.mock.On("TransferByFingerprint", ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol)}
 }
 
-func (_c *Token_TransferByFingerprint_Call) Run(run func(ctx context.Context, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string)) *Token_TransferByFingerprint_Call {
+func (_c *Token_TransferByFingerprint_Call) Run(run func(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string)) *Token_TransferByFingerprint_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
 	})
 	return _c
 }
@@ -683,22 +742,22 @@ func (_c *Token_TransferByFingerprint_Call) Return(_a0 error) *Token_TransferByF
 	return _c
 }
 
-func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *Token_TransferByFingerprint_Call {
+func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) error) *Token_TransferByFingerprint_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// TransferByPartyID provides a mock function with given fields: ctx, fromParty, toParty, amount, tokenSymbol
-func (_m *Token) TransferByPartyID(ctx context.Context, fromParty string, toParty string, amount string, tokenSymbol string) error {
-	ret := _m.Called(ctx, fromParty, toParty, amount, tokenSymbol)
+// TransferByPartyID provides a mock function with given fields: ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol
+func (_m *Token) TransferByPartyID(ctx context.Context, idempotencyKey string, fromParty string, toParty string, amount string, tokenSymbol string) error {
+	ret := _m.Called(ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransferByPartyID")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, fromParty, toParty, amount, tokenSymbol)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) error); ok {
+		r0 = rf(ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -713,17 +772,18 @@ type Token_TransferByPartyID_Call struct {
 
 // TransferByPartyID is a helper method to define mock.On call
 //   - ctx context.Context
+//   - idempotencyKey string
 //   - fromParty string
 //   - toParty string
 //   - amount string
 //   - tokenSymbol string
-func (_e *Token_Expecter) TransferByPartyID(ctx interface{}, fromParty interface{}, toParty interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByPartyID_Call {
-	return &Token_TransferByPartyID_Call{Call: _e.mock.On("TransferByPartyID", ctx, fromParty, toParty, amount, tokenSymbol)}
+func (_e *Token_Expecter) TransferByPartyID(ctx interface{}, idempotencyKey interface{}, fromParty interface{}, toParty interface{}, amount interface{}, tokenSymbol interface{}) *Token_TransferByPartyID_Call {
+	return &Token_TransferByPartyID_Call{Call: _e.mock.On("TransferByPartyID", ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol)}
 }
 
-func (_c *Token_TransferByPartyID_Call) Run(run func(ctx context.Context, fromParty string, toParty string, amount string, tokenSymbol string)) *Token_TransferByPartyID_Call {
+func (_c *Token_TransferByPartyID_Call) Run(run func(ctx context.Context, idempotencyKey string, fromParty string, toParty string, amount string, tokenSymbol string)) *Token_TransferByPartyID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
 	})
 	return _c
 }
@@ -733,7 +793,7 @@ func (_c *Token_TransferByPartyID_Call) Return(_a0 error) *Token_TransferByParty
 	return _c
 }
 
-func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *Token_TransferByPartyID_Call {
+func (_c *Token_TransferByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) error) *Token_TransferByPartyID_Call {
 	_c.Call.Return(run)
 	return _c
 }

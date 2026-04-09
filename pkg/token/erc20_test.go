@@ -35,11 +35,11 @@ func newCfg() *token.Config {
 }
 
 func promptUser() *user.User {
-	return &user.User{Fingerprint: "fpA"}
+	return &user.User{CantonPartyID: "partyA", Fingerprint: "fpA"}
 }
 
 func demoUser() *user.User {
-	return &user.User{Fingerprint: "fpB"}
+	return &user.User{CantonPartyID: "partyB", Fingerprint: "fpB"}
 }
 
 // ─── TestERC20_Name ───────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("100", nil)
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().CantonPartyID).Return("100", nil)
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
@@ -200,7 +200,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(demoUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "DEMO", demoUser().Fingerprint).Return("50", nil)
+		provider.EXPECT().GetBalance(mock.Anything, "DEMO", demoUser().CantonPartyID).Return("50", nil)
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(demoAddr, svc)
@@ -229,7 +229,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("0", errors.New("timeout"))
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().CantonPartyID).Return("0", errors.New("timeout"))
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
@@ -265,12 +265,12 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT").Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT").Return(nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.NoError(t, err)
 	})
 
@@ -280,12 +280,12 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.NoError(t, err)
 	})
 
@@ -293,7 +293,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, nil, nil)
 		erc20 := token.NewERC20(unsupportedAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "token not supported")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -306,7 +306,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get sender")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -320,7 +320,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get recipient")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -332,12 +332,12 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(errors.New("ledger down"))
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(errors.New("ledger down"))
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, fromAddr, toAddr, amount)
+		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "canton transfer failed")
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
