@@ -25,7 +25,7 @@ type UserStore interface {
 //go:generate mockery --name Provider --output mocks --outpkg mocks --filename mock_provider.go --with-expecter
 type Provider interface {
 	GetTotalSupply(ctx context.Context, tokenSymbol string) (string, error)
-	GetBalance(ctx context.Context, tokenSymbol, fingerprint string) (string, error)
+	GetBalance(ctx context.Context, tokenSymbol, partyID string) (string, error)
 }
 
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
@@ -116,7 +116,7 @@ func (s *Service) getBalance(ctx context.Context, contract, address common.Addre
 		return "0", fmt.Errorf("failed to get user: %w", err)
 	}
 
-	return s.provider.GetBalance(ctx, tkn.Symbol, usr.Fingerprint)
+	return s.provider.GetBalance(ctx, tkn.Symbol, usr.CantonPartyID)
 }
 
 // getTotalSupply returns the total supply for a specific token
