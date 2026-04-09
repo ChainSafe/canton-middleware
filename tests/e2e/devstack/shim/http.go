@@ -73,7 +73,10 @@ func (h *httpClient) get(ctx context.Context, path string, query url.Values, out
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= httpErrorStatusFloor {
-		raw, _ := io.ReadAll(resp.Body)
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return &HTTPError{Code: resp.StatusCode, Path: path, Body: fmt.Sprintf("(failed to read body: %v)", readErr)}
+		}
 		return &HTTPError{Code: resp.StatusCode, Path: path, Body: string(raw)}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
@@ -106,7 +109,10 @@ func (h *httpClient) post(ctx context.Context, path, sig, msg string, body, out 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= httpErrorStatusFloor {
-		raw, _ := io.ReadAll(resp.Body)
+		raw, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return &HTTPError{Code: resp.StatusCode, Path: path, Body: fmt.Sprintf("(failed to read body: %v)", readErr)}
+		}
 		return &HTTPError{Code: resp.StatusCode, Path: path, Body: string(raw)}
 	}
 	if out != nil {
