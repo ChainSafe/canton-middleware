@@ -242,6 +242,21 @@ echo ">>> Running bootstrap-bridge..."
 }
 
 # =============================================================================
+# Run bootstrap-demo (TokenConfig only — no user minting)
+# =============================================================================
+# Creates the DEMO CIP56.TokenConfig and CIP56TransferFactory on the Canton
+# ledger so that E2E tests can call MintToken("DEMO") for any party.
+# User minting is skipped (-no-mint) because test users are registered
+# per-test and their parties are not known at bootstrap time.
+echo ""
+echo ">>> Running bootstrap-demo (no-mint mode)..."
+/app/bootstrap-demo -config "$API_SERVER_CONFIG_FILE" \
+    -issuer "$PARTY_ID" -domain "$DOMAIN_ID" \
+    -no-mint || {
+    echo "    [WARN] bootstrap-demo may have failed or TokenConfig already exists"
+}
+
+# =============================================================================
 # Run register-user
 # =============================================================================
 echo ""
