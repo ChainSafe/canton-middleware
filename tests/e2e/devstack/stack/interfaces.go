@@ -42,7 +42,7 @@ type Anvil interface {
 }
 
 // Canton is the interface for the Canton ledger node.
-// It provides endpoint accessors and a liveness check.
+// It provides endpoint accessors, a liveness check, and token operations.
 type Canton interface {
 	// GRPCEndpoint returns the gRPC endpoint (e.g. "localhost:5011").
 	GRPCEndpoint() string
@@ -54,6 +54,16 @@ type Canton interface {
 	// IsHealthy returns true when Canton has connected to the synchronizer
 	// and is ready to accept commands.
 	IsHealthy(ctx context.Context) bool
+
+	// MintToken mints amount of tokenSymbol to recipientParty via the
+	// IssuerMint DAML choice on the TokenConfig contract. Used by E2E tests
+	// to seed DEMO balances before exercising the transfer API.
+	MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error
+
+	// GetCantonBalance returns the total balance of tokenSymbol held by
+	// partyID, expressed as a decimal string. Returns "0" when the party
+	// has no holdings for that token.
+	GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error)
 }
 
 // APIServer is the interface for the canton-middleware api-server.

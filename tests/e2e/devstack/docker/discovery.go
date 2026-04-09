@@ -7,9 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -25,6 +28,7 @@ const (
 	indexerPort    = 8082
 	mockOAuth2Port = 8088
 	postgresPort   = 5432
+	maxErrorBody   = 4096
 )
 
 // ServiceDiscovery resolves running container ports and reads the bootstrap
@@ -93,6 +97,11 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		return nil, err
 	}
 
+	cantonDomainID, err := d.readCantonDomainID(ctx, cantonHTTP)
+	if err != nil {
+		return nil, err
+	}
+
 	return &stack.ServiceManifest{
 		AnvilRPC:              anvilRPC,
 		CantonGRPC:            cantonGRPC,
@@ -108,7 +117,46 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		PromptInstrumentID:    dm.PromptInstrumentID,
 		DemoInstrumentAdmin:   dm.DemoInstrumentAdmin,
 		DemoInstrumentID:      dm.DemoInstrumentID,
+		CantonDomainID:        cantonDomainID,
+		DemoTokenAddr:         stack.DemoTokenVirtualAddr,
 	}, nil
+}
+
+// readCantonDomainID calls the Canton HTTP JSON API to retrieve the synchronizer ID.
+func (ServiceDiscovery) readCantonDomainID(ctx context.Context, cantonHTTP string) (string, error) {
+	type synchronizer struct {
+		SynchronizerID string `json:"synchronizerId"`
+	}
+	type response struct {
+		ConnectedSynchronizers []synchronizer `json:"connectedSynchronizers"`
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		cantonHTTP+"/v2/state/connected-synchronizers", nil)
+	if err != nil {
+		return "", fmt.Errorf("build canton domain-id request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("get canton connected-synchronizers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		return "", fmt.Errorf("canton connected-synchronizers: status %d: %s", resp.StatusCode, b)
+	}
+
+	var r response
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return "", fmt.Errorf("decode canton connected-synchronizers: %w", err)
+	}
+	if len(r.ConnectedSynchronizers) == 0 {
+		return "", fmt.Errorf("canton has no connected synchronizers")
+	}
+	return r.ConnectedSynchronizers[0].SynchronizerID, nil
 }
 
 // serviceDSN reads the named environment variable from the running service
@@ -127,6 +175,11 @@ func (d *ServiceDiscovery) serviceDSN(ctx context.Context, service, envVar, post
 		return "", fmt.Errorf("parsing %s from %s: %w", envVar, service, err)
 	}
 	u.Host = postgresHost
+	// The devnet postgres container has no SSL; force sslmode=disable so the
+	// lib/pq driver can connect from outside Docker.
+	q := u.Query()
+	q.Set("sslmode", "disable")
+	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
 
@@ -223,11 +276,15 @@ func (d *ServiceDiscovery) publishedPort(ctx context.Context, service string, co
 //
 //	docker compose -p <project> run --rm bootstrap cat /tmp/e2e-deploy.json
 func (d *ServiceDiscovery) readDeployManifest(ctx context.Context) (*deployManifest, error) {
+	// Use --entrypoint cat to bypass the bootstrap container's own entrypoint
+	// (docker-bootstrap.sh), which writes status text to stdout and would
+	// corrupt the JSON before we can parse it.
 	cmd := dockerComposeCommand(ctx,
 		"-p", d.projectName,
 		"run", "--rm",
+		"--entrypoint", "cat",
 		"bootstrap",
-		"cat", "/tmp/e2e-deploy.json",
+		"/tmp/e2e-deploy.json",
 	)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
