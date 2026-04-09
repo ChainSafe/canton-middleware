@@ -3,7 +3,11 @@
 package presets
 
 const (
-	defaultComposeFile = "tests/e2e/docker-compose.e2e.yaml"
+	// defaultComposeFile is relative to the test binary's working directory.
+	// go test sets CWD to the package source directory (e.g. tests/e2e/tests/api/).
+	// All test packages live two levels under tests/e2e/tests/, so the relative
+	// path to the compose file is always ../../docker-compose.e2e.yaml.
+	defaultComposeFile = "../../docker-compose.e2e.yaml"
 	defaultProjectName = "canton-e2e"
 )
 
