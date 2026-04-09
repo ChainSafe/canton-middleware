@@ -2,30 +2,39 @@
 
 // Package shim provides concrete implementations of the stack service
 // interfaces. Each shim wraps a real network client (go-ethereum, HTTP, SQL)
-// and is initialised from a ServiceManifest produced by ServiceDiscovery.
+// and is initialized from a ServiceManifest produced by ServiceDiscovery.
 package shim
 
 import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
 
-	"github.com/chainsafe/canton-middleware/pkg/auth"
-	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
-	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"github.com/chainsafe/canton-middleware/pkg/auth"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
+
+var _ stack.Anvil = (*AnvilShim)(nil)
 
 // txGasLimit is a fixed gas ceiling for approve and depositToCanton transactions
 // on the local Anvil devnet. Anvil's instant mining makes estimation unnecessary.
-const txGasLimit = 300_000
+const (
+	txGasLimit    = 300_000
+	txWaitTimeout = 30 * time.Second
+	bytes32Len    = 32
+)
 
 // AnvilShim implements stack.Anvil against a local Anvil node.
 type AnvilShim struct {
@@ -56,9 +65,10 @@ func NewAnvil(ctx context.Context, manifest *stack.ServiceManifest) (*AnvilShim,
 	}, nil
 }
 
-func (a *AnvilShim) Endpoint() string        { return a.endpoint }
-func (a *AnvilShim) RPC() *ethclient.Client  { return a.rpc }
-func (a *AnvilShim) ChainID() *big.Int       { return a.chainID }
+func (a *AnvilShim) Endpoint() string       { return a.endpoint }
+func (a *AnvilShim) RPC() *ethclient.Client { return a.rpc }
+func (a *AnvilShim) ChainID() *big.Int      { return a.chainID }
+func (a *AnvilShim) Close()                 { a.rpc.Close() }
 
 // ERC20Balance returns the on-chain ERC-20 balance of owner for tokenAddr.
 func (a *AnvilShim) ERC20Balance(ctx context.Context, tokenAddr, owner common.Address) (*big.Int, error) {
@@ -106,8 +116,8 @@ func (a *AnvilShim) ApproveAndDeposit(ctx context.Context, account *stack.Accoun
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("approve: %w", err)
 	}
-	if err := waitForTx(ctx, a.rpc, approveTx.Hash(), 30*time.Second); err != nil {
-		return common.Hash{}, fmt.Errorf("wait approve tx: %w", err)
+	if waitErr := waitForTx(ctx, a.rpc, approveTx.Hash(), txWaitTimeout); waitErr != nil {
+		return common.Hash{}, fmt.Errorf("wait approve tx: %w", waitErr)
 	}
 
 	// Step 2: deposit.
@@ -119,8 +129,8 @@ func (a *AnvilShim) ApproveAndDeposit(ctx context.Context, account *stack.Accoun
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("depositToCanton: %w", err)
 	}
-	if err := waitForTx(ctx, a.rpc, depositTx.Hash(), 30*time.Second); err != nil {
-		return common.Hash{}, fmt.Errorf("wait deposit tx: %w", err)
+	if waitErr := waitForTx(ctx, a.rpc, depositTx.Hash(), txWaitTimeout); waitErr != nil {
+		return common.Hash{}, fmt.Errorf("wait deposit tx: %w", waitErr)
 	}
 
 	return depositTx.Hash(), nil
@@ -136,7 +146,7 @@ func newTransactor(ctx context.Context, client *ethclient.Client, key *ecdsa.Pri
 	if err != nil {
 		return nil, fmt.Errorf("pending nonce: %w", err)
 	}
-	auth.Nonce = big.NewInt(int64(nonce))
+	auth.Nonce = new(big.Int).SetUint64(nonce)
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("suggest gas price: %w", err)
@@ -147,9 +157,12 @@ func newTransactor(ctx context.Context, client *ethclient.Client, key *ecdsa.Pri
 }
 
 // waitForTx polls until the transaction is mined or the timeout is reached.
+// It returns immediately on any RPC error other than ethereum.NotFound (tx not
+// yet visible) to avoid masking genuine node failures.
 func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
 		receipt, err := client.TransactionReceipt(ctx, hash)
 		if err == nil {
 			if receipt.Status == 1 {
@@ -157,13 +170,15 @@ func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash, 
 			}
 			return fmt.Errorf("transaction %s reverted", hash.Hex())
 		}
+		if !errors.Is(err, ethereum.NotFound) {
+			return fmt.Errorf("receipt query for %s: %w", hash.Hex(), err)
+		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timeout waiting for tx %s: %w", hash.Hex(), ctx.Err())
 		case <-time.After(time.Second):
 		}
 	}
-	return fmt.Errorf("timeout waiting for tx %s", hash.Hex())
 }
 
 // parseKey decodes a hex-encoded ECDSA private key (without 0x prefix).
@@ -183,7 +198,7 @@ func fingerprintToBytes32(fingerprint string) ([32]byte, error) {
 	if err != nil {
 		return result, fmt.Errorf("decode fingerprint: %w", err)
 	}
-	if len(data) > 32 {
+	if len(data) > bytes32Len {
 		return result, fmt.Errorf("fingerprint too long: %d bytes", len(data))
 	}
 	copy(result[:], data)

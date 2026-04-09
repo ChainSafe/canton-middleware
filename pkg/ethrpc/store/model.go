@@ -180,3 +180,20 @@ func stringPtrOrNil(v string) *string {
 	}
 	return &v
 }
+
+// MempoolEntryDao maps to the mempool table — the intent log for synthetic EVM transfers.
+type MempoolEntryDao struct {
+	bun.BaseModel    `bun:"table:mempool"`
+	ID               int64     `bun:"id,pk,autoincrement"`
+	TxHash           []byte    `bun:"tx_hash,notnull,unique,type:bytea"`
+	FromAddress      string    `bun:"from_address,notnull,type:text"`
+	ContractAddress  string    `bun:"contract_address,notnull,type:text"`
+	RecipientAddress string    `bun:"recipient_address,notnull,type:text"`
+	Nonce            uint64    `bun:"nonce,notnull"`
+	Input            []byte    `bun:"input,notnull,type:bytea"`
+	AmountData       []byte    `bun:"amount_data,notnull,type:bytea"`
+	Status           string    `bun:"status,notnull,default:'pending',type:text"`
+	ErrorMessage     *string   `bun:"error_message,type:text"`
+	CreatedAt        time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt        time.Time `bun:"updated_at,notnull,default:current_timestamp"`
+}

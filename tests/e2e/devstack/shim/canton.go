@@ -11,6 +11,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
+var _ stack.Canton = (*CantonShim)(nil)
+
 // CantonShim implements stack.Canton.
 type CantonShim struct {
 	grpcEndpoint string
@@ -28,7 +30,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 }
 
 func (c *CantonShim) GRPCEndpoint() string { return c.grpcEndpoint }
-func (c *CantonShim) HTTPEndpoint() string  { return c.httpEndpoint }
+func (c *CantonShim) HTTPEndpoint() string { return c.httpEndpoint }
 
 // IsHealthy returns true when the Canton HTTP JSON API responds with 200. It
 // does not block — callers should use WaitForCanton in the DSL for polling.

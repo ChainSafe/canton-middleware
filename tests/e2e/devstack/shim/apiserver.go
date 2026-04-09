@@ -4,33 +4,54 @@ package shim
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
+	"math/big"
 	"net/http"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
+
+	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// APIServerShim implements stack.APIServer via HTTP.
+var _ stack.APIServer = (*APIServerShim)(nil)
+
+// APIServerShim implements stack.APIServer. REST calls go through httpClient;
+// EVM calls go through the go-ethereum ethclient connected to /eth so that
+// JSON-RPC compatibility of the facade is exercised with real client code.
 type APIServerShim struct {
 	httpClient
+	evm *ethclient.Client
 }
 
-// NewAPIServer returns an APIServerShim for the api-server endpoint in the manifest.
-func NewAPIServer(manifest *stack.ServiceManifest) *APIServerShim {
-	return &APIServerShim{httpClient{
-		endpoint: manifest.APIHTTP,
-		client:   &http.Client{Timeout: 30 * time.Second},
-	}}
+// NewAPIServer dials the api-server REST endpoint and its /eth JSON-RPC
+// endpoint, returning a ready shim. The RPC connection is established with
+// rpc.Dial (same pattern as pkg/ethrpc/service/eth_api_test.go).
+func NewAPIServer(ctx context.Context, manifest *stack.ServiceManifest) (*APIServerShim, error) {
+	rpcClient, err := rpc.DialContext(ctx, manifest.APIHTTP+"/eth")
+	if err != nil {
+		return nil, fmt.Errorf("dial api-server eth RPC: %w", err)
+	}
+	return &APIServerShim{
+		httpClient: httpClient{
+			endpoint: manifest.APIHTTP,
+			client:   &http.Client{Timeout: 30 * time.Second},
+		},
+		evm: ethclient.NewClient(rpcClient),
+	}, nil
 }
 
-func (a *APIServerShim) Endpoint() string { return a.endpoint }
+func (a *APIServerShim) Endpoint() string       { return a.endpoint }
+func (a *APIServerShim) RPC() *ethclient.Client { return a.evm }
+func (a *APIServerShim) Close()                 { a.evm.Close() }
 
 // Health returns nil when GET /health responds with 200.
 func (a *APIServerShim) Health(ctx context.Context) error {
@@ -56,12 +77,21 @@ func (a *APIServerShim) PrepareTopology(ctx context.Context, req *user.RegisterR
 }
 
 // RegisterExternal sends POST /register with key_mode=external.
+// req.KeyMode must be user.KeyModeExternal; req must include RegistrationToken
+// and TopologySignature obtained from PrepareTopology.
 func (a *APIServerShim) RegisterExternal(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error) {
+	if req.KeyMode != user.KeyModeExternal {
+		return nil, fmt.Errorf("RegisterExternal: req.KeyMode must be %q, got %q", user.KeyModeExternal, req.KeyMode)
+	}
 	return a.Register(ctx, req)
 }
 
 // PrepareTransfer sends POST /api/v2/transfer/prepare with timed EIP-191 auth headers.
-func (a *APIServerShim) PrepareTransfer(ctx context.Context, account *stack.Account, req *transfer.PrepareRequest) (*transfer.PrepareResponse, error) {
+func (a *APIServerShim) PrepareTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	req *transfer.PrepareRequest,
+) (*transfer.PrepareResponse, error) {
 	msg := fmt.Sprintf("transfer:%d", time.Now().Unix())
 	sig, err := signEIP191(account.PrivateKey, msg)
 	if err != nil {
@@ -75,7 +105,11 @@ func (a *APIServerShim) PrepareTransfer(ctx context.Context, account *stack.Acco
 }
 
 // ExecuteTransfer sends POST /api/v2/transfer/execute with timed EIP-191 auth headers.
-func (a *APIServerShim) ExecuteTransfer(ctx context.Context, account *stack.Account, req *transfer.ExecuteRequest) (*transfer.ExecuteResponse, error) {
+func (a *APIServerShim) ExecuteTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	req *transfer.ExecuteRequest,
+) (*transfer.ExecuteResponse, error) {
 	msg := fmt.Sprintf("execute:%d", time.Now().Unix())
 	sig, err := signEIP191(account.PrivateKey, msg)
 	if err != nil {
@@ -88,37 +122,19 @@ func (a *APIServerShim) ExecuteTransfer(ctx context.Context, account *stack.Acco
 	return &resp, nil
 }
 
-// ERC20Balance calls POST /eth with an eth_call JSON-RPC request to read the
-// ERC-20 balance of ownerAddr for tokenAddr through the api-server facade.
-func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr string) (string, error) {
-	// Encode the balanceOf(address) call: selector 0x70a08231 + 32-byte zero-padded address.
-	// common.LeftPadBytes ensures correct zero-padding (fmt.Sprintf %064s pads with spaces).
-	addr := common.HexToAddress(ownerAddr)
-	paddedOwner := hex.EncodeToString(common.LeftPadBytes(addr.Bytes(), 32))
-	data := "0x70a08231" + paddedOwner
-
-	rpcReq := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "eth_call",
-		"params": []any{
-			map[string]any{"to": tokenAddr, "data": data},
-			"latest",
-		},
-		"id": 1,
+// ERC20Balance returns the ERC-20 balance of ownerAddr for tokenAddr by
+// calling balanceOf via the api-server's /eth JSON-RPC facade using the
+// standard go-ethereum ethclient and contract binding.
+func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr common.Address) (*big.Int, error) {
+	token, err := contracts.NewPromptToken(tokenAddr, a.evm)
+	if err != nil {
+		return nil, fmt.Errorf("bind erc20: %w", err)
 	}
-	var rpcResp struct {
-		Result string `json:"result"`
-		Error  *struct {
-			Message string `json:"message"`
-		} `json:"error"`
+	bal, err := token.BalanceOf(&bind.CallOpts{Context: ctx}, ownerAddr)
+	if err != nil {
+		return nil, fmt.Errorf("balanceOf via api-server RPC: %w", err)
 	}
-	if err := a.post(ctx, "/eth", "", "", rpcReq, &rpcResp); err != nil {
-		return "", err
-	}
-	if rpcResp.Error != nil {
-		return "", fmt.Errorf("eth_call error: %s", rpcResp.Error.Message)
-	}
-	return rpcResp.Result, nil
+	return bal, nil
 }
 
 // TransferFactory sends POST /registry/transfer-instruction/v1/transfer-factory.

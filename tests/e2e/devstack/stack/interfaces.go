@@ -10,13 +10,14 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // Anvil is the interface for the local Anvil Ethereum node.
@@ -67,6 +68,11 @@ type APIServer interface {
 	// Endpoint returns the base HTTP URL (e.g. "http://localhost:8081").
 	Endpoint() string
 
+	// RPC returns the go-ethereum ethclient connected to the api-server's
+	// /eth JSON-RPC facade. Callers can use it for arbitrary eth_ calls
+	// without going through the shim's typed methods.
+	RPC() *ethclient.Client
+
 	// Health returns nil when the api-server is ready to accept requests.
 	Health(ctx context.Context) error
 
@@ -103,9 +109,10 @@ type APIServer interface {
 	ExecuteTransfer(ctx context.Context, account *Account, req *transfer.ExecuteRequest) (*transfer.ExecuteResponse, error)
 
 	// ERC20Balance returns the ERC-20 balance of ownerAddr for tokenAddr by
-	// calling eth_call through the api-server's Ethereum JSON-RPC facade at
-	// POST /eth.
-	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr string) (string, error)
+	// calling balanceOf through the api-server's Ethereum JSON-RPC facade at
+	// /eth. Uses go-ethereum's ethclient so the call exercises full
+	// JSON-RPC compatibility of the facade, not just a single raw method.
+	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr common.Address) (*big.Int, error)
 
 	// TransferFactory calls POST /registry/transfer-instruction/v1/transfer-factory
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
@@ -180,17 +187,27 @@ type Indexer interface {
 	// ListPartyEvents returns events in which partyID appears as sender or
 	// receiver. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListPartyEvents(ctx context.Context, partyID string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListPartyEvents(
+		ctx context.Context,
+		partyID string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// ListTokenEvents returns all events for the token identified by admin
 	// and id. eventType filters to indexer.EventMint, EventBurn,
 	// EventTransfer, or "" for all types.
-	ListTokenEvents(ctx context.Context, admin, id string, eventType indexer.EventType, page, limit int) (*indexer.Page[*indexer.ParsedEvent], error)
+	ListTokenEvents(
+		ctx context.Context,
+		admin, id string,
+		eventType indexer.EventType,
+		page, limit int,
+	) (*indexer.Page[*indexer.ParsedEvent], error)
 }
 
 // APIDatabase is the interface for direct access to the api-server's database
-// during E2E tests. It is used only for test setup (whitelisting addresses).
-// Assertions on user state are made through the API, not the database directly.
+// during E2E tests. It is used for setup (whitelisting test addresses) and
+// assertions (verifying user records written by the api-server).
 type APIDatabase interface {
 	// DSN returns the api-server PostgreSQL connection string
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
