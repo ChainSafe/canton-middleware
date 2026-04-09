@@ -18,21 +18,23 @@ import (
 // DSL exposes high-level operations over the service interfaces. Accessed via
 // System.DSL.
 type DSL struct {
-	APIServer stack.APIServer
-	Relayer   stack.Relayer
-	Indexer   stack.Indexer
-	Postgres  stack.APIDatabase
-	Anvil     stack.Anvil
+	apiServer stack.APIServer
+	relayer   stack.Relayer
+	indexer   stack.Indexer
+	postgres  stack.APIDatabase
+	anvil     stack.Anvil
 }
 
-// New wires a DSL to the given service interfaces.
+// New wires a DSL to the given service interfaces. relayer and indexer may be
+// nil when the system under test does not include those services; calling DSL
+// methods that require them will produce a descriptive t.Fatal message.
 func New(api stack.APIServer, relayer stack.Relayer, indexer stack.Indexer, postgres stack.APIDatabase, anvil stack.Anvil) *DSL {
 	return &DSL{
-		APIServer: api,
-		Relayer:   relayer,
-		Indexer:   indexer,
-		Postgres:  postgres,
-		Anvil:     anvil,
+		apiServer: api,
+		relayer:   relayer,
+		indexer:   indexer,
+		postgres:  postgres,
+		anvil:     anvil,
 	}
 }
 
@@ -41,7 +43,7 @@ func New(api stack.APIServer, relayer stack.Relayer, indexer stack.Indexer, post
 func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Account) *user.RegisterResponse {
 	t.Helper()
 
-	if err := d.Postgres.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
+	if err := d.postgres.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
 		t.Fatalf("whitelist %s: %v", account.Address.Hex(), err)
 	}
 
@@ -51,7 +53,7 @@ func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Acco
 		t.Fatalf("sign register message: %v", err)
 	}
 
-	resp, err := d.APIServer.Register(ctx, &user.RegisterRequest{
+	resp, err := d.apiServer.Register(ctx, &user.RegisterRequest{
 		Signature: sig,
 		Message:   msg,
 	})
@@ -65,7 +67,7 @@ func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Acco
 // behalf of account. Returns the deposit transaction hash.
 func (d *DSL) Deposit(ctx context.Context, t *testing.T, account stack.Account, amount *big.Int) common.Hash {
 	t.Helper()
-	hash, err := d.Anvil.ApproveAndDeposit(ctx, &account, amount)
+	hash, err := d.anvil.ApproveAndDeposit(ctx, &account, amount)
 	if err != nil {
 		t.Fatalf("deposit for %s: %v", account.Address.Hex(), err)
 	}
@@ -75,7 +77,7 @@ func (d *DSL) Deposit(ctx context.Context, t *testing.T, account stack.Account, 
 // ERC20Balance returns the on-chain ERC-20 balance of account for tokenAddr.
 func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.Address, account stack.Account) *big.Int {
 	t.Helper()
-	bal, err := d.Anvil.ERC20Balance(ctx, tokenAddr, account.Address)
+	bal, err := d.anvil.ERC20Balance(ctx, tokenAddr, account.Address)
 	if err != nil {
 		t.Fatalf("erc20 balance for %s: %v", account.Address.Hex(), err)
 	}

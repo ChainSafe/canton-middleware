@@ -55,6 +55,7 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 
 	pgShim, err := shim.NewPostgres(manifest)
 	if err != nil {
+		anvilShim.RPC().Close()
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
 
@@ -131,6 +132,7 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 
 	pgShim, err := shim.NewPostgres(manifest)
 	if err != nil {
+		anvilShim.RPC().Close()
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
 
@@ -146,8 +148,9 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 		},
 		closeFunc: pgShim.Close,
 	}
-	// DSL needs a Relayer and Indexer — pass nil shims; those methods are
-	// unavailable in an API-only test and will panic if called.
+	// Relayer and Indexer are not part of the API stack; nil is passed
+	// deliberately. DSL methods that require them call t.Fatal with a clear
+	// message rather than panicking.
 	sys.DSL = dsl.New(sys.APIServer, nil, nil, sys.Postgres, sys.Anvil)
 	return sys, nil
 }
