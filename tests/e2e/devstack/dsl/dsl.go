@@ -183,15 +183,25 @@ func (d *DSL) WaitForAPIBalance(ctx context.Context, t *testing.T, tok stack.Tok
 	minWei, _ := minF.Int(nil)
 
 	deadline := time.Now().Add(waitForAPIBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	var lastErr error
 	for time.Now().Before(deadline) {
 		bal, err := d.apiServer.ERC20Balance(ctx, tok.Address, ownerAddr)
 		if err != nil {
-			t.Fatalf("WaitForAPIBalance: erc20 balance: %v", err)
-		}
-		if bal.Cmp(minWei) >= 0 {
+			lastErr = err
+		} else if bal.Cmp(minWei) >= 0 {
 			return
 		}
-		time.Sleep(2 * time.Second)
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for API balance")
+		case <-ticker.C:
+		}
+	}
+	if lastErr != nil {
+		t.Fatalf("WaitForAPIBalance: timed out waiting for %s %s balance >= %s (owner %s): last error: %v",
+			minTokens, tok.Symbol, minWei, ownerAddr.Hex(), lastErr)
 	}
 	t.Fatalf("WaitForAPIBalance: timed out waiting for %s %s balance >= %s (owner %s)",
 		minTokens, tok.Symbol, minWei, ownerAddr.Hex())

@@ -118,7 +118,7 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		DemoInstrumentAdmin:   dm.DemoInstrumentAdmin,
 		DemoInstrumentID:      dm.DemoInstrumentID,
 		CantonDomainID:        cantonDomainID,
-		DemoTokenAddr:         "0xDE30000000000000000000000000000000000001",
+		DemoTokenAddr:         stack.DemoTokenVirtualAddr,
 	}, nil
 }
 

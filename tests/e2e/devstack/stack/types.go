@@ -15,6 +15,12 @@ type Token struct {
 	Address common.Address
 }
 
+// DemoTokenVirtualAddr is the virtual EVM address of the DEMO Canton-native
+// token as recognized by the api-server's /eth JSON-RPC facade. It is a
+// well-known constant derived from the api-server's contract mapping — update
+// here if that mapping ever changes.
+const DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
+
 // ---------------------------------------------------------------------------
 // Test accounts
 // ---------------------------------------------------------------------------

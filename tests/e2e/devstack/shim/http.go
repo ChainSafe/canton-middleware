@@ -48,6 +48,7 @@ func (h *httpClient) getOK(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", path, err)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return &HTTPError{Code: resp.StatusCode, Path: path}

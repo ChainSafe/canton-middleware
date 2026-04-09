@@ -109,8 +109,13 @@ func initCoreShims(ctx context.Context, manifest *stack.ServiceManifest) (*coreS
 		return nil, fmt.Errorf("api-server shim: %w", err)
 	}
 
-	// NewCanton panics on invalid config; that cannot happen for local devnet.
-	cantonShim := shim.NewCanton(manifest)
+	cantonShim, err := shim.NewCanton(manifest)
+	if err != nil {
+		apiShim.Close()
+		_ = pgShim.Close()
+		anvilShim.Close()
+		return nil, fmt.Errorf("canton shim: %w", err)
+	}
 
 	return &coreShims{
 		anvil:     anvilShim,
@@ -206,14 +211,18 @@ func (s *IndexerSystem) Close() {
 }
 
 // NewIndexerSystem constructs an IndexerSystem from a resolved manifest.
-func NewIndexerSystem(manifest *stack.ServiceManifest) *IndexerSystem {
-	cantonShim := shim.NewCanton(manifest)
+// Returns an error if the Canton shim fails to initialize.
+func NewIndexerSystem(manifest *stack.ServiceManifest) (*IndexerSystem, error) {
+	cantonShim, err := shim.NewCanton(manifest)
+	if err != nil {
+		return nil, fmt.Errorf("canton shim: %w", err)
+	}
 	return &IndexerSystem{
 		Manifest:  manifest,
 		Canton:    cantonShim,
 		Indexer:   shim.NewIndexer(manifest),
 		closeFunc: cantonShim.Close,
-	}
+	}, nil
 }
 
 // APISystem is a minimal view for api-server focused tests. It initializes

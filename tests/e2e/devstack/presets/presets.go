@@ -97,7 +97,10 @@ func NewFullStack(t *testing.T) *system.System {
 // state without driving Ethereum transactions.
 func NewIndexerStack(t *testing.T) *system.IndexerSystem {
 	t.Helper()
-	sys := system.NewIndexerSystem(resolvedManifest(t))
+	sys, err := system.NewIndexerSystem(resolvedManifest(t))
+	if err != nil {
+		t.Fatalf("indexer stack init: %v", err)
+	}
 	t.Cleanup(sys.Close)
 	return sys
 }

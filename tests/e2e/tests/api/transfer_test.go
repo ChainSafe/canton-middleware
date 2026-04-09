@@ -158,11 +158,11 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 // TestTransfer_InvalidSignature_Fails verifies that ExecuteTransfer with a
 // fingerprint that does not match the registered key returns HTTP 403.
 func TestTransfer_InvalidSignature_Fails(t *testing.T) {
-	sys := presets.NewFullStack(t)
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp1, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
-	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
+	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, "10")
 	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, "10")
@@ -190,11 +190,11 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 // TestTransfer_InsufficientBalance_Fails verifies that PrepareTransfer for an
 // amount exceeding the user's canton balance returns HTTP 400.
 func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
-	sys := presets.NewFullStack(t)
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp1, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
-	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
+	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	// Mint a small amount.
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, "1")

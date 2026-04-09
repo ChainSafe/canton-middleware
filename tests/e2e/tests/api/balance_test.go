@@ -37,7 +37,7 @@ func TestERC20Balance_UnregisteredAddress_ReturnsZero(t *testing.T) {
 // api-server's /eth JSON-RPC facade (balanceOf on the DEMO virtual EVM
 // address) reflects the new balance.
 func TestGetBalance_AfterMintDEMO(t *testing.T) {
-	sys := presets.NewFullStack(t)
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)

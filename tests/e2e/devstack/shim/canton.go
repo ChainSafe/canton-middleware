@@ -50,9 +50,9 @@ type CantonShim struct {
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
 // It dials the Canton gRPC endpoint and initializes the token client for
 // MintToken and GetCantonBalance. The gRPC connection is lazy — it does not
-// actually connect until the first RPC call. Panics if the client config is
-// invalid (should never happen for the local devnet setup).
-func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
+// actually connect until the first RPC call. Returns an error if the client
+// config is invalid.
+func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 	ledgerCfg := &ledger.Config{
 		RPCURL: manifest.CantonGRPC,
 		TLS:    &ledger.TLSConfig{Enabled: false},
@@ -67,7 +67,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 
 	l, err := ledger.New(ledgerCfg)
 	if err != nil {
-		panic(fmt.Sprintf("canton shim: ledger.New: %v", err))
+		return nil, fmt.Errorf("ledger.New: %w", err)
 	}
 
 	idCfg := &identity.Config{
@@ -79,7 +79,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 	id, err := identity.New(idCfg, l)
 	if err != nil {
 		_ = l.Close()
-		panic(fmt.Sprintf("canton shim: identity.New: %v", err))
+		return nil, fmt.Errorf("identity.New: %w", err)
 	}
 
 	tokenCfg := &token.Config{
@@ -92,7 +92,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 	tk, err := token.New(tokenCfg, l, id)
 	if err != nil {
 		_ = l.Close()
-		panic(fmt.Sprintf("canton shim: token.New: %v", err))
+		return nil, fmt.Errorf("token.New: %w", err)
 	}
 
 	return &CantonShim{
@@ -101,7 +101,7 @@ func NewCanton(manifest *stack.ServiceManifest) *CantonShim {
 		client:       &http.Client{Timeout: 10 * time.Second},
 		ledgerClient: l,
 		tokenClient:  tk,
-	}
+	}, nil
 }
 
 func (c *CantonShim) GRPCEndpoint() string { return c.grpcEndpoint }
