@@ -2,7 +2,18 @@
 
 package stack
 
-import "github.com/ethereum/go-ethereum/common"
+import (
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/chainsafe/canton-middleware/pkg/token"
+)
+
+// Token bundles an ERC-20 contract address with its ERC20Token metadata
+// (symbol, decimals) for use in E2E test helpers such as WaitForAPIBalance.
+type Token struct {
+	token.ERC20Token
+	Address common.Address
+}
 
 // ---------------------------------------------------------------------------
 // Test accounts
@@ -89,4 +100,13 @@ type ServiceManifest struct {
 	// DemoInstrumentID is the instrument identifier of the DEMO token
 	// (e.g. "DEMO").
 	DemoInstrumentID string
+
+	// CantonDomainID is the synchronizer/domain ID of the Canton network,
+	// resolved at discovery time from the Canton HTTP API.
+	CantonDomainID string
+
+	// DemoTokenAddr is the virtual EVM address of the DEMO Canton-native token
+	// as recognized by the api-server's /eth JSON-RPC facade.
+	// It is a well-known constant: 0xDE30000000000000000000000000000000000001.
+	DemoTokenAddr string
 }

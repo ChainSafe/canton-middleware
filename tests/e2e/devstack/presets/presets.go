@@ -77,12 +77,17 @@ func resolvedManifest(t *testing.T) *stack.ServiceManifest {
 
 // NewFullStack returns a System with all shims initialized. Use this when the
 // test exercises the full bridge flow (Anvil → Canton → Relayer → Indexer).
+//
+// Accounts are derived uniquely from t.Name() to prevent registration conflicts
+// across tests that share the same suite run. Tests that need pre-funded Anvil
+// accounts (ETH / ERC-20 balance) must use stack.AnvilAccount0/1 directly.
 func NewFullStack(t *testing.T) *system.System {
 	t.Helper()
 	sys, err := system.New(context.Background(), resolvedManifest(t))
 	if err != nil {
 		t.Fatalf("full stack init: %v", err)
 	}
+	sys.Accounts = system.NewTestAccounts(t)
 	t.Cleanup(func() { _ = sys.Close() })
 	return sys
 }
@@ -92,18 +97,25 @@ func NewFullStack(t *testing.T) *system.System {
 // state without driving Ethereum transactions.
 func NewIndexerStack(t *testing.T) *system.IndexerSystem {
 	t.Helper()
-	return system.NewIndexerSystem(resolvedManifest(t))
+	sys := system.NewIndexerSystem(resolvedManifest(t))
+	t.Cleanup(sys.Close)
+	return sys
 }
 
 // NewAPIStack returns an APISystem with Anvil, Canton, APIServer, and Postgres
 // shims initialized. Use this for tests that register users and call api-server
 // endpoints but do not need the relayer or indexer.
+//
+// Accounts are derived uniquely from t.Name() to prevent registration conflicts
+// across tests that share the same suite run. Tests that need pre-funded Anvil
+// accounts (ETH / ERC-20 balance) must use stack.AnvilAccount0/1 directly.
 func NewAPIStack(t *testing.T) *system.APISystem {
 	t.Helper()
 	sys, err := system.NewAPISystem(context.Background(), resolvedManifest(t))
 	if err != nil {
 		t.Fatalf("api stack init: %v", err)
 	}
+	sys.Accounts = system.NewTestAccounts(t)
 	t.Cleanup(func() { _ = sys.Close() })
 	return sys
 }

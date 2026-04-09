@@ -119,7 +119,8 @@ E2E_COMPOSE := tests/e2e/docker-compose.e2e.yaml
 test-e2e: test-e2e-api test-e2e-bridge test-e2e-indexer
 
 test-e2e-api:
-	@echo "not yet implemented"
+	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
+		go test -v -tags e2e -timeout 10m ./tests/e2e/tests/api/...
 
 test-e2e-bridge:
 	@echo "not yet implemented"
