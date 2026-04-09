@@ -10,9 +10,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 // DSL exposes high-level operations over the service interfaces. Accessed via

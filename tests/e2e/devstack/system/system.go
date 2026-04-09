@@ -44,7 +44,7 @@ func (s *System) Close() error {
 	return nil
 }
 
-// New constructs a System from a resolved ServiceManifest and initialises all
+// New constructs a System from a resolved ServiceManifest and initializes all
 // shims. Returns an error if any shim fails to connect. Call Close() to release
 // resources when done.
 func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) {
@@ -59,11 +59,18 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
 
+	apiShim, err := shim.NewAPIServer(ctx, manifest)
+	if err != nil {
+		_ = pgShim.Close()
+		anvilShim.RPC().Close()
+		return nil, fmt.Errorf("api-server shim: %w", err)
+	}
+
 	sys := &System{
 		Manifest:  manifest,
 		Anvil:     anvilShim,
 		Canton:    shim.NewCanton(manifest),
-		APIServer: shim.NewAPIServer(manifest),
+		APIServer: apiShim,
 		Relayer:   shim.NewRelayer(manifest),
 		Indexer:   shim.NewIndexer(manifest),
 		Postgres:  pgShim,
@@ -71,7 +78,11 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 			User1: stack.AnvilAccount0,
 			User2: stack.AnvilAccount1,
 		},
-		closeFunc: pgShim.Close,
+		closeFunc: func() error {
+			apiShim.Close()
+			anvilShim.Close()
+			return pgShim.Close()
+		},
 	}
 	sys.DSL = dsl.New(sys.APIServer, sys.Relayer, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
@@ -82,7 +93,7 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 // ---------------------------------------------------------------------------
 
 // IndexerSystem is a minimal view for indexer-focused tests. It only
-// initialises the Canton and Indexer shims — no Postgres connection, no Anvil.
+// initializes the Canton and Indexer shims — no Postgres connection, no Anvil.
 type IndexerSystem struct {
 	Manifest *stack.ServiceManifest
 	Canton   stack.Canton
@@ -98,7 +109,7 @@ func NewIndexerSystem(manifest *stack.ServiceManifest) *IndexerSystem {
 	}
 }
 
-// APISystem is a minimal view for api-server focused tests. It initialises
+// APISystem is a minimal view for api-server focused tests. It initializes
 // Anvil, Canton, APIServer, and Postgres shims together with the DSL and
 // pre-funded accounts.
 type APISystem struct {
@@ -136,17 +147,28 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 		return nil, fmt.Errorf("postgres shim: %w", err)
 	}
 
+	apiShim, err := shim.NewAPIServer(ctx, manifest)
+	if err != nil {
+		_ = pgShim.Close()
+		anvilShim.RPC().Close()
+		return nil, fmt.Errorf("api-server shim: %w", err)
+	}
+
 	sys := &APISystem{
 		Manifest:  manifest,
 		Anvil:     anvilShim,
 		Canton:    shim.NewCanton(manifest),
-		APIServer: shim.NewAPIServer(manifest),
+		APIServer: apiShim,
 		Postgres:  pgShim,
 		Accounts: &Accounts{
 			User1: stack.AnvilAccount0,
 			User2: stack.AnvilAccount1,
 		},
-		closeFunc: pgShim.Close,
+		closeFunc: func() error {
+			apiShim.Close()
+			anvilShim.Close()
+			return pgShim.Close()
+		},
 	}
 	// Relayer and Indexer are not part of the API stack; nil is passed
 	// deliberately. DSL methods that require them call t.Fatal with a clear

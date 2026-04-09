@@ -3,8 +3,8 @@
 package presets
 
 const (
-	defaultComposeFile  = "tests/e2e/docker-compose.e2e.yaml"
-	defaultProjectName  = "canton-e2e"
+	defaultComposeFile = "tests/e2e/docker-compose.e2e.yaml"
+	defaultProjectName = "canton-e2e"
 )
 
 // options holds the configurable parameters for the devstack.

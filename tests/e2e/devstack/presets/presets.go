@@ -75,7 +75,7 @@ func resolvedManifest(t *testing.T) *stack.ServiceManifest {
 	return mfst
 }
 
-// NewFullStack returns a System with all shims initialised. Use this when the
+// NewFullStack returns a System with all shims initialized. Use this when the
 // test exercises the full bridge flow (Anvil → Canton → Relayer → Indexer).
 func NewFullStack(t *testing.T) *system.System {
 	t.Helper()
@@ -88,7 +88,7 @@ func NewFullStack(t *testing.T) *system.System {
 }
 
 // NewIndexerStack returns an IndexerSystem with only the Canton and Indexer
-// shims initialised. Use this for tests that only query or assert on indexer
+// shims initialized. Use this for tests that only query or assert on indexer
 // state without driving Ethereum transactions.
 func NewIndexerStack(t *testing.T) *system.IndexerSystem {
 	t.Helper()
@@ -96,7 +96,7 @@ func NewIndexerStack(t *testing.T) *system.IndexerSystem {
 }
 
 // NewAPIStack returns an APISystem with Anvil, Canton, APIServer, and Postgres
-// shims initialised. Use this for tests that register users and call api-server
+// shims initialized. Use this for tests that register users and call api-server
 // endpoints but do not need the relayer or indexer.
 func NewAPIStack(t *testing.T) *system.APISystem {
 	t.Helper()

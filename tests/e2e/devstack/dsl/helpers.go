@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 const (
@@ -29,7 +30,7 @@ const (
 func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 	t.Helper()
 	if d.relayer == nil {
-		t.Fatal("WaitForRelayerReady not available: Relayer shim not initialised (use NewFullStack)")
+		t.Fatal("WaitForRelayerReady not available: Relayer shim not initialized (use NewFullStack)")
 		return
 	}
 	deadline := time.Now().Add(relayerReadyTimeout)
@@ -41,7 +42,7 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context cancelled waiting for relayer ready")
+			t.Fatal("context canceled waiting for relayer ready")
 		case <-ticker.C:
 		}
 	}
@@ -54,7 +55,7 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 func (d *DSL) WaitForCantonBalance(ctx context.Context, t *testing.T, partyID, admin, id, minAmount string) {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForCantonBalance not available: Indexer shim not initialised (use NewFullStack)")
+		t.Fatal("WaitForCantonBalance not available: Indexer shim not initialized (use NewFullStack)")
 		return
 	}
 	deadline := time.Now().Add(cantonBalanceTimeout)
@@ -71,7 +72,7 @@ func (d *DSL) WaitForCantonBalance(ctx context.Context, t *testing.T, partyID, a
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context cancelled waiting for Canton balance")
+			t.Fatal("context canceled waiting for Canton balance")
 		case <-ticker.C:
 		}
 	}
@@ -84,7 +85,7 @@ func (d *DSL) WaitForCantonBalance(ctx context.Context, t *testing.T, partyID, a
 func (d *DSL) WaitForRelayerTransfer(ctx context.Context, t *testing.T, sourceTxHash string) {
 	t.Helper()
 	if d.relayer == nil {
-		t.Fatal("WaitForRelayerTransfer not available: Relayer shim not initialised (use NewFullStack)")
+		t.Fatal("WaitForRelayerTransfer not available: Relayer shim not initialized (use NewFullStack)")
 		return
 	}
 	deadline := time.Now().Add(relayerTransferTimeout)
@@ -105,7 +106,7 @@ func (d *DSL) WaitForRelayerTransfer(ctx context.Context, t *testing.T, sourceTx
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context cancelled waiting for relayer transfer")
+			t.Fatal("context canceled waiting for relayer transfer")
 		case <-ticker.C:
 		}
 	}
@@ -117,7 +118,7 @@ func (d *DSL) WaitForRelayerTransfer(ctx context.Context, t *testing.T, sourceTx
 func (d *DSL) WaitForIndexerEvent(ctx context.Context, t *testing.T, contractID string) *indexer.ParsedEvent {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForIndexerEvent not available: Indexer shim not initialised (use NewFullStack)")
+		t.Fatal("WaitForIndexerEvent not available: Indexer shim not initialized (use NewFullStack)")
 		return nil // unreachable; t.Fatal calls runtime.Goexit
 	}
 	deadline := time.Now().Add(indexerEventTimeout)
@@ -132,7 +133,7 @@ func (d *DSL) WaitForIndexerEvent(ctx context.Context, t *testing.T, contractID 
 		lastErr = err
 		select {
 		case <-ctx.Done():
-			t.Fatalf("context cancelled waiting for indexer event: contractID=%s", contractID)
+			t.Fatalf("context canceled waiting for indexer event: contractID=%s", contractID)
 		case <-ticker.C:
 		}
 	}
