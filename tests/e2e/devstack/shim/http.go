@@ -14,6 +14,21 @@ import (
 
 const httpErrorStatusFloor = http.StatusBadRequest
 
+// HTTPError is returned by the HTTP helpers when the server responds with a
+// status code >= 400. Tests can inspect the exact status code with errors.As:
+//
+//	var he *shim.HTTPError
+//	if errors.As(err, &he) && he.Code == http.StatusForbidden { ... }
+type HTTPError struct {
+	Code int
+	Body string
+	Path string
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d %s: %s", e.Code, e.Path, e.Body)
+}
+
 // httpClient is a thin wrapper around *http.Client shared by all HTTP-based
 // shims. It binds a base endpoint and provides get/getOK/post helpers so
 // each shim only holds business logic.
@@ -33,9 +48,10 @@ func (h *httpClient) getOK(ctx context.Context, path string) error {
 	if err != nil {
 		return fmt.Errorf("GET %s: %w", path, err)
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d", path, resp.StatusCode)
+		return &HTTPError{Code: resp.StatusCode, Path: path}
 	}
 	return nil
 }
@@ -58,7 +74,7 @@ func (h *httpClient) get(ctx context.Context, path string, query url.Values, out
 	defer resp.Body.Close()
 	if resp.StatusCode >= httpErrorStatusFloor {
 		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("GET %s: status %d: %s", path, resp.StatusCode, string(raw))
+		return &HTTPError{Code: resp.StatusCode, Path: path, Body: string(raw)}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
 }
@@ -91,7 +107,7 @@ func (h *httpClient) post(ctx context.Context, path, sig, msg string, body, out 
 	defer resp.Body.Close()
 	if resp.StatusCode >= httpErrorStatusFloor {
 		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("POST %s: status %d: %s", path, resp.StatusCode, string(raw))
+		return &HTTPError{Code: resp.StatusCode, Path: path, Body: string(raw)}
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
