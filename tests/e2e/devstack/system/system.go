@@ -19,6 +19,53 @@ type Accounts struct {
 	User2 stack.Account
 }
 
+var defaultAccounts = &Accounts{
+	User1: stack.AnvilAccount0,
+	User2: stack.AnvilAccount1,
+}
+
+// coreShims holds the three shims that require explicit teardown (Anvil dials
+// an ethclient, APIServer dials an RPC client, Postgres opens a SQL pool).
+type coreShims struct {
+	anvil     *shim.AnvilShim
+	postgres  *shim.PostgresShim
+	apiServer *shim.APIServerShim
+}
+
+// initCoreShims dials Anvil, Postgres, and APIServer. On partial failure each
+// already-opened resource is closed before the error is returned.
+func initCoreShims(ctx context.Context, manifest *stack.ServiceManifest) (*coreShims, error) {
+	anvilShim, err := shim.NewAnvil(ctx, manifest)
+	if err != nil {
+		return nil, fmt.Errorf("anvil shim: %w", err)
+	}
+
+	pgShim, err := shim.NewPostgres(manifest)
+	if err != nil {
+		anvilShim.Close()
+		return nil, fmt.Errorf("postgres shim: %w", err)
+	}
+
+	apiShim, err := shim.NewAPIServer(ctx, manifest)
+	if err != nil {
+		_ = pgShim.Close()
+		anvilShim.Close()
+		return nil, fmt.Errorf("api-server shim: %w", err)
+	}
+
+	return &coreShims{anvil: anvilShim, postgres: pgShim, apiServer: apiShim}, nil
+}
+
+func (c *coreShims) close() error {
+	c.apiServer.Close()
+	c.anvil.Close()
+	return c.postgres.Close()
+}
+
+// ---------------------------------------------------------------------------
+// System — full stack
+// ---------------------------------------------------------------------------
+
 // System is the composed view of the running devstack. It is built once per
 // test package by DoMain and shared across tests in read-only fashion.
 type System struct {
@@ -35,7 +82,7 @@ type System struct {
 	closeFunc func() error
 }
 
-// Close releases resources held by the System (Postgres connection).
+// Close releases resources held by the System (Postgres connection, ethclient).
 // Callers should register this via t.Cleanup: t.Cleanup(func() { _ = sys.Close() })
 func (s *System) Close() error {
 	if s.closeFunc != nil {
@@ -48,41 +95,21 @@ func (s *System) Close() error {
 // shims. Returns an error if any shim fails to connect. Call Close() to release
 // resources when done.
 func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) {
-	anvilShim, err := shim.NewAnvil(ctx, manifest)
+	core, err := initCoreShims(ctx, manifest)
 	if err != nil {
-		return nil, fmt.Errorf("anvil shim: %w", err)
-	}
-
-	pgShim, err := shim.NewPostgres(manifest)
-	if err != nil {
-		anvilShim.RPC().Close()
-		return nil, fmt.Errorf("postgres shim: %w", err)
-	}
-
-	apiShim, err := shim.NewAPIServer(ctx, manifest)
-	if err != nil {
-		_ = pgShim.Close()
-		anvilShim.RPC().Close()
-		return nil, fmt.Errorf("api-server shim: %w", err)
+		return nil, err
 	}
 
 	sys := &System{
 		Manifest:  manifest,
-		Anvil:     anvilShim,
+		Anvil:     core.anvil,
 		Canton:    shim.NewCanton(manifest),
-		APIServer: apiShim,
+		APIServer: core.apiServer,
 		Relayer:   shim.NewRelayer(manifest),
 		Indexer:   shim.NewIndexer(manifest),
-		Postgres:  pgShim,
-		Accounts: &Accounts{
-			User1: stack.AnvilAccount0,
-			User2: stack.AnvilAccount1,
-		},
-		closeFunc: func() error {
-			apiShim.Close()
-			anvilShim.Close()
-			return pgShim.Close()
-		},
+		Postgres:  core.postgres,
+		Accounts:  defaultAccounts,
+		closeFunc: core.close,
 	}
 	sys.DSL = dsl.New(sys.APIServer, sys.Relayer, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
@@ -124,7 +151,7 @@ type APISystem struct {
 	closeFunc func() error
 }
 
-// Close releases resources held by the APISystem (Postgres connection).
+// Close releases resources held by the APISystem (Postgres connection, ethclient).
 func (s *APISystem) Close() error {
 	if s.closeFunc != nil {
 		return s.closeFunc()
@@ -133,42 +160,21 @@ func (s *APISystem) Close() error {
 }
 
 // NewAPISystem constructs an APISystem from a resolved manifest. Returns an
-// error if the Anvil or Postgres shim fails to connect. Call Close() to release
-// resources when done.
+// error if any shim fails to connect. Call Close() to release resources when done.
 func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISystem, error) {
-	anvilShim, err := shim.NewAnvil(ctx, manifest)
+	core, err := initCoreShims(ctx, manifest)
 	if err != nil {
-		return nil, fmt.Errorf("anvil shim: %w", err)
-	}
-
-	pgShim, err := shim.NewPostgres(manifest)
-	if err != nil {
-		anvilShim.RPC().Close()
-		return nil, fmt.Errorf("postgres shim: %w", err)
-	}
-
-	apiShim, err := shim.NewAPIServer(ctx, manifest)
-	if err != nil {
-		_ = pgShim.Close()
-		anvilShim.RPC().Close()
-		return nil, fmt.Errorf("api-server shim: %w", err)
+		return nil, err
 	}
 
 	sys := &APISystem{
 		Manifest:  manifest,
-		Anvil:     anvilShim,
+		Anvil:     core.anvil,
 		Canton:    shim.NewCanton(manifest),
-		APIServer: apiShim,
-		Postgres:  pgShim,
-		Accounts: &Accounts{
-			User1: stack.AnvilAccount0,
-			User2: stack.AnvilAccount1,
-		},
-		closeFunc: func() error {
-			apiShim.Close()
-			anvilShim.Close()
-			return pgShim.Close()
-		},
+		APIServer: core.apiServer,
+		Postgres:  core.postgres,
+		Accounts:  defaultAccounts,
+		closeFunc: core.close,
 	}
 	// Relayer and Indexer are not part of the API stack; nil is passed
 	// deliberately. DSL methods that require them call t.Fatal with a clear

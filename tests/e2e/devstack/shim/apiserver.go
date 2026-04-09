@@ -11,7 +11,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
 )
 
 var _ stack.APIServer = (*APIServerShim)(nil)
@@ -93,7 +93,7 @@ func (a *APIServerShim) PrepareTransfer(
 	req *transfer.PrepareRequest,
 ) (*transfer.PrepareResponse, error) {
 	msg := fmt.Sprintf("transfer:%d", time.Now().Unix())
-	sig, err := signEIP191(account.PrivateKey, msg)
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (a *APIServerShim) ExecuteTransfer(
 	req *transfer.ExecuteRequest,
 ) (*transfer.ExecuteResponse, error) {
 	msg := fmt.Sprintf("execute:%d", time.Now().Unix())
-	sig, err := signEIP191(account.PrivateKey, msg)
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -144,22 +144,4 @@ func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.Transfer
 		return nil, err
 	}
 	return &resp, nil
-}
-
-// signEIP191 produces a 0x-prefixed EIP-191 signature of message using the
-// hex-encoded ECDSA private key. The recovery ID is set to 27 or 28 as
-// required by the api-server's VerifyEIP191Signature.
-func signEIP191(hexKey, message string) (string, error) {
-	key, err := crypto.HexToECDSA(hexKey)
-	if err != nil {
-		return "", fmt.Errorf("parse private key: %w", err)
-	}
-	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(message))
-	hash := crypto.Keccak256Hash([]byte(prefix + message))
-	sig, err := crypto.Sign(hash.Bytes(), key)
-	if err != nil {
-		return "", fmt.Errorf("sign: %w", err)
-	}
-	sig[64] += 27 // normalise recovery ID to Ethereum convention (27/28)
-	return "0x" + fmt.Sprintf("%x", sig), nil
 }

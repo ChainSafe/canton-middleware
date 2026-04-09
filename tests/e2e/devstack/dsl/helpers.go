@@ -152,23 +152,6 @@ func amountGTE(amount, min string) bool {
 	return a.Cmp(m) >= 0
 }
 
-// signEIP191 produces a 0x-prefixed EIP-191 signature. Recovery ID is set to
-// 27/28 to match the api-server's VerifyEIP191Signature expectation.
-func signEIP191(hexKey, message string) (string, error) {
-	key, err := crypto.HexToECDSA(hexKey)
-	if err != nil {
-		return "", fmt.Errorf("parse key: %w", err)
-	}
-	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(message))
-	hash := crypto.Keccak256Hash([]byte(prefix + message))
-	sig, err := crypto.Sign(hash.Bytes(), key)
-	if err != nil {
-		return "", fmt.Errorf("sign: %w", err)
-	}
-	sig[64] += 27
-	return "0x" + hex.EncodeToString(sig), nil
-}
-
 // SignTransactionHash signs a hex-encoded transaction hash with the ECDSA
 // private key. Used by tests to produce the Canton signature for ExecuteTransfer.
 func SignTransactionHash(hexKey, txHashHex string) (string, error) {

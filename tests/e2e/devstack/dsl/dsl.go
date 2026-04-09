@@ -14,6 +14,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
 )
 
 // DSL exposes high-level operations over the service interfaces. Accessed via
@@ -49,7 +50,7 @@ func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Acco
 	}
 
 	msg := "register"
-	sig, err := signEIP191(account.PrivateKey, msg)
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
 	if err != nil {
 		t.Fatalf("sign register message: %v", err)
 	}
