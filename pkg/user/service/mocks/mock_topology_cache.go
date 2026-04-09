@@ -3,9 +3,9 @@
 package mocks
 
 import (
+	identity "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	mock "github.com/stretchr/testify/mock"
 
-	identity "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	user "github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -20,41 +20,6 @@ type TopologyCacheProvider_Expecter struct {
 
 func (_m *TopologyCacheProvider) EXPECT() *TopologyCacheProvider_Expecter {
 	return &TopologyCacheProvider_Expecter{mock: &_m.Mock}
-}
-
-// Put provides a mock function with given fields: token, topo, spkiKey
-func (_m *TopologyCacheProvider) Put(token string, topo *identity.ExternalPartyTopology, spkiKey []byte) {
-	_m.Called(token, topo, spkiKey)
-}
-
-// TopologyCacheProvider_Put_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Put'
-type TopologyCacheProvider_Put_Call struct {
-	*mock.Call
-}
-
-// Put is a helper method to define mock.On call
-//   - token string
-//   - topo *identity.ExternalPartyTopology
-//   - spkiKey []byte
-func (_e *TopologyCacheProvider_Expecter) Put(token interface{}, topo interface{}, spkiKey interface{}) *TopologyCacheProvider_Put_Call {
-	return &TopologyCacheProvider_Put_Call{Call: _e.mock.On("Put", token, topo, spkiKey)}
-}
-
-func (_c *TopologyCacheProvider_Put_Call) Run(run func(token string, topo *identity.ExternalPartyTopology, spkiKey []byte)) *TopologyCacheProvider_Put_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(*identity.ExternalPartyTopology), args[2].([]byte))
-	})
-	return _c
-}
-
-func (_c *TopologyCacheProvider_Put_Call) Return() *TopologyCacheProvider_Put_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *TopologyCacheProvider_Put_Call) RunAndReturn(run func(string, *identity.ExternalPartyTopology, []byte)) *TopologyCacheProvider_Put_Call {
-	_c.Run(run)
-	return _c
 }
 
 // GetAndDelete provides a mock function with given fields: token
@@ -112,6 +77,41 @@ func (_c *TopologyCacheProvider_GetAndDelete_Call) Return(_a0 *user.PendingTopol
 
 func (_c *TopologyCacheProvider_GetAndDelete_Call) RunAndReturn(run func(string) (*user.PendingTopology, error)) *TopologyCacheProvider_GetAndDelete_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// Put provides a mock function with given fields: token, topo, spkiKey
+func (_m *TopologyCacheProvider) Put(token string, topo *identity.ExternalPartyTopology, spkiKey []byte) {
+	_m.Called(token, topo, spkiKey)
+}
+
+// TopologyCacheProvider_Put_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Put'
+type TopologyCacheProvider_Put_Call struct {
+	*mock.Call
+}
+
+// Put is a helper method to define mock.On call
+//   - token string
+//   - topo *identity.ExternalPartyTopology
+//   - spkiKey []byte
+func (_e *TopologyCacheProvider_Expecter) Put(token interface{}, topo interface{}, spkiKey interface{}) *TopologyCacheProvider_Put_Call {
+	return &TopologyCacheProvider_Put_Call{Call: _e.mock.On("Put", token, topo, spkiKey)}
+}
+
+func (_c *TopologyCacheProvider_Put_Call) Run(run func(token string, topo *identity.ExternalPartyTopology, spkiKey []byte)) *TopologyCacheProvider_Put_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(*identity.ExternalPartyTopology), args[2].([]byte))
+	})
+	return _c
+}
+
+func (_c *TopologyCacheProvider_Put_Call) Return() *TopologyCacheProvider_Put_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *TopologyCacheProvider_Put_Call) RunAndReturn(run func(string, *identity.ExternalPartyTopology, []byte)) *TopologyCacheProvider_Put_Call {
+	_c.Run(run)
 	return _c
 }
 

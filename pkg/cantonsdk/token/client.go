@@ -60,6 +60,9 @@ type Token interface {
 	// GetBalanceByFingerprint returns the owner's total balance (sum of holdings) for the token symbol.
 	GetBalanceByFingerprint(ctx context.Context, fingerprint string, tokenSymbol string) (string, error)
 
+	// GetBalanceByPartyID returns the owner's total balance (sum of holdings) for the token symbol.
+	GetBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error)
+
 	// GetTotalSupply returns the total supply (sum across all holdings) for the token symbol.
 	GetTotalSupply(ctx context.Context, tokenSymbol string) (string, error)
 
@@ -305,10 +308,10 @@ func (c *Client) GetBalanceByFingerprint(ctx context.Context, fingerprint string
 	if err != nil {
 		return "0", err
 	}
-	return c.getBalanceByPartyID(ctx, m.UserParty, tokenSymbol)
+	return c.GetBalanceByPartyID(ctx, m.UserParty, tokenSymbol)
 }
 
-func (c *Client) getBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error) {
+func (c *Client) GetBalanceByPartyID(ctx context.Context, partyID string, tokenSymbol string) (string, error) {
 	holdings, err := c.GetHoldings(ctx, partyID, tokenSymbol)
 	if err != nil {
 		return "0", err

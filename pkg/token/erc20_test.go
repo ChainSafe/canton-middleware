@@ -35,11 +35,11 @@ func newCfg() *token.Config {
 }
 
 func promptUser() *user.User {
-	return &user.User{Fingerprint: "fpA"}
+	return &user.User{CantonPartyID: "partyA", Fingerprint: "fpA"}
 }
 
 func demoUser() *user.User {
-	return &user.User{Fingerprint: "fpB"}
+	return &user.User{CantonPartyID: "partyB", Fingerprint: "fpB"}
 }
 
 // ─── TestERC20_Name ───────────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("100", nil)
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().CantonPartyID).Return("100", nil)
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
@@ -200,7 +200,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(demoUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "DEMO", demoUser().Fingerprint).Return("50", nil)
+		provider.EXPECT().GetBalance(mock.Anything, "DEMO", demoUser().CantonPartyID).Return("50", nil)
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(demoAddr, svc)
@@ -229,7 +229,7 @@ func TestERC20_BalanceOf(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, accountAddr.Hex()).Return(promptUser(), nil)
 
 		provider := mocks.NewProvider(t)
-		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().Fingerprint).Return("0", errors.New("timeout"))
+		provider.EXPECT().GetBalance(mock.Anything, "PROMPT", promptUser().CantonPartyID).Return("0", errors.New("timeout"))
 
 		svc := token.NewTokenService(newCfg(), provider, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
