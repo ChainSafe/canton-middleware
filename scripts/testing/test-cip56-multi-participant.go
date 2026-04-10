@@ -124,6 +124,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,19 +452,20 @@ func uploadDARs(ctx context.Context, c *ledger.Client, darDir string) error {
 	pkgSvc := adminv2.NewPackageManagementServiceClient(c.Conn())
 	authCtx := c.AuthContext(ctx)
 
-	pattern := filepath.Join(darDir, "**", "*.dar")
 	// Use a manual walk instead of Glob to stay stdlib-only.
 	var dars []string
-	_ = filepath.WalkDir(darDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
+	err := filepath.WalkDir(darDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if strings.HasSuffix(path, ".dar") {
+		if !d.IsDir() && strings.HasSuffix(path, ".dar") {
 			dars = append(dars, path)
 		}
 		return nil
 	})
-	_ = pattern // silence unused warning
+	if err != nil {
+		return fmt.Errorf("failed to walk DAR directory %s: %w", darDir, err)
+	}
 
 	if len(dars) == 0 {
 		return fmt.Errorf("no .dar files found under %s", darDir)
@@ -818,8 +820,14 @@ func check(failures *int, ok bool, format string, a ...any) bool {
 func checkHolderAmount(holdings []holding, party, expectedWhole string, failures *int) {
 	for _, h := range holdings {
 		if h.Owner == party {
-			got := strings.TrimRight(strings.TrimRight(h.Amount, "0"), ".")
-			check(failures, got == expectedWhole,
+			got, ok1 := new(big.Rat).SetString(h.Amount)
+			exp, ok2 := new(big.Rat).SetString(expectedWhole)
+			if !ok1 || !ok2 {
+				fail("party %s: failed to parse amounts (got=%q, exp=%q)", shortID(party), h.Amount, expectedWhole)
+				*failures++
+				return
+			}
+			check(failures, got.Cmp(exp) == 0,
 				"party %s: expected %s, got %s", shortID(party), expectedWhole, h.Amount)
 			return
 		}
@@ -848,13 +856,18 @@ func containsNoIssuer(holdings []holding, issuer string) bool {
 }
 
 func sumAmounts(holdings []holding) string {
-	total := 0.0
+	total := new(big.Rat)
 	for _, h := range holdings {
-		var v float64
-		fmt.Sscanf(h.Amount, "%f", &v)
-		total += v
+		if v, ok := new(big.Rat).SetString(h.Amount); ok {
+			total.Add(total, v)
+		}
 	}
-	return fmt.Sprintf("%.10g", total)
+	s := total.FloatString(10)
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+	}
+	return s
 }
 
 func shortID(id string) string {
