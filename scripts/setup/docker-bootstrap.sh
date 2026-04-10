@@ -219,7 +219,8 @@ if [ -f "$API_SERVER_CONFIG_FILE" ]; then
     echo ">>> Updating API server config file..."
     sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
     sed -i "s|issuer_party: \".*\"|issuer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
-    echo "    API server config updated with issuer_party and domain_id"
+    sed -i "s|\${CANTON_ISSUER_PARTY}|$PARTY_ID|g" "$API_SERVER_CONFIG_FILE"
+    echo "    API server config updated with issuer_party, domain_id, and instrument admins"
 fi
 
 # =============================================================================
