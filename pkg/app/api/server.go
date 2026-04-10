@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/uptrace/bun"
 	"go.uber.org/zap"
 )
 
@@ -107,37 +108,12 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
-	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
-	go topologyCache.Start(ctx)
-
-	registrationService := userservice.NewService(
-		userStore,
-		cantonClient.Identity,
-		cipher,
-		logger,
-		cfg.SkipCantonSigVerify,
-		topologyCache,
-	)
-
-	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, cipher, logger)
 	if err != nil {
-		return fmt.Errorf("build token provider: %w", err)
-	}
-	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
-	evmStore := ethrpcstore.NewStore(dbBun)
-
-	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
-	go transferCache.Start(ctx)
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
-	regSvcLog := userservice.NewLog(registrationService, logger)
-	transferSvcLog := transfer.NewLog(transferSvc, logger)
-
-	if cfg.EthRPC.Enabled {
-		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
-		go m.Start(ctx)
+		return err
 	}
 
-	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)
+	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 
@@ -165,6 +141,58 @@ func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token) (tok
 	default: // TokenProviderCanton
 		return tokenprovider.NewCanton(cantonToken), nil
 	}
+}
+
+type services struct {
+	evmStore     ethrpc.Store
+	tokenService *token.Service
+	regSvc       userservice.Service
+	transferSvc  transfer.Service
+}
+
+func initServices(
+	ctx context.Context,
+	cfg *config.APIServer,
+	dbBun *bun.DB,
+	cantonClient *canton.Client,
+	cipher keys.KeyCipher,
+	logger *zap.Logger,
+) (*services, error) {
+	userStore := userstore.NewStore(dbBun)
+
+	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
+	go topologyCache.Start(ctx)
+
+	registrationService := userservice.NewService(
+		userStore,
+		cantonClient.Identity,
+		cipher,
+		logger,
+		cfg.SkipCantonSigVerify,
+		topologyCache,
+	)
+
+	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	if err != nil {
+		return nil, fmt.Errorf("build token provider: %w", err)
+	}
+
+	evmStore := ethrpcstore.NewStore(dbBun)
+
+	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
+	go transferCache.Start(ctx)
+
+	if cfg.EthRPC.Enabled {
+		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
+		go m.Start(ctx)
+	}
+
+	return &services{
+		evmStore:     evmStore,
+		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
+		regSvc:       userservice.NewLog(registrationService, logger),
+		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token)), logger),
+	}, nil
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {

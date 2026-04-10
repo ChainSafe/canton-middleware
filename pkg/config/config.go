@@ -70,7 +70,7 @@ type APIServer struct {
 	Database            *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
 	Canton              *canton.Config       `yaml:"canton" validate:"required"`
 	Token               *token.Config        `yaml:"token" validate:"required"`
-	TokenProvider       *TokenProviderConfig `yaml:"token_provider" validate:"required"`
+	TokenProvider       *TokenProviderConfig `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
 	EthRPC              *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
 	JWKS                *JWKS                `yaml:"jwks" default:"-"` // nil by default (feature disabled)
 	Logging             *log.Config          `yaml:"logging" validate:"required"`
@@ -116,6 +116,9 @@ func LoadAPIServer(configPath string) (*APIServer, error) {
 	var cfg APIServer
 	if err := loadConfigFromFile(configPath, &cfg); err != nil {
 		return nil, err
+	}
+	if cfg.TokenProvider == nil {
+		cfg.TokenProvider = &TokenProviderConfig{Mode: TokenProviderCanton}
 	}
 	if err := validateConfig(&cfg); err != nil {
 		return nil, err
