@@ -11,7 +11,7 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
-// one18 is 1 × 10^18 — one token expressed in the smallest unit (wei).
+// one18 is 1 × 10^18 — one full token unit expressed in wei (18-decimal tokens).
 var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 
 // TestDeposit_PROMPT_EthereumToCanton exercises the full EVM → Canton bridge
@@ -40,9 +40,13 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 	// Wait for the relayer to process the EVM deposit and complete it on Canton.
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 
-	// Verify that the Canton PROMPT balance for the registered party equals the
-	// deposited amount ("1" in decimal token units).
+	// Verify the Canton PROMPT balance via the indexer directly.
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "1")
+
+	// Also verify the balance is reflected through the api-server's /eth JSON-RPC
+	// facade. This exercises the full path: indexer → token service → user store
+	// EVM-address→party lookup → eth_call balanceOf response.
+	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "1")
 }
 
 // TestDeposit_SmallAmount_Succeeds verifies that a small PROMPT deposit (0.1
@@ -64,6 +68,7 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "0.1")
+	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "0.1")
 }
 
 // TestDeposit_TwoDeposits_Accumulate verifies that two sequential deposits from
@@ -88,4 +93,5 @@ func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
 	tx2 := sys.DSL.Deposit(ctx, t, account, new(big.Int).Set(one18))
 	sys.DSL.WaitForRelayerTransfer(ctx, t, tx2.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")
+	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "2")
 }

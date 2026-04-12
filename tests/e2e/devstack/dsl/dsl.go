@@ -217,14 +217,18 @@ func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.A
 	return bal
 }
 
-// Withdraw looks up the FingerprintMapping and first PROMPT holding for the
-// given party, then calls InitiateWithdrawal on the Canton bridge. It returns
-// the WithdrawalRequest contract ID. Requires a full-stack system (Canton shim).
+// Withdraw looks up the FingerprintMapping and a suitable holding for the given
+// party and token, then calls InitiateWithdrawal on the Canton bridge. It
+// returns the WithdrawalRequest contract ID. Requires a full-stack system.
 //
 // partyID and fingerprint are the Party and Fingerprint fields from the user's
-// RegisterResponse. evmDest is the checksummed EVM address that will receive the
-// released tokens on Ethereum. amount is the decimal token amount (e.g. "10").
-func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, evmDest, amount string) string {
+// RegisterResponse. tokenSymbol identifies the token (e.g. "PROMPT"). amount is
+// the decimal withdrawal amount (e.g. "1"). evmDest is the checksummed hex EVM
+// address that will receive the released tokens.
+//
+// The holding selected is the first one whose balance is >= amount. The test
+// fails if no holding with sufficient balance exists.
+func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, tokenSymbol, amount, evmDest string) string {
 	t.Helper()
 	if d.canton == nil {
 		t.Fatal("Withdraw not available: Canton shim not initialized (use NewFullStack)")
@@ -233,18 +237,32 @@ func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, 
 
 	mappingCID, err := d.canton.GetFingerprintMapping(ctx, fingerprint)
 	if err != nil {
-		t.Fatalf("get fingerprint mapping for fingerprint %s: %v", fingerprint, err)
+		t.Fatalf("get fingerprint mapping for %s: %v", fingerprint, err)
 	}
 
-	holdings, err := d.canton.GetHoldings(ctx, partyID, "PROMPT")
+	holdings, err := d.canton.GetHoldings(ctx, partyID, tokenSymbol)
 	if err != nil {
-		t.Fatalf("get PROMPT holdings for party %s: %v", partyID, err)
-	}
-	if len(holdings) == 0 {
-		t.Fatalf("no PROMPT holdings for party %s — deposit or mint first", partyID)
+		t.Fatalf("get %s holdings for party %s: %v", tokenSymbol, partyID, err)
 	}
 
-	withdrawalCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdings[0].ContractID, amount, evmDest)
+	// Select the first holding whose amount covers the requested withdrawal.
+	amountF, ok := new(big.Float).SetString(amount)
+	if !ok {
+		t.Fatalf("Withdraw: invalid amount %q", amount)
+	}
+	holdingCID := ""
+	for _, h := range holdings {
+		hf, ok2 := new(big.Float).SetString(h.Amount)
+		if ok2 && hf.Cmp(amountF) >= 0 {
+			holdingCID = h.ContractID
+			break
+		}
+	}
+	if holdingCID == "" {
+		t.Fatalf("no %s holding with amount >= %s for party %s", tokenSymbol, amount, partyID)
+	}
+
+	withdrawalCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdingCID, amount, evmDest)
 	if err != nil {
 		t.Fatalf("initiate withdrawal for party %s: %v", partyID, err)
 	}

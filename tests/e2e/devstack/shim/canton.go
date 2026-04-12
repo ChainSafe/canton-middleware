@@ -75,16 +75,17 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		return nil, fmt.Errorf("ledger.New: %w", err)
 	}
 
-	idCfg := &identity.Config{
+	// Identity client for token operations — acts as the DEMO instrument admin.
+	demoIdCfg := &identity.Config{
 		DomainID:    manifest.CantonDomainID,
 		IssuerParty: manifest.DemoInstrumentAdmin,
 		UserID:      cantonUserID,
 		PackageID:   identityPackageID,
 	}
-	id, err := identity.New(idCfg, l)
+	demoID, err := identity.New(demoIdCfg, l)
 	if err != nil {
 		_ = l.Close()
-		return nil, fmt.Errorf("identity.New: %w", err)
+		return nil, fmt.Errorf("identity.New (demo): %w", err)
 	}
 
 	tokenCfg := &token.Config{
@@ -94,10 +95,25 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		CIP56PackageID:          cip56PackageID,
 		SpliceTransferPackageID: spliceTransferPackageID,
 	}
-	tk, err := token.New(tokenCfg, l, id)
+	tk, err := token.New(tokenCfg, l, demoID)
 	if err != nil {
 		_ = l.Close()
 		return nil, fmt.Errorf("token.New: %w", err)
+	}
+
+	// Identity client for bridge operations — acts as the PROMPT instrument admin
+	// (bridge operator). FingerprintMappings created during user registration are
+	// visible to this party, matching the production relayer configuration.
+	bridgeIdCfg := &identity.Config{
+		DomainID:    manifest.CantonDomainID,
+		IssuerParty: manifest.PromptInstrumentAdmin,
+		UserID:      cantonUserID,
+		PackageID:   identityPackageID,
+	}
+	bridgeID, err := identity.New(bridgeIdCfg, l)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("identity.New (bridge): %w", err)
 	}
 
 	bridgeCfg := &bridge.Config{
@@ -107,7 +123,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		PackageID:     bridgePackageID,
 		Module:        bridgeModule,
 	}
-	br, err := bridge.New(bridgeCfg, l, id)
+	br, err := bridge.New(bridgeCfg, l, bridgeID)
 	if err != nil {
 		_ = l.Close()
 		return nil, fmt.Errorf("bridge.New: %w", err)
@@ -119,7 +135,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		client:         &http.Client{Timeout: 10 * time.Second},
 		ledgerClient:   l,
 		tokenClient:    tk,
-		identityClient: id,
+		identityClient: bridgeID,
 		bridgeClient:   br,
 	}, nil
 }
