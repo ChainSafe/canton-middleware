@@ -34,10 +34,10 @@ func TestRegister_Web3_Success(t *testing.T) {
 	}
 }
 
-// TestRegister_Duplicate_Idempotent verifies that registering the same EVM
-// address a second time returns HTTP 409 Conflict. The api-server rejects
-// duplicate registrations rather than silently returning the existing record.
-func TestRegister_Duplicate_Idempotent(t *testing.T) {
+// TestRegister_Duplicate_Fails verifies that registering the same EVM address
+// a second time returns HTTP 409 Conflict. The api-server rejects duplicate
+// registrations rather than silently returning the existing record.
+func TestRegister_Duplicate_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
