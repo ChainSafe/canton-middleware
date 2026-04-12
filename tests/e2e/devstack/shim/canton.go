@@ -43,13 +43,14 @@ var _ stack.Canton = (*CantonShim)(nil)
 
 // CantonShim implements stack.Canton.
 type CantonShim struct {
-	grpcEndpoint   string
-	httpEndpoint   string
-	client         *http.Client
-	ledgerClient   ledger.Ledger
-	tokenClient    token.Token
-	identityClient identity.Identity
-	bridgeClient   bridge.Bridge
+	grpcEndpoint        string
+	httpEndpoint        string
+	client              *http.Client
+	ledgerClient        ledger.Ledger
+	tokenClient         token.Token       // acts as DemoInstrumentAdmin — used for DEMO ops
+	promptTokenClient   token.Token       // acts as PromptInstrumentAdmin — used for PROMPT holdings
+	identityClient      identity.Identity
+	bridgeClient        bridge.Bridge
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
@@ -116,6 +117,22 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		return nil, fmt.Errorf("identity.New (bridge): %w", err)
 	}
 
+	// Token client for PROMPT holdings — acts as PromptInstrumentAdmin so that
+	// GetHoldings returns results visible to the bridge operator, matching how
+	// the production relayer queries holdings before initiating withdrawals.
+	promptTokenCfg := &token.Config{
+		DomainID:                manifest.CantonDomainID,
+		IssuerParty:             manifest.PromptInstrumentAdmin,
+		UserID:                  cantonUserID,
+		CIP56PackageID:          cip56PackageID,
+		SpliceTransferPackageID: spliceTransferPackageID,
+	}
+	promptTk, err := token.New(promptTokenCfg, l, bridgeID)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("token.New (prompt): %w", err)
+	}
+
 	bridgeCfg := &bridge.Config{
 		DomainID:      manifest.CantonDomainID,
 		UserID:        cantonUserID,
@@ -130,13 +147,14 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 	}
 
 	return &CantonShim{
-		grpcEndpoint:   manifest.CantonGRPC,
-		httpEndpoint:   manifest.CantonHTTP,
-		client:         &http.Client{Timeout: 10 * time.Second},
-		ledgerClient:   l,
-		tokenClient:    tk,
-		identityClient: bridgeID,
-		bridgeClient:   br,
+		grpcEndpoint:      manifest.CantonGRPC,
+		httpEndpoint:      manifest.CantonHTTP,
+		client:            &http.Client{Timeout: 10 * time.Second},
+		ledgerClient:      l,
+		tokenClient:       tk,
+		promptTokenClient: promptTk,
+		identityClient:    bridgeID,
+		bridgeClient:      br,
 	}, nil
 }
 
@@ -176,10 +194,20 @@ func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol,
 	return err
 }
 
+// tokenClientFor returns the appropriate token client for the given symbol.
+// PROMPT holdings are only visible to PromptInstrumentAdmin (bridge operator);
+// all other tokens use the default client acting as DemoInstrumentAdmin.
+func (c *CantonShim) tokenClientFor(tokenSymbol string) token.Token {
+	if tokenSymbol == "PROMPT" {
+		return c.promptTokenClient
+	}
+	return c.tokenClient
+}
+
 // GetCantonBalance returns the total balance of tokenSymbol held by partyID
 // as a decimal string. Returns "0" when the party has no holdings.
 func (c *CantonShim) GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error) {
-	bal, err := c.tokenClient.GetBalanceByPartyID(ctx, partyID, tokenSymbol)
+	bal, err := c.tokenClientFor(tokenSymbol).GetBalanceByPartyID(ctx, partyID, tokenSymbol)
 	if err != nil {
 		return "0", err
 	}
@@ -188,7 +216,7 @@ func (c *CantonShim) GetCantonBalance(ctx context.Context, partyID, tokenSymbol 
 
 // GetHoldings returns the CIP56Holding contracts owned by ownerParty for tokenSymbol.
 func (c *CantonShim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*stack.CantonHolding, error) {
-	holdings, err := c.tokenClient.GetHoldings(ctx, ownerParty, tokenSymbol)
+	holdings, err := c.tokenClientFor(tokenSymbol).GetHoldings(ctx, ownerParty, tokenSymbol)
 	if err != nil {
 		return nil, err
 	}

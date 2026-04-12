@@ -246,14 +246,19 @@ func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, 
 	}
 
 	// Select the first holding whose amount covers the requested withdrawal.
-	amountF, ok := new(big.Float).SetString(amount)
+	// big.Rat is used for exact decimal arithmetic — big.Float's 53-bit default
+	// precision is insufficient for 18-decimal token amounts.
+	amountR, ok := new(big.Rat).SetString(amount)
 	if !ok {
 		t.Fatalf("Withdraw: invalid amount %q", amount)
 	}
 	holdingCID := ""
 	for _, h := range holdings {
-		hf, ok2 := new(big.Float).SetString(h.Amount)
-		if ok2 && hf.Cmp(amountF) >= 0 {
+		hR, ok2 := new(big.Rat).SetString(h.Amount)
+		if !ok2 {
+			t.Fatalf("Withdraw: invalid holding amount %q for contract %s", h.Amount, h.ContractID)
+		}
+		if hR.Cmp(amountR) >= 0 {
 			holdingCID = h.ContractID
 			break
 		}
