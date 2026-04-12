@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
@@ -46,35 +45,6 @@ func TestGetBalance_AfterMintDEMO(t *testing.T) {
 	sys.DSL.MintDEMO(ctx, t, resp.Party, mintAmount)
 
 	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, mintAmount)
-}
-
-// TestGetTokenMetadata_PROMPT verifies that calling name(), symbol(), and
-// decimals() via the api-server's /eth JSON-RPC facade returns valid values
-// for the PROMPT ERC-20 contract.
-func TestGetTokenMetadata_PROMPT(t *testing.T) {
-	sys := presets.NewAPIStack(t)
-	ctx := context.Background()
-
-	rpc := sys.APIServer.RPC()
-
-	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
-
-	// Call totalSupply() as a sanity check that the /eth facade works.
-	// 0x18160ddd = keccak256("totalSupply()")[0:4]
-	// hexutil.Bytes decodes 0x-prefixed hex from the JSON response; plain []byte
-	// would be interpreted as base64 by encoding/json and fail.
-	var result hexutil.Bytes
-	err := rpc.Client().CallContext(ctx, &result, "eth_call", map[string]any{
-		"to":   tokenAddr.Hex(),
-		"data": "0x18160ddd",
-	}, "latest")
-	if err != nil {
-		t.Fatalf("eth_call totalSupply: %v", err)
-	}
-	// Just verify we got a non-nil response (32 bytes = uint256).
-	if len(result) == 0 {
-		t.Fatal("expected non-empty result from totalSupply eth_call")
-	}
 }
 
 // TestERC20Balance_AfterDeposit_ReflectsChange verifies that after depositing

@@ -156,6 +156,134 @@ func TestRegister_ExternalUser_TwoStep_Success(t *testing.T) {
 	}
 }
 
+// TestRegister_CantonNative_Success verifies that a Canton native user
+// (Loop wallet style) can register via POST /register with canton_party_id.
+// Canton signature verification is skipped in the E2E devstack
+// (SKIP_CANTON_SIG_VERIFY=true) so no Loop wallet private key is needed.
+func TestRegister_CantonNative_Success(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	// DemoInstrumentAdmin is a pre-existing Canton party in the devnet.
+	partyID := sys.Manifest.DemoInstrumentAdmin
+
+	resp, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+		CantonPartyID: partyID,
+	})
+	if err != nil {
+		t.Fatalf("canton native register: %v", err)
+	}
+	if resp.Party != partyID {
+		t.Fatalf("expected Party=%q, got %q", partyID, resp.Party)
+	}
+	if resp.Fingerprint == "" {
+		t.Fatal("expected non-empty Fingerprint")
+	}
+	if resp.EVMAddress == "" {
+		t.Fatal("expected non-empty EVMAddress for Canton native user")
+	}
+	if resp.PrivateKey == "" {
+		t.Fatal("expected non-empty PrivateKey for Canton native user (MetaMask import)")
+	}
+}
+
+// TestRegister_CantonNative_Duplicate_Fails verifies that registering the
+// same Canton party ID a second time returns HTTP 409 Conflict.
+func TestRegister_CantonNative_Duplicate_Fails(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	// PromptInstrumentAdmin is a different pre-existing party from DemoInstrumentAdmin
+	// used by TestRegister_CantonNative_Success, so these two tests do not share state.
+	partyID := sys.Manifest.PromptInstrumentAdmin
+
+	if _, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+		CantonPartyID: partyID,
+	}); err != nil {
+		t.Fatalf("first canton native register: %v", err)
+	}
+
+	_, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+		CantonPartyID: partyID,
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusConflict {
+		t.Fatalf("expected HTTP 409 on duplicate canton native register, got %v", err)
+	}
+}
+
+// TestRegister_CantonNative_InvalidPartyID_Fails verifies that a malformed
+// canton_party_id (missing the "hint::fingerprint" separator) returns HTTP 400.
+func TestRegister_CantonNative_InvalidPartyID_Fails(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	_, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+		CantonPartyID: "notvalid-no-separator",
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for invalid canton_party_id format, got %v", err)
+	}
+}
+
+// TestRegister_PrepareTopology_MissingPublicKey_Fails verifies that step 1 of
+// external registration returns HTTP 400 when canton_public_key is absent.
+func TestRegister_PrepareTopology_MissingPublicKey_Fails(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	if err := sys.Postgres.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
+		t.Fatalf("whitelist: %v", err)
+	}
+
+	msg := registerMessage
+	sig, err := util.SignEIP191(sys.Accounts.User1.PrivateKey, msg)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	// Omit CantonPublicKey — the handler must reject with 400.
+	_, err = sys.APIServer.PrepareTopology(ctx, &user.RegisterRequest{
+		Signature: sig,
+		Message:   msg,
+		// CantonPublicKey intentionally omitted
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for missing canton_public_key, got %v", err)
+	}
+}
+
+// TestRegister_PrepareTopology_NotWhitelisted_Fails verifies that step 1 of
+// external registration returns HTTP 403 when the EVM address is not whitelisted.
+func TestRegister_PrepareTopology_NotWhitelisted_Fails(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	// sys.Accounts.User1 is derived from t.Name() and not whitelisted.
+	kp, err := keys.GenerateCantonKeyPair()
+	if err != nil {
+		t.Fatalf("generate canton keypair: %v", err)
+	}
+
+	msg := registerMessage
+	sig, err := util.SignEIP191(sys.Accounts.User1.PrivateKey, msg)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	_, err = sys.APIServer.PrepareTopology(ctx, &user.RegisterRequest{
+		Signature:       sig,
+		Message:         msg,
+		CantonPublicKey: kp.PublicKeyHex(),
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 for non-whitelisted address on prepare-topology, got %v", err)
+	}
+}
+
 // TestRegister_ExternalUser_MissingTopologySignature_Fails verifies that
 // step 2 of external registration is rejected with HTTP 400 when the topology
 // signature is absent.

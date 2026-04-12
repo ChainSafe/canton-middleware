@@ -3,16 +3,22 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/shim"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
 )
 
 // signTransferHash decodes the 0x-prefixed transaction hash from PrepareResponse
@@ -209,5 +215,125 @@ func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 	var he *shim.HTTPError
 	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
 		t.Fatalf("expected HTTP 400 for insufficient balance, got %v", err)
+	}
+}
+
+// TestTransfer_MissingAuthHeaders_Returns401 verifies that POST
+// /api/v2/transfer/prepare without X-Signature and X-Message headers returns
+// HTTP 401. This exercises the authentication gate before any business logic.
+func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	body, err := json.Marshal(&transfer.PrepareRequest{
+		To:     sys.Accounts.User2.Address.Hex(),
+		Amount: "1",
+		Token:  "DEMO",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		sys.APIServer.Endpoint()+"/api/v2/transfer/prepare", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Intentionally no X-Signature or X-Message headers.
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST prepare: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected HTTP 401 for missing auth headers, got %d", resp.StatusCode)
+	}
+}
+
+// TestTransfer_ExpiredTimestamp_Returns401 verifies that a transfer request
+// signed with a timestamp more than 5 minutes old is rejected with HTTP 401.
+// This exercises the replay-protection window enforced by ValidateTimedMessage.
+func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	// Build a message with a timestamp 10 minutes in the past (> 5-minute maxAge).
+	oldMsg := fmt.Sprintf("transfer:%d", time.Now().Add(-10*time.Minute).Unix())
+	sig, err := util.SignEIP191(sys.Accounts.User1.PrivateKey, oldMsg)
+	if err != nil {
+		t.Fatalf("sign expired message: %v", err)
+	}
+
+	body, err := json.Marshal(&transfer.PrepareRequest{
+		To:     sys.Accounts.User2.Address.Hex(),
+		Amount: "1",
+		Token:  "DEMO",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		sys.APIServer.Endpoint()+"/api/v2/transfer/prepare", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Signature", sig)
+	req.Header.Set("X-Message", oldMsg)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST prepare: %v", err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected HTTP 401 for expired timestamp, got %d", resp.StatusCode)
+	}
+}
+
+// TestTransfer_Execute_MissingFields_Returns400 verifies that ExecuteTransfer
+// with an empty request body (missing transfer_id, signature, signed_by) returns
+// HTTP 400. Auth headers are valid — the validation happens after authentication.
+func TestTransfer_Execute_MissingFields_Returns400(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	// No registration needed: auth recovers the EVM address from the signature
+	// without a user-store lookup; the field-validation check fires first.
+	_, err := sys.APIServer.ExecuteTransfer(ctx, &sys.Accounts.User1, &transfer.ExecuteRequest{
+		// TransferID, Signature, and SignedBy intentionally left empty.
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for missing execute fields, got %v", err)
+	}
+}
+
+// TestTransfer_PROMPT_InsufficientBalance_Fails verifies that PrepareTransfer
+// for the PROMPT token with no Canton balance returns HTTP 400, confirming that
+// PROMPT is a recognized token symbol and the balance gate fires correctly.
+func TestTransfer_PROMPT_InsufficientBalance_Fails(t *testing.T) {
+	sys := presets.NewAPIStack(t)
+	ctx := context.Background()
+
+	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
+
+	// User1 has zero PROMPT Canton balance (no deposit + relayer flow run).
+	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
+		To:     sys.Accounts.User2.Address.Hex(),
+		Amount: "1",
+		Token:  "PROMPT",
+	})
+	var he *shim.HTTPError
+	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
+		t.Fatalf("expected HTTP 400 for PROMPT insufficient balance, got %v", err)
 	}
 }
