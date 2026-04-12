@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -19,6 +20,8 @@ const (
 	cip56PackageID          = "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
 	spliceTransferPackageID = "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 	identityPackageID       = "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+	bridgePackageID         = "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+	bridgeModule            = "Wayfinder.Bridge"
 
 	// cantonUserID is the JWT subject claim emitted by the mock OAuth2 server
 	// when authenticating with client_id "local-test-client". Canton uses
@@ -40,11 +43,13 @@ var _ stack.Canton = (*CantonShim)(nil)
 
 // CantonShim implements stack.Canton.
 type CantonShim struct {
-	grpcEndpoint string
-	httpEndpoint string
-	client       *http.Client
-	ledgerClient ledger.Ledger
-	tokenClient  token.Token
+	grpcEndpoint   string
+	httpEndpoint   string
+	client         *http.Client
+	ledgerClient   ledger.Ledger
+	tokenClient    token.Token
+	identityClient identity.Identity
+	bridgeClient   bridge.Bridge
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
@@ -95,12 +100,27 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		return nil, fmt.Errorf("token.New: %w", err)
 	}
 
+	bridgeCfg := &bridge.Config{
+		DomainID:      manifest.CantonDomainID,
+		UserID:        cantonUserID,
+		OperatorParty: manifest.PromptInstrumentAdmin,
+		PackageID:     bridgePackageID,
+		Module:        bridgeModule,
+	}
+	br, err := bridge.New(bridgeCfg, l, id)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("bridge.New: %w", err)
+	}
+
 	return &CantonShim{
-		grpcEndpoint: manifest.CantonGRPC,
-		httpEndpoint: manifest.CantonHTTP,
-		client:       &http.Client{Timeout: 10 * time.Second},
-		ledgerClient: l,
-		tokenClient:  tk,
+		grpcEndpoint:   manifest.CantonGRPC,
+		httpEndpoint:   manifest.CantonHTTP,
+		client:         &http.Client{Timeout: 10 * time.Second},
+		ledgerClient:   l,
+		tokenClient:    tk,
+		identityClient: id,
+		bridgeClient:   br,
 	}, nil
 }
 
@@ -148,4 +168,42 @@ func (c *CantonShim) GetCantonBalance(ctx context.Context, partyID, tokenSymbol 
 		return "0", err
 	}
 	return bal, nil
+}
+
+// GetHoldings returns the CIP56Holding contracts owned by ownerParty for tokenSymbol.
+func (c *CantonShim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*stack.CantonHolding, error) {
+	holdings, err := c.tokenClient.GetHoldings(ctx, ownerParty, tokenSymbol)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*stack.CantonHolding, len(holdings))
+	for i, h := range holdings {
+		result[i] = &stack.CantonHolding{
+			ContractID: h.ContractID,
+			Amount:     h.Amount,
+			Symbol:     h.Symbol,
+		}
+	}
+	return result, nil
+}
+
+// GetFingerprintMapping returns the FingerprintMapping contract ID for the
+// given fingerprint (as returned in the RegisterResponse.Fingerprint field).
+func (c *CantonShim) GetFingerprintMapping(ctx context.Context, fingerprint string) (string, error) {
+	m, err := c.identityClient.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		return "", err
+	}
+	return m.ContractID, nil
+}
+
+// InitiateWithdrawal calls the WayfinderBridgeConfig.InitiateWithdrawal DAML
+// choice and returns the resulting WithdrawalRequest contract ID.
+func (c *CantonShim) InitiateWithdrawal(ctx context.Context, mappingCID, holdingCID, amount, evmDest string) (string, error) {
+	return c.bridgeClient.InitiateWithdrawal(ctx, bridge.InitiateWithdrawalRequest{
+		MappingCID:     mappingCID,
+		HoldingCID:     holdingCID,
+		Amount:         amount,
+		EvmDestination: evmDest,
+	})
 }

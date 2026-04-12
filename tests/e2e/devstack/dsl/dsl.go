@@ -216,3 +216,37 @@ func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.A
 	}
 	return bal
 }
+
+// Withdraw looks up the FingerprintMapping and first PROMPT holding for the
+// given party, then calls InitiateWithdrawal on the Canton bridge. It returns
+// the WithdrawalRequest contract ID. Requires a full-stack system (Canton shim).
+//
+// partyID and fingerprint are the Party and Fingerprint fields from the user's
+// RegisterResponse. evmDest is the checksummed EVM address that will receive the
+// released tokens on Ethereum. amount is the decimal token amount (e.g. "10").
+func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, evmDest, amount string) string {
+	t.Helper()
+	if d.canton == nil {
+		t.Fatal("Withdraw not available: Canton shim not initialized (use NewFullStack)")
+		return ""
+	}
+
+	mappingCID, err := d.canton.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		t.Fatalf("get fingerprint mapping for fingerprint %s: %v", fingerprint, err)
+	}
+
+	holdings, err := d.canton.GetHoldings(ctx, partyID, "PROMPT")
+	if err != nil {
+		t.Fatalf("get PROMPT holdings for party %s: %v", partyID, err)
+	}
+	if len(holdings) == 0 {
+		t.Fatalf("no PROMPT holdings for party %s — deposit or mint first", partyID)
+	}
+
+	withdrawalCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdings[0].ContractID, amount, evmDest)
+	if err != nil {
+		t.Fatalf("initiate withdrawal for party %s: %v", partyID, err)
+	}
+	return withdrawalCID
+}
