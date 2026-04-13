@@ -11,9 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
@@ -153,19 +152,24 @@ func amountGTE(amount, min string) bool {
 }
 
 // SignTransactionHash signs a hex-encoded transaction hash with the ECDSA
-// private key. Used by tests to produce the Canton signature for ExecuteTransfer.
+// private key and returns a hex-encoded ASN.1 DER signature suitable for
+// ExecuteTransfer. Canton requires DER format (R+S only, no recovery byte).
 func SignTransactionHash(hexKey, txHashHex string) (string, error) {
-	key, err := crypto.HexToECDSA(hexKey)
+	privBytes, err := hex.DecodeString(strings.TrimPrefix(hexKey, "0x"))
 	if err != nil {
 		return "", fmt.Errorf("parse key: %w", err)
+	}
+	kp, err := keys.CantonKeyPairFromPrivateKey(privBytes)
+	if err != nil {
+		return "", fmt.Errorf("build keypair: %w", err)
 	}
 	hashBytes, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
 	if err != nil {
 		return "", fmt.Errorf("decode tx hash: %w", err)
 	}
-	sig, err := crypto.Sign(hashBytes, key)
+	derSig, err := kp.SignHashDER(hashBytes)
 	if err != nil {
 		return "", fmt.Errorf("sign tx hash: %w", err)
 	}
-	return "0x" + hex.EncodeToString(sig), nil
+	return "0x" + hex.EncodeToString(derSig), nil
 }
