@@ -23,9 +23,9 @@ test-coverage:
 
 # Run tests with coverage and enforce minimum threshold
 test-coverage-check: test-coverage
-	@total=$$(go tool cover -func=coverage.out | grep 'total:' | awk '{print $$3}' | tr -d '%'); \
+	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$3}' | tr -d '%'); \
 	echo "Coverage: $${total}% (threshold: $(COVERAGE_THRESHOLD)%)"; \
-	if [ $$(echo "$${total} < $(COVERAGE_THRESHOLD)" | bc) -eq 1 ]; then \
+	if [ $$(awk "BEGIN {print ($${total} < $(COVERAGE_THRESHOLD))}") -eq 1 ]; then \
 		echo "$(RED)FAIL: Coverage $${total}% is below $(COVERAGE_THRESHOLD)% threshold$(RESET)"; \
 		exit 1; \
 	else \
