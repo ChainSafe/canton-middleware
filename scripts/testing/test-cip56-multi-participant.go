@@ -130,8 +130,9 @@ import (
 	"strings"
 	"time"
 
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
+	interactivev2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/interactive"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
@@ -156,6 +157,10 @@ var (
 
 	darDir = flag.String("dar-dir", "contracts/canton-erc20/daml",
 		"Root directory containing .dar files to upload to participant2 (required for multi-hosting)")
+
+	spliceTransferPackageID = flag.String("splice-transfer-package-id",
+		"55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281",
+		"DAML package ID for Splice.Api.Token.TransferInstructionV1 (TransferFactory interface)")
 )
 
 // ─── colours ─────────────────────────────────────────────────────────────────
@@ -170,7 +175,7 @@ const (
 func pass(format string, a ...any) { fmt.Printf(green+"    PASS "+reset+format+"\n", a...) }
 func fail(format string, a ...any) { fmt.Fprintf(os.Stderr, red+"    FAIL "+reset+format+"\n", a...) }
 func info(format string, a ...any) { fmt.Printf(cyan+"    "+reset+format+"\n", a...) }
-func step(msg string)               { fmt.Printf("\n>>> %s\n", msg) }
+func step(msg string)              { fmt.Printf("\n>>> %s\n", msg) }
 
 // ─── externalParty wraps a Canton party ID with its signing keypair ───────────
 
@@ -414,6 +419,98 @@ func main() {
 	if len(p2p1bH) == 0 {
 		pass("HolderP1B on P2: confirmed no holdings visible (party not observed by P2)")
 	}
+
+	// ── partial transfer: HolderP2B → HolderP1B (150 BETA via P2) ────────────
+	//
+	// HolderP2B holds 400 BETA on P2. She wants to send 150 BETA to HolderP1B.
+	// The transfer uses CIP56TransferFactory (exercised via P2's Interactive
+	// Submission API), which atomically:
+	//   - archives the input holding (400 BETA)
+	//   - creates a receiver holding  (150 BETA → HolderP1B)
+	//   - creates a change holding    (250 BETA → HolderP2B)
+	//
+	// Because HolderP2B is an external party, the transaction must go through
+	// the Interactive Submission flow: PrepareSubmission → sign with P2B's key
+	// → ExecuteSubmissionAndWait.
+	fmt.Println()
+	fmt.Println(strings.Repeat("-", 70))
+	fmt.Println("  Partial Transfer: HolderP2B → HolderP1B  (150 BETA via P2)")
+	fmt.Println(strings.Repeat("-", 70))
+
+	// Step 1: Create a single CIP56TransferFactory on P1 (no audit observers).
+	// P2 does not have this contract in its ACS — instead we use explicit
+	// disclosure: the factory is fetched from P1 and attached to the
+	// PrepareSubmissionRequest so P2 can resolve it without direct P1 access
+	// or any observer relationship.
+	step("IssuerB: creating CIP56TransferFactory (P1, no observers)")
+	factoryCID, err := createTransferFactory(ctx, p1, issuerB, syncID)
+	if err != nil {
+		log.Fatalf("create transfer factory: %v", err)
+	}
+	info("CIP56TransferFactory: %s", factoryCID)
+
+	// Step 2: Fetch the factory contract from P1 as a DisclosedContract.
+	// The CreatedEventBlob is an opaque Canton-signed blob that P2 can verify
+	// and use for the transaction without the contract being in P2's ACS.
+	step("Fetching CIP56TransferFactory from P1 for explicit disclosure")
+	disclosedFactory, err := fetchDisclosedContract(ctx, p1, issuerB, syncID,
+		cip56TemplateID("CIP56.TransferFactory", "CIP56TransferFactory"))
+	if err != nil {
+		log.Fatalf("fetch disclosed factory: %v", err)
+	}
+	info("DisclosedContract ready (blob: %d bytes)", len(disclosedFactory.CreatedEventBlob))
+
+	// Step 3: Fetch HolderP2B's current holdings from P2 to get contract IDs.
+	step("P2 / HolderP2B: fetching holdings before transfer")
+	p2bPreH, err := queryHoldings(ctx, p2, holderP2B.PartyID)
+	if err != nil {
+		log.Fatalf("query HolderP2B pre-transfer: %v", err)
+	}
+	if len(p2bPreH) == 0 {
+		log.Fatalf("HolderP2B has no holdings to transfer")
+	}
+	inputCIDs := make([]string, len(p2bPreH))
+	for i, h := range p2bPreH {
+		inputCIDs[i] = h.ContractID
+	}
+	info("Input holdings: %d contract(s)", len(inputCIDs))
+
+	// Step 4: Execute the transfer via Interactive Submission on P2.
+	// The disclosed factory contract is attached so P2 can resolve it locally.
+	// HolderP2B signs the prepared transaction hash with her secp256k1 key.
+	step("HolderP2B → HolderP1B: transferring 150 BETA via P2 (explicit disclosure)")
+	if err := transferViaInteractive(ctx, p2, &transferArgs{
+		SyncID:            syncID,
+		FactoryCID:        factoryCID,
+		InstrumentAdmin:   issuerB,
+		InstrumentID:      "BETA",
+		Sender:            holderP2B.PartyID,
+		Receiver:          holderP1B.PartyID,
+		Amount:            "150",
+		InputCIDs:         inputCIDs,
+		SignerKey:         holderP2B.KeyPair,
+		DisclosedContracts: []*lapiv2.DisclosedContract{disclosedFactory},
+	}); err != nil {
+		log.Fatalf("transfer BETA P2B→P1B: %v", err)
+	}
+	info("Transfer complete")
+
+	// Step 4: Verify updated balances.
+	step("P2 / HolderP2B view: 250 BETA remaining after transfer")
+	p2bPostH, err := queryHoldings(ctx, p2, holderP2B.PartyID)
+	if err != nil {
+		log.Fatalf("query HolderP2B post-transfer: %v", err)
+	}
+	check(&failures, len(p2bPostH) == 1, "HolderP2B post-transfer: expected 1 holding, got %d", len(p2bPostH))
+	checkHolderAmount(p2bPostH, holderP2B.PartyID, "250", &failures)
+
+	step("P1 / HolderP1B view: 450 BETA total after receiving transfer (2 holdings: 300 mint + 150 received)")
+	p1bPostH, err := queryHoldings(ctx, p1, holderP1B.PartyID)
+	if err != nil {
+		log.Fatalf("query HolderP1B post-transfer: %v", err)
+	}
+	check(&failures, len(p1bPostH) == 2, "HolderP1B post-transfer: expected 2 holdings (300+150), got %d", len(p1bPostH))
+	check(&failures, sumAmounts(p1bPostH) == "450", "HolderP1B post-transfer total: expected 450, got %s", sumAmounts(p1bPostH))
 
 	// ── result ────────────────────────────────────────────────────────────────
 	fmt.Println()
@@ -899,4 +996,249 @@ func findCreated(tx *lapiv2.Transaction, entityName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s not found in transaction events", entityName)
+}
+
+// ─── transfer factory helpers ─────────────────────────────────────────────────
+
+// createTransferFactory creates a CIP56TransferFactory contract on the ledger.
+// The factory is the entry point for all peer-to-peer token transfers under the
+// given admin (issuer). Must be called by the issuer via P1.
+func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID string, auditObservers ...string) (string, error) {
+	authCtx := c.AuthContext(ctx)
+	sub, _ := c.JWTSubject(authCtx)
+	if sub == "" {
+		sub = "test-user"
+	}
+	resp, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: syncID,
+			CommandId:      fmt.Sprintf("create-factory-%d", time.Now().UnixNano()),
+			UserId:         sub,
+			ActAs:          []string{admin},
+			Commands: []*lapiv2.Command{
+				{
+					Command: &lapiv2.Command_Create{
+						Create: &lapiv2.CreateCommand{
+							TemplateId: &lapiv2.Identifier{
+								PackageId:  *cip56PackageID,
+								ModuleName: "CIP56.TransferFactory",
+								EntityName: "CIP56TransferFactory",
+							},
+							CreateArguments: &lapiv2.Record{
+								Fields: []*lapiv2.RecordField{
+									{Label: "admin", Value: values.PartyValue(admin)},
+									{Label: "auditObservers", Value: values.ListValue(func() []*lapiv2.Value {
+										obs := make([]*lapiv2.Value, len(auditObservers))
+										for i, p := range auditObservers {
+											obs[i] = values.PartyValue(p)
+										}
+										return obs
+									}())},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return findCreated(resp.Transaction, "CIP56TransferFactory")
+}
+
+// transferArgs holds the parameters for a peer-to-peer CIP56 token transfer.
+type transferArgs struct {
+	SyncID             string
+	FactoryCID         string
+	InstrumentAdmin    string
+	InstrumentID       string
+	Sender             string
+	Receiver           string
+	Amount             string
+	InputCIDs          []string
+	SignerKey          *keys.CantonKeyPair
+	DisclosedContracts []*lapiv2.DisclosedContract // optional: contracts not in local ACS
+}
+
+// fetchDisclosedContract retrieves a contract from the given participant's ACS
+// and returns it as a DisclosedContract ready to be attached to a
+// PrepareSubmissionRequest on a different participant that does not have the
+// contract in its own ACS (explicit disclosure).
+// It calls GetActiveContracts directly with IncludeCreatedEventBlob=true —
+// the higher-level GetActiveContractsByTemplate does not request the blob.
+func fetchDisclosedContract(ctx context.Context, c *ledger.Client, party, syncID string, templateID *lapiv2.Identifier) (*lapiv2.DisclosedContract, error) {
+	authCtx := c.AuthContext(ctx)
+	offset, err := c.GetLedgerEnd(authCtx)
+	if err != nil {
+		return nil, fmt.Errorf("get ledger end: %w", err)
+	}
+
+	stream, err := c.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: offset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				party: {
+					Cumulative: []*lapiv2.CumulativeFilter{
+						{
+							IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+								TemplateFilter: &lapiv2.TemplateFilter{
+									TemplateId:              templateID,
+									IncludeCreatedEventBlob: true,
+								},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get active contracts: %w", err)
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		if ac := resp.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
+			e := ac.CreatedEvent
+			return &lapiv2.DisclosedContract{
+				TemplateId:       e.TemplateId,
+				ContractId:       e.ContractId,
+				CreatedEventBlob: e.CreatedEventBlob,
+				SynchronizerId:   syncID,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("no active contract found for template %s", templateID.EntityName)
+}
+
+// transferViaInteractive executes a CIP56 transfer using the Interactive
+// Submission API. Since the sender is an external party (no operator-held key),
+// the transaction must be prepared by the participant, signed by the party's
+// secp256k1 key, and then executed.
+func transferViaInteractive(ctx context.Context, c *ledger.Client, args *transferArgs) error {
+	authCtx := c.AuthContext(ctx)
+	sub, _ := c.JWTSubject(authCtx)
+	if sub == "" {
+		sub = "test-user"
+	}
+
+	now := time.Now().UTC()
+	executeBefore := now.Add(time.Hour)
+
+	holdingCidValues := make([]*lapiv2.Value, len(args.InputCIDs))
+	for i, cid := range args.InputCIDs {
+		holdingCidValues[i] = values.ContractIDValue(cid)
+	}
+
+	transfer := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "sender", Value: values.PartyValue(args.Sender)},
+					{Label: "receiver", Value: values.PartyValue(args.Receiver)},
+					{Label: "amount", Value: values.NumericValue(args.Amount)},
+					{Label: "instrumentId", Value: values.EncodeInstrumentId(args.InstrumentAdmin, args.InstrumentID)},
+					{Label: "requestedAt", Value: values.TimestampValue(now)},
+					{Label: "executeBefore", Value: values.TimestampValue(executeBefore)},
+					{Label: "inputHoldingCids", Value: values.ListValue(holdingCidValues)},
+					{Label: "meta", Value: values.EmptyMetadata()},
+				},
+			},
+		},
+	}
+
+	choiceArg := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "expectedAdmin", Value: values.PartyValue(args.InstrumentAdmin)},
+					{Label: "transfer", Value: transfer},
+					{Label: "extraArgs", Value: values.EncodeExtraArgs()},
+				},
+			},
+		},
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  *spliceTransferPackageID,
+					ModuleName: "Splice.Api.Token.TransferInstructionV1",
+					EntityName: "TransferFactory",
+				},
+				ContractId:     args.FactoryCID,
+				Choice:         "TransferFactory_Transfer",
+				ChoiceArgument: choiceArg,
+			},
+		},
+	}
+
+	commands := &lapiv2.Commands{
+		SynchronizerId: args.SyncID,
+		CommandId:      fmt.Sprintf("transfer-%d", time.Now().UnixNano()),
+		UserId:         sub,
+		ActAs:          []string{args.Sender},
+		Commands:       []*lapiv2.Command{cmd},
+	}
+
+	// Prepare: participant builds the transaction and returns the hash to sign.
+	prepResp, err := c.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
+		UserId:             commands.UserId,
+		CommandId:          commands.CommandId,
+		Commands:           commands.Commands,
+		ActAs:              commands.ActAs,
+		SynchronizerId:     commands.SynchronizerId,
+		DisclosedContracts: args.DisclosedContracts,
+	})
+	if err != nil {
+		return fmt.Errorf("prepare submission: %w", err)
+	}
+
+	// Sign: external party signs the transaction hash with its secp256k1 key.
+	derSig, err := args.SignerKey.SignDER(prepResp.PreparedTransactionHash)
+	if err != nil {
+		return fmt.Errorf("sign prepared transaction: %w", err)
+	}
+
+	fingerprint, err := args.SignerKey.Fingerprint()
+	if err != nil {
+		return fmt.Errorf("get signer fingerprint: %w", err)
+	}
+
+	partySigs := &interactivev2.PartySignatures{
+		Signatures: []*interactivev2.SinglePartySignatures{
+			{
+				Party: args.Sender,
+				Signatures: []*lapiv2.Signature{
+					{
+						Format:               lapiv2.SignatureFormat_SIGNATURE_FORMAT_DER,
+						Signature:            derSig,
+						SignedBy:             fingerprint,
+						SigningAlgorithmSpec: lapiv2.SigningAlgorithmSpec_SIGNING_ALGORITHM_SPEC_EC_DSA_SHA_256,
+					},
+				},
+			},
+		},
+	}
+
+	// Execute: submit the signed transaction.
+	_, err = c.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
+		PreparedTransaction:  prepResp.PreparedTransaction,
+		PartySignatures:      partySigs,
+		SubmissionId:         fmt.Sprintf("transfer-exec-%d", time.Now().UnixNano()),
+		UserId:               commands.UserId,
+		HashingSchemeVersion: prepResp.HashingSchemeVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("execute submission: %w", err)
+	}
+
+	return nil
 }
