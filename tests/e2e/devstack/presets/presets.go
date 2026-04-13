@@ -20,6 +20,8 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/system"
 )
 
+const stopTimeout = 60 * time.Second
+
 var (
 	mu       sync.Mutex
 	manifest *stack.ServiceManifest
@@ -49,7 +51,7 @@ func DoMain(m *testing.M, opts ...Option) int {
 		return 1
 	}
 	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		defer cancel()
 		_ = orch.Stop(stopCtx)
 	}()
