@@ -164,8 +164,11 @@ func TestRegister_CantonNative_Success(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
-	// DemoInstrumentAdmin is a pre-existing Canton party in the devnet.
-	partyID := sys.Manifest.DemoInstrumentAdmin
+	// Allocate a fresh party so this test is isolated from other canton native tests.
+	partyID, err := sys.Canton.AllocateParty(ctx, "e2e-canton-native-success")
+	if err != nil {
+		t.Fatalf("allocate party: %v", err)
+	}
 
 	resp, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -193,17 +196,19 @@ func TestRegister_CantonNative_Duplicate_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
-	// PromptInstrumentAdmin is a different pre-existing party from DemoInstrumentAdmin
-	// used by TestRegister_CantonNative_Success, so these two tests do not share state.
-	partyID := sys.Manifest.PromptInstrumentAdmin
+	// Allocate a fresh party so this test is isolated from other canton native tests.
+	partyID, err := sys.Canton.AllocateParty(ctx, "e2e-canton-native-dup")
+	if err != nil {
+		t.Fatalf("allocate party: %v", err)
+	}
 
-	if _, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+	if _, err = sys.APIServer.Register(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
 	}); err != nil {
 		t.Fatalf("first canton native register: %v", err)
 	}
 
-	_, err := sys.APIServer.Register(ctx, &user.RegisterRequest{
+	_, err = sys.APIServer.Register(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
 	})
 	var he *shim.HTTPError
