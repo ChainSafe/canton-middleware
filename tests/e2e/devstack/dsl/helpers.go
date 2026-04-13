@@ -4,15 +4,12 @@ package dsl
 
 import (
 	"context"
-	"encoding/hex"
-	"fmt"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
-	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
@@ -151,25 +148,3 @@ func amountGTE(amount, min string) bool {
 	return a.Cmp(m) >= 0
 }
 
-// SignTransactionHash signs a hex-encoded transaction hash with the ECDSA
-// private key and returns a hex-encoded ASN.1 DER signature suitable for
-// ExecuteTransfer. Canton requires DER format (R+S only, no recovery byte).
-func SignTransactionHash(hexKey, txHashHex string) (string, error) {
-	privBytes, err := hex.DecodeString(strings.TrimPrefix(hexKey, "0x"))
-	if err != nil {
-		return "", fmt.Errorf("parse key: %w", err)
-	}
-	kp, err := keys.CantonKeyPairFromPrivateKey(privBytes)
-	if err != nil {
-		return "", fmt.Errorf("build keypair: %w", err)
-	}
-	hashBytes, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
-	if err != nil {
-		return "", fmt.Errorf("decode tx hash: %w", err)
-	}
-	derSig, err := kp.SignHashDER(hashBytes)
-	if err != nil {
-		return "", fmt.Errorf("sign tx hash: %w", err)
-	}
-	return "0x" + hex.EncodeToString(derSig), nil
-}
