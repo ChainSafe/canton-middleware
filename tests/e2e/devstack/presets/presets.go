@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/docker"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
@@ -47,7 +48,11 @@ func DoMain(m *testing.M, opts ...Option) int {
 		fmt.Printf("devstack start: %v\n", err)
 		return 1
 	}
-	defer func() { _ = orch.Stop(context.Background()) }()
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		_ = orch.Stop(stopCtx)
+	}()
 
 	disc := docker.NewServiceDiscovery(o.projectName)
 	mfst, err := disc.Manifest(ctx)
