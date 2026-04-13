@@ -147,4 +147,3 @@ func amountGTE(amount, min string) bool {
 	}
 	return a.Cmp(m) >= 0
 }
-
