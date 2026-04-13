@@ -310,7 +310,7 @@ func VerifyDER(compressedPubKey []byte, hash []byte, derSig []byte) error {
 	}
 
 	// Verify low-S normalization (BIP-62): s must be <= n/2
-	secp256k1N, _ := new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
+	secp256k1N := crypto.S256().Params().N
 	halfN := new(big.Int).Rsh(secp256k1N, 1)
 	if sig.S.Cmp(halfN) > 0 {
 		return fmt.Errorf("signature is not low-S normalized")
@@ -323,22 +323,12 @@ func VerifyDER(compressedPubKey []byte, hash []byte, derSig []byte) error {
 	copy(rawSig[32-len(rBytes):32], rBytes)
 	copy(rawSig[64-len(sBytes):64], sBytes)
 
-	// Try recovery IDs 0 and 1 to find which one recovers the correct public key
-	for v := byte(0); v <= 1; v++ {
-		recoverSig := make([]byte, 65)
-		copy(recoverSig, rawSig)
-		recoverSig[64] = v
-
-		recoveredPub, recErr := crypto.SigToPub(hash, recoverSig)
-		if recErr != nil {
-			continue
-		}
-		if crypto.PubkeyToAddress(*recoveredPub) == crypto.PubkeyToAddress(*pubKey) {
-			return nil
-		}
+	// Verify the signature directly against the known public key
+	if !crypto.VerifySignature(crypto.FromECDSAPub(pubKey), hash, rawSig) {
+		return fmt.Errorf("signature verification failed")
 	}
 
-	return fmt.Errorf("signature verification failed")
+	return nil
 }
 
 // KeyCipher encrypts and decrypts Canton private keys.
