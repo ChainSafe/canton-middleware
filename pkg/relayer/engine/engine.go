@@ -208,14 +208,14 @@ func (e *Engine) runCantonProcessorLoop(ctx context.Context, cantonProcessor *Pr
 		e.metrics.CantonStreamReconnects.Inc()
 
 		if err != nil {
-			e.metrics.ProcessorRestarts.WithLabelValues(relayer.ChainCanton, "error").Inc()
+			e.metrics.IncProcessorRestarts(relayer.ChainCanton, RestartReasonError)
 			e.logger.Warn("Canton processor stopped; restarting with backoff",
 				zap.Error(err),
 				zap.String("offset", startOffset),
 				zap.Duration("restart_in", backoff),
 				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
 		} else {
-			e.metrics.ProcessorRestarts.WithLabelValues(relayer.ChainCanton, "stream_closed").Inc()
+			e.metrics.IncProcessorRestarts(relayer.ChainCanton, RestartReasonStreamClosed)
 			e.logger.Warn("Canton processor exited unexpectedly; restarting with backoff",
 				zap.String("offset", startOffset),
 				zap.Duration("restart_in", backoff))
@@ -437,9 +437,9 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 
 	// Update the last-processed-block gauge for this chain.
 	if blockNumber > 0 {
-		e.metrics.LastProcessedBlock.WithLabelValues(chainID).Set(float64(blockNumber))
+		e.metrics.SetLastProcessedBlock(chainID, float64(blockNumber))
 	} else if n, err := strconv.ParseFloat(offset, 64); err == nil {
-		e.metrics.LastProcessedBlock.WithLabelValues(chainID).Set(n)
+		e.metrics.SetLastProcessedBlock(chainID, n)
 	}
 
 	e.logger.Debug("Saved chain offset", zap.String("chain", chainID), zap.String("offset", offset))
@@ -460,10 +460,10 @@ func (e *Engine) reconcileLoop(ctx context.Context) {
 		case <-ticker.C:
 			recTimer := prometheus.NewTimer(e.metrics.ReconciliationDuration)
 			if err := e.runReconciliation(ctx); err != nil {
-				e.metrics.ReconciliationRuns.WithLabelValues("error").Inc()
+				e.metrics.IncReconciliationRuns(ReconciliationError)
 				e.logger.Error("Reconciliation failed", zap.Error(err))
 			} else {
-				e.metrics.ReconciliationRuns.WithLabelValues("success").Inc()
+				e.metrics.IncReconciliationRuns(ReconciliationSuccess)
 			}
 			recTimer.ObserveDuration()
 		}
@@ -488,8 +488,8 @@ func (e *Engine) runReconciliation(ctx context.Context) error {
 		zap.Int("canton_pending", len(cantonPending)),
 		zap.Int("ethereum_pending", len(ethPending)))
 
-	e.metrics.PendingTransfers.WithLabelValues("canton_to_ethereum").Set(float64(len(cantonPending)))
-	e.metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
+	e.metrics.SetPendingTransfers(relayer.DirectionCantonToEthereum, float64(len(cantonPending)))
+	e.metrics.SetPendingTransfers(relayer.DirectionEthereumToCanton, float64(len(ethPending)))
 
 	// Retry transfers stuck longer than RetryDelay, up to MaxRetries attempts.
 	maxRetries := e.config.MaxRetries
@@ -515,7 +515,7 @@ func (e *Engine) maybeRetryTransfer(ctx context.Context, t *relayer.Transfer, de
 			zap.String("id", t.ID),
 			zap.Int("retry_count", t.RetryCount),
 			zap.Int("max_retries", maxRetries))
-		e.metrics.TransferRetries.WithLabelValues(string(t.Direction), "max_exceeded").Inc()
+		e.metrics.IncTransferRetries(t.Direction, RetryOutcomeMaxExceeded)
 		errMsg := fmt.Sprintf("max retries (%d) exceeded", maxRetries)
 		if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusFailed, nil, &errMsg); updateErr != nil {
 			e.logger.Warn("Failed to mark transfer as failed after max retries", zap.String("id", t.ID), zap.Error(updateErr))
@@ -562,8 +562,8 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 
 	destTxHash, skipped, err := dest.SubmitTransfer(ctx, event)
 	if err != nil {
-		e.metrics.TransferRetries.WithLabelValues(string(t.Direction), "failed").Inc()
-		e.metrics.TransactionsSent.WithLabelValues(dest.GetChainID(), "failed").Inc()
+		e.metrics.IncTransferRetries(t.Direction, RetryOutcomeFailed)
+		e.metrics.IncTransactionsSent(dest.GetChainID(), TxStatusFailed)
 		e.logger.Error("Stuck transfer retry failed", zap.String("id", t.ID), zap.Error(err))
 		if incrErr := e.store.IncrementRetryCount(ctx, t.ID); incrErr != nil {
 			e.logger.Warn("Failed to increment retry count", zap.String("id", t.ID), zap.Error(incrErr))
@@ -571,13 +571,13 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 		return
 	}
 
-	e.metrics.TransferRetries.WithLabelValues(string(t.Direction), "success").Inc()
-	e.metrics.TransferAge.WithLabelValues(string(t.Direction)).Observe(time.Since(t.CreatedAt).Seconds())
+	e.metrics.IncTransferRetries(t.Direction, RetryOutcomeSuccess)
+	e.metrics.ObserveTransferAge(t.Direction, time.Since(t.CreatedAt).Seconds())
 
 	var txHashPtr *string
 	if !skipped {
 		txHashPtr = &destTxHash
-		e.metrics.TransactionsSent.WithLabelValues(dest.GetChainID(), "success").Inc()
+		e.metrics.IncTransactionsSent(dest.GetChainID(), TxStatusSuccess)
 	}
 	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
 		e.logger.Warn("Failed to mark retried transfer as completed", zap.String("id", t.ID), zap.Error(updateErr))
@@ -620,7 +620,7 @@ func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 		return
 	}
 
-	e.metrics.ChainHeadBlock.WithLabelValues(relayer.ChainEthereum).Set(float64(headBlock))
+	e.metrics.SetChainHeadBlock(relayer.ChainEthereum, float64(headBlock))
 
 	scannedBlock := e.ethClient.GetLastScannedBlock()
 
@@ -639,7 +639,7 @@ func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 	const lagTolerance = uint64(1)
 	if lastProcessed+lagTolerance >= headBlock {
 		e.ethereumSynced = true
-		e.metrics.ReadinessSyncDuration.WithLabelValues(relayer.ChainEthereum).Set(time.Since(e.startedAt).Seconds())
+		e.metrics.SetReadinessSyncDuration(relayer.ChainEthereum, time.Since(e.startedAt).Seconds())
 		e.updateReadyGauge()
 		e.logger.Info("Ethereum processor initial sync complete",
 			zap.Uint64("last_block", lastProcessed),
@@ -659,7 +659,7 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 		return
 	}
 
-	e.metrics.ChainHeadBlock.WithLabelValues(relayer.ChainCanton).Set(float64(ledgerEnd))
+	e.metrics.SetChainHeadBlock(relayer.ChainCanton, float64(ledgerEnd))
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -672,7 +672,7 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 
 	markCantonSynced := func() {
 		e.cantonSynced = true
-		e.metrics.ReadinessSyncDuration.WithLabelValues(relayer.ChainCanton).Set(time.Since(e.startedAt).Seconds())
+		e.metrics.SetReadinessSyncDuration(relayer.ChainCanton, time.Since(e.startedAt).Seconds())
 		e.updateReadyGauge()
 	}
 

@@ -5,6 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
 // Metrics holds all Prometheus collectors for the relayer engine.
@@ -224,4 +225,159 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 // Use in tests where metric values are not asserted.
 func NewNopMetrics() *Metrics {
 	return NewMetrics(prometheus.NewRegistry())
+}
+
+// ── Label value types ────────────────────────────────────────────────────────
+// Typed constants prevent positional string mistakes at call sites.
+
+// TxStatus represents the outcome status of a transaction or transfer.
+type TxStatus string
+
+const (
+	TxStatusSuccess TxStatus = "success"
+	TxStatusFailed  TxStatus = "failed"
+)
+
+// TransferResult represents the final status of a completed transfer.
+type TransferResult string
+
+const (
+	TransferResultCompleted TransferResult = "completed"
+)
+
+// RetryOutcome represents the result of a transfer retry attempt.
+type RetryOutcome string
+
+const (
+	RetryOutcomeSuccess     RetryOutcome = "success"
+	RetryOutcomeFailed      RetryOutcome = "failed"
+	RetryOutcomeMaxExceeded RetryOutcome = "max_exceeded"
+)
+
+// ReconciliationResult represents the result of a reconciliation run.
+type ReconciliationResult string
+
+const (
+	ReconciliationSuccess ReconciliationResult = "success"
+	ReconciliationError   ReconciliationResult = "error"
+)
+
+// RestartReason represents the reason a processor was restarted.
+type RestartReason string
+
+const (
+	RestartReasonError        RestartReason = "error"
+	RestartReasonStreamClosed RestartReason = "stream_closed"
+)
+
+// ProcessingStage represents the stage at which a processing error occurred.
+type ProcessingStage string
+
+const (
+	StageCreateTransfer ProcessingStage = "create_transfer"
+	StageSubmit         ProcessingStage = "submit"
+	StagePostSubmitHook ProcessingStage = "post_submit_hook"
+)
+
+// EventType represents the type of a bridge event.
+type EventType string
+
+const (
+	EventTypeWithdrawal EventType = "withdrawal"
+	EventTypeDeposit    EventType = "deposit"
+)
+
+// ErrorCategory represents the category of an error in ErrorsTotal.
+type ErrorCategory string
+
+const (
+	ErrorCategoryProcessing ErrorCategory = "processing"
+)
+
+// ── Helper methods ───────────────────────────────────────────────────────────
+// These wrap WithLabelValues so call sites are explicit about which label is which.
+
+// IncTransfersTotal increments the transfer counter for the given direction and result.
+func (m *Metrics) IncTransfersTotal(direction relayer.TransferDirection, result TransferResult) {
+	m.TransfersTotal.WithLabelValues(string(direction), string(result)).Inc()
+}
+
+// ObserveTransferDuration returns the observer for transfer duration by direction.
+func (m *Metrics) ObserveTransferDuration(direction relayer.TransferDirection) prometheus.Observer {
+	return m.TransferDuration.WithLabelValues(string(direction))
+}
+
+// ObserveTransferAmount records a transfer amount for the given direction and token.
+func (m *Metrics) ObserveTransferAmount(direction relayer.TransferDirection, token string, amount float64) {
+	m.TransferAmount.WithLabelValues(string(direction), token).Observe(amount)
+}
+
+// AddTransferVolume adds to cumulative volume for the given direction and token.
+func (m *Metrics) AddTransferVolume(direction relayer.TransferDirection, token string, amount float64) {
+	m.TransferVolumeTotal.WithLabelValues(string(direction), token).Add(amount)
+}
+
+// IncTransactionsSent increments the transaction counter for the given chain and status.
+func (m *Metrics) IncTransactionsSent(chain string, status TxStatus) {
+	m.TransactionsSent.WithLabelValues(chain, string(status)).Inc()
+}
+
+// IncBlocksProcessed increments the block counter for the given chain.
+func (m *Metrics) IncBlocksProcessed(chain string) {
+	m.BlocksProcessed.WithLabelValues(chain).Inc()
+}
+
+// IncEventsDetected increments the event counter for the given chain and event type.
+func (m *Metrics) IncEventsDetected(chain string, eventType EventType) {
+	m.EventsDetected.WithLabelValues(chain, string(eventType)).Inc()
+}
+
+// SetLastProcessedBlock sets the last processed block gauge for the given chain.
+func (m *Metrics) SetLastProcessedBlock(chain string, block float64) {
+	m.LastProcessedBlock.WithLabelValues(chain).Set(block)
+}
+
+// IncProcessorRestarts increments the processor restart counter for the given chain and reason.
+func (m *Metrics) IncProcessorRestarts(chain string, reason RestartReason) {
+	m.ProcessorRestarts.WithLabelValues(chain, string(reason)).Inc()
+}
+
+// IncEventProcessingErrors increments the processing error counter for the given chain and stage.
+func (m *Metrics) IncEventProcessingErrors(chain string, stage ProcessingStage) {
+	m.EventProcessingErrors.WithLabelValues(chain, string(stage)).Inc()
+}
+
+// IncErrorsTotal increments the error counter for the given component and error category.
+func (m *Metrics) IncErrorsTotal(component string, category ErrorCategory) {
+	m.ErrorsTotal.WithLabelValues(component, string(category)).Inc()
+}
+
+// SetPendingTransfers sets the pending transfer gauge for the given direction.
+func (m *Metrics) SetPendingTransfers(direction relayer.TransferDirection, count float64) {
+	m.PendingTransfers.WithLabelValues(string(direction)).Set(count)
+}
+
+// IncReconciliationRuns increments the reconciliation run counter for the given result.
+func (m *Metrics) IncReconciliationRuns(result ReconciliationResult) {
+	m.ReconciliationRuns.WithLabelValues(string(result)).Inc()
+}
+
+// IncTransferRetries increments the retry counter for the given direction and outcome.
+func (m *Metrics) IncTransferRetries(direction relayer.TransferDirection, outcome RetryOutcome) {
+	m.TransferRetries.WithLabelValues(string(direction), string(outcome)).Inc()
+}
+
+// ObserveTransferAge records a transfer's lifecycle duration for the given direction.
+func (m *Metrics) ObserveTransferAge(direction relayer.TransferDirection, seconds float64) {
+	m.TransferAge.WithLabelValues(string(direction)).Observe(seconds)
+}
+
+// SetChainHeadBlock sets the chain head block gauge for the given chain.
+func (m *Metrics) SetChainHeadBlock(chain string, block float64) {
+	m.ChainHeadBlock.WithLabelValues(chain).Set(block)
+}
+
+// SetReadinessSyncDuration sets the sync duration gauge for the given chain.
+func (m *Metrics) SetReadinessSyncDuration(chain string, seconds float64) {
+	m.ReadinessSyncDuration.WithLabelValues(chain).Set(seconds)
 }

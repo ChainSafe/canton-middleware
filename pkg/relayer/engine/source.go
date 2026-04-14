@@ -60,7 +60,7 @@ func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					}
 					return
 				}
-				s.metrics.EventsDetected.WithLabelValues(relayer.ChainCanton, "withdrawal").Inc()
+				s.metrics.IncEventsDetected(relayer.ChainCanton, EventTypeWithdrawal)
 				outCh <- &relayer.Event{
 					ID:               withdrawal.EventID,
 					TransactionID:    withdrawal.TransactionID,
@@ -127,9 +127,9 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 
 		var lastBlock uint64
 		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
-			s.metrics.EventsDetected.WithLabelValues(relayer.ChainEthereum, "deposit").Inc()
+			s.metrics.IncEventsDetected(relayer.ChainEthereum, EventTypeDeposit)
 			if event.BlockNumber != lastBlock {
-				s.metrics.BlocksProcessed.WithLabelValues(relayer.ChainEthereum).Inc()
+				s.metrics.IncBlocksProcessed(relayer.ChainEthereum)
 				lastBlock = event.BlockNumber
 			}
 
