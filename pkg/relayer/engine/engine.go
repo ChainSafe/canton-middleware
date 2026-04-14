@@ -563,6 +563,7 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 	destTxHash, skipped, err := dest.SubmitTransfer(ctx, event)
 	if err != nil {
 		e.metrics.TransferRetries.WithLabelValues(string(t.Direction), "failed").Inc()
+		e.metrics.TransactionsSent.WithLabelValues(dest.GetChainID(), "failed").Inc()
 		e.logger.Error("Stuck transfer retry failed", zap.String("id", t.ID), zap.Error(err))
 		if incrErr := e.store.IncrementRetryCount(ctx, t.ID); incrErr != nil {
 			e.logger.Warn("Failed to increment retry count", zap.String("id", t.ID), zap.Error(incrErr))
@@ -576,6 +577,7 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 	var txHashPtr *string
 	if !skipped {
 		txHashPtr = &destTxHash
+		e.metrics.TransactionsSent.WithLabelValues(dest.GetChainID(), "success").Inc()
 	}
 	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
 		e.logger.Warn("Failed to mark retried transfer as completed", zap.String("id", t.ID), zap.Error(updateErr))

@@ -262,6 +262,7 @@ func TestEngine_RunReconciliation_RetrySuccessUpdatesCompletedWithHash(t *testin
 	).Return(nil).Once()
 
 	dest := relayermocks.NewDestination(t)
+	dest.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
 	dest.EXPECT().SubmitTransfer(ctx, mock.MatchedBy(func(event *relayer.Event) bool {
 		return event != nil && event.ID == "t1" && event.SourceChain == relayer.ChainCanton && event.DestinationChain == relayer.ChainEthereum
 	})).Return("0xhash", false, nil).Once()
@@ -289,6 +290,7 @@ func TestEngine_RunReconciliation_RetrySuccessUpdateErrorIgnored(t *testing.T) {
 		Return(errors.New("db write failed")).Once()
 
 	dest := relayermocks.NewDestination(t)
+	dest.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
 	dest.EXPECT().SubmitTransfer(ctx, mock.AnythingOfType("*relayer.Event")).Return("0xhash", false, nil).Once()
 
 	engine := newReconciliationEngine(cfg, store)
@@ -351,6 +353,7 @@ func TestEngine_RunReconciliation_RetryFailureIncrementsRetryCount(t *testing.T)
 	store.EXPECT().IncrementRetryCount(ctx, "t1").Return(nil).Once()
 
 	dest := relayermocks.NewDestination(t)
+	dest.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
 	dest.EXPECT().SubmitTransfer(ctx, mock.AnythingOfType("*relayer.Event")).Return("", false, errors.New("submit failed")).Once()
 
 	engine := newReconciliationEngine(cfg, store)
@@ -375,6 +378,7 @@ func TestEngine_RunReconciliation_RetryFailureIncrementErrorIgnored(t *testing.T
 	store.EXPECT().IncrementRetryCount(ctx, "t1").Return(errors.New("db write failed")).Once()
 
 	dest := relayermocks.NewDestination(t)
+	dest.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
 	dest.EXPECT().SubmitTransfer(ctx, mock.AnythingOfType("*relayer.Event")).Return("", false, errors.New("submit failed")).Once()
 
 	engine := newReconciliationEngine(cfg, store)
