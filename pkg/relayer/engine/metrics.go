@@ -65,6 +65,9 @@ type Metrics struct {
 	TransferRetries *prometheus.CounterVec
 
 	// TransferAge tracks the full lifecycle duration of a transfer (created → completed).
+	// TODO: Use source chain block timestamp instead of event detection time for true
+	// on-chain age. Requires adding SourceTimestamp to relayer.Event, fetching block
+	// headers in ethereumSource, and extracting RecordTime in cantonSource.
 	TransferAge *prometheus.HistogramVec
 
 	// ── Chain sync & readiness ───────────────────────────────────────────────

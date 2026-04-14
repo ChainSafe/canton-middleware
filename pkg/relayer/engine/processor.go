@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -123,6 +124,7 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 	timer := prometheus.NewTimer(p.metrics.ObserveTransferDuration(p.direction))
 	defer timer.ObserveDuration()
 
+	createdAt := time.Now()
 	transfer := &relayer.Transfer{
 		ID:                event.ID,
 		Direction:         p.direction,
@@ -136,6 +138,7 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 		Recipient:         event.Recipient,
 		Nonce:             event.Nonce,
 		SourceBlockNumber: event.SourceBlockNumber,
+		CreatedAt:         createdAt,
 	}
 
 	inserted, err := p.store.CreateTransfer(ctx, transfer)
@@ -190,6 +193,9 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 	p.persistOffset(ctx, event)
 	p.metrics.IncTransfersTotal(p.direction, TransferResultCompleted)
 	p.metrics.IncTransactionsSent(p.destination.GetChainID(), TxStatusSuccess)
+	// TODO: Replace createdAt (event detection time) with the source chain block
+	// timestamp for true on-chain transfer age once SourceTimestamp is added to Event.
+	p.metrics.ObserveTransferAge(p.direction, time.Since(createdAt).Seconds())
 
 	// Record the transfer amount for distribution tracking.
 	if amount, err := strconv.ParseFloat(event.Amount, 64); err == nil {
