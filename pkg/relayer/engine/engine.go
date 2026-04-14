@@ -428,17 +428,14 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 	e.mu.Lock()
 	if chainID == e.ethereumKey {
 		e.ethLastBlock = blockNumber
+		e.metrics.SetLastProcessedBlock(chainID, float64(blockNumber))
 	} else {
 		e.cantonOffset = offset
+		if n, err := strconv.ParseFloat(offset, 64); err == nil {
+			e.metrics.SetLastProcessedBlock(chainID, n)
+		}
 	}
 	e.mu.Unlock()
-
-	// Update the last-processed-block gauge for this chain.
-	if blockNumber > 0 {
-		e.metrics.SetLastProcessedBlock(chainID, float64(blockNumber))
-	} else if n, err := strconv.ParseFloat(offset, 64); err == nil {
-		e.metrics.SetLastProcessedBlock(chainID, n)
-	}
 
 	e.logger.Debug("Saved chain offset", zap.String("chain", chainID), zap.String("offset", offset))
 	return nil
