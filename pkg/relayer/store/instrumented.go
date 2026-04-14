@@ -20,23 +20,23 @@ func NewInstrumentedStore(inner *PGStore, metrics *StoreMetrics) *InstrumentedSt
 }
 
 func (s *InstrumentedStore) CreateTransfer(ctx context.Context, t *relayer.Transfer) (bool, error) {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("create_transfer"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCreateTransfer))
 	defer timer.ObserveDuration()
 
 	inserted, err := s.inner.CreateTransfer(ctx, t)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("create_transfer").Inc()
+		s.metrics.IncErrors(OpCreateTransfer)
 	}
 	return inserted, err
 }
 
 func (s *InstrumentedStore) GetTransfer(ctx context.Context, id string) (*relayer.Transfer, error) {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("get_transfer"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetTransfer))
 	defer timer.ObserveDuration()
 
 	transfer, err := s.inner.GetTransfer(ctx, id)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("get_transfer").Inc()
+		s.metrics.IncErrors(OpGetTransfer)
 	}
 	return transfer, err
 }
@@ -48,67 +48,67 @@ func (s *InstrumentedStore) UpdateTransferStatus(
 	destTxHash *string,
 	errMsg *string,
 ) error {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("update_transfer_status"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpdateTransferStatus))
 	defer timer.ObserveDuration()
 
 	err := s.inner.UpdateTransferStatus(ctx, id, status, destTxHash, errMsg)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("update_transfer_status").Inc()
+		s.metrics.IncErrors(OpUpdateTransferStatus)
 	}
 	return err
 }
 
 func (s *InstrumentedStore) IncrementRetryCount(ctx context.Context, id string) error {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("increment_retry_count"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpIncrementRetryCount))
 	defer timer.ObserveDuration()
 
 	err := s.inner.IncrementRetryCount(ctx, id)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("increment_retry_count").Inc()
+		s.metrics.IncErrors(OpIncrementRetryCount)
 	}
 	return err
 }
 
 func (s *InstrumentedStore) GetChainState(ctx context.Context, chainID string) (*relayer.ChainState, error) {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("get_chain_state"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetChainState))
 	defer timer.ObserveDuration()
 
 	state, err := s.inner.GetChainState(ctx, chainID)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("get_chain_state").Inc()
+		s.metrics.IncErrors(OpGetChainState)
 	}
 	return state, err
 }
 
 func (s *InstrumentedStore) SetChainState(ctx context.Context, chainID string, blockNumber uint64, offset string) error {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("set_chain_state"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpSetChainState))
 	defer timer.ObserveDuration()
 
 	err := s.inner.SetChainState(ctx, chainID, blockNumber, offset)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("set_chain_state").Inc()
+		s.metrics.IncErrors(OpSetChainState)
 	}
 	return err
 }
 
 func (s *InstrumentedStore) GetPendingTransfers(ctx context.Context, direction relayer.TransferDirection) ([]*relayer.Transfer, error) {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("get_pending_transfers"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetPendingTransfers))
 	defer timer.ObserveDuration()
 
 	transfers, err := s.inner.GetPendingTransfers(ctx, direction)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("get_pending_transfers").Inc()
+		s.metrics.IncErrors(OpGetPendingTransfers)
 	}
 	return transfers, err
 }
 
 func (s *InstrumentedStore) ListTransfers(ctx context.Context, limit int) ([]*relayer.Transfer, error) {
-	timer := prometheus.NewTimer(s.metrics.QueryDuration.WithLabelValues("list_transfers"))
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListTransfers))
 	defer timer.ObserveDuration()
 
 	transfers, err := s.inner.ListTransfers(ctx, limit)
 	if err != nil {
-		s.metrics.Errors.WithLabelValues("list_transfers").Inc()
+		s.metrics.IncErrors(OpListTransfers)
 	}
 	return transfers, err
 }

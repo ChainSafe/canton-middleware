@@ -42,3 +42,31 @@ func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
 func NewNopStoreMetrics() *StoreMetrics {
 	return NewStoreMetrics(prometheus.NewRegistry())
 }
+
+// ── Label value types ────────────────────────────────────────────────────────
+
+// StoreOperation identifies a database operation for metrics labeling.
+type StoreOperation string
+
+const (
+	OpCreateTransfer       StoreOperation = "create_transfer"
+	OpGetTransfer          StoreOperation = "get_transfer"
+	OpUpdateTransferStatus StoreOperation = "update_transfer_status"
+	OpIncrementRetryCount  StoreOperation = "increment_retry_count"
+	OpGetChainState        StoreOperation = "get_chain_state"
+	OpSetChainState        StoreOperation = "set_chain_state"
+	OpGetPendingTransfers  StoreOperation = "get_pending_transfers"
+	OpListTransfers        StoreOperation = "list_transfers"
+)
+
+// ── Helper methods ───────────────────────────────────────────────────────────
+
+// ObserveQueryDuration returns the observer for the given operation's query duration.
+func (m *StoreMetrics) ObserveQueryDuration(op StoreOperation) prometheus.Observer {
+	return m.QueryDuration.WithLabelValues(string(op))
+}
+
+// IncErrors increments the error counter for the given operation.
+func (m *StoreMetrics) IncErrors(op StoreOperation) {
+	m.Errors.WithLabelValues(string(op)).Inc()
+}

@@ -22,9 +22,6 @@ type Metrics struct {
 	// TransferAmount observes token amounts per transfer.
 	TransferAmount *prometheus.HistogramVec
 
-	// TransferVolumeTotal tracks cumulative token volume bridged.
-	TransferVolumeTotal *prometheus.CounterVec
-
 	// TransactionsSent counts transactions sent to each chain by status.
 	TransactionsSent *prometheus.CounterVec
 
@@ -109,12 +106,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:    "transfer_amount",
 			Help:    "Amount of tokens transferred",
 			Buckets: sharedmetrics.TransferAmountBuckets,
-		}, []string{"direction", "token"}),
-
-		TransferVolumeTotal: f.NewCounterVec(prometheus.CounterOpts{
-			Namespace: ns, Subsystem: sub,
-			Name: "transfer_volume_total",
-			Help: "Cumulative token volume bridged",
 		}, []string{"direction", "token"}),
 
 		TransactionsSent: f.NewCounterVec(prometheus.CounterOpts{
@@ -310,11 +301,6 @@ func (m *Metrics) ObserveTransferDuration(direction relayer.TransferDirection) p
 // ObserveTransferAmount records a transfer amount for the given direction and token.
 func (m *Metrics) ObserveTransferAmount(direction relayer.TransferDirection, token string, amount float64) {
 	m.TransferAmount.WithLabelValues(string(direction), token).Observe(amount)
-}
-
-// AddTransferVolume adds to cumulative volume for the given direction and token.
-func (m *Metrics) AddTransferVolume(direction relayer.TransferDirection, token string, amount float64) {
-	m.TransferVolumeTotal.WithLabelValues(string(direction), token).Add(amount)
 }
 
 // IncTransactionsSent increments the transaction counter for the given chain and status.

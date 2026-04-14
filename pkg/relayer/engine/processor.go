@@ -194,7 +194,6 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 	// Record the transfer amount for distribution tracking.
 	if amount, err := strconv.ParseFloat(event.Amount, 64); err == nil {
 		p.metrics.ObserveTransferAmount(p.direction, event.TokenAddress, amount)
-		p.metrics.AddTransferVolume(p.direction, event.TokenAddress, amount)
 	}
 
 	p.logger.Info("Transfer completed",
