@@ -25,14 +25,15 @@ func newEngineConfig() *relayer.Config {
 
 func newReconciliationEngine(cfg *relayer.Config, store BridgeStore) *Engine {
 	return &Engine{
-		config: cfg,
-		store:  store,
-		logger: zap.NewNop(),
+		config:  cfg,
+		store:   store,
+		metrics: NewNopMetrics(),
+		logger:  zap.NewNop(),
 	}
 }
 
 func TestEngine_IsReady_InitiallyFalse(t *testing.T) {
-	engine := NewEngine(newEngineConfig(), nil, nil, nil, zap.NewNop())
+	engine := NewEngine(newEngineConfig(), nil, nil, nil, NewNopMetrics(), zap.NewNop())
 	if engine.IsReady() {
 		t.Fatalf("engine should not be ready initially")
 	}
@@ -43,7 +44,7 @@ func TestEngine_Start_ReturnsLoadOffsetError(t *testing.T) {
 	store := relayermocks.NewBridgeStore(t)
 	store.EXPECT().GetChainState(mock.Anything, relayer.ChainCanton).Return(nil, errors.New("db down")).Once()
 
-	engine := NewEngine(newEngineConfig(), relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, zap.NewNop())
+	engine := NewEngine(newEngineConfig(), relayermocks.NewCantonBridge(t), relayermocks.NewEthereumBridgeClient(t), store, NewNopMetrics(), zap.NewNop())
 	err := engine.Start(ctx)
 	if err == nil || !strings.Contains(err.Error(), "failed to load offsets") {
 		t.Fatalf("expected load offsets error, got %v", err)
@@ -71,7 +72,7 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	ethClient.EXPECT().GetLatestBlockNumber(mock.Anything).Return(uint64(20), nil).Maybe()
 	ethClient.EXPECT().GetLastScannedBlock().Return(uint64(20)).Maybe()
 
-	engine := NewEngine(cfg, cantonClient, ethClient, store, zap.NewNop())
+	engine := NewEngine(cfg, cantonClient, ethClient, store, NewNopMetrics(), zap.NewNop())
 	if err := engine.Start(ctx); err != nil {
 		t.Fatalf("Start() failed: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestEngine_Start_RestartsCantonProcessorOnUnexpectedStreamClose(t *testing.
 	ethClient.EXPECT().GetLatestBlockNumber(mock.Anything).Return(uint64(20), nil).Maybe()
 	ethClient.EXPECT().GetLastScannedBlock().Return(uint64(20)).Maybe()
 
-	engine := NewEngine(cfg, cantonClient, ethClient, store, zap.NewNop())
+	engine := NewEngine(cfg, cantonClient, ethClient, store, NewNopMetrics(), zap.NewNop())
 	if err := engine.Start(ctx); err != nil {
 		t.Fatalf("Start() failed: %v", err)
 	}

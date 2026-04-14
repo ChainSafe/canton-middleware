@@ -3,10 +3,11 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
-	"github.com/chainsafe/canton-middleware/internal/metrics"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
@@ -43,6 +44,7 @@ type Processor struct {
 	source          Source
 	destination     Destination
 	store           BridgeStore
+	metrics         *Metrics
 	logger          *zap.Logger
 	metricsName     string
 	direction       relayer.TransferDirection
@@ -56,6 +58,7 @@ func NewProcessor(
 	source Source,
 	destination Destination,
 	store BridgeStore,
+	metrics *Metrics,
 	logger *zap.Logger,
 	metricsName string,
 	direction relayer.TransferDirection,
@@ -64,6 +67,7 @@ func NewProcessor(
 		source:      source,
 		destination: destination,
 		store:       store,
+		metrics:     metrics,
 		logger:      logger,
 		metricsName: metricsName,
 		direction:   direction,
@@ -101,7 +105,7 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 				p.logger.Error("Failed to process event",
 					zap.String("event_id", event.ID),
 					zap.Error(err))
-				metrics.ErrorsTotal.WithLabelValues(p.metricsName, "processing").Inc()
+				p.metrics.ErrorsTotal.WithLabelValues(p.metricsName, "processing").Inc()
 			}
 		case err := <-errCh:
 			if err != nil {
@@ -116,6 +120,9 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 
 // processEvent handles a single bridge event end-to-end.
 func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) error {
+	timer := prometheus.NewTimer(p.metrics.TransferDuration.WithLabelValues(string(p.direction)))
+	defer timer.ObserveDuration()
+
 	transfer := &relayer.Transfer{
 		ID:                event.ID,
 		Direction:         p.direction,
@@ -133,6 +140,7 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 
 	inserted, err := p.store.CreateTransfer(ctx, transfer)
 	if err != nil {
+		p.metrics.EventProcessingErrors.WithLabelValues(p.source.GetChainID(), "create_transfer").Inc()
 		return fmt.Errorf("failed to create transfer: %w", err)
 	}
 	if !inserted {
@@ -149,6 +157,8 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 	destTxHash, skipped, submitErr := p.destination.SubmitTransfer(ctx, event)
 	if submitErr != nil {
 		p.logger.Error("Failed to submit transfer", zap.String("id", event.ID), zap.Error(submitErr))
+		p.metrics.TransactionsSent.WithLabelValues(p.destination.GetChainID(), "failed").Inc()
+		p.metrics.EventProcessingErrors.WithLabelValues(p.source.GetChainID(), "submit").Inc()
 		errMsg := submitErr.Error()
 		// Keep failed submissions pending so reconciliation can retry them.
 		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, relayer.TransferStatusPending, nil, &errMsg); updateErr != nil {
@@ -172,12 +182,23 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 
 	if p.onPostSubmit != nil {
 		if hookErr := p.onPostSubmit(ctx, event, destTxHash); hookErr != nil {
+			p.metrics.EventProcessingErrors.WithLabelValues(p.source.GetChainID(), "post_submit_hook").Inc()
 			p.logger.Warn("Post-submit hook failed", zap.String("id", event.ID), zap.Error(hookErr))
 		}
 	}
 
 	p.persistOffset(ctx, event)
-	metrics.TransfersTotal.WithLabelValues(string(p.direction), "completed").Inc()
+	p.metrics.TransfersTotal.WithLabelValues(string(p.direction), "completed").Inc()
+	p.metrics.TransactionsSent.WithLabelValues(p.destination.GetChainID(), "success").Inc()
+
+	// Record the transfer amount for distribution tracking.
+	if amount, err := strconv.ParseFloat(event.Amount, 64); err == nil {
+		p.metrics.TransferAmount.WithLabelValues(string(p.direction), event.TokenAddress).Observe(amount)
+		p.metrics.TransferVolumeTotal.WithLabelValues(string(p.direction), event.TokenAddress).Add(amount)
+	}
+
+	// Track unique senders.
+	p.metrics.UniqueSenders.WithLabelValues(event.SourceChain).Inc()
 
 	p.logger.Info("Transfer completed",
 		zap.String("id", event.ID),
