@@ -16,7 +16,6 @@ var (
 	// TransferAmountBuckets covers typical token transfer amounts.
 	TransferAmountBuckets = []float64{0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000}
 
-
 	// ReconciliationBuckets covers reconciliation durations (100 ms → 60 s).
 	ReconciliationBuckets = []float64{0.1, 0.5, 1, 5, 10, 30, 60}
 

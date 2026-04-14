@@ -24,9 +24,6 @@ type Metrics struct {
 	// TransferVolumeTotal tracks cumulative token volume bridged.
 	TransferVolumeTotal *prometheus.CounterVec
 
-	// UniqueSenders counts distinct senders observed per chain (monotonic approximation).
-	UniqueSenders *prometheus.CounterVec
-
 	// TransactionsSent counts transactions sent to each chain by status.
 	TransactionsSent *prometheus.CounterVec
 
@@ -118,12 +115,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "transfer_volume_total",
 			Help: "Cumulative token volume bridged",
 		}, []string{"direction", "token"}),
-
-		UniqueSenders: f.NewCounterVec(prometheus.CounterOpts{
-			Namespace: ns, Subsystem: sub,
-			Name: "unique_senders_total",
-			Help: "Total unique senders observed (monotonic approximation)",
-		}, []string{"chain"}),
 
 		TransactionsSent: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,

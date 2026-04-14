@@ -197,9 +197,6 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 		p.metrics.TransferVolumeTotal.WithLabelValues(string(p.direction), event.TokenAddress).Add(amount)
 	}
 
-	// Track unique senders.
-	p.metrics.UniqueSenders.WithLabelValues(event.SourceChain).Inc()
-
 	p.logger.Info("Transfer completed",
 		zap.String("id", event.ID),
 		zap.String("dest_tx_hash", destTxHash))

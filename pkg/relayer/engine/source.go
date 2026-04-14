@@ -125,9 +125,13 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 			fromBlock = n
 		}
 
+		var lastBlock uint64
 		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
 			s.metrics.EventsDetected.WithLabelValues(relayer.ChainEthereum, "deposit").Inc()
-			s.metrics.BlocksProcessed.WithLabelValues(relayer.ChainEthereum).Inc()
+			if event.BlockNumber != lastBlock {
+				s.metrics.BlocksProcessed.WithLabelValues(relayer.ChainEthereum).Inc()
+				lastBlock = event.BlockNumber
+			}
 
 			relayerEvent := &relayer.Event{
 				ID:                fmt.Sprintf("%s-%d", event.TxHash.Hex(), event.LogIndex),

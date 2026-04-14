@@ -161,8 +161,10 @@ func (e *Engine) Start(ctx context.Context) error {
 	cantonProcessor := NewProcessor(cantonSrc, e.ethDest, e.store, e.metrics, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(e.saveChainOffset).
 		WithPostSubmit(completeWithdrawal)
-	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.metrics, e.logger, "ethereum_processor", relayer.DirectionEthereumToCanton).
-		WithOffsetUpdate(e.saveChainOffset)
+	ethProcessor := NewProcessor(
+		ethSource, e.cantonDest, e.store, e.metrics, e.logger,
+		"ethereum_processor", relayer.DirectionEthereumToCanton,
+	).WithOffsetUpdate(e.saveChainOffset)
 
 	e.wg.Add(1)
 	go e.runCantonProcessorLoop(ctx, cantonProcessor)
