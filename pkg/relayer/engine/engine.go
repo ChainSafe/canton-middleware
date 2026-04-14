@@ -100,7 +100,6 @@ type Engine struct {
 	cantonSynced        bool
 	ethereumSynced      bool
 	cantonStreamStarted time.Time
-	startedAt           time.Time // records when Start() was called, for sync duration
 }
 
 // NewEngine creates a new relayer engine.
@@ -130,7 +129,6 @@ func NewEngine(
 // Start starts the relayer engine. It wraps ctx so that Stop() can cancel all goroutines.
 func (e *Engine) Start(ctx context.Context) error {
 	e.logger.Info("Starting relayer engine")
-	e.startedAt = time.Now()
 	ctx, e.cancel = context.WithCancel(ctx)
 
 	if err := e.loadOffsets(ctx); err != nil {
@@ -649,7 +647,6 @@ func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 	const lagTolerance = uint64(1)
 	if lastProcessed+lagTolerance >= headBlock {
 		e.ethereumSynced = true
-		e.metrics.SetReadinessSyncDuration(relayer.ChainEthereum, time.Since(e.startedAt).Seconds())
 		e.updateReadyGauge()
 		e.logger.Info("Ethereum processor initial sync complete",
 			zap.Uint64("last_block", lastProcessed),
@@ -680,7 +677,6 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 
 	markCantonSynced := func() {
 		e.cantonSynced = true
-		e.metrics.SetReadinessSyncDuration(relayer.ChainCanton, time.Since(e.startedAt).Seconds())
 		e.updateReadyGauge()
 	}
 

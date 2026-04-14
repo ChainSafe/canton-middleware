@@ -73,9 +73,6 @@ type Metrics struct {
 	// (block number for Ethereum, ledger offset for Canton).
 	ChainHeadPosition *prometheus.GaugeVec
 
-	// ReadinessSyncDuration tracks how long initial sync took per chain.
-	ReadinessSyncDuration *prometheus.GaugeVec
-
 	// Ready indicates whether the relayer engine is fully synced (1=yes, 0=no).
 	Ready prometheus.Gauge
 }
@@ -191,12 +188,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Namespace: ns, Subsystem: sub,
 			Name: "chain_head_position",
 			Help: "Latest known chain head position (block number or ledger offset)",
-		}, []string{"chain"}),
-
-		ReadinessSyncDuration: f.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: ns, Subsystem: sub,
-			Name: "readiness_sync_duration_seconds",
-			Help: "Time taken for initial sync to complete by chain",
 		}, []string{"chain"}),
 
 		Ready: f.NewGauge(prometheus.GaugeOpts{
@@ -351,9 +342,4 @@ func (m *Metrics) ObserveTransferAge(direction relayer.TransferDirection, second
 // SetChainHeadPosition sets the chain head position gauge for the given chain.
 func (m *Metrics) SetChainHeadPosition(chain string, position float64) {
 	m.ChainHeadPosition.WithLabelValues(chain).Set(position)
-}
-
-// SetReadinessSyncDuration sets the sync duration gauge for the given chain.
-func (m *Metrics) SetReadinessSyncDuration(chain string, seconds float64) {
-	m.ReadinessSyncDuration.WithLabelValues(chain).Set(seconds)
 }
