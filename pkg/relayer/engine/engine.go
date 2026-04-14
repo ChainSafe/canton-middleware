@@ -446,6 +446,17 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 	return nil
 }
 
+// updateChainHeadPositions polls both chain heads and sets the ChainHeadPosition gauge.
+// Called every reconciliation tick so the metric stays current for lag calculation.
+func (e *Engine) updateChainHeadPositions(ctx context.Context) {
+	if headBlock, err := e.ethClient.GetLatestBlockNumber(ctx); err == nil {
+		e.metrics.SetChainHeadPosition(relayer.ChainEthereum, float64(headBlock))
+	}
+	if ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx); err == nil {
+		e.metrics.SetChainHeadPosition(relayer.ChainCanton, float64(ledgerEnd))
+	}
+}
+
 // reconcileLoop periodically checks for stuck transfers and retries them.
 func (e *Engine) reconcileLoop(ctx context.Context) {
 	defer e.wg.Done()
@@ -458,6 +469,7 @@ func (e *Engine) reconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			e.updateChainHeadPositions(ctx)
 			recTimer := prometheus.NewTimer(e.metrics.ReconciliationDuration)
 			if err := e.runReconciliation(ctx); err != nil {
 				e.metrics.IncReconciliationRuns(ReconciliationError)
@@ -620,8 +632,6 @@ func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 		return
 	}
 
-	e.metrics.SetChainHeadBlock(relayer.ChainEthereum, float64(headBlock))
-
 	scannedBlock := e.ethClient.GetLastScannedBlock()
 
 	e.mu.Lock()
@@ -658,8 +668,6 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 		e.logger.Warn("Failed to get Canton ledger end for readiness check", zap.Error(err))
 		return
 	}
-
-	e.metrics.SetChainHeadBlock(relayer.ChainCanton, float64(ledgerEnd))
 
 	e.mu.Lock()
 	defer e.mu.Unlock()

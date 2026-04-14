@@ -27,9 +27,6 @@ type Metrics struct {
 
 	// ── Block / event processing ─────────────────────────────────────────────
 
-	// BlocksProcessed counts blocks processed on each chain.
-	BlocksProcessed *prometheus.CounterVec
-
 	// EventsDetected counts events detected on each chain by event type.
 	EventsDetected *prometheus.CounterVec
 
@@ -72,8 +69,9 @@ type Metrics struct {
 
 	// ── Chain sync & readiness ───────────────────────────────────────────────
 
-	// ChainHeadBlock tracks the latest known head block for each chain.
-	ChainHeadBlock *prometheus.GaugeVec
+	// ChainHeadPosition tracks the remote chain head for each chain
+	// (block number for Ethereum, ledger offset for Canton).
+	ChainHeadPosition *prometheus.GaugeVec
 
 	// ReadinessSyncDuration tracks how long initial sync took per chain.
 	ReadinessSyncDuration *prometheus.GaugeVec
@@ -118,12 +116,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}, []string{"chain", "status"}),
 
 		// Block / event processing
-		BlocksProcessed: f.NewCounterVec(prometheus.CounterOpts{
-			Namespace: ns, Subsystem: sub,
-			Name: "blocks_processed_total",
-			Help: "Total number of blocks processed",
-		}, []string{"chain"}),
-
 		EventsDetected: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,
 			Name: "events_detected_total",
@@ -195,10 +187,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}, []string{"direction"}),
 
 		// Chain sync & readiness
-		ChainHeadBlock: f.NewGaugeVec(prometheus.GaugeOpts{
+		ChainHeadPosition: f.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: ns, Subsystem: sub,
-			Name: "chain_head_block",
-			Help: "Latest known chain head block/offset",
+			Name: "chain_head_position",
+			Help: "Latest known chain head position (block number or ledger offset)",
 		}, []string{"chain"}),
 
 		ReadinessSyncDuration: f.NewGaugeVec(prometheus.GaugeOpts{
@@ -311,11 +303,6 @@ func (m *Metrics) IncTransactionsSent(chain string, status TxStatus) {
 	m.TransactionsSent.WithLabelValues(chain, string(status)).Inc()
 }
 
-// IncBlocksProcessed increments the block counter for the given chain.
-func (m *Metrics) IncBlocksProcessed(chain string) {
-	m.BlocksProcessed.WithLabelValues(chain).Inc()
-}
-
 // IncEventsDetected increments the event counter for the given chain and event type.
 func (m *Metrics) IncEventsDetected(chain string, eventType EventType) {
 	m.EventsDetected.WithLabelValues(chain, string(eventType)).Inc()
@@ -361,9 +348,9 @@ func (m *Metrics) ObserveTransferAge(direction relayer.TransferDirection, second
 	m.TransferAge.WithLabelValues(string(direction)).Observe(seconds)
 }
 
-// SetChainHeadBlock sets the chain head block gauge for the given chain.
-func (m *Metrics) SetChainHeadBlock(chain string, block float64) {
-	m.ChainHeadBlock.WithLabelValues(chain).Set(block)
+// SetChainHeadPosition sets the chain head position gauge for the given chain.
+func (m *Metrics) SetChainHeadPosition(chain string, position float64) {
+	m.ChainHeadPosition.WithLabelValues(chain).Set(position)
 }
 
 // SetReadinessSyncDuration sets the sync duration gauge for the given chain.
