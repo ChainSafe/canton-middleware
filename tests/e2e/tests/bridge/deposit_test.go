@@ -52,11 +52,14 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 // TestDeposit_SmallAmount_Succeeds verifies that a small PROMPT deposit (0.1
 // tokens = 1e17 wei) is handled correctly end-to-end. This confirms there is no
 // minimum-amount gate in the relayer or DAML bridge.
+//
+// Uses AnvilAccount1 to avoid balance accumulation from TestDeposit_PROMPT_EthereumToCanton,
+// which runs before this test and deposits from AnvilAccount0.
 func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount0
+	account := stack.AnvilAccount1
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	admin := sys.Manifest.PromptInstrumentAdmin
@@ -74,6 +77,13 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 // TestDeposit_TwoDeposits_Accumulate verifies that two sequential deposits from
 // the same address accumulate in the user's Canton balance. The relayer must
 // process both events independently and the indexer must reflect the sum.
+//
+// NOTE: This test shares AnvilAccount0 with TestDeposit_PROMPT_EthereumToCanton.
+// Canton holdings for a party persist across tests, so AnvilAccount0's balance
+// will already be >= 1 PROMPT when this test runs. The WaitForCantonBalance /
+// WaitForAPIBalance assertions use >=, so they tolerate that pre-existing balance.
+// What this test actually verifies is that each of the two deposits it submits
+// is individually processed by the relayer and reflected in the balance.
 func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
@@ -84,12 +94,13 @@ func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 
-	// First deposit: 1 PROMPT.
+	// First deposit: 1 PROMPT. Balance check uses >= so prior accumulated
+	// holdings from other tests using AnvilAccount0 do not cause a false failure.
 	tx1 := sys.DSL.Deposit(ctx, t, account, new(big.Int).Set(one18))
 	sys.DSL.WaitForRelayerTransfer(ctx, t, tx1.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "1")
 
-	// Second deposit: 1 PROMPT — total should be 2.
+	// Second deposit: 1 PROMPT more.
 	tx2 := sys.DSL.Deposit(ctx, t, account, new(big.Int).Set(one18))
 	sys.DSL.WaitForRelayerTransfer(ctx, t, tx2.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")

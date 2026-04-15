@@ -47,7 +47,7 @@ type CantonShim struct {
 	httpEndpoint      string
 	client            *http.Client
 	ledgerClient      ledger.Ledger
-	tokenClient       token.Token       // acts as DemoInstrumentAdmin — used for DEMO ops
+	demoTokenClient   token.Token       // acts as DemoInstrumentAdmin — used for DEMO mint/balance
 	promptTokenClient token.Token       // acts as PromptInstrumentAdmin — used for PROMPT holdings
 	identityClient    identity.Identity
 	bridgeClient      bridge.Bridge
@@ -151,7 +151,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		httpEndpoint:      manifest.CantonHTTP,
 		client:            &http.Client{Timeout: 10 * time.Second},
 		ledgerClient:      l,
-		tokenClient:       tk,
+		demoTokenClient:   tk,
 		promptTokenClient: promptTk,
 		identityClient:    bridgeID,
 		bridgeClient:      br,
@@ -186,7 +186,7 @@ func (c *CantonShim) IsHealthy(ctx context.Context) bool {
 // MintToken mints amount of tokenSymbol to recipientParty via the IssuerMint
 // DAML choice on the TokenConfig contract.
 func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error {
-	_, err := c.tokenClient.Mint(ctx, &token.MintRequest{
+	_, err := c.demoTokenClient.Mint(ctx, &token.MintRequest{
 		RecipientParty: recipientParty,
 		Amount:         amount,
 		TokenSymbol:    tokenSymbol,
@@ -201,7 +201,7 @@ func (c *CantonShim) tokenClientFor(tokenSymbol string) token.Token {
 	if tokenSymbol == "PROMPT" {
 		return c.promptTokenClient
 	}
-	return c.tokenClient
+	return c.demoTokenClient
 }
 
 // GetCantonBalance returns the total balance of tokenSymbol held by partyID
