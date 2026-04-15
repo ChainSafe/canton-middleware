@@ -52,7 +52,7 @@ type RelayerServer struct {
 // Monitoring contains monitoring and metrics settings
 type Monitoring struct {
 	Enabled        bool               `yaml:"enabled" default:"false"`
-	Server         *http.ServerConfig `yaml:"server"`
+	Server         *http.ServerConfig `yaml:"server" validate:"required_if=Enabled true"`
 	HealthCheckURL string             `yaml:"health_check_url" default:"/health"`
 }
 
