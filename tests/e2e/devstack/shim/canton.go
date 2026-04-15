@@ -47,8 +47,8 @@ type CantonShim struct {
 	httpEndpoint      string
 	client            *http.Client
 	ledgerClient      ledger.Ledger
-	demoTokenClient   token.Token       // acts as DemoInstrumentAdmin — used for DEMO mint/balance
-	promptTokenClient token.Token       // acts as PromptInstrumentAdmin — used for PROMPT holdings
+	demoTokenClient   token.Token // acts as DemoInstrumentAdmin — used for DEMO mint/balance
+	promptTokenClient token.Token // acts as PromptInstrumentAdmin — used for PROMPT holdings
 	identityClient    identity.Identity
 	bridgeClient      bridge.Bridge
 }
@@ -96,7 +96,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		CIP56PackageID:          cip56PackageID,
 		SpliceTransferPackageID: spliceTransferPackageID,
 	}
-	tk, err := token.New(tokenCfg, l, demoID)
+	demoTk, err := token.New(tokenCfg, l, demoID)
 	if err != nil {
 		_ = l.Close()
 		return nil, fmt.Errorf("token.New: %w", err)
@@ -151,7 +151,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		httpEndpoint:      manifest.CantonHTTP,
 		client:            &http.Client{Timeout: 10 * time.Second},
 		ledgerClient:      l,
-		demoTokenClient:   tk,
+		demoTokenClient:   demoTk,
 		promptTokenClient: promptTk,
 		identityClient:    bridgeID,
 		bridgeClient:      br,
