@@ -43,14 +43,14 @@ var _ stack.Canton = (*CantonShim)(nil)
 
 // CantonShim implements stack.Canton.
 type CantonShim struct {
-	grpcEndpoint        string
-	httpEndpoint        string
-	client              *http.Client
-	ledgerClient        ledger.Ledger
-	tokenClient         token.Token       // acts as DemoInstrumentAdmin — used for DEMO ops
-	promptTokenClient   token.Token       // acts as PromptInstrumentAdmin — used for PROMPT holdings
-	identityClient      identity.Identity
-	bridgeClient        bridge.Bridge
+	grpcEndpoint      string
+	httpEndpoint      string
+	client            *http.Client
+	ledgerClient      ledger.Ledger
+	tokenClient       token.Token       // acts as DemoInstrumentAdmin — used for DEMO ops
+	promptTokenClient token.Token       // acts as PromptInstrumentAdmin — used for PROMPT holdings
+	identityClient    identity.Identity
+	bridgeClient      bridge.Bridge
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.

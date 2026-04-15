@@ -191,6 +191,8 @@ func parseKey(hexKey string) (*ecdsa.PrivateKey, error) {
 }
 
 // fingerprintToBytes32 converts a hex fingerprint string to a [32]byte.
+// auth.ComputeFingerprint always returns a keccak256 hash (exactly 32 bytes),
+// so copy fills the full array with no trailing zeros.
 func fingerprintToBytes32(fingerprint string) ([32]byte, error) {
 	var result [32]byte
 	fingerprint = strings.TrimPrefix(fingerprint, "0x")
