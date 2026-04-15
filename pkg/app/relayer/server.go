@@ -92,14 +92,33 @@ func (s *Server) Run() error {
 	}
 	defer engine.Stop()
 
+	s.startMetricsServer(ctx, logger)
+
 	router := s.newRouter(store, engine, logger)
 
 	return apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
 }
 
-func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
-	cfg := s.cfg
+// startMetricsServer launches a dedicated HTTP server on the monitoring
+// server port, serving only the /metrics endpoint for Prometheus scraping.
+// It is a no-op when monitoring is disabled.
+func (s *Server) startMetricsServer(ctx context.Context, logger *zap.Logger) {
+	if s.cfg.Monitoring == nil || !s.cfg.Monitoring.Enabled {
+		return
+	}
 
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+	r.Handle("/metrics", promhttp.Handler())
+
+	go func() {
+		if err := apphttp.ServeAndWait(ctx, r, logger, s.cfg.Monitoring.Server); err != nil {
+			logger.Error("Metrics server error", zap.Error(err))
+		}
+	}()
+}
+
+func (*Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -111,11 +130,6 @@ func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine,
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
-
-	if cfg.Monitoring.Enabled {
-		r.Handle("/metrics", promhttp.Handler())
-		logger.Info("Metrics enabled", zap.String("path", "/metrics"))
-	}
 
 	svc := relayersvc.NewLog(relayersvc.NewService(store), logger)
 	relayersvc.RegisterRoutes(r, svc, engine, logger)

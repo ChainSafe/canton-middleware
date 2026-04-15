@@ -248,8 +248,8 @@ func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
 	if cfg.Monitoring.Enabled {
 		t.Fatal("monitoring.enabled default mismatch: expected false")
 	}
-	if cfg.Monitoring.MetricsPort != 9090 {
-		t.Fatalf("monitoring.metrics_port default mismatch: got %d", cfg.Monitoring.MetricsPort)
+	if cfg.Monitoring.Server != nil && cfg.Monitoring.Server.Port != 0 {
+		t.Fatalf("monitoring.server.port default mismatch: got %d", cfg.Monitoring.Server.Port)
 	}
 	if cfg.Monitoring.HealthCheckURL != "/health" {
 		t.Fatalf("monitoring.health_check_url default mismatch: got %q", cfg.Monitoring.HealthCheckURL)
