@@ -142,6 +142,7 @@ func (c *CantonShim) AllocateParty(ctx context.Context, hint string) (string, er
 	return p.PartyID, nil
 }
 
+
 // MintToken mints amount of tokenSymbol to recipientParty via the IssuerMint
 // DAML choice on the TokenConfig contract.
 func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error {
