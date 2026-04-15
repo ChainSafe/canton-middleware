@@ -4,10 +4,14 @@ package dsl
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
@@ -146,4 +150,22 @@ func amountGTE(amount, min string) bool {
 		return false
 	}
 	return a.Cmp(m) >= 0
+}
+
+// SignTransactionHash signs a hex-encoded transaction hash with the ECDSA
+// private key. Used by tests to produce the Canton signature for ExecuteTransfer.
+func SignTransactionHash(hexKey, txHashHex string) (string, error) {
+	key, err := crypto.HexToECDSA(hexKey)
+	if err != nil {
+		return "", fmt.Errorf("parse key: %w", err)
+	}
+	hashBytes, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	if err != nil {
+		return "", fmt.Errorf("decode tx hash: %w", err)
+	}
+	sig, err := crypto.Sign(hashBytes, key)
+	if err != nil {
+		return "", fmt.Errorf("sign tx hash: %w", err)
+	}
+	return "0x" + hex.EncodeToString(sig), nil
 }

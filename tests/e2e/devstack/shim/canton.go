@@ -40,11 +40,12 @@ var _ stack.Canton = (*CantonShim)(nil)
 
 // CantonShim implements stack.Canton.
 type CantonShim struct {
-	grpcEndpoint string
-	httpEndpoint string
-	client       *http.Client
-	ledgerClient ledger.Ledger
-	tokenClient  token.Token
+	grpcEndpoint   string
+	httpEndpoint   string
+	client         *http.Client
+	ledgerClient   ledger.Ledger
+	identityClient identity.Identity
+	tokenClient    token.Token
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
@@ -96,11 +97,12 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 	}
 
 	return &CantonShim{
-		grpcEndpoint: manifest.CantonGRPC,
-		httpEndpoint: manifest.CantonHTTP,
-		client:       &http.Client{Timeout: 10 * time.Second},
-		ledgerClient: l,
-		tokenClient:  tk,
+		grpcEndpoint:   manifest.CantonGRPC,
+		httpEndpoint:   manifest.CantonHTTP,
+		client:         &http.Client{Timeout: 10 * time.Second},
+		ledgerClient:   l,
+		identityClient: id,
+		tokenClient:    tk,
 	}, nil
 }
 
@@ -127,6 +129,17 @@ func (c *CantonShim) IsHealthy(ctx context.Context) bool {
 	}
 	_ = resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+// AllocateParty allocates a new internal Canton party with the given hint and
+// returns its fully-qualified party ID. Use this in tests to create fresh
+// parties without depending on manifest fixtures.
+func (c *CantonShim) AllocateParty(ctx context.Context, hint string) (string, error) {
+	p, err := c.identityClient.AllocateParty(ctx, hint)
+	if err != nil {
+		return "", fmt.Errorf("allocate party %q: %w", hint, err)
+	}
+	return p.PartyID, nil
 }
 
 // MintToken mints amount of tokenSymbol to recipientParty via the IssuerMint
