@@ -92,7 +92,9 @@ func (s *Server) Run() error {
 	}
 	defer engine.Stop()
 
-	s.startMetricsServer(ctx, logger)
+	if err = s.startMetricsServer(ctx, logger); err != nil {
+		return fmt.Errorf("start metrics server: %w", err)
+	}
 
 	router := s.newRouter(store, engine, logger)
 
@@ -102,9 +104,13 @@ func (s *Server) Run() error {
 // startMetricsServer launches a dedicated HTTP server on the monitoring
 // server port, serving only the /metrics endpoint for Prometheus scraping.
 // It is a no-op when monitoring is disabled.
-func (s *Server) startMetricsServer(ctx context.Context, logger *zap.Logger) {
+func (s *Server) startMetricsServer(ctx context.Context, logger *zap.Logger) error {
 	if s.cfg.Monitoring == nil || !s.cfg.Monitoring.Enabled {
-		return
+		return nil
+	}
+
+	if s.cfg.Monitoring.Server == nil {
+		return fmt.Errorf("monitoring is enabled but server config is nil")
 	}
 
 	r := chi.NewRouter()
@@ -116,6 +122,8 @@ func (s *Server) startMetricsServer(ctx context.Context, logger *zap.Logger) {
 			logger.Error("Metrics server error", zap.Error(err))
 		}
 	}()
+
+	return nil
 }
 
 func (*Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
