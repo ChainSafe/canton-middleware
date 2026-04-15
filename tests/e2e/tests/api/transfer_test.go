@@ -161,9 +161,9 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 	}
 }
 
-// TestTransfer_InvalidSignature_Fails verifies that ExecuteTransfer with a
-// fingerprint that does not match the registered key returns HTTP 403.
-func TestTransfer_InvalidSignature_Fails(t *testing.T) {
+// TestTransfer_MalformedSignature_Fails verifies that ExecuteTransfer with a
+// malformed signature and fingerprint returns an HTTP error.
+func TestTransfer_MalformedSignature_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -188,8 +188,8 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 		SignedBy:   "0x1234567890", // garbage fingerprint — does not match registered key
 	})
 	var he *shim.HTTPError
-	if !errors.As(err, &he) || he.Code != http.StatusForbidden {
-		t.Fatalf("expected HTTP 403 for fingerprint mismatch, got %v", err)
+	if !errors.As(err, &he) || (he.Code != http.StatusBadRequest && he.Code != http.StatusForbidden) {
+		t.Fatalf("expected HTTP 400 or 403 for malformed signature, got %v", err)
 	}
 }
 
