@@ -303,7 +303,7 @@ services:
   # Monitoring
   # ===========================================================================
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.11.2
     container_name: prometheus
     ports:
       - "9091:9090"
@@ -316,15 +316,15 @@ services:
       - bridge-network
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.4
     container_name: grafana
     ports:
       - "3001:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
       - ./deployments/grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
