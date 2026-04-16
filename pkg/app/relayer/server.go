@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
@@ -64,7 +65,13 @@ func (s *Server) Run() error {
 	defer func() { _ = db.Close() }()
 	logger.Info("Database connection established")
 
-	store := relayerstore.NewStore(db)
+	// Metrics — registered once, injected into engine and store layers.
+	reg := prometheus.DefaultRegisterer
+	engineMetrics := relayerengine.NewMetrics(reg)
+	storeMetrics := relayerstore.NewStoreMetrics(reg)
+
+	pgStore := relayerstore.NewStore(db)
+	store := relayerstore.NewInstrumentedStore(pgStore, storeMetrics)
 
 	cantonClient, err := canton.New(ctx, cfg.Canton, canton.WithLogger(logger))
 	if err != nil {
@@ -78,7 +85,7 @@ func (s *Server) Run() error {
 	}
 	defer ethClient.Close()
 
-	engine := relayerengine.NewEngine(cfg.Bridge, cantonClient.Bridge, ethClient, store, logger)
+	engine := relayerengine.NewEngine(cfg.Bridge, cantonClient.Bridge, ethClient, store, engineMetrics, logger)
 
 	if err = engine.Start(ctx); err != nil {
 		return fmt.Errorf("start relayer engine: %w", err)
