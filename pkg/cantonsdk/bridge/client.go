@@ -122,15 +122,19 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 		return false, nil
 	}
 
-	// We enforce module/entity filtering via template id. This assumes deposits live in the same package/module.
-	// If your deposits are in a different package/module, adjust these template IDs accordingly.
+	// Common.FingerprintAuth templates live in the identity package, not the bridge package.
+	// Use the identity client's package ID so the ACS query targets the correct package.
+	identityPkgID := c.cfg.PackageID // fallback: same package (shouldn't happen in practice)
+	if c.identity != nil {
+		identityPkgID = c.identity.PackageID()
+	}
 	pendingTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.PackageID,
+		PackageId:  identityPkgID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "PendingDeposit",
 	}
 	receiptTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.PackageID,
+		PackageId:  identityPkgID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "DepositReceipt",
 	}

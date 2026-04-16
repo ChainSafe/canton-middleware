@@ -35,7 +35,6 @@ func encodeInitiateWithdrawalArgs(req InitiateWithdrawalRequest) *lapiv2.Record 
 			{Label: "holdingCid", Value: values.ContractIDValue(req.HoldingCID)},
 			{Label: "amount", Value: values.NumericValue(req.Amount)},
 			{Label: "evmDestination", Value: values.NewtypeValue(values.TextValue(req.EvmDestination))},
-			{Label: "timestamp", Value: values.TimestampValue(time.Now())},
 		},
 	}
 }

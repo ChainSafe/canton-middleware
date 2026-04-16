@@ -160,6 +160,21 @@ func TimestampOK(v *lapiv2.Value) (time.Time, bool) {
 	return time.UnixMicro(t.Timestamp), true
 }
 
+// NewtypeText extracts the inner Text from a DAML newtype encoded as a
+// single-field Record (e.g. EvmAddress = EvmAddress { value : Text }).
+// The DAML Ledger API v2 returns newtype values as Records in CreatedEvent
+// payloads. Returns "" if v is nil, not a Record, or the first field is not Text.
+func NewtypeText(v *lapiv2.Value) string {
+	if v == nil {
+		return ""
+	}
+	rec, ok := v.Sum.(*lapiv2.Value_Record)
+	if !ok || rec.Record == nil || len(rec.Record.Fields) == 0 {
+		return ""
+	}
+	return Text(rec.Record.Fields[0].Value)
+}
+
 // RecordField extracts a named field from a Record value, returning the sub-map.
 // Returns nil when v is nil or not a Record.
 func RecordField(v *lapiv2.Value) map[string]*lapiv2.Value {
