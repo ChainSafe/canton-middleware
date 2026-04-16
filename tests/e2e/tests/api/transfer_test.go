@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/shim"
@@ -161,13 +162,16 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 	}
 }
 
-// TestTransfer_MalformedSignature_Fails verifies that ExecuteTransfer with a
-// malformed signature and fingerprint returns an HTTP error.
-func TestTransfer_MalformedSignature_Fails(t *testing.T) {
+// TestTransfer_InvalidSignature_Fails verifies that ExecuteTransfer with a
+// valid-format DER signature produced by the wrong Canton key is rejected with
+// HTTP 403. User1 is registered with kp1; the transfer is signed with a fresh
+// kp2 — the server finds User1's record via the correct fingerprint but fails
+// signature verification because kp2 ≠ kp1.
+func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
-	resp1, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+	resp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
 	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, "10")
@@ -182,14 +186,27 @@ func TestTransfer_MalformedSignature_Fails(t *testing.T) {
 		t.Fatalf("prepare transfer: %v", err)
 	}
 
+	// Generate a second keypair and sign the tx hash with it — produces a
+	// valid DER signature but from the wrong key. Submit it with kp1's
+	// fingerprint so the server finds User1's record but fails verification.
+	kp2, err := keys.GenerateCantonKeyPair()
+	if err != nil {
+		t.Fatalf("generate wrong keypair: %v", err)
+	}
+	wrongSig, _ := signTransferHash(t, kp2, prepResp.TransactionHash)
+	fp1, err := kp1.Fingerprint()
+	if err != nil {
+		t.Fatalf("compute kp1 fingerprint: %v", err)
+	}
+
 	_, err = sys.APIServer.ExecuteTransfer(ctx, &sys.Accounts.User1, &transfer.ExecuteRequest{
 		TransferID: prepResp.TransferID,
-		Signature:  "0xdeadbeef",   // garbage signature
-		SignedBy:   "0x1234567890", // garbage fingerprint — does not match registered key
+		Signature:  wrongSig, // valid DER sig but from the wrong key
+		SignedBy:   fp1,      // correct fingerprint — server finds User1 but sig fails
 	})
 	var he *shim.HTTPError
-	if !errors.As(err, &he) || (he.Code != http.StatusBadRequest && he.Code != http.StatusForbidden) {
-		t.Fatalf("expected HTTP 400 or 403 for malformed signature, got %v", err)
+	if !errors.As(err, &he) || he.Code != http.StatusForbidden {
+		t.Fatalf("expected HTTP 403 for wrong-key signature, got %v", err)
 	}
 }
 

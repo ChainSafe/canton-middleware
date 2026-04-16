@@ -21,6 +21,14 @@ type Token struct {
 // here if that mapping ever changes.
 const DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
 
+// CantonHolding is a minimal view of a CIP56Holding contract used by E2E tests.
+// It carries only the fields needed for bridge withdrawal operations.
+type CantonHolding struct {
+	ContractID string
+	Amount     string
+	Symbol     string
+}
+
 // ---------------------------------------------------------------------------
 // Test accounts
 // ---------------------------------------------------------------------------
