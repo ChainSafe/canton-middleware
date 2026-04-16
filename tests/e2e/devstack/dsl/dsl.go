@@ -224,3 +224,60 @@ func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.A
 	}
 	return bal
 }
+
+// Withdraw looks up the FingerprintMapping and a suitable holding for the given
+// party and token, then calls InitiateWithdrawal on the Canton bridge. It
+// returns the WithdrawalRequest contract ID. Requires a full-stack system.
+//
+// partyID and fingerprint are the Party and Fingerprint fields from the user's
+// RegisterResponse. tokenSymbol identifies the token (e.g. "PROMPT"). amount is
+// the decimal withdrawal amount (e.g. "1"). evmDest is the checksummed hex EVM
+// address that will receive the released tokens.
+//
+// The holding selected is the first one whose balance is >= amount. The test
+// fails if no holding with sufficient balance exists.
+func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, tokenSymbol, amount, evmDest string) string {
+	t.Helper()
+	if d.canton == nil {
+		t.Fatal("Withdraw not available: Canton shim not initialized (use NewFullStack)")
+		return ""
+	}
+
+	mappingCID, err := d.canton.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		t.Fatalf("get fingerprint mapping for %s: %v", fingerprint, err)
+	}
+
+	holdings, err := d.canton.GetHoldings(ctx, partyID, tokenSymbol)
+	if err != nil {
+		t.Fatalf("get %s holdings for party %s: %v", tokenSymbol, partyID, err)
+	}
+
+	// Select the first holding whose amount covers the requested withdrawal.
+	// big.Rat is used for exact decimal arithmetic — big.Float's 53-bit default
+	// precision is insufficient for 18-decimal token amounts.
+	amountR, ok := new(big.Rat).SetString(amount)
+	if !ok {
+		t.Fatalf("Withdraw: invalid amount %q", amount)
+	}
+	holdingCID := ""
+	for _, h := range holdings {
+		hR, ok2 := new(big.Rat).SetString(h.Amount)
+		if !ok2 {
+			t.Fatalf("Withdraw: invalid holding amount %q for contract %s", h.Amount, h.ContractID)
+		}
+		if hR.Cmp(amountR) >= 0 {
+			holdingCID = h.ContractID
+			break
+		}
+	}
+	if holdingCID == "" {
+		t.Fatalf("no %s holding with amount >= %s for party %s", tokenSymbol, amount, partyID)
+	}
+
+	withdrawalCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdingCID, amount, evmDest)
+	if err != nil {
+		t.Fatalf("initiate withdrawal for party %s: %v", partyID, err)
+	}
+	return withdrawalCID
+}

@@ -1,0 +1,27 @@
+coverage:
+  status:
+    # Overall project coverage — fails if total drops below threshold
+    project:
+      default:
+        target: 10%    # ratchet this up as you add tests
+        threshold: 1%  # allow 1% fluctuation before failing
+
+    # Coverage on changed lines in the PR — encourages testing new code
+    patch:
+      default:
+        target: 50%    # at least half of new/changed lines should be tested
+
+  # Paths to exclude from coverage calculation
+  ignore:
+    - "pkg/**/mocks/**"              # generated mockery mocks
+    - "pkg/cantonsdk/lapi/**"        # generated protobuf types
+    - "pkg/ethereum/contracts/**"    # generated ABI bindings
+    - "cmd/**"                       # main entrypoints (thin wrappers)
+    - "scripts/**"                   # test/build scripts
+    - "tests/**"                     # e2e test infrastructure
+    - "contracts/**"                 # Solidity contracts
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false

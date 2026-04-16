@@ -58,11 +58,12 @@ func main() {
 	cip56PackageID := flag.String("cip56-package-id", "", "CIP56 package ID (uses config.canton.cip56_package_id if not set)")
 	issuerFlag := flag.String("issuer", "", "Issuer party ID (optional, uses config if not specified)")
 	domainFlag := flag.String("domain", "", "Domain/synchronizer ID (optional, uses config if not specified)")
-	user1Fingerprint := flag.String("user1-fingerprint", "", "User 1 EVM fingerprint (required)")
-	user2Fingerprint := flag.String("user2-fingerprint", "", "User 2 EVM fingerprint (required)")
+	user1Fingerprint := flag.String("user1-fingerprint", "", "User 1 EVM fingerprint (required unless -no-mint)")
+	user2Fingerprint := flag.String("user2-fingerprint", "", "User 2 EVM fingerprint (required unless -no-mint)")
 	user1PartyFlag := flag.String("user1-party", "", "User 1 Canton party ID (optional, skips FingerprintMapping lookup for DEMO-only mode)")
 	user2PartyFlag := flag.String("user2-party", "", "User 2 Canton party ID (optional, skips FingerprintMapping lookup for DEMO-only mode)")
 	mintAmount := flag.String("mint-amount", "500.0", "Amount to mint to each user")
+	noMint := flag.Bool("no-mint", false, "Create TokenConfig and TransferFactory only; skip minting to users (for E2E bootstrap)")
 	flag.Parse()
 
 	// Load config
@@ -97,8 +98,8 @@ func main() {
 		log.Fatal("domain is required (set via -domain flag or config.canton.domain_id)")
 	}
 
-	if *user1Fingerprint == "" || *user2Fingerprint == "" {
-		log.Fatal("Both -user1-fingerprint and -user2-fingerprint are required")
+	if !*noMint && (*user1Fingerprint == "" || *user2Fingerprint == "") {
+		log.Fatal("Both -user1-fingerprint and -user2-fingerprint are required (or pass -no-mint to skip minting)")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -151,9 +152,11 @@ func main() {
 		fmt.Println()
 		fmt.Println("    Skipping DEMO CIP56Manager creation...")
 
-		// Still mint to users if they don't have tokens
-		mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, existingConfig,
-			*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
+		// Still mint to users if they don't have tokens (skipped in -no-mint mode)
+		if !*noMint {
+			mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, existingConfig,
+				*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
+		}
 		return
 	}
 	fmt.Println("    No existing TokenConfig (DEMO) found, creating new one...")
@@ -186,17 +189,21 @@ func main() {
 	fmt.Printf("    CIP56TransferFactory: %s\n", factoryCid)
 	fmt.Println()
 
-	// Step 4-5: Mint to users
-	mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, nativeConfigCid,
-		*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
+	// Step 4-5: Mint to users (skipped in -no-mint / E2E bootstrap mode)
+	if !*noMint {
+		mintToUsers(ctx, stateService, commandService, cfg, *cip56PackageID, nativeConfigCid,
+			*user1Fingerprint, *user2Fingerprint, *user1PartyFlag, *user2PartyFlag, *mintAmount, issuer, domainID)
 
-	// Step 6: Update database with DEMO balances
-	fmt.Println(">>> Step 6: Updating database with DEMO balances...")
-	if err := updateDemoBalancesInDB(cfg, *user1Fingerprint, *user2Fingerprint, *mintAmount); err != nil {
-		log.Printf("Warning: Failed to update database: %v", err)
-		fmt.Println("    [WARN] Database update failed - balances won't show in MetaMask until manually updated")
+		// Step 6: Update database with DEMO balances
+		fmt.Println(">>> Step 6: Updating database with DEMO balances...")
+		if err := updateDemoBalancesInDB(cfg, *user1Fingerprint, *user2Fingerprint, *mintAmount); err != nil {
+			log.Printf("Warning: Failed to update database: %v", err)
+			fmt.Println("    [WARN] Database update failed - balances won't show in MetaMask until manually updated")
+		} else {
+			fmt.Println("    Database updated successfully")
+		}
 	} else {
-		fmt.Println("    Database updated successfully")
+		fmt.Println(">>> Skipping user minting (-no-mint mode)")
 	}
 	fmt.Println()
 

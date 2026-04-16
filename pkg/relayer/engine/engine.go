@@ -203,8 +203,6 @@ func (e *Engine) runCantonProcessorLoop(ctx context.Context, cantonProcessor *Pr
 			return
 		}
 
-		e.metrics.CantonStreamReconnects.Inc()
-
 		if err != nil {
 			e.metrics.IncProcessorRestarts(relayer.ChainCanton, RestartReasonError)
 			e.logger.Warn("Canton processor stopped; restarting with backoff",

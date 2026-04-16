@@ -64,6 +64,26 @@ type Canton interface {
 	// partyID, expressed as a decimal string. Returns "0" when the party
 	// has no holdings for that token.
 	GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error)
+
+	// AllocateParty allocates a fresh internal Canton party with the given hint
+	// and returns its fully-qualified party ID. Use this to create unique parties
+	// per test without relying on manifest fixtures.
+	AllocateParty(ctx context.Context, hint string) (string, error)
+
+	// GetHoldings returns the CIP56Holding contracts owned by ownerParty for
+	// tokenSymbol. Used by bridge withdrawal tests to obtain the HoldingCID.
+	GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*CantonHolding, error)
+
+	// GetFingerprintMapping returns the FingerprintMapping contract ID for the
+	// given fingerprint (as returned by RegisterUser/RegisterExternalUser).
+	// Used by bridge withdrawal tests to obtain the MappingCID.
+	GetFingerprintMapping(ctx context.Context, fingerprint string) (string, error)
+
+	// InitiateWithdrawal calls the WayfinderBridgeConfig.InitiateWithdrawal
+	// DAML choice and returns the resulting WithdrawalRequest contract ID.
+	// mappingCID is from GetFingerprintMapping; holdingCID is from GetHoldings;
+	// evmDest is the recipient's EVM address (checksummed hex).
+	InitiateWithdrawal(ctx context.Context, mappingCID, holdingCID, amount, evmDest string) (string, error)
 }
 
 // APIServer is the interface for the canton-middleware api-server.

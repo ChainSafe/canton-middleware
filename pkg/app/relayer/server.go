@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 const defaultHTTPMiddlewareTimeout = 60 * time.Second
@@ -92,38 +93,36 @@ func (s *Server) Run() error {
 	}
 	defer engine.Stop()
 
-	if err = s.startMetricsServer(ctx, logger); err != nil {
-		return fmt.Errorf("start metrics server: %w", err)
-	}
-
 	router := s.newRouter(store, engine, logger)
 
-	return apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
+	return s.serveAll(ctx, router, logger)
 }
 
-// startMetricsServer launches a dedicated HTTP server on the monitoring
-// server port, serving only the /metrics endpoint for Prometheus scraping.
-// It is a no-op when monitoring is disabled.
-func (s *Server) startMetricsServer(ctx context.Context, logger *zap.Logger) error {
-	if s.cfg.Monitoring == nil || !s.cfg.Monitoring.Enabled {
-		return nil
-	}
+// serveAll runs the main HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
 
-	if s.cfg.Monitoring.Server == nil {
-		return fmt.Errorf("monitoring is enabled but server config is nil")
-	}
+	g.Go(func() error {
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
 
-	r := chi.NewRouter()
-	r.Use(middleware.Recoverer)
-	r.Handle("/metrics", promhttp.Handler())
-
-	go func() {
-		if err := apphttp.ServeAndWait(ctx, r, logger, s.cfg.Monitoring.Server); err != nil {
-			logger.Error("Metrics server error", zap.Error(err))
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		if s.cfg.Monitoring.Server == nil {
+			return fmt.Errorf("monitoring is enabled but server config is nil")
 		}
-	}()
 
-	return nil
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
+
+	return g.Wait()
 }
 
 func (*Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {

@@ -4,10 +4,15 @@ package dsl
 
 import (
 	"context"
+	"encoding/hex"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
@@ -19,6 +24,7 @@ const (
 	cantonBalanceTimeout   = 60 * time.Second
 	relayerTransferTimeout = 120 * time.Second
 	indexerEventTimeout    = 60 * time.Second
+	ethBalanceTimeout      = 120 * time.Second
 )
 
 // WaitForRelayerReady polls until the relayer reports ready or the 60s timeout
@@ -146,4 +152,54 @@ func amountGTE(amount, min string) bool {
 		return false
 	}
 	return a.Cmp(m) >= 0
+}
+
+// WaitForEthBalance polls the Anvil ERC-20 balance of ownerAddr for tokenAddr
+// until it is >= minWei, or the 120s timeout is reached. minWei is expressed in
+// the token's smallest unit (wei for 18-decimal tokens). Use this to confirm
+// that the relayer has released tokens on Ethereum after a Canton withdrawal.
+func (d *DSL) WaitForEthBalance(ctx context.Context, t *testing.T, tokenAddr, ownerAddr common.Address, minWei *big.Int) {
+	t.Helper()
+	if d.anvil == nil {
+		t.Fatal("WaitForEthBalance not available: Anvil shim not initialized (use NewFullStack)")
+		return
+	}
+	deadline := time.Now().Add(ethBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	var lastBal *big.Int
+	for time.Now().Before(deadline) {
+		bal, err := d.anvil.ERC20Balance(ctx, tokenAddr, ownerAddr)
+		if err == nil && bal != nil {
+			lastBal = bal
+			if bal.Cmp(minWei) >= 0 {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for Eth ERC-20 balance")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("WaitForEthBalance: timed out waiting for balance >= %s, last=%v (token=%s owner=%s)",
+		minWei, lastBal, tokenAddr.Hex(), ownerAddr.Hex())
+}
+
+// SignTransactionHash signs a hex-encoded transaction hash with the ECDSA
+// private key. Used by tests to produce the Canton signature for ExecuteTransfer.
+func SignTransactionHash(hexKey, txHashHex string) (string, error) {
+	key, err := crypto.HexToECDSA(hexKey)
+	if err != nil {
+		return "", fmt.Errorf("parse key: %w", err)
+	}
+	hashBytes, err := hex.DecodeString(strings.TrimPrefix(txHashHex, "0x"))
+	if err != nil {
+		return "", fmt.Errorf("decode tx hash: %w", err)
+	}
+	sig, err := crypto.Sign(hashBytes, key)
+	if err != nil {
+		return "", fmt.Errorf("sign tx hash: %w", err)
+	}
+	return "0x" + hex.EncodeToString(sig), nil
 }
