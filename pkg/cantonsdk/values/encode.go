@@ -68,3 +68,18 @@ func Optional(v *lapiv2.Value) *lapiv2.Value {
 		},
 	}
 }
+
+// NewtypeValue encodes a DAML newtype as a single-field Record wrapping the
+// inner value. Use this for types like Common.Types.EvmAddress which are
+// defined as: newtype T = T with field : PrimType.
+// The DAML Ledger API v2 represents newtypes as Records; passing the
+// underlying primitive directly causes COMMAND_PREPROCESSING_FAILED.
+func NewtypeValue(inner *lapiv2.Value) *lapiv2.Value {
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{{Value: inner}},
+			},
+		},
+	}
+}
