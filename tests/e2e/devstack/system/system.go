@@ -231,14 +231,15 @@ func NewIndexerSystem(manifest *stack.ServiceManifest) (*IndexerSystem, error) {
 }
 
 // APISystem is a minimal view for api-server focused tests. It initializes
-// Anvil, Canton, APIServer, and Postgres shims together with the DSL and
-// pre-funded accounts.
+// Anvil, Canton, APIServer, Postgres, and Indexer shims together with the DSL
+// and pre-funded accounts. The Relayer shim is intentionally omitted.
 type APISystem struct {
 	Manifest  *stack.ServiceManifest
 	Anvil     stack.Anvil
 	Canton    stack.Canton
 	APIServer stack.APIServer
 	Postgres  stack.APIDatabase
+	Indexer   stack.Indexer
 	DSL       *dsl.DSL
 	Accounts  *Accounts
 	Tokens    *Tokens
@@ -269,13 +270,13 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 		Canton:    core.canton,
 		APIServer: core.apiServer,
 		Postgres:  core.postgres,
+		Indexer:   shim.NewIndexer(manifest),
 		Accounts:  defaultAccounts,
 		Tokens:    NewTokens(manifest),
 		closeFunc: core.close,
 	}
-	// Relayer and Indexer are not part of the API stack; nil is passed
-	// deliberately. DSL methods that require them call t.Fatal with a clear
-	// message rather than panicking.
-	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, nil, sys.Postgres, sys.Anvil)
+	// Relayer is not part of the API stack; nil is passed deliberately. DSL
+	// methods that require it call t.Fatal with a clear message.
+	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
@@ -85,6 +87,7 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
+	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 
 	// Deposit 2 PROMPT so there is a holding large enough to withdraw 1 from.
 	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
@@ -99,16 +102,34 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 	}
 	supplyBeforeBurn := tok.TotalSupply
 
+	// Record the EVM balance before withdrawal.
+	balBefore, err := sys.Anvil.ERC20Balance(ctx, tokenAddr, account.Address)
+	if err != nil {
+		t.Fatalf("erc20 balance before withdrawal: %v", err)
+	}
+
+	// Record the highest BURN ledger offset already indexed for this party
+	// before initiating the withdrawal. AnvilAccount1 is a long-lived account
+	// reused across test runs; matching by fingerprint is not sufficient because
+	// the fingerprint is stable per registration and would match stale burns.
+	burnSinceOffset := sys.DSL.MaxPartyEventOffset(ctx, t, regResp.Party, indexer.EventBurn)
+
 	// Initiate a 1 PROMPT withdrawal to the same EVM address.
 	evmDest := account.Address.Hex()
 	sys.DSL.Withdraw(ctx, t, regResp.Party, regResp.Fingerprint, "PROMPT", "1", evmDest)
 
-	// Wait for the indexer to record a BURN event, matched by fingerprint to
-	// select the right event if prior withdrawals from AnvilAccount1 exist.
-	// The 60 s timeout covers both relayer processing and indexer streaming lag.
+	// Wait for the relayer to release tokens on Ethereum before polling the
+	// indexer. Without this gate the 60 s indexerEventTimeout races against
+	// relayer processing (which can itself take up to 120 s), causing spurious
+	// timeouts. WaitForEthBalance is a pre-condition here, not an assertion.
+	sys.DSL.WaitForEthBalance(ctx, t, tokenAddr, account.Address, new(big.Int).Add(balBefore, one18))
+
+	// Wait for the indexer to record a BURN event produced by this withdrawal.
+	// Match by LedgerOffset > burnSinceOffset so that stale burns from prior
+	// test runs against AnvilAccount1 are not mistakenly accepted.
 	ev := sys.DSL.WaitForPartyEventMatching(ctx, t, regResp.Party, indexer.EventBurn,
 		func(e *indexer.ParsedEvent) bool {
-			return e.Fingerprint != nil && *e.Fingerprint == regResp.Fingerprint
+			return e.LedgerOffset > burnSinceOffset
 		},
 	)
 

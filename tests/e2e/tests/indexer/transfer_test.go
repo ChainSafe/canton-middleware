@@ -41,8 +41,11 @@ func signCantonTx(t *testing.T, kp interface {
 // event_type=TRANSFER, from_party_id=User1, to_party_id=User2, amount>=10,
 // contract_id non-empty, ledger_offset>0. Also verifies both parties'
 // indexer balances reflect the transfer.
+//
+// Uses NewAPIStack (api-server + canton + postgres + indexer) rather than
+// NewFullStack because the relayer and Anvil are not needed for DEMO transfers.
 func TestIndexer_TransferEvent_AfterAPITransfer(t *testing.T) {
-	sys := presets.NewFullStack(t)
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -134,8 +137,10 @@ func TestIndexer_TransferEvent_AfterAPITransfer(t *testing.T) {
 //  3. Mint 100 DEMO to User2 (new holder) — HolderCount → C0+2.
 //  4. Transfer User2's full 100 DEMO to User1 via the api-server.
 //     User2 balance → 0 (holder removed) — HolderCount → C0+1.
+//
+// Uses NewAPIStack for the same reason as TestIndexer_TransferEvent_AfterAPITransfer.
 func TestIndexer_HolderCount_Updates(t *testing.T) {
-	sys := presets.NewFullStack(t)
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp1, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)

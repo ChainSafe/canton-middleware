@@ -57,7 +57,7 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 func (d *DSL) WaitForCantonBalance(ctx context.Context, t *testing.T, partyID, admin, id, minAmount string) {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForCantonBalance not available: Indexer shim not initialized (use NewFullStack)")
+		t.Fatal("WaitForCantonBalance not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return
 	}
 	deadline := time.Now().Add(cantonBalanceTimeout)
@@ -120,7 +120,7 @@ func (d *DSL) WaitForRelayerTransfer(ctx context.Context, t *testing.T, sourceTx
 func (d *DSL) WaitForIndexerEvent(ctx context.Context, t *testing.T, contractID string) *indexer.ParsedEvent {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForIndexerEvent not available: Indexer shim not initialized (use NewFullStack)")
+		t.Fatal("WaitForIndexerEvent not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return nil // unreachable; t.Fatal calls runtime.Goexit
 	}
 	deadline := time.Now().Add(indexerEventTimeout)
@@ -152,8 +152,11 @@ func (d *DSL) WaitForPartyEvent(ctx context.Context, t *testing.T, partyID strin
 }
 
 // WaitForPartyEventMatching polls until an event of eventType for partyID
-// satisfies the match predicate, then returns it. Each poll scans the first
-// 50 results so a single matching event among earlier entries is found quickly.
+// satisfies the match predicate, then returns it. Each poll fetches the last
+// page of results (most recently indexed events) so that new events are found
+// regardless of how many prior events exist for the party. Use a predicate
+// that checks ev.LedgerOffset > sinceOffset (obtained from MaxPartyEventOffset)
+// to avoid matching stale events from earlier test runs.
 func (d *DSL) WaitForPartyEventMatching(
 	ctx context.Context,
 	t *testing.T,
@@ -163,16 +166,27 @@ func (d *DSL) WaitForPartyEventMatching(
 ) *indexer.ParsedEvent {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForPartyEventMatching not available: Indexer shim not initialized (use NewFullStack)")
+		t.Fatal("WaitForPartyEventMatching not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return nil // unreachable; t.Fatal calls runtime.Goexit
 	}
+	const pageSize = 50
 	deadline := time.Now().Add(indexerEventTimeout)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
-		page, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, 50)
-		if err == nil && page != nil {
-			for _, ev := range page.Items {
+		// Fetch page 1 to discover Total; derive which page is last so we
+		// always inspect the most recently indexed events.
+		page1, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, pageSize)
+		if err == nil && page1 != nil && page1.Total > 0 {
+			candidates := page1.Items
+			totalPages := (int(page1.Total) + pageSize - 1) / pageSize
+			if totalPages > 1 {
+				last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, pageSize)
+				if lerr == nil && last != nil {
+					candidates = last.Items
+				}
+			}
+			for _, ev := range candidates {
 				if match(ev) {
 					return ev
 				}
@@ -188,12 +202,45 @@ func (d *DSL) WaitForPartyEventMatching(
 	return nil // unreachable; t.Fatalf calls runtime.Goexit
 }
 
+// MaxPartyEventOffset returns the highest ledger_offset currently indexed for
+// events of eventType belonging to partyID, or 0 if no such events exist.
+// Call this immediately before triggering an on-ledger operation and pass the
+// result to WaitForPartyEventMatching as an ev.LedgerOffset > sinceOffset
+// predicate to ensure only events produced by that operation are matched.
+func (d *DSL) MaxPartyEventOffset(ctx context.Context, t *testing.T, partyID string, eventType indexer.EventType) int64 {
+	t.Helper()
+	if d.indexer == nil {
+		t.Fatal("MaxPartyEventOffset not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
+		return 0
+	}
+	const pageSize = 50
+	page1, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, pageSize)
+	if err != nil || page1 == nil || page1.Total == 0 {
+		return 0
+	}
+	items := page1.Items
+	totalPages := (int(page1.Total) + pageSize - 1) / pageSize
+	if totalPages > 1 {
+		last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, pageSize)
+		if lerr == nil && last != nil {
+			items = last.Items
+		}
+	}
+	var max int64
+	for _, ev := range items {
+		if ev.LedgerOffset > max {
+			max = ev.LedgerOffset
+		}
+	}
+	return max
+}
+
 // WaitForHolderCount polls until GetToken reports HolderCount == expected for
 // the token identified by (admin, id).
 func (d *DSL) WaitForHolderCount(ctx context.Context, t *testing.T, admin, id string, expected int64) {
 	t.Helper()
 	if d.indexer == nil {
-		t.Fatal("WaitForHolderCount not available: Indexer shim not initialized (use NewFullStack)")
+		t.Fatal("WaitForHolderCount not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return
 	}
 	deadline := time.Now().Add(indexerEventTimeout)
@@ -218,10 +265,12 @@ func (d *DSL) WaitForHolderCount(ctx context.Context, t *testing.T, admin, id st
 }
 
 // amountGTE returns true when amount >= min, comparing both as decimal numbers.
-// String comparison is intentionally avoided: "20" > "100" lexicographically.
+// Uses big.Rat (exact rational arithmetic) to avoid precision loss with
+// 18-decimal token amounts. String comparison is intentionally avoided:
+// "20" > "100" lexicographically.
 func amountGTE(amount, min string) bool {
-	a, ok1 := new(big.Float).SetString(amount)
-	m, ok2 := new(big.Float).SetString(min)
+	a, ok1 := new(big.Rat).SetString(amount)
+	m, ok2 := new(big.Rat).SetString(min)
 	if !ok1 || !ok2 {
 		return false
 	}
