@@ -100,7 +100,7 @@ func (s *Server) Run() error {
 
 // serveAll runs the main HTTP server and, when monitoring is enabled,
 // the metrics server. Both share an errgroup context: if either server
-// fails the other is cancelled and the first error is returned.
+// fails the other is canceled and the first error is returned.
 func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
 	g, gCtx := errgroup.WithContext(ctx)
 
