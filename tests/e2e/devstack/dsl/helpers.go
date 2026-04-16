@@ -222,9 +222,11 @@ func (d *DSL) MaxPartyEventOffset(ctx context.Context, t *testing.T, partyID str
 	totalPages := (int(page1.Total) + pageSize - 1) / pageSize
 	if totalPages > 1 {
 		last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, pageSize)
-		if lerr == nil && last != nil {
-			items = last.Items
+		if lerr != nil || last == nil {
+			t.Fatalf("MaxPartyEventOffset: failed to fetch last page (page %d): %v", totalPages, lerr)
+			return 0 // unreachable; t.Fatalf calls runtime.Goexit
 		}
+		items = last.Items
 	}
 	var max int64
 	for _, ev := range items {
