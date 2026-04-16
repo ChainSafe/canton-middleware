@@ -81,8 +81,11 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	// Use AnvilAccount1 to keep the event stream independent from other tests.
-	account := stack.AnvilAccount1
+	// Use AnvilAccount0: it holds all PROMPT tokens (minted to the deployer at
+	// contract deployment). Account1 starts with zero PROMPT so its deposit
+	// would revert. MaxPartyEventOffset records a sinceOffset before the
+	// withdrawal so stale burn events from other tests are skipped.
+	account := stack.AnvilAccount0
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	admin := sys.Manifest.PromptInstrumentAdmin
