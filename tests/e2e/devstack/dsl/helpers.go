@@ -143,6 +143,80 @@ func (d *DSL) WaitForIndexerEvent(ctx context.Context, t *testing.T, contractID 
 	return nil // unreachable; t.Fatalf calls runtime.Goexit
 }
 
+// WaitForPartyEvent polls until the indexer has at least one event of
+// eventType for partyID, then returns it. Use WaitForPartyEventMatching when
+// a specific event must be selected (e.g. by ExternalTxID or Fingerprint).
+func (d *DSL) WaitForPartyEvent(ctx context.Context, t *testing.T, partyID string, eventType indexer.EventType) *indexer.ParsedEvent {
+	t.Helper()
+	return d.WaitForPartyEventMatching(ctx, t, partyID, eventType, func(_ *indexer.ParsedEvent) bool { return true })
+}
+
+// WaitForPartyEventMatching polls until an event of eventType for partyID
+// satisfies the match predicate, then returns it. Each poll scans the first
+// 50 results so a single matching event among earlier entries is found quickly.
+func (d *DSL) WaitForPartyEventMatching(
+	ctx context.Context,
+	t *testing.T,
+	partyID string,
+	eventType indexer.EventType,
+	match func(*indexer.ParsedEvent) bool,
+) *indexer.ParsedEvent {
+	t.Helper()
+	if d.indexer == nil {
+		t.Fatal("WaitForPartyEventMatching not available: Indexer shim not initialized (use NewFullStack)")
+		return nil // unreachable; t.Fatal calls runtime.Goexit
+	}
+	deadline := time.Now().Add(indexerEventTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		page, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, 50)
+		if err == nil && page != nil {
+			for _, ev := range page.Items {
+				if match(ev) {
+					return ev
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context canceled waiting for %s event for party %s", eventType, partyID)
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for %s event for party %s", eventType, partyID)
+	return nil // unreachable; t.Fatalf calls runtime.Goexit
+}
+
+// WaitForHolderCount polls until GetToken reports HolderCount == expected for
+// the token identified by (admin, id).
+func (d *DSL) WaitForHolderCount(ctx context.Context, t *testing.T, admin, id string, expected int64) {
+	t.Helper()
+	if d.indexer == nil {
+		t.Fatal("WaitForHolderCount not available: Indexer shim not initialized (use NewFullStack)")
+		return
+	}
+	deadline := time.Now().Add(indexerEventTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	var lastCount int64
+	for time.Now().Before(deadline) {
+		tok, err := d.indexer.GetToken(ctx, admin, id)
+		if err == nil && tok != nil {
+			lastCount = tok.HolderCount
+			if tok.HolderCount == expected {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context canceled waiting for holder count %d (token %s/%s)", expected, admin, id)
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for holder count %d: last=%d (token %s/%s)", expected, lastCount, admin, id)
+}
+
 // amountGTE returns true when amount >= min, comparing both as decimal numbers.
 // String comparison is intentionally avoided: "20" > "100" lexicographically.
 func amountGTE(amount, min string) bool {

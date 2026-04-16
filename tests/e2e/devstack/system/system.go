@@ -193,12 +193,15 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 // Subset views
 // ---------------------------------------------------------------------------
 
-// IndexerSystem is a minimal view for indexer-focused tests. It only
-// initializes the Canton and Indexer shims — no Postgres connection, no Anvil.
+// IndexerSystem is a minimal view for indexer-focused tests. It initializes
+// Canton and Indexer shims and wires a DSL with those two shims so that
+// WaitForCantonBalance, WaitForPartyEvent*, and WaitForHolderCount are
+// available. No Anvil, Postgres, APIServer, or Relayer shims are initialized.
 type IndexerSystem struct {
 	Manifest *stack.ServiceManifest
 	Canton   stack.Canton
 	Indexer  stack.Indexer
+	DSL      *dsl.DSL
 
 	closeFunc func()
 }
@@ -217,10 +220,12 @@ func NewIndexerSystem(manifest *stack.ServiceManifest) (*IndexerSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("canton shim: %w", err)
 	}
+	indexerShim := shim.NewIndexer(manifest)
 	return &IndexerSystem{
 		Manifest:  manifest,
 		Canton:    cantonShim,
-		Indexer:   shim.NewIndexer(manifest),
+		Indexer:   indexerShim,
+		DSL:       dsl.New(nil, cantonShim, nil, indexerShim, nil, nil),
 		closeFunc: cantonShim.Close,
 	}, nil
 }
