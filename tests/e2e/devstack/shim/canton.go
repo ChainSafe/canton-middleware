@@ -183,6 +183,17 @@ func (c *CantonShim) IsHealthy(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// AllocateParty allocates a new internal Canton party with the given hint and
+// returns its fully-qualified party ID. Use this in tests to create fresh
+// parties without depending on manifest fixtures.
+func (c *CantonShim) AllocateParty(ctx context.Context, hint string) (string, error) {
+	p, err := c.identityClient.AllocateParty(ctx, hint)
+	if err != nil {
+		return "", fmt.Errorf("allocate party %q: %w", hint, err)
+	}
+	return p.PartyID, nil
+}
+
 // MintToken mints amount of tokenSymbol to recipientParty via the IssuerMint
 // DAML choice on the TokenConfig contract.
 func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error {

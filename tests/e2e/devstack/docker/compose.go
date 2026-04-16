@@ -66,16 +66,17 @@ func (c *ComposeOrchestrator) Start(ctx context.Context) error {
 }
 
 // e2eEnv returns the host environment with SKIP_CANTON_SIG_VERIFY forced to
-// "true". It preserves any existing entry for that variable if it was already
-// explicitly set to "true", and overrides it otherwise.
+// "true". Canton native registration tests require signature verification to be
+// disabled; any other value will cause those tests to fail.
 func e2eEnv() []string {
 	const key = "SKIP_CANTON_SIG_VERIFY"
 	env := os.Environ()
-	for _, e := range env {
+	for i, e := range env {
 		if strings.HasPrefix(e, key+"=") {
-			// Already set — keep it (caller may have set it to "false" for a
-			// specific reason; we don't override an explicit caller choice here,
-			// but in practice all e2e callers want "true").
+			if e != key+"=true" {
+				fmt.Fprintf(os.Stderr, "WARNING: %s is set to %q; forcing to \"true\" for E2E tests\n", key, strings.TrimPrefix(e, key+"="))
+				env[i] = key + "=true"
+			}
 			return env
 		}
 	}

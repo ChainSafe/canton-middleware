@@ -65,6 +65,11 @@ type Canton interface {
 	// has no holdings for that token.
 	GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error)
 
+	// AllocateParty allocates a fresh internal Canton party with the given hint
+	// and returns its fully-qualified party ID. Use this to create unique parties
+	// per test without relying on manifest fixtures.
+	AllocateParty(ctx context.Context, hint string) (string, error)
+
 	// GetHoldings returns the CIP56Holding contracts owned by ownerParty for
 	// tokenSymbol. Used by bridge withdrawal tests to obtain the HoldingCID.
 	GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*CantonHolding, error)
