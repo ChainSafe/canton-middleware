@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -19,6 +20,8 @@ const (
 	cip56PackageID          = "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
 	spliceTransferPackageID = "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 	identityPackageID       = "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+	bridgePackageID         = "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+	bridgeModule            = "Wayfinder.Bridge"
 
 	// cantonUserID is the JWT subject claim emitted by the mock OAuth2 server
 	// when authenticating with client_id "local-test-client". Canton uses
@@ -40,11 +43,14 @@ var _ stack.Canton = (*CantonShim)(nil)
 
 // CantonShim implements stack.Canton.
 type CantonShim struct {
-	grpcEndpoint string
-	httpEndpoint string
-	client       *http.Client
-	ledgerClient ledger.Ledger
-	tokenClient  token.Token
+	grpcEndpoint      string
+	httpEndpoint      string
+	client            *http.Client
+	ledgerClient      ledger.Ledger
+	demoTokenClient   token.Token // acts as DemoInstrumentAdmin — used for DEMO mint/balance
+	promptTokenClient token.Token // acts as PromptInstrumentAdmin — used for PROMPT holdings
+	identityClient    identity.Identity
+	bridgeClient      bridge.Bridge
 }
 
 // NewCanton returns a CantonShim wired to the endpoints in the manifest.
@@ -70,16 +76,17 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		return nil, fmt.Errorf("ledger.New: %w", err)
 	}
 
-	idCfg := &identity.Config{
+	// Identity client for token operations — acts as the DEMO instrument admin.
+	demoIdCfg := &identity.Config{
 		DomainID:    manifest.CantonDomainID,
 		IssuerParty: manifest.DemoInstrumentAdmin,
 		UserID:      cantonUserID,
 		PackageID:   identityPackageID,
 	}
-	id, err := identity.New(idCfg, l)
+	demoID, err := identity.New(demoIdCfg, l)
 	if err != nil {
 		_ = l.Close()
-		return nil, fmt.Errorf("identity.New: %w", err)
+		return nil, fmt.Errorf("identity.New (demo): %w", err)
 	}
 
 	tokenCfg := &token.Config{
@@ -89,18 +96,65 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		CIP56PackageID:          cip56PackageID,
 		SpliceTransferPackageID: spliceTransferPackageID,
 	}
-	tk, err := token.New(tokenCfg, l, id)
+	demoTk, err := token.New(tokenCfg, l, demoID)
 	if err != nil {
 		_ = l.Close()
 		return nil, fmt.Errorf("token.New: %w", err)
 	}
 
+	// Identity client for bridge operations — acts as the PROMPT instrument admin
+	// (bridge operator). FingerprintMappings created during user registration are
+	// visible to this party, matching the production relayer configuration.
+	bridgeIdCfg := &identity.Config{
+		DomainID:    manifest.CantonDomainID,
+		IssuerParty: manifest.PromptInstrumentAdmin,
+		UserID:      cantonUserID,
+		PackageID:   identityPackageID,
+	}
+	bridgeID, err := identity.New(bridgeIdCfg, l)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("identity.New (bridge): %w", err)
+	}
+
+	// Token client for PROMPT holdings — acts as PromptInstrumentAdmin so that
+	// GetHoldings returns results visible to the bridge operator, matching how
+	// the production relayer queries holdings before initiating withdrawals.
+	promptTokenCfg := &token.Config{
+		DomainID:                manifest.CantonDomainID,
+		IssuerParty:             manifest.PromptInstrumentAdmin,
+		UserID:                  cantonUserID,
+		CIP56PackageID:          cip56PackageID,
+		SpliceTransferPackageID: spliceTransferPackageID,
+	}
+	promptTk, err := token.New(promptTokenCfg, l, bridgeID)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("token.New (prompt): %w", err)
+	}
+
+	bridgeCfg := &bridge.Config{
+		DomainID:      manifest.CantonDomainID,
+		UserID:        cantonUserID,
+		OperatorParty: manifest.PromptInstrumentAdmin,
+		PackageID:     bridgePackageID,
+		Module:        bridgeModule,
+	}
+	br, err := bridge.New(bridgeCfg, l, bridgeID)
+	if err != nil {
+		_ = l.Close()
+		return nil, fmt.Errorf("bridge.New: %w", err)
+	}
+
 	return &CantonShim{
-		grpcEndpoint: manifest.CantonGRPC,
-		httpEndpoint: manifest.CantonHTTP,
-		client:       &http.Client{Timeout: 10 * time.Second},
-		ledgerClient: l,
-		tokenClient:  tk,
+		grpcEndpoint:      manifest.CantonGRPC,
+		httpEndpoint:      manifest.CantonHTTP,
+		client:            &http.Client{Timeout: 10 * time.Second},
+		ledgerClient:      l,
+		demoTokenClient:   demoTk,
+		promptTokenClient: promptTk,
+		identityClient:    bridgeID,
+		bridgeClient:      br,
 	}, nil
 }
 
@@ -129,10 +183,21 @@ func (c *CantonShim) IsHealthy(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// AllocateParty allocates a new internal Canton party with the given hint and
+// returns its fully-qualified party ID. Use this in tests to create fresh
+// parties without depending on manifest fixtures.
+func (c *CantonShim) AllocateParty(ctx context.Context, hint string) (string, error) {
+	p, err := c.identityClient.AllocateParty(ctx, hint)
+	if err != nil {
+		return "", fmt.Errorf("allocate party %q: %w", hint, err)
+	}
+	return p.PartyID, nil
+}
+
 // MintToken mints amount of tokenSymbol to recipientParty via the IssuerMint
 // DAML choice on the TokenConfig contract.
 func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error {
-	_, err := c.tokenClient.Mint(ctx, &token.MintRequest{
+	_, err := c.demoTokenClient.Mint(ctx, &token.MintRequest{
 		RecipientParty: recipientParty,
 		Amount:         amount,
 		TokenSymbol:    tokenSymbol,
@@ -140,12 +205,60 @@ func (c *CantonShim) MintToken(ctx context.Context, recipientParty, tokenSymbol,
 	return err
 }
 
+// tokenClientFor returns the appropriate token client for the given symbol.
+// PROMPT holdings are only visible to PromptInstrumentAdmin (bridge operator);
+// all other tokens use the default client acting as DemoInstrumentAdmin.
+func (c *CantonShim) tokenClientFor(tokenSymbol string) token.Token {
+	if tokenSymbol == "PROMPT" {
+		return c.promptTokenClient
+	}
+	return c.demoTokenClient
+}
+
 // GetCantonBalance returns the total balance of tokenSymbol held by partyID
 // as a decimal string. Returns "0" when the party has no holdings.
 func (c *CantonShim) GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error) {
-	bal, err := c.tokenClient.GetBalanceByPartyID(ctx, partyID, tokenSymbol)
+	bal, err := c.tokenClientFor(tokenSymbol).GetBalanceByPartyID(ctx, partyID, tokenSymbol)
 	if err != nil {
 		return "0", err
 	}
 	return bal, nil
+}
+
+// GetHoldings returns the CIP56Holding contracts owned by ownerParty for tokenSymbol.
+func (c *CantonShim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*stack.CantonHolding, error) {
+	holdings, err := c.tokenClientFor(tokenSymbol).GetHoldings(ctx, ownerParty, tokenSymbol)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*stack.CantonHolding, len(holdings))
+	for i, h := range holdings {
+		result[i] = &stack.CantonHolding{
+			ContractID: h.ContractID,
+			Amount:     h.Amount,
+			Symbol:     h.Symbol,
+		}
+	}
+	return result, nil
+}
+
+// GetFingerprintMapping returns the FingerprintMapping contract ID for the
+// given fingerprint (as returned in the RegisterResponse.Fingerprint field).
+func (c *CantonShim) GetFingerprintMapping(ctx context.Context, fingerprint string) (string, error) {
+	m, err := c.identityClient.GetFingerprintMapping(ctx, fingerprint)
+	if err != nil {
+		return "", err
+	}
+	return m.ContractID, nil
+}
+
+// InitiateWithdrawal calls the WayfinderBridgeConfig.InitiateWithdrawal DAML
+// choice and returns the resulting WithdrawalRequest contract ID.
+func (c *CantonShim) InitiateWithdrawal(ctx context.Context, mappingCID, holdingCID, amount, evmDest string) (string, error) {
+	return c.bridgeClient.InitiateWithdrawal(ctx, bridge.InitiateWithdrawalRequest{
+		MappingCID:     mappingCID,
+		HoldingCID:     holdingCID,
+		Amount:         amount,
+		EvmDestination: evmDest,
+	})
 }

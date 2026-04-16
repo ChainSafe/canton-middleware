@@ -1,6 +1,11 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
+
+GREEN := \033[0;32m
+RED := \033[0;31m
+RESET := \033[0m
 
 MOCKERY_VERSION ?= v2.53.6
+COVERAGE_THRESHOLD ?= 10
 
 # Build the relayer binary
 build:
@@ -12,8 +17,20 @@ test:
 
 # Run tests with coverage
 test-coverage:
-	go test -v -coverprofile=coverage.out ./...
+	go test -v -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
+	@go tool cover -func=coverage.out | tail -1
+
+# Run tests with coverage and enforce minimum threshold
+test-coverage-check: test-coverage
+	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$3}' | tr -d '%'); \
+	echo "Coverage: $${total}% (threshold: $(COVERAGE_THRESHOLD)%)"; \
+	if [ $$(awk "BEGIN {print ($${total} < $(COVERAGE_THRESHOLD))}") -eq 1 ]; then \
+		echo "$(RED)FAIL: Coverage $${total}% is below $(COVERAGE_THRESHOLD)% threshold$(RESET)"; \
+		exit 1; \
+	else \
+		echo "$(GREEN)PASS: Coverage $${total}% meets $(COVERAGE_THRESHOLD)% threshold$(RESET)"; \
+	fi
 
 # Clean build artifacts
 clean:
@@ -114,15 +131,15 @@ setup: deps db-up
 	@echo "Setup complete! Edit config.yaml and run 'make run'"
 
 # E2E tests
-E2E_COMPOSE := tests/e2e/docker-compose.e2e.yaml
-
 test-e2e: test-e2e-api test-e2e-bridge test-e2e-indexer
 
 test-e2e-api:
-	@echo "not yet implemented"
+	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
+		go test -v -tags e2e -timeout 10m ./tests/e2e/tests/api/...
 
 test-e2e-bridge:
-	@echo "not yet implemented"
+	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
+		go test -v -tags e2e -timeout 15m ./tests/e2e/tests/bridge/...
 
 test-e2e-indexer:
 	@echo "not yet implemented"

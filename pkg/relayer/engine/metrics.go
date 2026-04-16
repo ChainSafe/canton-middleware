@@ -35,9 +35,6 @@ type Metrics struct {
 
 	// ── Stream / processor reliability ───────────────────────────────────────
 
-	// CantonStreamReconnects counts Canton gRPC stream reconnections.
-	CantonStreamReconnects prometheus.Counter
-
 	// ProcessorRestarts counts processor restart events by chain and reason.
 	ProcessorRestarts *prometheus.CounterVec
 
@@ -124,13 +121,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "last_processed_block",
 			Help: "Last processed block number by chain",
 		}, []string{"chain"}),
-
-		// Stream / processor reliability
-		CantonStreamReconnects: f.NewCounter(prometheus.CounterOpts{
-			Namespace: ns, Subsystem: sub,
-			Name: "canton_stream_reconnects_total",
-			Help: "Total number of Canton stream reconnections",
-		}),
 
 		ProcessorRestarts: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,
