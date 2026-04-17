@@ -170,7 +170,6 @@ func (d *DSL) WaitForPartyEventMatching(
 		t.Fatal("WaitForPartyEventMatching not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return nil // unreachable; t.Fatal calls runtime.Goexit
 	}
-	const pageSize = 50
 	deadline := time.Now().Add(indexerEventTimeout)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
