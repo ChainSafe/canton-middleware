@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/chainsafe/canton-middleware/internal/metrics"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
@@ -77,6 +77,7 @@ type Engine struct {
 	cantonClient CantonBridgeClient
 	ethClient    EthereumBridgeClient
 	store        BridgeStore
+	metrics      *Metrics
 	logger       *zap.Logger
 
 	// Cached chain keys (computed once from config).
@@ -107,6 +108,7 @@ func NewEngine(
 	cantonClient CantonBridgeClient,
 	ethClient EthereumBridgeClient,
 	store BridgeStore,
+	metrics *Metrics,
 	logger *zap.Logger,
 ) *Engine {
 	cantonKey := cfg.CantonChainID
@@ -117,6 +119,7 @@ func NewEngine(
 		cantonClient: cantonClient,
 		ethClient:    ethClient,
 		store:        store,
+		metrics:      metrics,
 		logger:       logger,
 		cantonKey:    cantonKey,
 		ethereumKey:  ethereumKey,
@@ -132,10 +135,10 @@ func (e *Engine) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to load offsets: %w", err)
 	}
 
-	cantonSrc := NewCantonSource(e.cantonClient, e.config.EthTokenContract, e.cantonKey)
+	cantonSrc := NewCantonSource(e.cantonClient, e.config.EthTokenContract, e.cantonKey, e.metrics)
 	e.ethDest = NewEthereumDestination(e.ethClient, e.ethereumKey, e.logger)
 
-	ethSource := NewEthereumSource(e.ethClient, e.ethereumKey)
+	ethSource := NewEthereumSource(e.ethClient, e.ethereumKey, e.metrics)
 	e.cantonDest = NewCantonDestination(e.cantonClient, e.cantonKey, e.logger)
 
 	// After each Canton→Ethereum withdrawal is submitted on EVM, mark it complete on Canton.
@@ -153,11 +156,13 @@ func (e *Engine) Start(ctx context.Context) error {
 		return nil // best-effort: do not fail the transfer
 	}
 
-	cantonProcessor := NewProcessor(cantonSrc, e.ethDest, e.store, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
+	cantonProcessor := NewProcessor(cantonSrc, e.ethDest, e.store, e.metrics, e.logger, "canton_processor", relayer.DirectionCantonToEthereum).
 		WithOffsetUpdate(e.saveChainOffset).
 		WithPostSubmit(completeWithdrawal)
-	ethProcessor := NewProcessor(ethSource, e.cantonDest, e.store, e.logger, "ethereum_processor", relayer.DirectionEthereumToCanton).
-		WithOffsetUpdate(e.saveChainOffset)
+	ethProcessor := NewProcessor(
+		ethSource, e.cantonDest, e.store, e.metrics, e.logger,
+		"ethereum_processor", relayer.DirectionEthereumToCanton,
+	).WithOffsetUpdate(e.saveChainOffset)
 
 	e.wg.Add(1)
 	go e.runCantonProcessorLoop(ctx, cantonProcessor)
@@ -199,12 +204,14 @@ func (e *Engine) runCantonProcessorLoop(ctx context.Context, cantonProcessor *Pr
 		}
 
 		if err != nil {
+			e.metrics.IncProcessorRestarts(relayer.ChainCanton, RestartReasonError)
 			e.logger.Warn("Canton processor stopped; restarting with backoff",
 				zap.Error(err),
 				zap.String("offset", startOffset),
 				zap.Duration("restart_in", backoff),
 				zap.String("hint", "Regenerate protos from Canton 3.4.8 to enable withdrawal streaming"))
 		} else {
+			e.metrics.IncProcessorRestarts(relayer.ChainCanton, RestartReasonStreamClosed)
 			e.logger.Warn("Canton processor exited unexpectedly; restarting with backoff",
 				zap.String("offset", startOffset),
 				zap.Duration("restart_in", backoff))
@@ -419,13 +426,28 @@ func (e *Engine) saveChainOffset(ctx context.Context, chainID string, offset str
 	e.mu.Lock()
 	if chainID == e.ethereumKey {
 		e.ethLastBlock = blockNumber
+		e.metrics.SetLastProcessedBlock(chainID, float64(blockNumber))
 	} else {
 		e.cantonOffset = offset
+		if n, err := strconv.ParseFloat(offset, 64); err == nil {
+			e.metrics.SetLastProcessedBlock(chainID, n)
+		}
 	}
 	e.mu.Unlock()
 
 	e.logger.Debug("Saved chain offset", zap.String("chain", chainID), zap.String("offset", offset))
 	return nil
+}
+
+// updateChainHeadPositions polls both chain heads and sets the ChainHeadPosition gauge.
+// Called every reconciliation tick so the metric stays current for lag calculation.
+func (e *Engine) updateChainHeadPositions(ctx context.Context) {
+	if headBlock, err := e.ethClient.GetLatestBlockNumber(ctx); err == nil {
+		e.metrics.SetChainHeadPosition(relayer.ChainEthereum, float64(headBlock))
+	}
+	if ledgerEnd, err := e.cantonClient.GetLatestLedgerOffset(ctx); err == nil {
+		e.metrics.SetChainHeadPosition(relayer.ChainCanton, float64(ledgerEnd))
+	}
 }
 
 // reconcileLoop periodically checks for stuck transfers and retries them.
@@ -440,9 +462,15 @@ func (e *Engine) reconcileLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			e.updateChainHeadPositions(ctx)
+			recTimer := prometheus.NewTimer(e.metrics.ReconciliationDuration)
 			if err := e.runReconciliation(ctx); err != nil {
+				e.metrics.IncReconciliationRuns(ReconciliationError)
 				e.logger.Error("Reconciliation failed", zap.Error(err))
+			} else {
+				e.metrics.IncReconciliationRuns(ReconciliationSuccess)
 			}
+			recTimer.ObserveDuration()
 		}
 	}
 }
@@ -465,8 +493,8 @@ func (e *Engine) runReconciliation(ctx context.Context) error {
 		zap.Int("canton_pending", len(cantonPending)),
 		zap.Int("ethereum_pending", len(ethPending)))
 
-	metrics.PendingTransfers.WithLabelValues("canton_to_ethereum").Set(float64(len(cantonPending)))
-	metrics.PendingTransfers.WithLabelValues("ethereum_to_canton").Set(float64(len(ethPending)))
+	e.metrics.SetPendingTransfers(relayer.DirectionCantonToEthereum, float64(len(cantonPending)))
+	e.metrics.SetPendingTransfers(relayer.DirectionEthereumToCanton, float64(len(ethPending)))
 
 	// Retry transfers stuck longer than RetryDelay, up to MaxRetries attempts.
 	maxRetries := e.config.MaxRetries
@@ -492,6 +520,7 @@ func (e *Engine) maybeRetryTransfer(ctx context.Context, t *relayer.Transfer, de
 			zap.String("id", t.ID),
 			zap.Int("retry_count", t.RetryCount),
 			zap.Int("max_retries", maxRetries))
+		e.metrics.IncTransferRetries(t.Direction, RetryOutcomeMaxExceeded)
 		errMsg := fmt.Sprintf("max retries (%d) exceeded", maxRetries)
 		if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusFailed, nil, &errMsg); updateErr != nil {
 			e.logger.Warn("Failed to mark transfer as failed after max retries", zap.String("id", t.ID), zap.Error(updateErr))
@@ -538,6 +567,8 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 
 	destTxHash, skipped, err := dest.SubmitTransfer(ctx, event)
 	if err != nil {
+		e.metrics.IncTransferRetries(t.Direction, RetryOutcomeFailed)
+		e.metrics.IncTransactionsSent(dest.GetChainID(), TxStatusFailed)
 		e.logger.Error("Stuck transfer retry failed", zap.String("id", t.ID), zap.Error(err))
 		if incrErr := e.store.IncrementRetryCount(ctx, t.ID); incrErr != nil {
 			e.logger.Warn("Failed to increment retry count", zap.String("id", t.ID), zap.Error(incrErr))
@@ -545,9 +576,13 @@ func (e *Engine) retryStuckTransfer(ctx context.Context, t *relayer.Transfer, de
 		return
 	}
 
+	e.metrics.IncTransferRetries(t.Direction, RetryOutcomeSuccess)
+	e.metrics.ObserveTransferAge(t.Direction, time.Since(t.CreatedAt).Seconds())
+
 	var txHashPtr *string
 	if !skipped {
 		txHashPtr = &destTxHash
+		e.metrics.IncTransactionsSent(dest.GetChainID(), TxStatusSuccess)
 	}
 	if updateErr := e.store.UpdateTransferStatus(ctx, t.ID, relayer.TransferStatusCompleted, txHashPtr, nil); updateErr != nil {
 		e.logger.Warn("Failed to mark retried transfer as completed", zap.String("id", t.ID), zap.Error(updateErr))
@@ -607,6 +642,7 @@ func (e *Engine) checkEthereumReadiness(ctx context.Context) {
 	const lagTolerance = uint64(1)
 	if lastProcessed+lagTolerance >= headBlock {
 		e.ethereumSynced = true
+		e.updateReadyGauge()
 		e.logger.Info("Ethereum processor initial sync complete",
 			zap.Uint64("last_block", lastProcessed),
 			zap.Uint64("head_block", headBlock))
@@ -634,14 +670,19 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 
 	ledgerEndStr := strconv.FormatInt(ledgerEnd, 10)
 
+	markCantonSynced := func() {
+		e.cantonSynced = true
+		e.updateReadyGauge()
+	}
+
 	switch e.cantonOffset {
 	case "", ledgerEndStr:
-		e.cantonSynced = true
+		markCantonSynced()
 		e.logger.Info("Canton processor initial sync complete (at ledger end)", zap.String("offset", e.cantonOffset))
 		return
 	case relayer.OffsetBegin:
 		// If starting from the beginning and the ledger is reachable, consider synced.
-		e.cantonSynced = true
+		markCantonSynced()
 		e.logger.Info("Canton processor initial sync complete (BEGIN offset, ledger reachable)",
 			zap.String("ledger_end", ledgerEndStr))
 		return
@@ -653,7 +694,7 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 	}
 
 	if currentOffset >= ledgerEnd {
-		e.cantonSynced = true
+		markCantonSynced()
 		e.logger.Info("Canton processor initial sync complete",
 			zap.String("offset", e.cantonOffset),
 			zap.String("ledger_end", ledgerEndStr))
@@ -663,7 +704,7 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 	// If the stream has been healthy long enough with no matching events, consider synced.
 	const streamGracePeriod = 10 * time.Second
 	if !e.cantonStreamStarted.IsZero() && time.Since(e.cantonStreamStarted) >= streamGracePeriod {
-		e.cantonSynced = true
+		markCantonSynced()
 		e.logger.Info("Canton processor synced (stream healthy, no pending withdrawals)",
 			zap.String("offset", e.cantonOffset),
 			zap.String("ledger_end", ledgerEndStr))
@@ -674,4 +715,14 @@ func (e *Engine) checkCantonReadiness(ctx context.Context) {
 		zap.String("offset", e.cantonOffset),
 		zap.String("ledger_end", ledgerEndStr),
 		zap.Int64("behind", ledgerEnd-currentOffset))
+}
+
+// updateReadyGauge sets the bridge_ready gauge based on current sync state.
+// Must be called with e.mu held.
+func (e *Engine) updateReadyGauge() {
+	if e.cantonSynced && e.ethereumSynced {
+		e.metrics.Ready.Set(1)
+	} else {
+		e.metrics.Ready.Set(0)
+	}
 }

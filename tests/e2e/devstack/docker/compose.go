@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // ComposeOrchestrator manages the Docker Compose stack lifecycle for E2E tests.
@@ -42,6 +43,11 @@ func dockerComposeCommand(ctx context.Context, args ...string) *exec.Cmd {
 //
 // All combined output is streamed to os.Stderr. Returns an error immediately
 // if any container fails to reach a healthy state — no retries.
+//
+// SKIP_CANTON_SIG_VERIFY is forced to "true" for the E2E environment so that
+// Canton native user registration tests can run without a real Loop wallet
+// signature. The local devnet has no production Canton parties, so skipping
+// the sig check is safe and intentional for testing purposes.
 func (c *ComposeOrchestrator) Start(ctx context.Context) error {
 	cmd := dockerComposeCommand(ctx,
 		"-f", c.composeFile,
@@ -50,10 +56,31 @@ func (c *ComposeOrchestrator) Start(ctx context.Context) error {
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
+	// Inherit the host environment and override the Canton sig-verify flag so
+	// that Canton native registration tests work without a real Loop wallet.
+	cmd.Env = e2eEnv()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker compose up failed: %w", err)
 	}
 	return nil
+}
+
+// e2eEnv returns the host environment with SKIP_CANTON_SIG_VERIFY forced to
+// "true". Canton native registration tests require signature verification to be
+// disabled; any other value will cause those tests to fail.
+func e2eEnv() []string {
+	const key = "SKIP_CANTON_SIG_VERIFY"
+	env := os.Environ()
+	for i, e := range env {
+		if strings.HasPrefix(e, key+"=") {
+			if e != key+"=true" {
+				fmt.Fprintf(os.Stderr, "WARNING: %s is set to %q; forcing to \"true\" for E2E tests\n", key, strings.TrimPrefix(e, key+"="))
+				env[i] = key + "=true"
+			}
+			return env
+		}
+	}
+	return append(env, key+"=true")
 }
 
 // Stop tears down the stack and removes all volumes via:

@@ -42,7 +42,7 @@ type Anvil interface {
 }
 
 // Canton is the interface for the Canton ledger node.
-// It provides endpoint accessors and a liveness check.
+// It provides endpoint accessors, a liveness check, and token operations.
 type Canton interface {
 	// GRPCEndpoint returns the gRPC endpoint (e.g. "localhost:5011").
 	GRPCEndpoint() string
@@ -54,6 +54,36 @@ type Canton interface {
 	// IsHealthy returns true when Canton has connected to the synchronizer
 	// and is ready to accept commands.
 	IsHealthy(ctx context.Context) bool
+
+	// MintToken mints amount of tokenSymbol to recipientParty via the
+	// IssuerMint DAML choice on the TokenConfig contract. Used by E2E tests
+	// to seed DEMO balances before exercising the transfer API.
+	MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error
+
+	// GetCantonBalance returns the total balance of tokenSymbol held by
+	// partyID, expressed as a decimal string. Returns "0" when the party
+	// has no holdings for that token.
+	GetCantonBalance(ctx context.Context, partyID, tokenSymbol string) (string, error)
+
+	// AllocateParty allocates a fresh internal Canton party with the given hint
+	// and returns its fully-qualified party ID. Use this to create unique parties
+	// per test without relying on manifest fixtures.
+	AllocateParty(ctx context.Context, hint string) (string, error)
+
+	// GetHoldings returns the CIP56Holding contracts owned by ownerParty for
+	// tokenSymbol. Used by bridge withdrawal tests to obtain the HoldingCID.
+	GetHoldings(ctx context.Context, ownerParty, tokenSymbol string) ([]*CantonHolding, error)
+
+	// GetFingerprintMapping returns the FingerprintMapping contract ID for the
+	// given fingerprint (as returned by RegisterUser/RegisterExternalUser).
+	// Used by bridge withdrawal tests to obtain the MappingCID.
+	GetFingerprintMapping(ctx context.Context, fingerprint string) (string, error)
+
+	// InitiateWithdrawal calls the WayfinderBridgeConfig.InitiateWithdrawal
+	// DAML choice and returns the resulting WithdrawalRequest contract ID.
+	// mappingCID is from GetFingerprintMapping; holdingCID is from GetHoldings;
+	// evmDest is the recipient's EVM address (checksummed hex).
+	InitiateWithdrawal(ctx context.Context, mappingCID, holdingCID, amount, evmDest string) (string, error)
 }
 
 // APIServer is the interface for the canton-middleware api-server.
@@ -67,6 +97,11 @@ type Canton interface {
 type APIServer interface {
 	// Endpoint returns the base HTTP URL (e.g. "http://localhost:8081").
 	Endpoint() string
+
+	// RPC returns the go-ethereum ethclient connected to the api-server's
+	// /eth JSON-RPC facade. Callers can use it for arbitrary eth_ calls
+	// without going through the shim's typed methods.
+	RPC() *ethclient.Client
 
 	// Health returns nil when the api-server is ready to accept requests.
 	Health(ctx context.Context) error
@@ -104,9 +139,10 @@ type APIServer interface {
 	ExecuteTransfer(ctx context.Context, account *Account, req *transfer.ExecuteRequest) (*transfer.ExecuteResponse, error)
 
 	// ERC20Balance returns the ERC-20 balance of ownerAddr for tokenAddr by
-	// calling eth_call through the api-server's Ethereum JSON-RPC facade at
-	// POST /eth.
-	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr string) (string, error)
+	// calling balanceOf through the api-server's Ethereum JSON-RPC facade at
+	// /eth. Uses go-ethereum's ethclient so the call exercises full
+	// JSON-RPC compatibility of the facade, not just a single raw method.
+	ERC20Balance(ctx context.Context, tokenAddr, ownerAddr common.Address) (*big.Int, error)
 
 	// TransferFactory calls POST /registry/transfer-instruction/v1/transfer-factory
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
@@ -210,8 +246,4 @@ type APIDatabase interface {
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
 	// it permission to register with the api-server.
 	WhitelistAddress(ctx context.Context, evmAddress string) error
-
-	// GetUserByEVMAddress returns the user row for evmAddress, or nil if no
-	// row exists.
-	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 }

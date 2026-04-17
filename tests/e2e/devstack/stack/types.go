@@ -2,7 +2,32 @@
 
 package stack
 
-import "github.com/ethereum/go-ethereum/common"
+import (
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/chainsafe/canton-middleware/pkg/token"
+)
+
+// Token bundles an ERC-20 contract address with its ERC20Token metadata
+// (symbol, decimals) for use in E2E test helpers such as WaitForAPIBalance.
+type Token struct {
+	token.ERC20Token
+	Address common.Address
+}
+
+// DemoTokenVirtualAddr is the virtual EVM address of the DEMO Canton-native
+// token as recognized by the api-server's /eth JSON-RPC facade. It is a
+// well-known constant derived from the api-server's contract mapping — update
+// here if that mapping ever changes.
+const DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
+
+// CantonHolding is a minimal view of a CIP56Holding contract used by E2E tests.
+// It carries only the fields needed for bridge withdrawal operations.
+type CantonHolding struct {
+	ContractID string
+	Amount     string
+	Symbol     string
+}
 
 // ---------------------------------------------------------------------------
 // Test accounts
@@ -63,17 +88,10 @@ type ServiceManifest struct {
 	// OAuthHTTP is the mock OAuth2 server base URL (e.g. "http://localhost:8088").
 	OAuthHTTP string
 
-	// APIDatabaseDSN is the connection string for the api-server database
+	// APIDatabaseDSN is the connection string for the api-server database,
+	// used only for whitelisting addresses during test setup
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
 	APIDatabaseDSN string
-
-	// RelayerDatabaseDSN is the connection string for the relayer database
-	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/relayer").
-	RelayerDatabaseDSN string
-
-	// IndexerDatabaseDSN is the connection string for the indexer database
-	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/canton_indexer").
-	IndexerDatabaseDSN string
 
 	// PromptTokenAddr is the address of the deployed PromptToken ERC-20
 	// contract (e.g. "0x5FbDB2315678afecb367f032d93F642f64180aa3").
@@ -96,4 +114,13 @@ type ServiceManifest struct {
 	// DemoInstrumentID is the instrument identifier of the DEMO token
 	// (e.g. "DEMO").
 	DemoInstrumentID string
+
+	// CantonDomainID is the synchronizer/domain ID of the Canton network,
+	// resolved at discovery time from the Canton HTTP API.
+	CantonDomainID string
+
+	// DemoTokenAddr is the virtual EVM address of the DEMO Canton-native token
+	// as recognized by the api-server's /eth JSON-RPC facade.
+	// It is a well-known constant: 0xDE30000000000000000000000000000000000001.
+	DemoTokenAddr string
 }
