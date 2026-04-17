@@ -123,3 +123,4 @@ docker-compose.remote.yaml
 
 # Binary output from demo
 interop-demo
+/devstack

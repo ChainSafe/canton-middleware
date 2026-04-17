@@ -21,6 +21,8 @@ const registerMessage = "register"
 // TestRegister_Web3_Success verifies that a whitelisted EVM address can
 // register in custodial (web3) mode via POST /register.
 func TestRegister_Web3_Success(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -38,6 +40,8 @@ func TestRegister_Web3_Success(t *testing.T) {
 // a second time returns HTTP 409 Conflict. The api-server rejects duplicate
 // registrations rather than silently returning the existing record.
 func TestRegister_Duplicate_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -64,6 +68,8 @@ func TestRegister_Duplicate_Fails(t *testing.T) {
 // TestRegister_NotWhitelisted_Fails verifies that a non-whitelisted EVM
 // address is rejected with HTTP 403 Forbidden.
 func TestRegister_NotWhitelisted_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -93,6 +99,8 @@ func TestRegister_NotWhitelisted_Fails(t *testing.T) {
 // different private key is rejected. The server recovers the wrong EVM address
 // from the mismatched signature and rejects it as not whitelisted (HTTP 403).
 func TestRegister_InvalidSignature_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -121,6 +129,8 @@ func TestRegister_InvalidSignature_Fails(t *testing.T) {
 // TestRegister_MissingFields_Fails verifies that an empty POST /register body
 // is rejected with HTTP 401 (missing signature and message).
 func TestRegister_MissingFields_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -134,6 +144,8 @@ func TestRegister_MissingFields_Fails(t *testing.T) {
 // TestRegister_ExternalUser_TwoStep_Success verifies the non-custodial
 // two-step registration flow: prepare-topology → sign → register with external key.
 func TestRegister_ExternalUser_TwoStep_Success(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -161,6 +173,8 @@ func TestRegister_ExternalUser_TwoStep_Success(t *testing.T) {
 // Canton signature verification is skipped in the E2E devstack
 // (SKIP_CANTON_SIG_VERIFY=true) so no Loop wallet private key is needed.
 func TestRegister_CantonNative_Success(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -193,6 +207,8 @@ func TestRegister_CantonNative_Success(t *testing.T) {
 // TestRegister_CantonNative_Duplicate_Fails verifies that registering the
 // same Canton party ID a second time returns HTTP 409 Conflict.
 func TestRegister_CantonNative_Duplicate_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -220,6 +236,8 @@ func TestRegister_CantonNative_Duplicate_Fails(t *testing.T) {
 // TestRegister_CantonNative_InvalidPartyID_Fails verifies that a malformed
 // canton_party_id (missing the "hint::fingerprint" separator) returns HTTP 400.
 func TestRegister_CantonNative_InvalidPartyID_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -235,6 +253,8 @@ func TestRegister_CantonNative_InvalidPartyID_Fails(t *testing.T) {
 // TestRegister_PrepareTopology_MissingPublicKey_Fails verifies that step 1 of
 // external registration returns HTTP 400 when canton_public_key is absent.
 func TestRegister_PrepareTopology_MissingPublicKey_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -263,6 +283,8 @@ func TestRegister_PrepareTopology_MissingPublicKey_Fails(t *testing.T) {
 // TestRegister_PrepareTopology_NotWhitelisted_Fails verifies that step 1 of
 // external registration returns HTTP 403 when the EVM address is not whitelisted.
 func TestRegister_PrepareTopology_NotWhitelisted_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -293,6 +315,8 @@ func TestRegister_PrepareTopology_NotWhitelisted_Fails(t *testing.T) {
 // step 2 of external registration is rejected with HTTP 400 when the topology
 // signature is absent.
 func TestRegister_ExternalUser_MissingTopologySignature_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
