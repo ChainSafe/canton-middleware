@@ -41,7 +41,7 @@ jobs:
       - name: Build Canton Docker image
         run: |
           cd canton-docker
-          ./build_container.sh
+          ./build_contianer.sh
 
       - name: Download dependencies
         run: go mod download
