@@ -85,14 +85,16 @@ type Store interface {
 type Processor struct {
 	fetcher EventFetcher
 	store   Store
+	metrics *Metrics
 	logger  *zap.Logger
 }
 
 // NewProcessor creates a Processor.
-func NewProcessor(fetcher EventFetcher, store Store, logger *zap.Logger) *Processor {
+func NewProcessor(fetcher EventFetcher, store Store, metrics *Metrics, logger *zap.Logger) *Processor {
 	return &Processor{
 		fetcher: fetcher,
 		store:   store,
+		metrics: metrics,
 		logger:  logger,
 	}
 }
@@ -143,6 +145,7 @@ func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.
 			return nil
 		}
 
+		p.metrics.BatchProcessingErrors.Inc()
 		p.logger.Error("failed to process batch, retrying",
 			zap.String("update_id", batch.UpdateID),
 			zap.Int64("offset", batch.Offset),
@@ -201,6 +204,19 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 	})
 	if err != nil {
 		return fmt.Errorf("tx at offset %d: %w", batch.Offset, err)
+	}
+
+	// Update offset and event-type counters after a successful commit.
+	p.metrics.LastOffset.Set(float64(batch.Offset))
+	var lastEffectiveTime time.Time
+	for _, e := range batch.Items {
+		p.metrics.IncEventsProcessed(e.EventType)
+		if e.EffectiveTime.After(lastEffectiveTime) {
+			lastEffectiveTime = e.EffectiveTime
+		}
+	}
+	if !lastEffectiveTime.IsZero() {
+		p.metrics.SyncLagSeconds.Set(time.Since(lastEffectiveTime).Seconds())
 	}
 
 	if len(batch.Items) > 0 {

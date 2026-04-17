@@ -6,17 +6,21 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 )
 
 // Option configures client settings using the functional options pattern.
 type Option func(*settings)
 
 type settings struct {
-	logger      *zap.Logger
-	httpClient  *http.Client
-	bridgeCfg   *bridge.Config
-	keyResolver token.KeyResolver
+	logger         *zap.Logger
+	httpClient     *http.Client
+	bridgeCfg      *bridge.Config
+	keyResolver    token.KeyResolver
+	dialOpts       []grpc.DialOption
+	promRegisterer prometheus.Registerer
 }
 
 // WithLogger sets a custom logger for the SDK client.
@@ -39,6 +43,19 @@ func WithBridgeConfig(cfg *bridge.Config) Option {
 // Required for transfers involving external parties (Interactive Submission).
 func WithKeyResolver(kr token.KeyResolver) Option {
 	return func(s *settings) { s.keyResolver = kr }
+}
+
+// WithGRPCDialOptions appends additional gRPC dial options to the underlying
+// ledger connection. Use this to inject interceptors, custom credentials, etc.
+func WithGRPCDialOptions(opts ...grpc.DialOption) Option {
+	return func(s *settings) { s.dialOpts = append(s.dialOpts, opts...) }
+}
+
+// WithPrometheusRegisterer enables Canton client metrics and registers them
+// against the provided Prometheus registerer. When set, a gRPC unary interceptor
+// is automatically installed that records canton_client_rpc_duration_seconds.
+func WithPrometheusRegisterer(reg prometheus.Registerer) Option {
+	return func(s *settings) { s.promRegisterer = reg }
 }
 
 func applyOptions(opts []Option) settings {

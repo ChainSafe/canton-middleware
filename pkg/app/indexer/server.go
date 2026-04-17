@@ -33,6 +33,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -106,18 +108,26 @@ func (s *Server) Run() error {
 		EntityName: "TokenTransferEvent",
 	}
 
+	// ── Metrics — registered once, injected into processor and store ──────────
+
+	reg := prometheus.DefaultRegisterer
+	engineMetrics := engine.NewMetrics(reg)
+	storeMetrics := indexerstore.NewStoreMetrics(reg)
+	httpMetrics := NewHTTPMetrics(reg)
+
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
 	decode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
 	fetcher := engine.NewFetcher(streamClient, templateID, decode, logger)
-	store := indexerstore.NewStore(db)
-	processor := engine.NewProcessor(fetcher, store, logger)
+	rawStore := indexerstore.NewStore(db)
+	store := indexerstore.NewInstrumentedStore(rawStore, storeMetrics)
+	processor := engine.NewProcessor(fetcher, store, engineMetrics, logger)
 
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := newRouter(svc, logger)
+	router := newRouter(svc, httpMetrics, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -136,6 +146,20 @@ func (s *Server) Run() error {
 		return apphttp.ServeAndWait(gctx, router, logger, cfg.Server)
 	})
 
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		if s.cfg.Monitoring.Server == nil {
+			return fmt.Errorf("monitoring is enabled but server config is nil")
+		}
+
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gctx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
+
 	return g.Wait()
 }
 
@@ -147,12 +171,13 @@ func (s *Server) Run() error {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
+func newRouter(svc indexerservice.Service, metrics *HTTPMetrics, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultMiddlewareTimeout))
+	r.Use(requestMetricsMiddleware(metrics))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
