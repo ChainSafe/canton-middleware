@@ -39,3 +39,5 @@ logging:
 
 reconciliation: {}
 key_management: {}
+monitoring:
+  enabled: false

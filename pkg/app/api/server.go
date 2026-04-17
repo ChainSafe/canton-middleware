@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -31,7 +32,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -86,10 +90,18 @@ func (s *Server) Run() error {
 	}
 	defer dbBun.Close()
 
-	userStore := userstore.NewStore(dbBun)
+	// Metrics — registered once, injected into store wrappers and router middleware.
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "api_server")
+
+	userStore := userstore.NewInstrumentedStore(
+		userstore.NewStore(dbBun),
+		userstore.NewStoreMetrics(reg),
+	)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
-	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
+	metrics := apphttp.NewHTTPMetrics(reg)
+
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, reg, logger)
 	if err != nil {
 		return err
 	}
@@ -120,22 +132,23 @@ func (s *Server) Run() error {
 
 	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
-	evmStore := ethrpcstore.NewStore(dbBun)
+	evmStore := ethrpcstore.NewInstrumentedStore(
+		ethrpcstore.NewStore(dbBun),
+		ethrpcstore.NewStoreMetrics(reg),
+	)
 
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
 	go transferCache.Start(ctx)
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
+	instrumentedCache := transfer.NewInstrumentedCache(transferCache, transfer.NewCacheMetrics(reg))
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, instrumentedCache, tokenSymbols(cfg.Token))
 	regSvcLog := userservice.NewLog(registrationService, logger)
 	transferSvcLog := transfer.NewLog(transferSvc, logger)
 
-	if cfg.EthRPC.Enabled {
-		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
-		go m.Start(ctx)
-	}
+	s.startEthRPCMinerIfEnabled(ctx, evmStore, reg, logger)
 
-	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)
+	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, metrics, logger)
 
-	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
+	err = s.serveAll(ctx, router, logger)
 
 	// Stop background work before deferred DB/client closes kick in.
 	stopReconcile()
@@ -163,6 +176,7 @@ func (s *Server) openCantonClient(
 	ctx context.Context,
 	keyStore userKeyStore,
 	cipher keys.KeyCipher,
+	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (cantontkn.Signer, error) {
@@ -181,6 +195,7 @@ func (s *Server) openCantonClient(
 		s.cfg.Canton,
 		canton.WithLogger(logger),
 		canton.WithKeyResolver(keyResolver),
+		canton.WithPrometheusRegisterer(reg),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create canton client: %w", err)
@@ -227,12 +242,59 @@ func (s *Server) startPeriodicReconcile(
 	return func() { reconciler.Stop() }
 }
 
+func (s *Server) startEthRPCMinerIfEnabled(
+	ctx context.Context,
+	evmStore *ethrpcstore.InstrumentedStore,
+	reg sharedmetrics.NamespacedRegisterer,
+	logger *zap.Logger,
+) {
+	if !s.cfg.EthRPC.Enabled {
+		return
+	}
+	m := ethrpcminer.New(
+		evmStore,
+		s.cfg.EthRPC.ChainID, s.cfg.EthRPC.GasLimit,
+		s.cfg.EthRPC.MinerMaxTxsPerBlock, s.cfg.EthRPC.MinerInterval,
+		ethrpcminer.NewMetrics(reg),
+		logger,
+	)
+	go m.Start(ctx)
+}
+
+// serveAll runs the main HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
+
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		if s.cfg.Monitoring.Server == nil {
+			return fmt.Errorf("monitoring is enabled but server config is nil")
+		}
+
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
+
+	return g.Wait()
+}
+
 func (s *Server) setupRouter(
 	evmStore ethrpc.Store,
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
 	transferSvc transfer.Service,
+	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -242,6 +304,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {

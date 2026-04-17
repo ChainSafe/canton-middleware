@@ -43,6 +43,17 @@ indexer:
   cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
   filter_mode: "all"
 
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9092
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"
+
 logging:
   level: "debug"
   format: "json"
