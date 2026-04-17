@@ -24,12 +24,53 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TokenProviderMode selects which backend the token service uses for balance
+// and total-supply queries.
+type TokenProviderMode string
+
+const (
+	// TokenProviderCanton uses live gRPC ACS scans against the Canton ledger.
+	// This is the default and requires no additional infrastructure.
+	TokenProviderCanton TokenProviderMode = "canton"
+
+	// TokenProviderIndexer reads from the indexer's pre-materialized PostgreSQL
+	// tables via the indexer's HTTP admin API.  Requires the indexer process to
+	// be running and reachable at IndexerProviderConfig.URL.
+	TokenProviderIndexer TokenProviderMode = "indexer"
+)
+
+// IndexerProviderConfig holds the settings needed when token_provider.mode is "indexer".
+type IndexerProviderConfig struct {
+	// URL is the base URL of the indexer's HTTP admin API (e.g. "http://indexer:8082").
+	URL string `yaml:"url" validate:"required"`
+	// Instruments maps each supported token symbol (InstrumentID) to its Canton
+	// instrument admin party.  The indexer keys tokens by {admin, id}, so this
+	// mapping is required to translate from the Provider interface's symbol-only
+	// calls to the indexer's composite key.
+	//
+	// Example:
+	//   instruments:
+	//     DEMO: "admin::abc123@domain"
+	//     PROMPT: "issuer::xyz@domain"
+	Instruments map[string]string `yaml:"instruments" validate:"required,min=1"`
+}
+
+// TokenProviderConfig selects and configures the token data provider.
+type TokenProviderConfig struct {
+	// Mode selects the provider backend.  Defaults to "canton".
+	Mode TokenProviderMode `yaml:"mode" default:"canton" validate:"required,oneof=canton indexer"`
+	// Indexer holds settings used when Mode is "indexer".  Must be set when
+	// Mode is "indexer"; ignored otherwise.
+	Indexer *IndexerProviderConfig `yaml:"indexer"`
+}
+
 // APIServer represents the ERC-20 API server configuration
 type APIServer struct {
 	Server              *http.ServerConfig   `yaml:"server" validate:"required"`
 	Database            *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
 	Canton              *canton.Config       `yaml:"canton" validate:"required"`
 	Token               *token.Config        `yaml:"token" validate:"required"`
+	TokenProvider       *TokenProviderConfig `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
 	EthRPC              *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
 	JWKS                *JWKS                `yaml:"jwks" default:"-"` // nil by default (feature disabled)
 	Logging             *log.Config          `yaml:"logging" validate:"required"`
@@ -75,6 +116,9 @@ func LoadAPIServer(configPath string) (*APIServer, error) {
 	var cfg APIServer
 	if err := loadConfigFromFile(configPath, &cfg); err != nil {
 		return nil, err
+	}
+	if cfg.TokenProvider == nil {
+		cfg.TokenProvider = &TokenProviderConfig{Mode: TokenProviderCanton}
 	}
 	if err := validateConfig(&cfg); err != nil {
 		return nil, err
@@ -171,6 +215,14 @@ func newStartupValidator() *validator.Validate {
 		}
 		return name
 	})
+
+	v.RegisterStructValidation(func(sl validator.StructLevel) {
+		cfg := sl.Current().Interface().(TokenProviderConfig)
+		if cfg.Mode == TokenProviderIndexer && cfg.Indexer == nil {
+			sl.ReportError(cfg.Indexer, "indexer", "Indexer", "required_if_indexer_mode", "")
+		}
+	}, TokenProviderConfig{})
+
 	return v
 }
 
