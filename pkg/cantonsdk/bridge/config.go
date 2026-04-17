@@ -12,6 +12,10 @@ type Config struct {
 	OperatorParty string `yaml:"operator_party"`
 	// PackageID is the package id that contains Wayfinder.Bridge templates/choices.
 	PackageID string `yaml:"package_id" validate:"required"`
+	// CorePackageID is the package id for Bridge.Contracts (bridge-core package).
+	// WithdrawalRequest and WithdrawalEvent live here, separate from PackageID.
+	// Falls back to PackageID if empty.
+	CorePackageID string `yaml:"core_package_id"`
 	// Module is the DAML module name that contains WayfinderBridgeConfig template.
 	Module string `yaml:"module" validate:"required"`
 }

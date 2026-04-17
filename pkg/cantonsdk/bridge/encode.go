@@ -39,6 +39,14 @@ func encodeInitiateWithdrawalArgs(req InitiateWithdrawalRequest) *lapiv2.Record 
 	}
 }
 
+func encodeProcessWithdrawalArgs() *lapiv2.Record {
+	return &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
+			{Label: "timestamp", Value: values.TimestampValue(time.Now())},
+		},
+	}
+}
+
 func encodeCompleteWithdrawalArgs(evmTxHash string) *lapiv2.Record {
 	return &lapiv2.Record{
 		Fields: []*lapiv2.RecordField{
