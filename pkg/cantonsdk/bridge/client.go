@@ -79,6 +79,9 @@ func New(cfg *Config, l ledger.Ledger, i identity.Identity, opts ...Option) (*Cl
 	if l == nil {
 		return nil, fmt.Errorf("nil ledger client")
 	}
+	if i == nil {
+		return nil, fmt.Errorf("nil identity client")
+	}
 	s := applyOptions(opts)
 
 	return &Client{
@@ -130,9 +133,6 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 
 	// Common.FingerprintAuth templates live in the identity package, not the bridge package.
 	// Use the identity client's package ID so the ACS query targets the correct package.
-	if c.identity == nil {
-		return false, fmt.Errorf("IsDepositProcessed: identity client is required but not configured")
-	}
 	identityPkgID := c.identity.PackageID()
 	pendingTID := &lapiv2.Identifier{
 		PackageId:  identityPkgID,
