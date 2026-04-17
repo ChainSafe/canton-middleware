@@ -15,8 +15,9 @@ import (
 // TestERC20Balance_UnregisteredAddress_ReturnsZero checks that the ERC-20
 // balance of a fresh address is zero, exercising the /eth JSON-RPC facade.
 func TestERC20Balance_UnregisteredAddress_ReturnsZero(t *testing.T) {
-	sys := presets.NewAPIStack(t)
 	t.Parallel()
+
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	// Use a deterministic but unused address.
@@ -36,8 +37,9 @@ func TestERC20Balance_UnregisteredAddress_ReturnsZero(t *testing.T) {
 // api-server's /eth JSON-RPC facade (balanceOf on the DEMO virtual EVM
 // address) reflects the new balance.
 func TestGetBalance_AfterMintDEMO(t *testing.T) {
-	sys := presets.NewAPIStack(t)
 	t.Parallel()
+
+	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	resp, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -52,28 +54,28 @@ func TestGetBalance_AfterMintDEMO(t *testing.T) {
 // PROMPT tokens via the bridge, the bridge contract's PROMPT balance increases
 // by at least the deposited amount.
 func TestERC20Balance_AfterDeposit_ReflectsChange(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 	bridgeAddr := common.HexToAddress(sys.Manifest.BridgeAddr)
 
-	depositAmount := new(big.Int).Mul(big.NewInt(10), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	// Fund a fresh isolated account with 1 ETH and 10 PROMPT.
+	// NewFundedAccount serializes AnvilAccount0 nonce ops internally.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 10)
 
-	// SEQUENTIAL PREAMBLE — fund a fresh isolated account before going parallel.
-	account := sys.DSL.NewFundedAccount(ctx, t, new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil), tokenAddr, depositAmount)
+	// Register account so the bridge knows a Canton party for the recipient.
+	sys.DSL.RegisterUser(ctx, t, account)
 
-	// Check the bridge balance before deposit (still in preamble — no parallel interference yet).
+	// Check the bridge balance before deposit.
 	balBefore, err := sys.Anvil.ERC20Balance(ctx, tokenAddr, bridgeAddr)
 	if err != nil {
 		t.Fatalf("erc20 balance before: %v", err)
 	}
 
-	t.Parallel()
-
-	// Register account so the bridge knows a Canton party for the recipient.
-	sys.DSL.RegisterUser(ctx, t, account)
-
+	depositAmount := new(big.Int).Mul(big.NewInt(10), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
 	sys.DSL.Deposit(ctx, t, account, depositAmount)
 
 	// Bridge contract should hold at least depositAmount more PROMPT tokens.

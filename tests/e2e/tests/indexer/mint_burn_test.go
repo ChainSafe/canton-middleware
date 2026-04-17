@@ -26,8 +26,9 @@ var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 // IssuerMint DAML choice — it indexes any TokenTransferEvent it observes.
 // Using a freshly allocated party guarantees no prior events to filter.
 func TestIndexer_MintEvent(t *testing.T) {
-	sys := presets.NewIndexerStack(t)
 	t.Parallel()
+
+	sys := presets.NewIndexerStack(t)
 	ctx := context.Background()
 
 	// Allocate a fresh party. No api-server registration needed — the indexer
@@ -78,24 +79,22 @@ func TestIndexer_MintEvent(t *testing.T) {
 // created by the relayer when it processes a WithdrawalRequest — there is no
 // Canton-native path to create a BURN without the bridge.
 func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
-	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
 
-	// SEQUENTIAL PREAMBLE — fund a fresh isolated account before going parallel.
-	// MaxPartyEventOffset and balBefore are scoped to this account/party, so they
-	// are safe to read in the parallel body.
-	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
-
-	t.Parallel()
+	// Fresh isolated account: 1 ETH for gas, 2 PROMPT to deposit.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 2)
 
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// Deposit 2 PROMPT so there is a holding large enough to withdraw 1 from.
+	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")

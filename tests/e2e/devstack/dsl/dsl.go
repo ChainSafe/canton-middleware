@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -307,17 +308,24 @@ func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, 
 	return withdrawalReqCID
 }
 
-// NewFundedAccount generates a fresh secp256k1 key, then transfers ethWei of
-// ETH and tokenWei of the ERC-20 at tokenAddr from AnvilAccount0 to the new
-// address. Both transfers are mined before the method returns, so the account
-// is fully funded when it is returned. Pass nil (or zero) for either amount to
-// skip that transfer.
+// anvilFundingMu serializes all NewFundedAccount calls so that concurrent
+// parallel tests never race on AnvilAccount0's nonce. A package-level mutex is
+// used because each test creates its own DSL instance; the mutex must be shared
+// across instances. Each funding call internally waits for the transaction to
+// mine, so the nonce is always monotonically incremented before the next caller
+// acquires the lock.
+var anvilFundingMu sync.Mutex
+
+// NewFundedAccount generates a fresh secp256k1 key and funds it from
+// AnvilAccount0. eth is the amount of ETH to transfer (whole units, e.g. 1 for
+// 1 ETH). tokens is the amount of the ERC-20 at tokenAddr to transfer (whole
+// units, 18-decimal assumed). Pass 0 for either to skip that transfer.
 //
-// This method touches AnvilAccount0's nonce and must therefore be called in the
-// sequential preamble of a test — before t.Parallel(). Code that runs after
-// t.Parallel() is safe because the account's address is unique and no other test
-// shares it.
-func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, ethWei *big.Int, tokenAddr common.Address, tokenWei *big.Int) stack.Account {
+// The method is safe to call from parallel tests. Internally it holds a
+// package-level mutex while touching AnvilAccount0's nonce, so callers never
+// race each other. The returned account is fully funded before the method
+// returns.
+func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, eth int, tokenAddr common.Address, tokens int) stack.Account {
 	t.Helper()
 	if d.anvil == nil {
 		t.Fatal("NewFundedAccount not available: Anvil shim not initialized")
@@ -331,13 +339,21 @@ func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, ethWei *big.In
 		Address:    crypto.PubkeyToAddress(key.PublicKey),
 		PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
 	}
+
+	exp18 := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+
+	anvilFundingMu.Lock()
+	defer anvilFundingMu.Unlock()
+
 	funder := stack.AnvilAccount0
-	if ethWei != nil && ethWei.Sign() > 0 {
+	if eth > 0 {
+		ethWei := new(big.Int).Mul(big.NewInt(int64(eth)), exp18)
 		if err := d.anvil.FundWithETH(ctx, &funder, acc.Address, ethWei); err != nil {
 			t.Fatalf("NewFundedAccount: fund ETH: %v", err)
 		}
 	}
-	if tokenWei != nil && tokenWei.Sign() > 0 && (tokenAddr != common.Address{}) {
+	if tokens > 0 && (tokenAddr != common.Address{}) {
+		tokenWei := new(big.Int).Mul(big.NewInt(int64(tokens)), exp18)
 		if err := d.anvil.TransferERC20(ctx, &funder, acc.Address, tokenAddr, tokenWei); err != nil {
 			t.Fatalf("NewFundedAccount: fund ERC20: %v", err)
 		}
