@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks devstack-up devstack-down test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
 
 GREEN := \033[0;32m
 RED := \033[0;31m
@@ -130,17 +130,22 @@ setup: deps db-up
 	cp config.example.yaml config.yaml
 	@echo "Setup complete! Edit config.yaml and run 'make run'"
 
-# E2E tests
-test-e2e: test-e2e-api test-e2e-bridge test-e2e-indexer
+CANTON_MASTER_KEY := $(or $(CANTON_MASTER_KEY),$(shell openssl rand -base64 32))
+export CANTON_MASTER_KEY
 
-test-e2e-api:
-	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
-		go test -v -tags e2e -timeout 10m -parallel 4 ./tests/e2e/tests/api/...
+devstack-up:
+	go run ./tests/e2e/cmd/devstack up
 
-test-e2e-bridge:
-	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
-		go test -v -tags e2e -timeout 15m -parallel 4 ./tests/e2e/tests/bridge/...
+devstack-down:
+	go run ./tests/e2e/cmd/devstack down
 
-test-e2e-indexer:
-	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
-		go test -v -tags e2e -timeout 20m -parallel 4 ./tests/e2e/tests/indexer/...
+test-e2e-api: devstack-up
+	go test -v -tags e2e -timeout 10m -parallel 4 ./tests/e2e/tests/api/...
+
+test-e2e-bridge: devstack-up
+	go test -v -tags e2e -timeout 15m -parallel 4 ./tests/e2e/tests/bridge/...
+
+test-e2e-indexer: devstack-up
+	go test -v -tags e2e -timeout 20m -parallel 4 ./tests/e2e/tests/indexer/...
+
+test-e2e: devstack-up test-e2e-api test-e2e-bridge test-e2e-indexer
