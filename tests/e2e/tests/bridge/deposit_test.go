@@ -21,23 +21,24 @@ var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 // corresponding PROMPT holding. The test asserts that the relayer records a
 // completed transfer and that the Canton PROMPT balance reflects the deposit.
 func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
-	depositAmount := new(big.Int).Set(one18)
 
-	// SEQUENTIAL PREAMBLE — touches AnvilAccount0 nonce; must finish before t.Parallel().
-	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
-
-	t.Parallel()
+	// Fund a fresh isolated account. NewFundedAccount serializes AnvilAccount0
+	// nonce operations internally, so t.Parallel() at the top is safe.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 1)
 
 	// Register account so the api-server has a Canton party.
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// Deposit 1 PROMPT (1e18 wei) into the bridge contract.
+	depositAmount := new(big.Int).Set(one18)
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 
 	// Wait for the relayer to process the EVM deposit and complete it on Canton.
@@ -56,6 +57,8 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 // tokens = 1e17 wei) is handled correctly end-to-end. This confirms there is no
 // minimum-amount gate in the relayer or DAML bridge.
 func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
@@ -63,16 +66,13 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 
-	// 0.1 PROMPT = 1e17 wei
-	depositAmount := new(big.Int).Div(one18, big.NewInt(10))
-
-	// SEQUENTIAL PREAMBLE — fund a fresh isolated account before going parallel.
-	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
-
-	t.Parallel()
+	// Fund with 1 PROMPT; deposit only 0.1 PROMPT from it.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 1)
 
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
+	// 0.1 PROMPT = 1e17 wei
+	depositAmount := new(big.Int).Div(one18, big.NewInt(10))
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
@@ -84,6 +84,8 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 // the same address accumulate in the user's Canton balance. The relayer must
 // process both events independently and the indexer must reflect the sum.
 func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
@@ -91,13 +93,8 @@ func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 
-	// Fund with 2 PROMPT to cover both 1-PROMPT deposits.
-	totalFund := new(big.Int).Mul(big.NewInt(2), one18)
-
-	// SEQUENTIAL PREAMBLE — fund a fresh isolated account before going parallel.
-	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, totalFund)
-
-	t.Parallel()
+	// Fund with 2 PROMPT to cover two 1-PROMPT deposits.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 2)
 
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
