@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks devstack-up devstack-down test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
+.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks build-dars devstack-up devstack-down test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
 
 GREEN := \033[0;32m
 RED := \033[0;31m
@@ -132,6 +132,9 @@ setup: deps db-up
 
 CANTON_MASTER_KEY := $(or $(CANTON_MASTER_KEY),$(shell openssl rand -base64 32))
 export CANTON_MASTER_KEY
+
+build-dars:
+	./scripts/setup/build-dars.sh
 
 devstack-up:
 	go run ./tests/e2e/cmd/devstack up
