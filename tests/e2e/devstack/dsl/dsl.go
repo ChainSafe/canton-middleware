@@ -340,7 +340,11 @@ func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, eth int, token
 		PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
 	}
 
-	exp18 := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+	const (
+		base     = 10
+		decimals = 18
+	)
+	exp18 := new(big.Int).Exp(big.NewInt(base), big.NewInt(decimals), nil)
 
 	anvilFundingMu.Lock()
 	defer anvilFundingMu.Unlock()
