@@ -30,11 +30,16 @@ jobs:
           go-version: "1.24"
           cache: true
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Checkout canton-docker repository
+        uses: actions/checkout@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: chainsafe/canton-docker
+          path: canton-docker
+
+      - name: Build Canton Docker image
+        run: |
+          cd canton-docker
+          ./build_container.sh
 
       - name: Download dependencies
         run: go mod download
