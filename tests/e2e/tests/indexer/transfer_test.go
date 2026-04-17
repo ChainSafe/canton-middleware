@@ -139,6 +139,10 @@ func TestIndexer_TransferEvent_AfterAPITransfer(t *testing.T) {
 //     User2 balance → 0 (holder removed) — HolderCount → C0+1.
 //
 // Uses NewAPIStack for the same reason as TestIndexer_TransferEvent_AfterAPITransfer.
+//
+// NOTE: this test must NOT be run with t.Parallel(). HolderCount is a global
+// counter on the DEMO token row; concurrent tests minting DEMO to other parties
+// would shift C0 between the baseline read and the WaitForHolderCount assertions.
 func TestIndexer_HolderCount_Updates(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()

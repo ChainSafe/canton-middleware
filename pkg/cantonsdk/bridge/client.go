@@ -130,10 +130,10 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 
 	// Common.FingerprintAuth templates live in the identity package, not the bridge package.
 	// Use the identity client's package ID so the ACS query targets the correct package.
-	identityPkgID := c.cfg.PackageID // fallback: same package (shouldn't happen in practice)
-	if c.identity != nil {
-		identityPkgID = c.identity.PackageID()
+	if c.identity == nil {
+		return false, fmt.Errorf("IsDepositProcessed: identity client is required but not configured")
 	}
+	identityPkgID := c.identity.PackageID()
 	pendingTID := &lapiv2.Identifier{
 		PackageId:  identityPkgID,
 		ModuleName: "Common.FingerprintAuth",
@@ -594,13 +594,11 @@ func (c *Client) GetLatestLedgerOffset(ctx context.Context) (int64, error) {
 	return c.ledger.GetLedgerEnd(ctx)
 }
 
-// corePackageID returns the bridge-core package ID (for Bridge.Contracts templates).
-// Falls back to PackageID when CorePackageID is not configured.
+// corePackageID returns the bridge-core package ID for Bridge.Contracts templates
+// (WithdrawalRequest, WithdrawalEvent). CorePackageID is validated as required at
+// construction time, so this will never be empty in practice.
 func (c *Client) corePackageID() string {
-	if c.cfg.CorePackageID != "" {
-		return c.cfg.CorePackageID
-	}
-	return c.cfg.PackageID
+	return c.cfg.CorePackageID
 }
 
 func isAlreadyExistsError(err error) bool {

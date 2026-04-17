@@ -241,8 +241,10 @@ func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.A
 }
 
 // Withdraw looks up the FingerprintMapping and a suitable holding for the given
-// party and token, then calls InitiateWithdrawal on the Canton bridge. It
-// returns the WithdrawalRequest contract ID. Requires a full-stack system.
+// party and token, then calls InitiateWithdrawal followed by ProcessWithdrawal
+// on the Canton bridge (burning tokens and creating a WithdrawalEvent for the
+// relayer). It returns the WithdrawalRequest contract ID. Requires a full-stack
+// system.
 //
 // partyID and fingerprint are the Party and Fingerprint fields from the user's
 // RegisterResponse. tokenSymbol identifies the token (e.g. "PROMPT"). amount is

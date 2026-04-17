@@ -2,26 +2,10 @@
 
 package indexer_test
 
-import "math/big"
+import "github.com/chainsafe/canton-middleware/tests/e2e/devstack/dsl"
 
-// amtGTE returns true when a >= b, comparing both as exact decimal strings.
-// Uses big.Rat (exact rational arithmetic) to avoid the precision loss that
-// big.Float can introduce with 18-decimal token amounts.
-func amtGTE(a, b string) bool {
-	af, ok1 := new(big.Rat).SetString(a)
-	bf, ok2 := new(big.Rat).SetString(b)
-	if !ok1 || !ok2 {
-		return false
-	}
-	return af.Cmp(bf) >= 0
-}
+// amtGTE and amtLT delegate to the shared DSL helpers to avoid duplicating
+// the big.Rat comparison logic here.
 
-// amtLT returns true when a < b.
-func amtLT(a, b string) bool {
-	af, ok1 := new(big.Rat).SetString(a)
-	bf, ok2 := new(big.Rat).SetString(b)
-	if !ok1 || !ok2 {
-		return false
-	}
-	return af.Cmp(bf) < 0
-}
+func amtGTE(a, b string) bool { return dsl.AmountGTE(a, b) }
+func amtLT(a, b string) bool  { return dsl.AmountLT(a, b) }

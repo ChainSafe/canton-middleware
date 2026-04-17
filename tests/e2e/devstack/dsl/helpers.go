@@ -25,6 +25,7 @@ const (
 	relayerTransferTimeout = 120 * time.Second
 	indexerEventTimeout    = 60 * time.Second
 	ethBalanceTimeout      = 120 * time.Second
+	eventPageSize          = 50
 )
 
 // WaitForRelayerReady polls until the relayer reports ready or the 60s timeout
@@ -152,11 +153,11 @@ func (d *DSL) WaitForPartyEvent(ctx context.Context, t *testing.T, partyID strin
 }
 
 // WaitForPartyEventMatching polls until an event of eventType for partyID
-// satisfies the match predicate, then returns it. Each poll fetches the last
-// page of results (most recently indexed events) so that new events are found
-// regardless of how many prior events exist for the party. Use a predicate
-// that checks ev.LedgerOffset > sinceOffset (obtained from MaxPartyEventOffset)
-// to avoid matching stale events from earlier test runs.
+// satisfies the match predicate, then returns it. Every poll fetches all pages
+// so that the target event is found regardless of its position in the result
+// set. Use a predicate that checks ev.LedgerOffset > sinceOffset (obtained
+// from MaxPartyEventOffset) to avoid matching stale events from earlier test
+// runs.
 func (d *DSL) WaitForPartyEventMatching(
 	ctx context.Context,
 	t *testing.T,
@@ -169,24 +170,13 @@ func (d *DSL) WaitForPartyEventMatching(
 		t.Fatal("WaitForPartyEventMatching not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return nil // unreachable; t.Fatal calls runtime.Goexit
 	}
-	const pageSize = 50
 	deadline := time.Now().Add(indexerEventTimeout)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
-		// Fetch page 1 to discover Total; derive which page is last so we
-		// always inspect the most recently indexed events.
-		page1, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, pageSize)
-		if err == nil && page1 != nil && page1.Total > 0 {
-			candidates := page1.Items
-			totalPages := (int(page1.Total) + pageSize - 1) / pageSize
-			if totalPages > 1 {
-				last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, pageSize)
-				if lerr == nil && last != nil {
-					candidates = last.Items
-				}
-			}
-			for _, ev := range candidates {
+		items, err := d.allPartyEventItems(ctx, partyID, eventType)
+		if err == nil {
+			for _, ev := range items {
 				if match(ev) {
 					return ev
 				}
@@ -213,20 +203,12 @@ func (d *DSL) MaxPartyEventOffset(ctx context.Context, t *testing.T, partyID str
 		t.Fatal("MaxPartyEventOffset not available: Indexer shim not initialized (use NewFullStack or NewIndexerStack)")
 		return 0
 	}
-	const pageSize = 50
-	page1, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, pageSize)
-	if err != nil || page1 == nil || page1.Total == 0 {
-		return 0
-	}
-	items := page1.Items
-	totalPages := (int(page1.Total) + pageSize - 1) / pageSize
-	if totalPages > 1 {
-		last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, pageSize)
-		if lerr != nil || last == nil {
-			t.Fatalf("MaxPartyEventOffset: failed to fetch last page (page %d): %v", totalPages, lerr)
-			return 0 // unreachable; t.Fatalf calls runtime.Goexit
-		}
-		items = last.Items
+	// Events are stored in ascending offset order; the highest offset is always
+	// on the last page, so we only need to fetch that one page.
+	items, err := d.lastPageItems(ctx, partyID, eventType)
+	if err != nil {
+		t.Fatalf("MaxPartyEventOffset: fetch last page: %v", err)
+		return 0 // unreachable; t.Fatalf calls runtime.Goexit
 	}
 	var max int64
 	for _, ev := range items {
@@ -235,6 +217,50 @@ func (d *DSL) MaxPartyEventOffset(ctx context.Context, t *testing.T, partyID str
 		}
 	}
 	return max
+}
+
+// allPartyEventItems fetches every page of events for (partyID, eventType) and
+// returns all items in the order the API returns them (ascending offset).
+// Returns nil, nil when no events exist yet.
+func (d *DSL) allPartyEventItems(ctx context.Context, partyID string, eventType indexer.EventType) ([]*indexer.ParsedEvent, error) {
+	page, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, eventPageSize)
+	if err != nil || page == nil || page.Total == 0 {
+		return nil, err
+	}
+	all := make([]*indexer.ParsedEvent, 0, int(page.Total))
+	all = append(all, page.Items...)
+	totalPages := (int(page.Total) + eventPageSize - 1) / eventPageSize
+	for p := 2; p <= totalPages; p++ {
+		next, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, p, eventPageSize)
+		if lerr != nil {
+			return nil, lerr
+		}
+		if next != nil {
+			all = append(all, next.Items...)
+		}
+	}
+	return all, nil
+}
+
+// lastPageItems fetches only the last page of events for (partyID, eventType),
+// where the highest ledger offsets reside. Returns nil, nil when no events exist.
+func (d *DSL) lastPageItems(ctx context.Context, partyID string, eventType indexer.EventType) ([]*indexer.ParsedEvent, error) {
+	page, err := d.indexer.ListPartyEvents(ctx, partyID, eventType, 1, eventPageSize)
+	if err != nil || page == nil || page.Total == 0 {
+		return nil, err
+	}
+	totalPages := (int(page.Total) + eventPageSize - 1) / eventPageSize
+	if totalPages == 1 {
+		return page.Items, nil
+	}
+	last, lerr := d.indexer.ListPartyEvents(ctx, partyID, eventType, totalPages, eventPageSize)
+	if lerr != nil {
+		return nil, lerr
+	}
+	if last == nil {
+		return nil, nil
+	}
+	return last.Items, nil
 }
 
 // WaitForHolderCount polls until GetToken reports HolderCount == expected for
@@ -266,11 +292,10 @@ func (d *DSL) WaitForHolderCount(ctx context.Context, t *testing.T, admin, id st
 	t.Fatalf("timeout waiting for holder count %d: last=%d (token %s/%s)", expected, lastCount, admin, id)
 }
 
-// amountGTE returns true when amount >= min, comparing both as decimal numbers.
-// Uses big.Rat (exact rational arithmetic) to avoid precision loss with
-// 18-decimal token amounts. String comparison is intentionally avoided:
-// "20" > "100" lexicographically.
-func amountGTE(amount, min string) bool {
+// AmountGTE reports whether amount >= min as exact decimal values.
+// Uses big.Rat to avoid precision loss with 18-decimal token amounts.
+// String comparison is intentionally avoided: "20" > "100" lexicographically.
+func AmountGTE(amount, min string) bool {
 	a, ok1 := new(big.Rat).SetString(amount)
 	m, ok2 := new(big.Rat).SetString(min)
 	if !ok1 || !ok2 {
@@ -278,6 +303,19 @@ func amountGTE(amount, min string) bool {
 	}
 	return a.Cmp(m) >= 0
 }
+
+// AmountLT reports whether amount < min as exact decimal values.
+func AmountLT(amount, min string) bool {
+	a, ok1 := new(big.Rat).SetString(amount)
+	m, ok2 := new(big.Rat).SetString(min)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return a.Cmp(m) < 0
+}
+
+// amountGTE is the internal alias used by DSL polling helpers.
+func amountGTE(amount, min string) bool { return AmountGTE(amount, min) }
 
 // WaitForEthBalance polls the Anvil ERC-20 balance of ownerAddr for tokenAddr
 // until it is >= minWei, or the 120s timeout is reached. minWei is expressed in

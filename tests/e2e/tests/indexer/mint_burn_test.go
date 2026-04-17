@@ -112,7 +112,7 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 	}
 
 	// Record the highest BURN ledger offset already indexed for this party
-	// before initiating the withdrawal. AnvilAccount1 is a long-lived account
+	// before initiating the withdrawal. AnvilAccount0 is a long-lived account
 	// reused across test runs; matching by fingerprint is not sufficient because
 	// the fingerprint is stable per registration and would match stale burns.
 	burnSinceOffset := sys.DSL.MaxPartyEventOffset(ctx, t, regResp.Party, indexer.EventBurn)

@@ -74,6 +74,10 @@ func Optional(v *lapiv2.Value) *lapiv2.Value {
 // defined as: newtype T = T with field : PrimType.
 // The DAML Ledger API v2 represents newtypes as Records; passing the
 // underlying primitive directly causes COMMAND_PREPROCESSING_FAILED.
+//
+// The RecordField carries no Label: the Ledger API v2 command-preprocessing
+// path matches newtype fields by position, not by name, so omitting the label
+// is correct and intentional. NewtypeText decodes symmetrically via Fields[0].
 func NewtypeValue(inner *lapiv2.Value) *lapiv2.Value {
 	return &lapiv2.Value{
 		Sum: &lapiv2.Value_Record{
