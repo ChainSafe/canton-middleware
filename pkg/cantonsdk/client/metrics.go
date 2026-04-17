@@ -14,13 +14,15 @@ type sdkMetrics struct {
 }
 
 // newSDKMetrics registers Canton client metrics against the given registerer.
-func newSDKMetrics(reg prometheus.Registerer) *sdkMetrics {
+// The metric namespace is taken from reg.Namespace() rather than a hardcoded constant,
+// allowing each caller to place metrics under its own top-level prefix.
+func newSDKMetrics(reg sharedmetrics.NamespacedRegisterer) *sdkMetrics {
 	f := promauto.With(reg)
 	return &sdkMetrics{
 		RPCDuration: f.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: sharedmetrics.Namespace,
-			Subsystem: "client",
-			Name:      "rpc_duration_seconds",
+			Namespace: reg.Namespace(),
+			Subsystem: "canton_client",
+			Name:      "grpc_duration_seconds",
 			Help:      "Duration of Canton ledger gRPC calls in seconds",
 			Buckets:   sharedmetrics.DefaultDurationBuckets,
 		}, []string{"method"}),

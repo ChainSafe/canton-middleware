@@ -17,10 +17,10 @@ type StoreMetrics struct {
 }
 
 // NewStoreMetrics registers relayer store metrics against the given registerer.
-func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
+func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 	f := promauto.With(reg)
-	ns := sharedmetrics.Namespace
-	sub := "relayer_db"
+	ns := reg.Namespace()
+	sub := "db"
 
 	return &StoreMetrics{
 		QueryDuration: f.NewHistogramVec(prometheus.HistogramOpts{
@@ -40,7 +40,7 @@ func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
 
 // NewNopStoreMetrics returns a StoreMetrics instance backed by a throwaway registry.
 func NewNopStoreMetrics() *StoreMetrics {
-	return NewStoreMetrics(prometheus.NewRegistry())
+	return NewStoreMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }
 
 // ── Label value types ────────────────────────────────────────────────────────

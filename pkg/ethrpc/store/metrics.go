@@ -38,22 +38,22 @@ type StoreMetrics struct {
 }
 
 // NewStoreMetrics registers ethrpc store metrics against the given registerer.
-func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
+func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 	f := promauto.With(reg)
+	ns := reg.Namespace()
+	sub := "ethrpc_db"
 	return &StoreMetrics{
 		QueryDuration: f.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: sharedmetrics.Namespace,
-			Subsystem: "ethrpc_db",
-			Name:      "query_duration_seconds",
-			Help:      "Duration of ethrpc store database queries in seconds",
-			Buckets:   sharedmetrics.DBLatencyBuckets,
+			Namespace: ns, Subsystem: sub,
+			Name:    "query_duration_seconds",
+			Help:    "Duration of ethrpc store database queries in seconds",
+			Buckets: sharedmetrics.DBLatencyBuckets,
 		}, []string{"operation"}),
 
 		Errors: f.NewCounterVec(prometheus.CounterOpts{
-			Namespace: sharedmetrics.Namespace,
-			Subsystem: "ethrpc_db",
-			Name:      "errors_total",
-			Help:      "Total number of ethrpc store errors by operation",
+			Namespace: ns, Subsystem: sub,
+			Name: "errors_total",
+			Help: "Total number of ethrpc store errors by operation",
 		}, []string{"operation"}),
 	}
 }
@@ -61,7 +61,7 @@ func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
 // NewNopStoreMetrics returns a StoreMetrics instance backed by a throwaway registry.
 // Use in tests where metric values are not asserted.
 func NewNopStoreMetrics() *StoreMetrics {
-	return NewStoreMetrics(prometheus.NewRegistry())
+	return NewStoreMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }
 
 // ObserveQueryDuration returns the observer for the given operation.

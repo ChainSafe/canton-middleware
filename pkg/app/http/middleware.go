@@ -1,4 +1,4 @@
-package api
+package http
 
 import (
 	"fmt"
@@ -9,24 +9,23 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
-// requestMetricsMiddleware returns a chi-compatible middleware that records
+// RequestMetricsMiddleware returns a chi-compatible middleware that records
 // HTTP request metrics: total count (by method/route/status), duration, and
 // active connection gauge.
 //
-// Route patterns (e.g. /users/{userID}) are used as the endpoint label rather
+// Route patterns (e.g. /v1/tokens/{id}) are used as the endpoint label rather
 // than raw paths to avoid unbounded cardinality.
-func requestMetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
+func RequestMetricsMiddleware(m *HTTPMetrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			m.ActiveConnections.Inc()
 
-			// Wrap the ResponseWriter so we can read the status code afterward.
 			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
 			defer func() {
 				m.ActiveConnections.Dec()
-				endpoint := chiRoutePattern(r)
+				endpoint := ChiRoutePattern(r)
 				statusCode := fmt.Sprintf("%d", ww.Status())
 				elapsed := time.Since(start).Seconds()
 
@@ -39,10 +38,10 @@ func requestMetricsMiddleware(m *Metrics) func(http.Handler) http.Handler {
 	}
 }
 
-// chiRoutePattern extracts the matched chi route pattern from the request
-// context, e.g. "/users/{userID}" rather than "/users/alice::123".
+// ChiRoutePattern extracts the matched chi route pattern from the request
+// context, e.g. "/v1/tokens/{id}" rather than the raw path.
 // Falls back to "unknown" for unmatched routes (404s).
-func chiRoutePattern(r *http.Request) string {
+func ChiRoutePattern(r *http.Request) string {
 	rctx := chi.RouteContext(r.Context())
 	if rctx != nil && rctx.RoutePattern() != "" {
 		return rctx.RoutePattern()

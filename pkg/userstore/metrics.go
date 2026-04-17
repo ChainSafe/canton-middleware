@@ -17,9 +17,9 @@ type StoreMetrics struct {
 }
 
 // NewStoreMetrics registers user store metrics against the given registerer.
-func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
+func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 	f := promauto.With(reg)
-	ns := sharedmetrics.Namespace
+	ns := reg.Namespace()
 	sub := "userstore_db"
 
 	return &StoreMetrics{

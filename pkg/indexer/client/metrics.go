@@ -32,20 +32,20 @@ type Metrics struct {
 }
 
 // NewMetrics registers indexer client metrics against the given registerer.
-func NewMetrics(reg prometheus.Registerer) *Metrics {
+func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 	f := promauto.With(reg)
 	return &Metrics{
 		RequestDuration: f.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: sharedmetrics.Namespace,
-			Subsystem: "indexer_client",
+			Namespace: reg.Namespace(),
+			Subsystem: "client",
 			Name:      "request_duration_seconds",
 			Help:      "Duration of indexer HTTP client calls in seconds",
 			Buckets:   sharedmetrics.DefaultDurationBuckets,
 		}, []string{"method"}),
 
 		RequestErrors: f.NewCounterVec(prometheus.CounterOpts{
-			Namespace: sharedmetrics.Namespace,
-			Subsystem: "indexer_client",
+			Namespace: reg.Namespace(),
+			Subsystem: "client",
 			Name:      "request_errors_total",
 			Help:      "Total number of indexer HTTP client errors by method",
 		}, []string{"method"}),
@@ -55,5 +55,5 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 // NewNopMetrics returns a Metrics instance backed by a throwaway registry.
 // Use in tests where metric values are not asserted.
 func NewNopMetrics() *Metrics {
-	return NewMetrics(prometheus.NewRegistry())
+	return NewMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }

@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
@@ -110,10 +111,10 @@ func (s *Server) Run() error {
 
 	// ── Metrics — registered once, injected into processor and store ──────────
 
-	reg := prometheus.DefaultRegisterer
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "indexer_server")
 	engineMetrics := engine.NewMetrics(reg)
 	storeMetrics := indexerstore.NewStoreMetrics(reg)
-	httpMetrics := NewHTTPMetrics(reg)
+	httpMetrics := apphttp.NewHTTPMetrics(reg)
 
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
@@ -184,13 +185,13 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func newRouter(svc indexerservice.Service, metrics *HTTPMetrics, logger *zap.Logger) http.Handler {
+func newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultMiddlewareTimeout))
-	r.Use(requestMetricsMiddleware(metrics))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

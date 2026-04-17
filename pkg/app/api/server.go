@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -90,7 +91,7 @@ func (s *Server) Run() error {
 	defer dbBun.Close()
 
 	// Metrics — registered once, injected into store wrappers and router middleware.
-	reg := prometheus.DefaultRegisterer
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "api_server")
 
 	userStore := userstore.NewInstrumentedStore(
 		userstore.NewStore(dbBun),
@@ -98,7 +99,7 @@ func (s *Server) Run() error {
 	)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
-	metrics := NewMetrics(reg)
+	metrics := apphttp.NewHTTPMetrics(reg)
 
 	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, reg, logger)
 	if err != nil {
@@ -175,7 +176,7 @@ func (s *Server) openCantonClient(
 	ctx context.Context,
 	keyStore userKeyStore,
 	cipher keys.KeyCipher,
-	reg prometheus.Registerer,
+	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (cantontkn.Signer, error) {
@@ -244,7 +245,7 @@ func (s *Server) startPeriodicReconcile(
 func (s *Server) startEthRPCMinerIfEnabled(
 	ctx context.Context,
 	evmStore *ethrpcstore.InstrumentedStore,
-	reg prometheus.Registerer,
+	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) {
 	if !s.cfg.EthRPC.Enabled {
@@ -293,7 +294,7 @@ func (s *Server) setupRouter(
 	tokenService *token.Service,
 	registrationService userservice.Service,
 	transferSvc transfer.Service,
-	metrics *Metrics,
+	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -303,7 +304,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
-	r.Use(requestMetricsMiddleware(metrics))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {

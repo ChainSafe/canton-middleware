@@ -3,10 +3,10 @@ package client
 import (
 	"net/http"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
@@ -20,7 +20,7 @@ type settings struct {
 	bridgeCfg      *bridge.Config
 	keyResolver    token.KeyResolver
 	dialOpts       []grpc.DialOption
-	promRegisterer prometheus.Registerer
+	promRegisterer sharedmetrics.NamespacedRegisterer
 }
 
 // WithLogger sets a custom logger for the SDK client.
@@ -52,9 +52,9 @@ func WithGRPCDialOptions(opts ...grpc.DialOption) Option {
 }
 
 // WithPrometheusRegisterer enables Canton client metrics and registers them
-// against the provided Prometheus registerer. When set, a gRPC unary interceptor
-// is automatically installed that records canton_client_rpc_duration_seconds.
-func WithPrometheusRegisterer(reg prometheus.Registerer) Option {
+// against the provided NamespacedRegisterer. When set, a gRPC unary interceptor
+// is automatically installed that records <namespace>_client_rpc_duration_seconds.
+func WithPrometheusRegisterer(reg sharedmetrics.NamespacedRegisterer) Option {
 	return func(s *settings) { s.promRegisterer = reg }
 }
 

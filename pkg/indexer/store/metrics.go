@@ -17,11 +17,10 @@ type StoreMetrics struct {
 }
 
 // NewStoreMetrics registers indexer store metrics against the given registerer.
-// Pass prometheus.DefaultRegisterer in production; use prometheus.NewRegistry() in tests.
-func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
+func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 	f := promauto.With(reg)
-	ns := sharedmetrics.Namespace
-	sub := "indexer_db"
+	ns := reg.Namespace()
+	sub := "db"
 
 	return &StoreMetrics{
 		QueryDuration: f.NewHistogramVec(prometheus.HistogramOpts{
@@ -42,7 +41,7 @@ func NewStoreMetrics(reg prometheus.Registerer) *StoreMetrics {
 // NewNopStoreMetrics returns a StoreMetrics instance backed by a throwaway registry.
 // Use in tests where metric values are not asserted.
 func NewNopStoreMetrics() *StoreMetrics {
-	return NewStoreMetrics(prometheus.NewRegistry())
+	return NewStoreMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }
 
 // ── Label value types ────────────────────────────────────────────────────────

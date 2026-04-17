@@ -1,4 +1,4 @@
-package indexer
+package http
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -7,8 +7,8 @@ import (
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 )
 
-// HTTPMetrics holds Prometheus collectors for the indexer HTTP read API.
-// Create with NewHTTPMetrics and inject into the router middleware.
+// HTTPMetrics holds Prometheus collectors for an HTTP server.
+// Create with NewHTTPMetrics and pass to RequestMetricsMiddleware.
 type HTTPMetrics struct {
 	// RequestsTotal counts HTTP requests by method, route pattern, and status code.
 	RequestsTotal *prometheus.CounterVec
@@ -20,12 +20,12 @@ type HTTPMetrics struct {
 	ActiveConnections prometheus.Gauge
 }
 
-// NewHTTPMetrics registers indexer HTTP metrics against the given registerer.
-// Pass prometheus.DefaultRegisterer in production; use prometheus.NewRegistry() in tests.
-func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
+// NewHTTPMetrics registers HTTP server metrics against the given registerer.
+// Metrics are named <namespace>_http_requests_total etc.
+func NewHTTPMetrics(reg sharedmetrics.NamespacedRegisterer) *HTTPMetrics {
 	f := promauto.With(reg)
-	ns := sharedmetrics.Namespace
-	sub := "indexer"
+	ns := reg.Namespace()
+	sub := "http"
 
 	return &HTTPMetrics{
 		RequestsTotal: f.NewCounterVec(prometheus.CounterOpts{
@@ -48,8 +48,6 @@ func NewHTTPMetrics(reg prometheus.Registerer) *HTTPMetrics {
 		}),
 	}
 }
-
-// ── Helper methods ───────────────────────────────────────────────────────────
 
 // IncRequestsTotal increments the HTTP request counter.
 func (m *HTTPMetrics) IncRequestsTotal(method, endpoint, statusCode string) {

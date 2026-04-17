@@ -75,11 +75,10 @@ type Metrics struct {
 }
 
 // NewMetrics registers relayer engine metrics against the given registerer.
-// Pass prometheus.DefaultRegisterer in production; use prometheus.NewRegistry() in tests.
-func NewMetrics(reg prometheus.Registerer) *Metrics {
+func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 	f := promauto.With(reg)
-	ns := sharedmetrics.Namespace
-	sub := "relayer"
+	ns := reg.Namespace()
+	sub := "engine"
 
 	return &Metrics{
 		// Transfer pipeline
@@ -191,7 +190,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 // NewNopMetrics returns a Metrics instance backed by a throwaway registry.
 // Use in tests where metric values are not asserted.
 func NewNopMetrics() *Metrics {
-	return NewMetrics(prometheus.NewRegistry())
+	return NewMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }
 
 // ── Label value types ────────────────────────────────────────────────────────
