@@ -16,6 +16,7 @@ import (
 // Loop wallet to discover the active TransferFactory contract.
 func TestTransferFactory_ReturnsContractID(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	resp, err := sys.APIServer.TransferFactory(ctx)
@@ -32,6 +33,7 @@ func TestTransferFactory_ReturnsContractID(t *testing.T) {
 // handler only accepts POST per the Splice Registry API spec.
 func TestTransferFactory_MethodNotAllowed(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

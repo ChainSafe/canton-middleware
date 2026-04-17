@@ -18,8 +18,8 @@ import (
 
 // TestWithdrawal_PROMPT_CantonToEthereum exercises the full Canton → EVM
 // withdrawal flow:
-//  1. Register AnvilAccount0.
-//  2. Deposit PROMPT tokens so the user has a Canton holding.
+//  1. Fund a fresh isolated account with 1 ETH and 2 PROMPT.
+//  2. Register the account and deposit 2 PROMPT via the bridge.
 //  3. Wait for the relayer to mint the Canton holding.
 //  4. Initiate a withdrawal via the WayfinderBridgeConfig DAML choice.
 //  5. Wait for the relayer to release tokens on Ethereum (EVM balance check).
@@ -27,15 +27,19 @@ func TestWithdrawal_PROMPT_CantonToEthereum(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount0
-	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
+	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
+
+	// SEQUENTIAL PREAMBLE — touches AnvilAccount0 nonce; must finish before t.Parallel().
+	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
+
+	t.Parallel()
+
+	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// Deposit 2 PROMPT to the bridge so there is a Canton holding to withdraw from.
-	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")
@@ -66,15 +70,19 @@ func TestWithdrawal_PartialAmount(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount0
-	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
+	depositAmount := new(big.Int).Mul(big.NewInt(3), one18)
+
+	// SEQUENTIAL PREAMBLE — fund a fresh isolated account with 1 ETH and 3 PROMPT.
+	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
+
+	t.Parallel()
+
+	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// Deposit 3 PROMPT to Canton.
-	depositAmount := new(big.Int).Mul(big.NewInt(3), one18)
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "3")
@@ -110,8 +118,8 @@ func TestWithdrawal_PartialAmount(t *testing.T) {
 //  7. Relayer releases 1 PROMPT to User2's EVM address.
 //
 // User1 and User2 are derived from t.Name() so they are unique per test run
-// and do not conflict with the custodial AnvilAccount0 registrations in other
-// tests (PrepareTransfer requires key_mode=external, so a custodially-registered
+// and do not conflict with the custodial registrations in other tests
+// (PrepareTransfer requires key_mode=external, so a custodially-registered
 // account cannot be reused here).
 func TestWithdrawal_AfterCantonTransfer(t *testing.T) {
 	sys := presets.NewFullStack(t)
@@ -123,14 +131,15 @@ func TestWithdrawal_AfterCantonTransfer(t *testing.T) {
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
 
-	// Fund sender with ETH for gas and PROMPT for the bridge deposit.
-	// AnvilAccount0 is the deployer and holds all initial PROMPT on EVM.
+	// SEQUENTIAL PREAMBLE — fund sender from AnvilAccount0; must finish before t.Parallel().
 	if err := sys.Anvil.FundWithETH(ctx, &stack.AnvilAccount0, sender.Address, one18); err != nil {
 		t.Fatalf("fund sender with ETH: %v", err)
 	}
 	if err := sys.Anvil.TransferERC20(ctx, &stack.AnvilAccount0, sender.Address, tokenAddr, depositAmount); err != nil {
 		t.Fatalf("fund sender with PROMPT: %v", err)
 	}
+
+	t.Parallel()
 
 	// Register sender as external (PrepareTransfer requires external key mode).
 	regResp0, kp0 := sys.DSL.RegisterExternalUser(ctx, t, sender)

@@ -50,6 +50,7 @@ func signTransferHash(t *testing.T, kp interface {
 // transfer to User2, and assert User2's balance via the api-server RPC.
 func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 	sys := presets.NewFullStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	resp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -90,6 +91,7 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 // for a custodial (web3) user returns HTTP 400 since the API requires external key mode.
 func TestTransfer_CustodialUser_PrepareRejects(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
@@ -109,6 +111,7 @@ func TestTransfer_CustodialUser_PrepareRejects(t *testing.T) {
 // returns HTTP 400.
 func TestTransfer_InvalidAmount_Zero(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -128,6 +131,7 @@ func TestTransfer_InvalidAmount_Zero(t *testing.T) {
 // negative amount returns HTTP 400.
 func TestTransfer_InvalidAmount_Negative(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -147,6 +151,7 @@ func TestTransfer_InvalidAmount_Negative(t *testing.T) {
 // recipient EVM address is not registered returns HTTP 400.
 func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -169,6 +174,7 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 // signature verification because kp2 ≠ kp1.
 func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	resp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -214,6 +220,7 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 // amount exceeding the user's canton balance returns HTTP 400.
 func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	resp1, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
@@ -240,6 +247,7 @@ func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 // HTTP 401. This exercises the authentication gate before any business logic.
 func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	body, err := json.Marshal(&transfer.PrepareRequest{
@@ -276,6 +284,7 @@ func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
 // This exercises the replay-protection window enforced by ValidateTimedMessage.
 func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	// Build a message with a timestamp 10 minutes in the past (> 5-minute maxAge).
@@ -320,6 +329,7 @@ func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
 // HTTP 400. Auth headers are valid — the validation happens after authentication.
 func TestTransfer_Execute_MissingFields_Returns400(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	// No registration needed: auth recovers the EVM address from the signature
@@ -338,6 +348,7 @@ func TestTransfer_Execute_MissingFields_Returns400(t *testing.T) {
 // PROMPT is a recognized token symbol and the balance gate fires correctly.
 func TestTransfer_PROMPT_InsufficientBalance_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)

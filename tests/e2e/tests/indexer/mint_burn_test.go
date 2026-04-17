@@ -12,7 +12,6 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
-	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
 var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
@@ -28,6 +27,7 @@ var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 // Using a freshly allocated party guarantees no prior events to filter.
 func TestIndexer_MintEvent(t *testing.T) {
 	sys := presets.NewIndexerStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	// Allocate a fresh party. No api-server registration needed — the indexer
@@ -81,19 +81,21 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	// Use AnvilAccount0: it holds all PROMPT tokens (minted to the deployer at
-	// contract deployment). Account1 starts with zero PROMPT so its deposit
-	// would revert. MaxPartyEventOffset records a sinceOffset before the
-	// withdrawal so stale burn events from other tests are skipped.
-	account := stack.AnvilAccount0
-	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
+	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
+
+	// SEQUENTIAL PREAMBLE — fund a fresh isolated account before going parallel.
+	// MaxPartyEventOffset and balBefore are scoped to this account/party, so they
+	// are safe to read in the parallel body.
+	account := sys.DSL.NewFundedAccount(ctx, t, one18, tokenAddr, depositAmount)
+
+	t.Parallel()
+
+	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// Deposit 2 PROMPT so there is a holding large enough to withdraw 1 from.
-	depositAmount := new(big.Int).Mul(big.NewInt(2), one18)
 	txHash := sys.DSL.Deposit(ctx, t, account, depositAmount)
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")
@@ -112,9 +114,9 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 	}
 
 	// Record the highest BURN ledger offset already indexed for this party
-	// before initiating the withdrawal. AnvilAccount0 is a long-lived account
-	// reused across test runs; matching by fingerprint is not sufficient because
-	// the fingerprint is stable per registration and would match stale burns.
+	// before initiating the withdrawal. The account is freshly created so there
+	// are no prior burns — burnSinceOffset will be 0. The offset predicate still
+	// ensures we match only the burn produced by this withdrawal.
 	burnSinceOffset := sys.DSL.MaxPartyEventOffset(ctx, t, regResp.Party, indexer.EventBurn)
 
 	// Initiate a 1 PROMPT withdrawal to the same EVM address.
@@ -129,7 +131,7 @@ func TestIndexer_BurnEvent_AfterWithdrawal(t *testing.T) {
 
 	// Wait for the indexer to record a BURN event produced by this withdrawal.
 	// Match by LedgerOffset > burnSinceOffset so that stale burns from prior
-	// test runs against AnvilAccount1 are not mistakenly accepted.
+	// test runs are not mistakenly accepted.
 	ev := sys.DSL.WaitForPartyEventMatching(ctx, t, regResp.Party, indexer.EventBurn,
 		func(e *indexer.ParsedEvent) bool {
 			return e.LedgerOffset > burnSinceOffset
