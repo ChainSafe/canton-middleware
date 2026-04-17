@@ -9,10 +9,6 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 )
 
-// Compile-time guard: will be wired into setupRouter once API-level metrics
-// are enabled (see Issue #XX — API server request metrics).
-var _ = requestMetricsMiddleware
-
 // requestMetricsMiddleware returns a chi-compatible middleware that records
 // HTTP request metrics: total count (by method/route/status), duration, and
 // active connection gauge.

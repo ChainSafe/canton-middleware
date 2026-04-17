@@ -36,15 +36,91 @@ func (s *InstrumentedStore) LatestOffset(ctx context.Context) (int64, error) {
 }
 
 // RunInTx wraps the inner RunInTx so that operations executed inside the
-// transaction are also instrumented. The fn receives an *InstrumentedStore
-// backed by the transaction-scoped *PGStore.
+// transaction are also instrumented. The fn receives an instrumentedWriteStore
+// that wraps the transaction-scoped engine.Store directly — no type assertion needed.
 func (s *InstrumentedStore) RunInTx(ctx context.Context, fn func(ctx context.Context, tx engine.Store) error) error {
 	return s.inner.RunInTx(ctx, func(ctx context.Context, txStore engine.Store) error {
-		return fn(ctx, &InstrumentedStore{
-			inner:   txStore.(*PGStore),
-			metrics: s.metrics,
-		})
+		return fn(ctx, &instrumentedWriteStore{inner: txStore, metrics: s.metrics})
 	})
+}
+
+// instrumentedWriteStore instruments engine.Store write methods within a transaction.
+// It wraps engine.Store directly so RunInTx requires no type assertion.
+type instrumentedWriteStore struct {
+	inner   engine.Store
+	metrics *StoreMetrics
+}
+
+func (s *instrumentedWriteStore) LatestOffset(ctx context.Context) (int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpLatestOffset))
+	defer timer.ObserveDuration()
+
+	offset, err := s.inner.LatestOffset(ctx)
+	if err != nil {
+		s.metrics.IncErrors(OpLatestOffset)
+	}
+	return offset, err
+}
+
+func (s *instrumentedWriteStore) RunInTx(ctx context.Context, fn func(ctx context.Context, tx engine.Store) error) error {
+	return s.inner.RunInTx(ctx, func(ctx context.Context, txStore engine.Store) error {
+		return fn(ctx, &instrumentedWriteStore{inner: txStore, metrics: s.metrics})
+	})
+}
+
+func (s *instrumentedWriteStore) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertEvent))
+	defer timer.ObserveDuration()
+
+	inserted, err := s.inner.InsertEvent(ctx, event)
+	if err != nil {
+		s.metrics.IncErrors(OpInsertEvent)
+	}
+	return inserted, err
+}
+
+func (s *instrumentedWriteStore) SaveOffset(ctx context.Context, offset int64) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpSaveOffset))
+	defer timer.ObserveDuration()
+
+	err := s.inner.SaveOffset(ctx, offset)
+	if err != nil {
+		s.metrics.IncErrors(OpSaveOffset)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) UpsertToken(ctx context.Context, token *indexer.Token) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpsertToken))
+	defer timer.ObserveDuration()
+
+	err := s.inner.UpsertToken(ctx, token)
+	if err != nil {
+		s.metrics.IncErrors(OpUpsertToken)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmin, instrumentID, delta string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpApplyBalanceDelta))
+	defer timer.ObserveDuration()
+
+	err := s.inner.ApplyBalanceDelta(ctx, partyID, instrumentAdmin, instrumentID, delta)
+	if err != nil {
+		s.metrics.IncErrors(OpApplyBalanceDelta)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpApplySupplyDelta))
+	defer timer.ObserveDuration()
+
+	err := s.inner.ApplySupplyDelta(ctx, instrumentAdmin, instrumentID, delta)
+	if err != nil {
+		s.metrics.IncErrors(OpApplySupplyDelta)
+	}
+	return err
 }
 
 func (s *InstrumentedStore) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {

@@ -139,11 +139,24 @@ func (s *Server) Run() error {
 	})
 
 	g.Go(func() error {
+		return s.serveAll(gctx, router, logger)
+	})
+
+	return g.Wait()
+}
+
+// serveAll runs the indexer HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
 		logger.Info("Indexer HTTP server starting",
-			zap.String("host", cfg.Server.Host),
-			zap.Int("port", cfg.Server.Port),
+			zap.String("host", s.cfg.Server.Host),
+			zap.Int("port", s.cfg.Server.Port),
 		)
-		return apphttp.ServeAndWait(gctx, router, logger, cfg.Server)
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
 	})
 
 	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
@@ -156,7 +169,7 @@ func (s *Server) Run() error {
 		r.Handle("/metrics", promhttp.Handler())
 
 		g.Go(func() error {
-			return apphttp.ServeAndWait(gctx, r, logger, s.cfg.Monitoring.Server)
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
 		})
 	}
 
