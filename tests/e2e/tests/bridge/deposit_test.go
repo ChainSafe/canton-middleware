@@ -53,13 +53,14 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 // tokens = 1e17 wei) is handled correctly end-to-end. This confirms there is no
 // minimum-amount gate in the relayer or DAML bridge.
 //
-// Uses AnvilAccount1 to avoid balance accumulation from TestDeposit_PROMPT_EthereumToCanton,
-// which runs before this test and deposits from AnvilAccount0.
+// Uses AnvilAccount0 (the only pre-funded PROMPT account). WaitForCantonBalance
+// and WaitForAPIBalance use >= semantics so accumulated balance from prior tests
+// does not cause a false failure.
 func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount1
+	account := stack.AnvilAccount0
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	admin := sys.Manifest.PromptInstrumentAdmin
