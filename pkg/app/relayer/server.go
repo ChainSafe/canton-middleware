@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 const defaultHTTPMiddlewareTimeout = 60 * time.Second
@@ -94,12 +95,37 @@ func (s *Server) Run() error {
 
 	router := s.newRouter(store, engine, logger)
 
-	return apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
+	return s.serveAll(ctx, router, logger)
 }
 
-func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
-	cfg := s.cfg
+// serveAll runs the main HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
 
+	g.Go(func() error {
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
+
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		if s.cfg.Monitoring.Server == nil {
+			return fmt.Errorf("monitoring is enabled but server config is nil")
+		}
+
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
+
+	return g.Wait()
+}
+
+func (*Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -111,11 +137,6 @@ func (s *Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine,
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
-
-	if cfg.Monitoring.Enabled {
-		r.Handle("/metrics", promhttp.Handler())
-		logger.Info("Metrics enabled", zap.String("path", "/metrics"))
-	}
 
 	svc := relayersvc.NewLog(relayersvc.NewService(store), logger)
 	relayersvc.RegisterRoutes(r, svc, engine, logger)
