@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
@@ -304,4 +305,42 @@ func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, 
 	}
 
 	return withdrawalReqCID
+}
+
+// NewFundedAccount generates a fresh secp256k1 key, then transfers ethWei of
+// ETH and tokenWei of the ERC-20 at tokenAddr from AnvilAccount0 to the new
+// address. Both transfers are mined before the method returns, so the account
+// is fully funded when it is returned. Pass nil (or zero) for either amount to
+// skip that transfer.
+//
+// This method touches AnvilAccount0's nonce and must therefore be called in the
+// sequential preamble of a test — before t.Parallel(). Code that runs after
+// t.Parallel() is safe because the account's address is unique and no other test
+// shares it.
+func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, ethWei *big.Int, tokenAddr common.Address, tokenWei *big.Int) stack.Account {
+	t.Helper()
+	if d.anvil == nil {
+		t.Fatal("NewFundedAccount not available: Anvil shim not initialized")
+		return stack.Account{}
+	}
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("NewFundedAccount: generate key: %v", err)
+	}
+	acc := stack.Account{
+		Address:    crypto.PubkeyToAddress(key.PublicKey),
+		PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
+	}
+	funder := stack.AnvilAccount0
+	if ethWei != nil && ethWei.Sign() > 0 {
+		if err := d.anvil.FundWithETH(ctx, &funder, acc.Address, ethWei); err != nil {
+			t.Fatalf("NewFundedAccount: fund ETH: %v", err)
+		}
+	}
+	if tokenWei != nil && tokenWei.Sign() > 0 && (tokenAddr != common.Address{}) {
+		if err := d.anvil.TransferERC20(ctx, &funder, acc.Address, tokenAddr, tokenWei); err != nil {
+			t.Fatalf("NewFundedAccount: fund ERC20: %v", err)
+		}
+	}
+	return acc
 }

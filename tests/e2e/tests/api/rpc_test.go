@@ -23,6 +23,7 @@ import (
 // TestRPC_ChainID verifies that eth_chainId returns a non-zero chain ID.
 func TestRPC_ChainID(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	chainID, err := sys.APIServer.RPC().ChainID(ctx)
@@ -37,6 +38,7 @@ func TestRPC_ChainID(t *testing.T) {
 // TestRPC_BlockNumber verifies that eth_blockNumber returns without error.
 func TestRPC_BlockNumber(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	_, err := sys.APIServer.RPC().BlockNumber(ctx)
@@ -48,6 +50,7 @@ func TestRPC_BlockNumber(t *testing.T) {
 // TestRPC_GasPrice verifies that eth_gasPrice returns a non-nil value.
 func TestRPC_GasPrice(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	price, err := sys.APIServer.RPC().SuggestGasPrice(ctx)
@@ -63,6 +66,7 @@ func TestRPC_GasPrice(t *testing.T) {
 // a non-nil value.
 func TestRPC_MaxPriorityFeePerGas(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tip, err := sys.APIServer.RPC().SuggestGasTipCap(ctx)
@@ -78,6 +82,7 @@ func TestRPC_MaxPriorityFeePerGas(t *testing.T) {
 // for a simple ETH transfer to a well-known address.
 func TestRPC_EstimateGas(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	to := common.HexToAddress("0x000000000000000000000000000000000000dead")
@@ -97,6 +102,7 @@ func TestRPC_EstimateGas(t *testing.T) {
 // without error.
 func TestRPC_GetBalance(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	bal, err := sys.APIServer.RPC().BalanceAt(ctx, sys.Accounts.User1.Address, nil)
@@ -112,6 +118,7 @@ func TestRPC_GetBalance(t *testing.T) {
 // the nonce for a known address without error.
 func TestRPC_GetTransactionCount(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	_, err := sys.APIServer.RPC().PendingNonceAt(ctx, sys.Accounts.User1.Address)
@@ -124,6 +131,7 @@ func TestRPC_GetTransactionCount(t *testing.T) {
 // deployed PROMPT token contract (must be non-empty).
 func TestRPC_GetCode(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -140,6 +148,7 @@ func TestRPC_GetCode(t *testing.T) {
 // Anvil devnet is always synced so the result should be false.
 func TestRPC_Syncing(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	var result any
@@ -157,6 +166,7 @@ func TestRPC_Syncing(t *testing.T) {
 // eth_getLogs handler rejects (it expects a hex uint64, not a block tag string).
 func TestRPC_GetLogs(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	latest, err := sys.APIServer.RPC().BlockNumber(ctx)
@@ -228,6 +238,7 @@ func TestRPC_GetBlockByHash(t *testing.T) {
 // 32 bytes (uint256) for the PROMPT token contract.
 func TestRPC_Call_TotalSupply(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -248,6 +259,7 @@ func TestRPC_Call_TotalSupply(t *testing.T) {
 // bytes encoding uint8 for the PROMPT token.
 func TestRPC_Call_Decimals(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -268,6 +280,7 @@ func TestRPC_Call_Decimals(t *testing.T) {
 // ABI-encoded string for the PROMPT token.
 func TestRPC_Call_Symbol(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -288,6 +301,7 @@ func TestRPC_Call_Symbol(t *testing.T) {
 // ABI-encoded string for the PROMPT token.
 func TestRPC_Call_Name(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -308,6 +322,7 @@ func TestRPC_Call_Name(t *testing.T) {
 // fresh address returns a 32-byte zero value for the PROMPT token.
 func TestRPC_Call_BalanceOf_PROMPT(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
@@ -334,6 +349,7 @@ func TestRPC_Call_BalanceOf_PROMPT(t *testing.T) {
 // DEMO virtual EVM address returns a 32-byte zero value for a fresh address.
 func TestRPC_Call_BalanceOf_DEMO(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	demoAddr := common.HexToAddress(sys.Manifest.DemoTokenAddr)
@@ -363,6 +379,7 @@ func TestRPC_Call_BalanceOf_DEMO(t *testing.T) {
 // string.
 func TestRPC_NetVersion(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	var version string
@@ -377,6 +394,7 @@ func TestRPC_NetVersion(t *testing.T) {
 // TestRPC_NetListening verifies that net_listening returns true.
 func TestRPC_NetListening(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	var listening bool
@@ -391,6 +409,7 @@ func TestRPC_NetListening(t *testing.T) {
 // TestRPC_NetPeerCount verifies that net_peerCount returns without error.
 func TestRPC_NetPeerCount(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	var peerCount any
@@ -407,6 +426,7 @@ func TestRPC_NetPeerCount(t *testing.T) {
 // non-empty version string.
 func TestRPC_Web3ClientVersion(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	var version string
@@ -422,6 +442,7 @@ func TestRPC_Web3ClientVersion(t *testing.T) {
 // empty bytes — a well-known value used as a correctness check.
 func TestRPC_Web3Sha3(t *testing.T) {
 	sys := presets.NewAPIStack(t)
+	t.Parallel()
 	ctx := context.Background()
 
 	// keccak256("") = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470
