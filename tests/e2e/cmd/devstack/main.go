@@ -48,9 +48,14 @@ func main() {
 }
 
 func up(ctx context.Context) error {
-	return compose(ctx, upEnv(),
+	if err := compose(ctx, upEnv(),
 		"up", "--build", "--wait", "--remove-orphans",
-	)
+	); err != nil {
+		fmt.Fprintln(os.Stderr, "=== deployer logs ===")
+		_ = compose(ctx, os.Environ(), "logs", "--no-color", "deployer")
+		return err
+	}
+	return nil
 }
 
 func down(ctx context.Context) error {
