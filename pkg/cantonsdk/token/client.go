@@ -294,6 +294,9 @@ func (c *Client) GetHoldingsByParty(ctx context.Context, ownerParty, instrumentI
 		EntityName: spliceHoldingEntity,
 	}
 
+	// GetActiveContractsByInterface returns CreatedEvents with create_arguments populated
+	// (Required field per Canton Ledger API v2 proto), so decodeHolding works identically
+	// for both template-based and interface-based queries.
 	events, err := c.ledger.GetActiveContractsByInterface(ctx, end, []string{ownerParty}, iid)
 	if err != nil {
 		return nil, fmt.Errorf("query holdings by party: %w", err)
