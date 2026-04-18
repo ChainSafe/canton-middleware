@@ -409,6 +409,7 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("CANTON_IDENTITY_PACKAGE_ID", "identity-package-id")
 	t.Setenv("CANTON_CIP56_PACKAGE_ID", "cip56-package-id")
 	t.Setenv("CANTON_SPLICE_TRANSFER_PACKAGE_ID", "splice-transfer-package-id")
+	t.Setenv("CANTON_SPLICE_HOLDING_PACKAGE_ID", "splice-holding-package-id")
 	t.Setenv("CANTON_BRIDGE_PACKAGE_ID", "bridge-package-id")
 	t.Setenv("ETHEREUM_RPC_URL", "https://eth.example")
 	t.Setenv("ETHEREUM_WS_URL", "wss://eth.example/ws")
