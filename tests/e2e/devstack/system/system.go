@@ -43,11 +43,11 @@ type Tokens struct {
 func NewTokens(manifest *stack.ServiceManifest) *Tokens {
 	return &Tokens{
 		DEMO: stack.Token{
-			ERC20Token: token.ERC20Token{Symbol: "DEMO", Decimals: 18},
+			ERC20Token: token.ERC20Token{Symbol: "DEMO", Decimals: 18, InstrumentID: "DEMO"},
 			Address:    common.HexToAddress(manifest.DemoTokenAddr),
 		},
 		PROMPT: stack.Token{
-			ERC20Token: token.ERC20Token{Symbol: "PROMPT", Decimals: 18},
+			ERC20Token: token.ERC20Token{Symbol: "PROMPT", Decimals: 18, InstrumentID: "PROMPT"},
 			Address:    common.HexToAddress(manifest.PromptTokenAddr),
 		},
 	}

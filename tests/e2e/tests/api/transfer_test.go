@@ -57,7 +57,7 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 
 	mintAmount := "50"
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, mintAmount)
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, mintAmount)
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, mintAmount)
 
 	transferAmount := "10"
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
@@ -83,7 +83,7 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 		t.Fatalf("expected status 'completed', got %q", execResp.Status)
 	}
 
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User2.Address, transferAmount)
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User2.Address, transferAmount)
 }
 
 // TestTransfer_CustodialUser_PrepareRejects verifies that calling PrepareTransfer
@@ -175,7 +175,7 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, "10")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, "10")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, "10")
 
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
 		To:     sys.Accounts.User2.Address.Hex(),
@@ -221,7 +221,7 @@ func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 
 	// Mint a small amount.
 	sys.DSL.MintDEMO(ctx, t, resp1.Party, "1")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, "1")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, "1")
 
 	// Try to transfer more than the minted balance.
 	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
