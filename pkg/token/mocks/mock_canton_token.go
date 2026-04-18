@@ -350,6 +350,66 @@ func (_c *Token_GetHoldings_Call) RunAndReturn(run func(context.Context, string,
 	return _c
 }
 
+// GetHoldingsByParty provides a mock function with given fields: ctx, ownerParty, instrumentID
+func (_m *Token) GetHoldingsByParty(ctx context.Context, ownerParty string, instrumentID string) ([]*token.Holding, error) {
+	ret := _m.Called(ctx, ownerParty, instrumentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetHoldingsByParty")
+	}
+
+	var r0 []*token.Holding
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]*token.Holding, error)); ok {
+		return rf(ctx, ownerParty, instrumentID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) []*token.Holding); ok {
+		r0 = rf(ctx, ownerParty, instrumentID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*token.Holding)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, ownerParty, instrumentID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_GetHoldingsByParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetHoldingsByParty'
+type Token_GetHoldingsByParty_Call struct {
+	*mock.Call
+}
+
+// GetHoldingsByParty is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ownerParty string
+//   - instrumentID string
+func (_e *Token_Expecter) GetHoldingsByParty(ctx interface{}, ownerParty interface{}, instrumentID interface{}) *Token_GetHoldingsByParty_Call {
+	return &Token_GetHoldingsByParty_Call{Call: _e.mock.On("GetHoldingsByParty", ctx, ownerParty, instrumentID)}
+}
+
+func (_c *Token_GetHoldingsByParty_Call) Run(run func(ctx context.Context, ownerParty string, instrumentID string)) *Token_GetHoldingsByParty_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Token_GetHoldingsByParty_Call) Return(_a0 []*token.Holding, _a1 error) *Token_GetHoldingsByParty_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_GetHoldingsByParty_Call) RunAndReturn(run func(context.Context, string, string) ([]*token.Holding, error)) *Token_GetHoldingsByParty_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetTokenConfigCID provides a mock function with given fields: ctx, tokenSymbol
 func (_m *Token) GetTokenConfigCID(ctx context.Context, tokenSymbol string) (string, error) {
 	ret := _m.Called(ctx, tokenSymbol)
