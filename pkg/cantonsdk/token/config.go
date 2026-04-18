@@ -10,6 +10,7 @@ type Config struct {
 
 	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
 	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
+	SpliceHoldingPackageID  string `yaml:"splice_holding_package_id" validate:"required"`
 }
 
 func (c *Config) validate() error {
@@ -30,6 +31,9 @@ func (c *Config) validate() error {
 	}
 	if c.SpliceTransferPackageID == "" {
 		return errors.New("splice_transfer_package_id is required")
+	}
+	if c.SpliceHoldingPackageID == "" {
+		return errors.New("splice_holding_package_id is required")
 	}
 	return nil
 }

@@ -53,6 +53,7 @@ canton:
   token:
     cip56_package_id: "${CANTON_CIP56_PACKAGE_ID}"
     splice_transfer_package_id: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+    splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
 
   bridge:
     package_id: "${CANTON_BRIDGE_PACKAGE_ID}"

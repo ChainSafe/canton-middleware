@@ -22,6 +22,7 @@ canton:
   token:
     cip56_package_id: "cip56-package"
     splice_transfer_package_id: "splice-package"
+    splice_holding_package_id: "test-splice-holding-pkg-id"
 
 token:
   supported_tokens:
@@ -29,6 +30,7 @@ token:
       name: "PROMPT"
       symbol: "PROMPT"
       decimals: 18
+      instrument_id: "PROMPT"
 
 eth_rpc:
   chain_id: 31337

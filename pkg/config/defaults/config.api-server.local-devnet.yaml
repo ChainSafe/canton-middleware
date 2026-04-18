@@ -41,6 +41,7 @@ canton:
   token:
     cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
     splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+    splice_holding_package_id: "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
 
   bridge:
     package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
@@ -52,10 +53,12 @@ token:
       name: "PROMPT"
       symbol: "PROMPT"
       decimals: 18
+      instrument_id: "PROMPT"
     "0xDE30000000000000000000000000000000000001":
       name: "Demo Token"
       symbol: "DEMO"
       decimals: 18
+      instrument_id: "DEMO"
   native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
