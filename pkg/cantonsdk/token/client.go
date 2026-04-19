@@ -275,6 +275,7 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 // GetHoldingsByParty queries all Splice HoldingV1 holdings visible to the given party.
 // This is the unified query path for all Splice-compliant tokens (CIP-56 and external like USDCx).
 // If instrumentID is non-empty, results are filtered to that instrument.
+// TODO: add unit tests with mocked ledger client (happy path, filtering, errors).
 func (c *Client) GetHoldingsByParty(ctx context.Context, ownerParty, instrumentID string) ([]*Holding, error) {
 	if ownerParty == "" {
 		return nil, fmt.Errorf("owner party is required")
