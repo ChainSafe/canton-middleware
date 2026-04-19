@@ -38,6 +38,9 @@ const (
 
 	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
 	spliceTransferFactory = "TransferFactory"
+
+	spliceHoldingModule = "Splice.Api.Token.HoldingV1"
+	spliceHoldingEntity = "Holding"
 )
 
 // Token defines CIP-56 token operations.
@@ -51,10 +54,17 @@ type Token interface {
 	// Burn burns tokens using TokenConfig.IssuerBurn.
 	Burn(ctx context.Context, req *BurnRequest) error
 
-	// GetHoldings returns all CIP56Holding contracts for the owner and token symbol.
+	// GetHoldings returns holdings for the owner and token symbol.
+	// Delegates to GetHoldingsByParty using the Splice HoldingV1 interface.
 	GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*Holding, error)
 
-	// GetAllHoldings GetHoldings returns all CIP56Holding contracts.
+	// GetHoldingsByParty queries all Splice HoldingV1 holdings visible to the given party,
+	// optionally filtered by instrumentID (empty string returns all instruments).
+	// This is the unified query path for all Splice-compliant tokens (CIP-56 and external).
+	GetHoldingsByParty(ctx context.Context, ownerParty, instrumentID string) ([]*Holding, error)
+
+	// GetAllHoldings returns all CIP56Holding contracts queried as IssuerParty.
+	// Used by the indexer and totalSupply — does NOT use the unified HoldingV1 path.
 	GetAllHoldings(ctx context.Context) ([]*Holding, error) // TODO: use pagination
 
 	// GetBalanceByFingerprint returns the owner's total balance (sum of holdings) for the token symbol.
@@ -259,21 +269,52 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 	if tokenSymbol == "" {
 		return nil, fmt.Errorf("token symbol is required")
 	}
+	return c.GetHoldingsByParty(ctx, ownerParty, tokenSymbol)
+}
 
-	allHoldings, err := c.GetAllHoldings(ctx)
+// GetHoldingsByParty queries all Splice HoldingV1 holdings visible to the given party.
+// This is the unified query path for all Splice-compliant tokens (CIP-56 and external like USDCx).
+// If instrumentID is non-empty, results are filtered to that instrument.
+// TODO: add unit tests with mocked ledger client (happy path, filtering, errors).
+func (c *Client) GetHoldingsByParty(ctx context.Context, ownerParty, instrumentID string) ([]*Holding, error) {
+	if ownerParty == "" {
+		return nil, fmt.Errorf("owner party is required")
+	}
+
+	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	validHoldings := make([]*Holding, 0)
-	for _, h := range allHoldings {
-		if h.Owner != ownerParty || h.Symbol != tokenSymbol {
-			continue
-		}
-		validHoldings = append(validHoldings, h)
+	if end == 0 {
+		return []*Holding{}, nil
 	}
 
-	return validHoldings, nil
+	iid := &lapiv2.Identifier{
+		PackageId:  c.cfg.SpliceHoldingPackageID,
+		ModuleName: spliceHoldingModule,
+		EntityName: spliceHoldingEntity,
+	}
+
+	// GetActiveContractsByInterface returns CreatedEvents with create_arguments populated
+	// (Required field per Canton Ledger API v2 proto), so decodeHolding works identically
+	// for both template-based and interface-based queries.
+	events, err := c.ledger.GetActiveContractsByInterface(ctx, end, []string{ownerParty}, iid)
+	if err != nil {
+		return nil, fmt.Errorf("query holdings by party: %w", err)
+	}
+
+	out := make([]*Holding, 0, len(events))
+	for _, ce := range events {
+		h := decodeHolding(ce)
+		if h.Owner != ownerParty {
+			continue
+		}
+		if instrumentID != "" && h.InstrumentID != instrumentID {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
