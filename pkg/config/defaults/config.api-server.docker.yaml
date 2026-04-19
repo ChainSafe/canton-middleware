@@ -65,6 +65,11 @@ token:
       symbol: "DEMO"
       decimals: 18
       instrument_id: "DEMO"
+    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":
+      name: "USD Coin"
+      symbol: "USDCx"
+      decimals: 6
+      instrument_id: "USDCx"
   native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
