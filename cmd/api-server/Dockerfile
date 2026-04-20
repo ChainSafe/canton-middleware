@@ -7,29 +7,32 @@ WORKDIR /app
 # Allow Go toolchain to auto-upgrade for dependencies requiring newer versions
 ENV GOTOOLCHAIN=auto
 
-# Copy go mod files first
+# Copy go mod files first and download deps - this layer is cached unless go.mod/go.sum change
 COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy all source
+# Copy source code (this layer changes frequently but deps are already cached)
 COPY . .
 
-# Download deps and build in one layer to preserve toolchain
-# GOTOOLCHAIN=auto downloads newer Go version if required by deps
-RUN GOTOOLCHAIN=auto go mod download && \
-    GOTOOLCHAIN=auto CGO_ENABLED=0 go build -ldflags="-w -s" -o /app/bin/api-server ./cmd/api-server
+# Build binaries
+# CGO_ENABLED=0 creates static binaries compatible with alpine
+RUN CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
+    CGO_ENABLED=0 go build -o /app/bin/api-server-migrate ./cmd/api-server/migrate
 
 # Runtime stage
 FROM alpine:latest
 
 WORKDIR /app
-
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates
-
-# Copy binary from builder
+RUN apk add --no-cache ca-certificates wget
 COPY --from=builder /app/bin/api-server /app/api-server
+COPY --from=builder /app/bin/api-server-migrate /app/api-server-migrate
+COPY --from=builder /app/pkg/config/defaults /app/config/defaults
+COPY scripts/setup/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 8080
+ENV DEFAULT_BINARY=/app/api-server
+ENV ENV=docker
 
-ENTRYPOINT ["/app/api-server"]
-CMD ["-config", "/app/config.yaml"]
+EXPOSE 8081
+
+ENTRYPOINT ["/app/entrypoint.sh"]
