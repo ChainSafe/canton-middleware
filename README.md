@@ -70,6 +70,25 @@ After bootstrap completes, configure MetaMask:
 | Canton HTTP | http://localhost:5013 |
 | Anvil (Ethereum) | http://localhost:8545 |
 | PostgreSQL | localhost:5432 |
+| Relayer Metrics | http://localhost:9090/metrics |
+| Prometheus UI | http://localhost:9091 |
+| Grafana UI | http://localhost:3001 |
+
+### Monitoring
+
+`docker compose up` brings up **Prometheus** and **Grafana** alongside the application services.
+
+- **Prometheus** scrapes the relayer's `/metrics` endpoint on `relayer:9090` every 15 s.
+  The Prometheus UI is available at [http://localhost:9091](http://localhost:9091).
+- **Grafana** is pre-provisioned with Prometheus as the default data source (no manual setup required).
+  Open [http://localhost:3001](http://localhost:3001) — login with `admin` / `admin`.
+
+Configuration files:
+
+| File | Purpose |
+|------|---------|
+| `deployments/prometheus/prometheus.yml` | Prometheus scrape config |
+| `deployments/grafana/provisioning/datasources/prometheus.yaml` | Grafana auto-provisioned Prometheus datasource |
 
 ---
 

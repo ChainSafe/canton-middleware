@@ -253,7 +253,13 @@ bridge:
 
 monitoring:
   enabled: true
-  metrics_port: 9090
+  server:
+    host: "0.0.0.0"
+    port: 9090
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
 ```
 
 **Environment Variables Required:**
