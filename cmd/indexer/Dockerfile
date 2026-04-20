@@ -1,6 +1,6 @@
 # Build stage
 # Using full golang image (not alpine) for toolchain auto-download support
-FROM golang:1.23 AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /app
 
