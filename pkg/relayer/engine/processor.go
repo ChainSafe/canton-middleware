@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
-	"github.com/chainsafe/canton-middleware/internal/metrics"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
@@ -43,6 +45,7 @@ type Processor struct {
 	source          Source
 	destination     Destination
 	store           BridgeStore
+	metrics         *Metrics
 	logger          *zap.Logger
 	metricsName     string
 	direction       relayer.TransferDirection
@@ -56,6 +59,7 @@ func NewProcessor(
 	source Source,
 	destination Destination,
 	store BridgeStore,
+	metrics *Metrics,
 	logger *zap.Logger,
 	metricsName string,
 	direction relayer.TransferDirection,
@@ -64,6 +68,7 @@ func NewProcessor(
 		source:      source,
 		destination: destination,
 		store:       store,
+		metrics:     metrics,
 		logger:      logger,
 		metricsName: metricsName,
 		direction:   direction,
@@ -101,7 +106,7 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 				p.logger.Error("Failed to process event",
 					zap.String("event_id", event.ID),
 					zap.Error(err))
-				metrics.ErrorsTotal.WithLabelValues(p.metricsName, "processing").Inc()
+				p.metrics.IncErrorsTotal(p.metricsName, ErrorCategoryProcessing)
 			}
 		case err := <-errCh:
 			if err != nil {
@@ -116,6 +121,10 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 
 // processEvent handles a single bridge event end-to-end.
 func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) error {
+	timer := prometheus.NewTimer(p.metrics.ObserveTransferDuration(p.direction))
+	defer timer.ObserveDuration()
+
+	createdAt := time.Now()
 	transfer := &relayer.Transfer{
 		ID:                event.ID,
 		Direction:         p.direction,
@@ -129,10 +138,12 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 		Recipient:         event.Recipient,
 		Nonce:             event.Nonce,
 		SourceBlockNumber: event.SourceBlockNumber,
+		CreatedAt:         createdAt,
 	}
 
 	inserted, err := p.store.CreateTransfer(ctx, transfer)
 	if err != nil {
+		p.metrics.IncEventProcessingErrors(p.source.GetChainID(), StageCreateTransfer)
 		return fmt.Errorf("failed to create transfer: %w", err)
 	}
 	if !inserted {
@@ -149,6 +160,8 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 	destTxHash, skipped, submitErr := p.destination.SubmitTransfer(ctx, event)
 	if submitErr != nil {
 		p.logger.Error("Failed to submit transfer", zap.String("id", event.ID), zap.Error(submitErr))
+		p.metrics.IncTransactionsSent(p.destination.GetChainID(), TxStatusFailed)
+		p.metrics.IncEventProcessingErrors(p.source.GetChainID(), StageSubmit)
 		errMsg := submitErr.Error()
 		// Keep failed submissions pending so reconciliation can retry them.
 		if updateErr := p.store.UpdateTransferStatus(ctx, event.ID, relayer.TransferStatusPending, nil, &errMsg); updateErr != nil {
@@ -172,12 +185,22 @@ func (p *Processor) processEvent(ctx context.Context, event *relayer.Event) erro
 
 	if p.onPostSubmit != nil {
 		if hookErr := p.onPostSubmit(ctx, event, destTxHash); hookErr != nil {
+			p.metrics.IncEventProcessingErrors(p.source.GetChainID(), StagePostSubmitHook)
 			p.logger.Warn("Post-submit hook failed", zap.String("id", event.ID), zap.Error(hookErr))
 		}
 	}
 
 	p.persistOffset(ctx, event)
-	metrics.TransfersTotal.WithLabelValues(string(p.direction), "completed").Inc()
+	p.metrics.IncTransfersTotal(p.direction, TransferResultCompleted)
+	p.metrics.IncTransactionsSent(p.destination.GetChainID(), TxStatusSuccess)
+	// TODO: Replace createdAt (event detection time) with the source chain block
+	// timestamp for true on-chain transfer age once SourceTimestamp is added to Event.
+	p.metrics.ObserveTransferAge(p.direction, time.Since(createdAt).Seconds())
+
+	// Record the transfer amount for distribution tracking.
+	if amount, err := strconv.ParseFloat(event.Amount, 64); err == nil {
+		p.metrics.ObserveTransferAmount(p.direction, event.TokenAddress, amount)
+	}
 
 	p.logger.Info("Transfer completed",
 		zap.String("id", event.ID),

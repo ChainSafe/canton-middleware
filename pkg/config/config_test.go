@@ -248,8 +248,8 @@ func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
 	if cfg.Monitoring.Enabled {
 		t.Fatal("monitoring.enabled default mismatch: expected false")
 	}
-	if cfg.Monitoring.MetricsPort != 9090 {
-		t.Fatalf("monitoring.metrics_port default mismatch: got %d", cfg.Monitoring.MetricsPort)
+	if cfg.Monitoring.Server != nil {
+		t.Fatal("monitoring.server should be nil when monitoring is disabled")
 	}
 	if cfg.Monitoring.HealthCheckURL != "/health" {
 		t.Fatalf("monitoring.health_check_url default mismatch: got %q", cfg.Monitoring.HealthCheckURL)
@@ -317,6 +317,44 @@ func TestLoadRelayerServer_RejectsUnknownField(t *testing.T) {
 	if !strings.Contains(strings.ToLower(err.Error()), "unknown_field") {
 		t.Fatalf("expected unknown_field in error, got: %v", err)
 	}
+}
+
+func TestLoadRelayerServer_MonitoringEnabledRequiresServer(t *testing.T) {
+	t.Run("enabled without server fails", func(t *testing.T) {
+		_, err := LoadRelayerServer(testConfigPath(t, "monitoring-enabled-no-server.relayer.yaml"))
+		if err == nil {
+			t.Fatal("expected validation error when monitoring.enabled=true and server is nil, got nil")
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "server") {
+			t.Fatalf("expected error mentioning server, got: %v", err)
+		}
+	})
+
+	t.Run("enabled with server passes", func(t *testing.T) {
+		cfg, err := LoadRelayerServer(testConfigPath(t, "monitoring-enabled-with-server.relayer.yaml"))
+		if err != nil {
+			t.Fatalf("expected valid config, got error: %v", err)
+		}
+		if !cfg.Monitoring.Enabled {
+			t.Fatal("monitoring.enabled should be true")
+		}
+		if cfg.Monitoring.Server == nil {
+			t.Fatal("monitoring.server should not be nil")
+		}
+		if cfg.Monitoring.Server.Port != 9090 {
+			t.Fatalf("monitoring.server.port mismatch: got %d, want 9090", cfg.Monitoring.Server.Port)
+		}
+	})
+
+	t.Run("disabled without server passes", func(t *testing.T) {
+		cfg, err := LoadRelayerServer(testConfigPath(t, "minimal.relayer.yaml"))
+		if err != nil {
+			t.Fatalf("expected valid config, got error: %v", err)
+		}
+		if cfg.Monitoring.Enabled {
+			t.Fatal("monitoring.enabled should be false")
+		}
+	})
 }
 
 func TestLoadConfig_FileErrors(t *testing.T) {
