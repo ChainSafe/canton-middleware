@@ -35,7 +35,8 @@ type APIServer struct {
 	Logging             *log.Config          `yaml:"logging" validate:"required"`
 	Reconciliation      *reconciler.Config   `yaml:"reconciliation" validate:"required"`
 	KeyManagement       *KeyManagement       `yaml:"key_management" validate:"required"` // Custodial Canton key settings
-	SkipCantonSigVerify bool                 `yaml:"skip_canton_sig_verify" default:"false"`
+	SkipCantonSigVerify  bool                 `yaml:"skip_canton_sig_verify" default:"false"`
+	SkipWhitelistCheck   bool                 `yaml:"skip_whitelist_check" default:"false"`
 }
 
 // RelayerServer represents the application configuration for relayer.

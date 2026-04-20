@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-build docker-run deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
+.PHONY: build test clean run setup db-up db-down docker-build docker-run docker-up docker-down deploy-contracts install-mockery check-mockery generate-mocks test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
 
 GREEN := \033[0;32m
 RED := \033[0;31m
@@ -115,12 +115,11 @@ db-migrate:
 	@echo "Running API server database migrations..."
 	go run ./cmd/api-server/migrate/main.go -config config.api-server.yaml up
 
-# Docker build
-docker-build:
-	docker build -t canton-bridge-relayer:latest .
+docker-up:
+	docker compose up --build
 
-docker-run:
-	docker-compose up -d
+docker-down:
+	docker compose down -v --remove-orphans
 
 # Development setup
 setup: deps db-up

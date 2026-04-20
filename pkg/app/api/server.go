@@ -115,6 +115,7 @@ func (s *Server) Run() error {
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
+		cfg.SkipWhitelistCheck,
 		topologyCache,
 	)
 
@@ -242,6 +243,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+	r.Use(corsMiddleware)
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -267,6 +269,20 @@ func (s *Server) setupRouter(
 	}
 
 	return r
+}
+
+// corsMiddleware adds permissive CORS headers for local development.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, X-Signature, X-Message, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // tokenSymbols extracts the unique symbol strings from the token config.

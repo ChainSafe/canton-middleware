@@ -83,3 +83,5 @@ logging:
 key_management:
   master_key_env: "CANTON_MASTER_KEY"
   key_derivation: "generate"
+
+skip_whitelist_check: true

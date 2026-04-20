@@ -68,6 +68,7 @@ type registrationService struct {
 	logger                          *zap.Logger
 	keyCipher                       keys.KeyCipher
 	skipCantonSignatureVerification bool
+	skipWhitelistCheck              bool
 	topologyCache                   TopologyCacheProvider
 }
 
@@ -78,6 +79,7 @@ func NewService(
 	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
+	skipWhitelistCheck bool,
 	topologyCache TopologyCacheProvider,
 ) Service {
 	return &registrationService{
@@ -86,6 +88,7 @@ func NewService(
 		logger:                          logger,
 		keyCipher:                       keyCipher,
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
+		skipWhitelistCheck:              skipWhitelistCheck,
 		topologyCache:                   topologyCache,
 	}
 }
@@ -120,12 +123,14 @@ func (s *registrationService) RegisterWeb3User(
 		zap.String("key_mode", req.KeyMode))
 
 	// Check whitelist (before any registration path)
-	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check whitelist: %w", err)
-	}
-	if !whitelisted {
-		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	if !s.skipWhitelistCheck {
+		whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check whitelist: %w", err)
+		}
+		if !whitelisted {
+			return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+		}
 	}
 
 	// External (non-custodial) registration: second step of two-step flow
@@ -414,12 +419,14 @@ func (s *registrationService) PrepareExternalRegistration(
 	}
 
 	// Check whitelist
-	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check whitelist: %w", err)
-	}
-	if !whitelisted {
-		return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	if !s.skipWhitelistCheck {
+		whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check whitelist: %w", err)
+		}
+		if !whitelisted {
+			return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+		}
 	}
 
 	// Parse compressed public key and derive SPKI
