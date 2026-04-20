@@ -124,7 +124,8 @@ func (s *registrationService) RegisterWeb3User(
 
 	// Check whitelist (before any registration path)
 	if !s.skipWhitelistCheck {
-		whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+		var whitelisted bool
+		whitelisted, err = s.store.IsWhitelisted(ctx, evmAddress)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check whitelist: %w", err)
 		}
@@ -420,7 +421,8 @@ func (s *registrationService) PrepareExternalRegistration(
 
 	// Check whitelist
 	if !s.skipWhitelistCheck {
-		whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+		var whitelisted bool
+		whitelisted, err = s.store.IsWhitelisted(ctx, evmAddress)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check whitelist: %w", err)
 		}
