@@ -243,7 +243,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
-	r.Use(corsMiddleware)
+	r.Use(newCORSMiddleware(s.cfg.CORSOrigins))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -271,18 +271,37 @@ func (s *Server) setupRouter(
 	return r
 }
 
-// corsMiddleware adds permissive CORS headers for local development.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, X-Signature, X-Message, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
+// newCORSMiddleware returns a CORS middleware restricted to the given origins.
+// If origins contains "*", all origins are permitted.
+// Otherwise, the request Origin is reflected back only if it matches the allowlist.
+func newCORSMiddleware(origins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(origins))
+	wildcard := false
+	for _, o := range origins {
+		if o == "*" {
+			wildcard = true
 		}
-		next.ServeHTTP(w, r)
-	})
+		allowed[o] = true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if wildcard {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else if origin != "" && allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Add("Vary", "Origin")
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, X-Signature, X-Message, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // tokenSymbols extracts the unique symbol strings from the token config.

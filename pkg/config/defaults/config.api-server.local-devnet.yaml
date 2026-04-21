@@ -85,3 +85,6 @@ key_management:
   key_derivation: "generate"
 
 skip_whitelist_check: true
+
+cors:
+  - "*"

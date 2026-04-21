@@ -94,3 +94,6 @@ key_management:
 
 skip_canton_sig_verify: ${SKIP_CANTON_SIG_VERIFY}
 skip_whitelist_check: false
+
+cors:
+  - "*"
