@@ -93,6 +93,20 @@ func NewService(
 	}
 }
 
+func (s *registrationService) checkWhitelist(ctx context.Context, evmAddress string) error {
+	if s.skipWhitelistCheck {
+		return nil
+	}
+	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	if err != nil {
+		return fmt.Errorf("failed to check whitelist: %w", err)
+	}
+	if !whitelisted {
+		return apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
+	}
+	return nil
+}
+
 // RegisterWeb3User registers a Web3 user with EIP-191 signature verification.
 // This flow generates a Canton party ID and keys for the user on their behalf.
 //
@@ -123,15 +137,8 @@ func (s *registrationService) RegisterWeb3User(
 		zap.String("key_mode", req.KeyMode))
 
 	// Check whitelist (before any registration path)
-	if !s.skipWhitelistCheck {
-		var whitelisted bool
-		whitelisted, err = s.store.IsWhitelisted(ctx, evmAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check whitelist: %w", err)
-		}
-		if !whitelisted {
-			return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
-		}
+	if err = s.checkWhitelist(ctx, evmAddress); err != nil {
+		return nil, err
 	}
 
 	// External (non-custodial) registration: second step of two-step flow
@@ -420,15 +427,8 @@ func (s *registrationService) PrepareExternalRegistration(
 	}
 
 	// Check whitelist
-	if !s.skipWhitelistCheck {
-		var whitelisted bool
-		whitelisted, err = s.store.IsWhitelisted(ctx, evmAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check whitelist: %w", err)
-		}
-		if !whitelisted {
-			return nil, apperrors.ForbiddenError(ErrNotWhitelisted, "address not whitelisted for registration")
-		}
+	if err = s.checkWhitelist(ctx, evmAddress); err != nil {
+		return nil, err
 	}
 
 	// Parse compressed public key and derive SPKI
