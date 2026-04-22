@@ -108,7 +108,7 @@ if [ -x "$MIGRATE_BINARY" ]; then
         fi
         if [ $init_code -eq 0 ]; then
             echo ">>> [INFO] Migrations initialized."
-        elif echo "$init_output" | grep -qi "already\|exist"; then
+        elif [ $init_code -eq 1 ] && echo "$init_output" | grep -qiE "already|exist"; then
             echo ">>> [INFO] Migrations already initialized (skipping)."
         else
             echo ">>> [ERROR] Migration init failed (exit $init_code): $init_output"
