@@ -99,8 +99,13 @@ if [ -x "$MIGRATE_BINARY" ]; then
         # 'init' is expected to fail with a non-zero exit when the migrations table already
         # exists. Treat exit code 1 as "already initialized"; any other non-zero exit code
         # (binary not found, permission denied, DB unreachable) is a real error and fails loudly.
-        init_output=$("$MIGRATE_BINARY" -config "$CONFIG_PATH" init 2>&1)
-        init_code=$?
+        # Use the `if` form to prevent `set -e` from exiting on the failing command
+        # substitution, which would otherwise swallow the error output before we can surface it.
+        if init_output=$("$MIGRATE_BINARY" -config "$CONFIG_PATH" init 2>&1); then
+            init_code=0
+        else
+            init_code=$?
+        fi
         if [ $init_code -eq 0 ]; then
             echo ">>> [INFO] Migrations initialized."
         elif echo "$init_output" | grep -qi "already\|exist"; then
