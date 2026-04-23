@@ -17,6 +17,7 @@ import (
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
+	indexerclient "github.com/chainsafe/canton-middleware/pkg/indexer/client"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/uptrace/bun"
 	"go.uber.org/zap"
 )
 
@@ -106,6 +108,58 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
+	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, cipher, logger)
+	if err != nil {
+		return err
+	}
+
+	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, logger)
+
+	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
+
+	// Stop background work before deferred DB/client closes kick in.
+	stopReconcile()
+
+	return err
+}
+
+// buildTokenProvider constructs the token data provider according to the
+// configured mode.  canton is the default; indexer reads from the indexer's
+// pre-materialized HTTP API instead of issuing live gRPC ACS scans.
+func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token) (token.Provider, error) {
+	switch cfg.TokenProvider.Mode {
+	case config.TokenProviderIndexer:
+		ic := cfg.TokenProvider.Indexer
+		if ic == nil {
+			return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
+		}
+		c, err := indexerclient.New(ic.URL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create indexer client: %w", err)
+		}
+		return tokenprovider.NewIndexer(c, ic.Instruments), nil
+	default: // TokenProviderCanton
+		return tokenprovider.NewCanton(cantonToken), nil
+	}
+}
+
+type services struct {
+	evmStore     ethrpc.Store
+	tokenService *token.Service
+	regSvc       userservice.Service
+	transferSvc  transfer.Service
+}
+
+func initServices(
+	ctx context.Context,
+	cfg *config.APIServer,
+	dbBun *bun.DB,
+	cantonClient *canton.Client,
+	cipher keys.KeyCipher,
+	logger *zap.Logger,
+) (*services, error) {
+	userStore := userstore.NewStore(dbBun)
+
 	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
 	go topologyCache.Start(ctx)
 
@@ -115,32 +169,31 @@ func (s *Server) Run() error {
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
+		cfg.SkipWhitelistCheck,
 		topologyCache,
 	)
 
-	tokenDataProvider := tokenprovider.NewCanton(cantonClient.Token)
-	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
+	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	if err != nil {
+		return nil, fmt.Errorf("build token provider: %w", err)
+	}
+
 	evmStore := ethrpcstore.NewStore(dbBun)
 
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
 	go transferCache.Start(ctx)
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token))
-	regSvcLog := userservice.NewLog(registrationService, logger)
-	transferSvcLog := transfer.NewLog(transferSvc, logger)
 
 	if cfg.EthRPC.Enabled {
 		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
 		go m.Start(ctx)
 	}
 
-	router := s.setupRouter(evmStore, cantonClient, tokenService, regSvcLog, transferSvcLog, logger)
-
-	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
-
-	// Stop background work before deferred DB/client closes kick in.
-	stopReconcile()
-
-	return err
+	return &services{
+		evmStore:     evmStore,
+		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
+		regSvc:       userservice.NewLog(registrationService, logger),
+		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token)), logger),
+	}, nil
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {
@@ -242,6 +295,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+	r.Use(apphttp.CORSMiddleware(s.cfg.CORSOrigins))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
