@@ -39,7 +39,7 @@ func (s *pgStore) CreateUser(ctx context.Context, usr *user.User) error {
 
 func (s *pgStore) getUserBy(ctx context.Context, column string, value string) (*user.User, error) {
 	dao := new(UserDao)
-	query := s.db.NewSelect().Model(dao).Where("LOWER("+column+") = LOWER(?)", value)
+	query := s.db.NewSelect().Model(dao).Where("? = ?", bun.Ident(column), value)
 
 	err := query.Scan(ctx)
 	if err != nil {
