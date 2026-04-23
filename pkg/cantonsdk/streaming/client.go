@@ -33,18 +33,28 @@ type Streamer interface {
 // It mirrors the streaming pattern established in pkg/cantonsdk/bridge/client.go.
 type Client struct {
 	ledger ledger.Ledger
-	party  string
+	party  *string // nil = FiltersForAnyParty (wildcard); non-nil = FiltersByParty
 	logger *zap.Logger
 }
 
-// New creates a new streaming Client for the given ledger and party.
-func New(l ledger.Ledger, party string, opts ...Option) *Client {
+// New creates a new streaming Client for the given ledger.
+//
+// By default (no WithParty option) the client uses FiltersForAnyParty, subscribing
+// to all contracts on the participant regardless of stakeholder membership.
+// This requires the Canton auth token to carry CanReadAsAnyParty rights.
+//
+// Pass WithParty to scope the stream to a specific party's stakeholder view.
+// WithParty must not be called with an empty string.
+func New(l ledger.Ledger, opts ...Option) (*Client, error) {
 	s := applyOptions(opts)
+	if s.party != nil && *s.party == "" {
+		return nil, errors.New("streaming: WithParty requires a non-empty party ID")
+	}
 	return &Client{
 		ledger: l,
-		party:  party,
+		party:  s.party,
 		logger: s.logger,
-	}
+	}, nil
 }
 
 // Subscribe opens a live stream against the Canton ledger and returns a read-only channel
@@ -121,16 +131,29 @@ func (c *Client) runStream(
 ) error {
 	authCtx := c.ledger.AuthContext(ctx)
 
+	var eventFormat *lapiv2.EventFormat
+	if c.party == nil {
+		// FiltersForAnyParty subscribes to all contracts on the participant without
+		// restricting to a specific party's stakeholder view. Requires the Canton
+		// auth token to carry CanReadAsAnyParty rights.
+		eventFormat = &lapiv2.EventFormat{
+			FiltersForAnyParty: buildTemplateFilters(templateIDs),
+			Verbose:            true,
+		}
+	} else {
+		eventFormat = &lapiv2.EventFormat{
+			FiltersByParty: map[string]*lapiv2.Filters{
+				*c.party: buildTemplateFilters(templateIDs),
+			},
+			Verbose: true,
+		}
+	}
+
 	stream, err := c.ledger.Update().GetUpdates(authCtx, &lapiv2.GetUpdatesRequest{
 		BeginExclusive: fromOffset,
 		UpdateFormat: &lapiv2.UpdateFormat{
 			IncludeTransactions: &lapiv2.TransactionFormat{
-				EventFormat: &lapiv2.EventFormat{
-					FiltersByParty: map[string]*lapiv2.Filters{
-						c.party: buildTemplateFilters(templateIDs),
-					},
-					Verbose: true,
-				},
+				EventFormat:      eventFormat,
 				TransactionShape: lapiv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
 			},
 		},
