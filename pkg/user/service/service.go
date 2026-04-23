@@ -466,6 +466,7 @@ func (s *registrationService) PrepareExternalRegistration(
 }
 
 func (s *registrationService) GetUser(ctx context.Context, evmAddress, msg, sig string) (*user.User, error) {
+	evmAddress = auth.NormalizeAddress(evmAddress)
 	recoveredAddr, err := auth.VerifyEIP191Signature(msg, sig)
 	if err != nil {
 		return nil, apperrors.UnAuthorizedError(err, "invalid signature")
