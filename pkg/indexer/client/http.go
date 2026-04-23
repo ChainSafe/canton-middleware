@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -220,16 +221,21 @@ func (c *HTTP) getJSON(ctx context.Context, rawURL string, dest any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Best-effort decode of the indexer's JSON error envelope.
-		// If the body is not JSON (e.g. an HTML gateway error page), errMsg
-		// stays empty and the status code alone is returned to the caller.
-		var errMsg string
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("indexer HTTP %d: failed to read error body: %w", resp.StatusCode, err)
+		}
+
 		var body struct {
 			Error string `json:"error"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+		// Default to the full body as the error message.
+		errMsg := strings.TrimSpace(string(bodyBytes))
+		// If we can parse the JSON error envelope, use that instead.
+		if err := json.Unmarshal(bodyBytes, &body); err == nil && body.Error != "" {
 			errMsg = body.Error
 		}
+
 		if resp.StatusCode == http.StatusNotFound {
 			return apperrors.ResourceNotFoundError(nil, errMsg)
 		}
