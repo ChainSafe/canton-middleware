@@ -15,15 +15,15 @@ const (
 
 // User represents the domain model for a registered user.
 type User struct {
-	EVMAddress                 string
-	CantonParty                string
-	Fingerprint                string
-	MappingCID                 string
-	CantonPartyID              string
-	CantonKeyCreatedAt         *time.Time
-	CantonPrivateKeyEncrypted  string
-	KeyMode                    string // "custodial" or "external"
-	CantonPublicKeyFingerprint string // For external users: Canton multihash fingerprint
+	EVMAddress                 string     `json:"evm_address"`
+	CantonParty                string     `json:"canton_party"`
+	Fingerprint                string     `json:"fingerprint"`
+	MappingCID                 string     `json:"mapping_cid"`
+	CantonPartyID              string     `json:"-"`
+	CantonKeyCreatedAt         *time.Time `json:"-"`
+	CantonPrivateKeyEncrypted  string     `json:"-"`
+	KeyMode                    string     `json:"key_mode"` // "custodial" or "external"
+	CantonPublicKeyFingerprint string     `json:"-"`        // For external users: Canton multihash fingerprint
 }
 
 // New creates a custodial User from the given parameters.
