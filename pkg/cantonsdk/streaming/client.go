@@ -132,14 +132,15 @@ func (c *Client) runStream(
 	authCtx := c.ledger.AuthContext(ctx)
 
 	eventFormat := &lapiv2.EventFormat{Verbose: true}
+	filters := buildTemplateFilters(templateIDs)
 	if c.party == nil {
 		// FiltersForAnyParty subscribes to all contracts on the participant without
 		// restricting to a specific party's stakeholder view. Requires the Canton
 		// auth token to carry CanReadAsAnyParty rights.
-		eventFormat.FiltersForAnyParty = buildTemplateFilters(templateIDs)
+		eventFormat.FiltersForAnyParty = filters
 	} else {
 		eventFormat.FiltersByParty = map[string]*lapiv2.Filters{
-			*c.party: buildTemplateFilters(templateIDs),
+			*c.party: filters,
 		}
 	}
 
