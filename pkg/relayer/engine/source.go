@@ -21,11 +21,12 @@ type cantonSource struct {
 	client        canton.Bridge
 	tokenContract string
 	chainID       string
+	metrics       *Metrics
 }
 
 // NewCantonSource creates a new Canton event source.
-func NewCantonSource(client canton.Bridge, tokenContract, chainID string) Source {
-	return &cantonSource{client: client, tokenContract: tokenContract, chainID: chainID}
+func NewCantonSource(client canton.Bridge, tokenContract, chainID string, metrics *Metrics) Source {
+	return &cantonSource{client: client, tokenContract: tokenContract, chainID: chainID, metrics: metrics}
 }
 
 // GetChainID returns the chain identifier.
@@ -59,6 +60,7 @@ func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 					}
 					return
 				}
+				s.metrics.IncEventsDetected(relayer.ChainCanton, EventTypeWithdrawal)
 				outCh <- &relayer.Event{
 					ID:               withdrawal.EventID,
 					TransactionID:    withdrawal.TransactionID,
@@ -84,11 +86,12 @@ func (s *cantonSource) StreamEvents(ctx context.Context, offset string) (<-chan 
 type ethereumSource struct {
 	client  EthereumBridgeClient
 	chainID string
+	metrics *Metrics
 }
 
 // NewEthereumSource creates a new Ethereum event source.
-func NewEthereumSource(client EthereumBridgeClient, chainID string) Source {
-	return &ethereumSource{client: client, chainID: chainID}
+func NewEthereumSource(client EthereumBridgeClient, chainID string, metrics *Metrics) Source {
+	return &ethereumSource{client: client, chainID: chainID, metrics: metrics}
 }
 
 // GetChainID returns the chain identifier.
@@ -123,6 +126,8 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 		}
 
 		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
+			s.metrics.IncEventsDetected(relayer.ChainEthereum, EventTypeDeposit)
+
 			relayerEvent := &relayer.Event{
 				ID:                fmt.Sprintf("%s-%d", event.TxHash.Hex(), event.LogIndex),
 				TransactionID:     event.TxHash.Hex(),

@@ -122,6 +122,11 @@ docker-build:
 docker-run:
 	docker-compose up -d
 
+# Generate crypto test vectors for canton-snap cross-validation
+test-vectors:
+	go run ./cmd/generate-test-vectors > test-vectors.json
+	@echo "Wrote test-vectors.json (copy to canton-snap repo)"
+
 # Development setup
 setup: deps db-up
 	@echo "Waiting for database to be ready..."

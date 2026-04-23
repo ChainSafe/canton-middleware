@@ -52,6 +52,14 @@ canton:
     core_package_id: "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
     module: "Wayfinder.Bridge"
 
+token_provider:
+  mode: indexer
+  indexer:
+    url: "http://indexer:8082"
+    instruments:
+      PROMPT: "${CANTON_ISSUER_PARTY}"
+      DEMO:   "${CANTON_ISSUER_PARTY}"
+
 # Token metadata
 token:
   supported_tokens:
