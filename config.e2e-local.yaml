@@ -61,6 +61,14 @@ canton:
     package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
     module: "Wayfinder.Bridge"
 
+token_provider:
+  mode: indexer
+  indexer:
+    url: "http://indexer:8082"
+    instruments:
+      PROMPT: "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
+      DEMO:   "BridgeIssuer::1220192c25966fe2d53554dfe3a7e2c1c786268318f9870a26902935f3c912ac51ac"
+
 # Token metadata
 token:
   supported_tokens:
