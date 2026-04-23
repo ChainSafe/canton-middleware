@@ -24,7 +24,7 @@ const testGasLimit = uint64(21000)
 const testMaxTxsPerBlock = 200
 
 func newTestMiner(store Store) *Miner {
-	return New(store, testChainID, testGasLimit, testMaxTxsPerBlock, time.Second, zap.NewNop())
+	return New(store, testChainID, testGasLimit, testMaxTxsPerBlock, time.Second, NewNopMetrics(), zap.NewNop())
 }
 
 func sampleEntry(txHash byte, from, contract, recipient string, nonce uint64, amount int64) ethrpc.MempoolEntry {
@@ -307,7 +307,7 @@ func TestStart_StopsOnContextCancel(t *testing.T) {
 	store := mocks.NewStore(t)
 	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil).Maybe()
 
-	m := New(store, testChainID, testGasLimit, testMaxTxsPerBlock, 10*time.Millisecond, zap.NewNop())
+	m := New(store, testChainID, testGasLimit, testMaxTxsPerBlock, 10*time.Millisecond, NewNopMetrics(), zap.NewNop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

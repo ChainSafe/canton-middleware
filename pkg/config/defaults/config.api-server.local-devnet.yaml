@@ -75,6 +75,17 @@ reconciliation:
   initial_timeout: "2m"
   interval: "1m"
 
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9091
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"
+
 logging:
   level: "debug"
   format: "console"

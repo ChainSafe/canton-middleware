@@ -7,16 +7,16 @@ import (
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 )
 
-// StoreMetrics holds Prometheus collectors for the relayer database layer.
+// StoreMetrics holds Prometheus collectors for the indexer database layer.
 type StoreMetrics struct {
-	// QueryDuration tracks database query latency by operation.
+	// QueryDuration tracks database query latency partitioned by operation.
 	QueryDuration *prometheus.HistogramVec
 
-	// Errors counts database errors by operation.
+	// Errors counts database errors partitioned by operation.
 	Errors *prometheus.CounterVec
 }
 
-// NewStoreMetrics registers relayer store metrics against the given registerer.
+// NewStoreMetrics registers indexer store metrics against the given registerer.
 func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 	f := promauto.With(reg)
 	ns := reg.Namespace()
@@ -26,19 +26,20 @@ func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
 		QueryDuration: f.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: ns, Subsystem: sub,
 			Name:    "query_duration_seconds",
-			Help:    "Database query duration in seconds",
+			Help:    "Database query duration in seconds, partitioned by operation",
 			Buckets: sharedmetrics.DBLatencyBuckets,
 		}, []string{"operation"}),
 
 		Errors: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,
 			Name: "errors_total",
-			Help: "Total number of database errors",
+			Help: "Total number of database errors, partitioned by operation",
 		}, []string{"operation"}),
 	}
 }
 
 // NewNopStoreMetrics returns a StoreMetrics instance backed by a throwaway registry.
+// Use in tests where metric values are not asserted.
 func NewNopStoreMetrics() *StoreMetrics {
 	return NewStoreMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
 }
@@ -49,14 +50,22 @@ func NewNopStoreMetrics() *StoreMetrics {
 type StoreOperation string
 
 const (
-	OpCreateTransfer       StoreOperation = "create_transfer"
-	OpGetTransfer          StoreOperation = "get_transfer"
-	OpUpdateTransferStatus StoreOperation = "update_transfer_status"
-	OpIncrementRetryCount  StoreOperation = "increment_retry_count"
-	OpGetChainState        StoreOperation = "get_chain_state"
-	OpSetChainState        StoreOperation = "set_chain_state"
-	OpGetPendingTransfers  StoreOperation = "get_pending_transfers"
-	OpListTransfers        StoreOperation = "list_transfers"
+	// Write-path operations (processor / engine.Store).
+	OpLatestOffset      StoreOperation = "latest_offset"
+	OpInsertEvent       StoreOperation = "insert_event"
+	OpSaveOffset        StoreOperation = "save_offset"
+	OpUpsertToken       StoreOperation = "upsert_token"
+	OpApplyBalanceDelta StoreOperation = "apply_balance_delta"
+	OpApplySupplyDelta  StoreOperation = "apply_supply_delta"
+
+	// Read-path operations (HTTP API / service.Store).
+	OpGetToken             StoreOperation = "get_token"
+	OpListTokens           StoreOperation = "list_tokens"
+	OpGetBalance           StoreOperation = "get_balance"
+	OpListBalancesForParty StoreOperation = "list_balances_for_party"
+	OpListBalancesForToken StoreOperation = "list_balances_for_token"
+	OpGetEvent             StoreOperation = "get_event"
+	OpListEvents           StoreOperation = "list_events"
 )
 
 // ── Helper methods ───────────────────────────────────────────────────────────

@@ -86,6 +86,9 @@ jwks:
   url: ""
   issuer: ""
 
+monitoring:
+  enabled: false
+
 logging:
   level: "debug"
   format: "json"

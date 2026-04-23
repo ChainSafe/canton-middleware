@@ -114,7 +114,7 @@ func TestProcessor_Run_LoadOffsetError(t *testing.T) {
 
 	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), loadErr)
 
-	err := engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background())
+	err := engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, loadErr)
 }
@@ -127,7 +127,7 @@ func TestProcessor_Run_StreamClosed_ReturnsNil(t *testing.T) {
 	fetcher.EXPECT().Start(mock.Anything, int64(5))
 	fetcher.EXPECT().Events().Return(feedCh())
 
-	assert.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	assert.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_ContextCancelled(t *testing.T) {
@@ -142,7 +142,7 @@ func TestProcessor_Run_ContextCancelled(t *testing.T) {
 	fetcher.EXPECT().Events().Return((<-chan *streaming.Batch[*indexer.ParsedEvent])(ch))
 
 	done := make(chan error, 1)
-	go func() { done <- engine.NewProcessor(fetcher, store, zap.NewNop()).Run(ctx) }()
+	go func() { done <- engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(ctx) }()
 
 	cancel()
 	assert.ErrorIs(t, <-done, context.Canceled)
@@ -175,7 +175,7 @@ func TestProcessor_Run_MintBatch(t *testing.T) {
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(1)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_BurnBatch(t *testing.T) {
@@ -200,7 +200,7 @@ func TestProcessor_Run_BurnBatch(t *testing.T) {
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(2)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_TransferBatch(t *testing.T) {
@@ -226,7 +226,7 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_EmptyBatch_AdvancesOffset(t *testing.T) {
@@ -240,7 +240,7 @@ func TestProcessor_Run_EmptyBatch_AdvancesOffset(t *testing.T) {
 	setupRunInTx(store)
 	store.EXPECT().SaveOffset(mock.Anything, int64(10)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_DuplicateEvent_SkipsDerivedStateButAdvancesOffset(t *testing.T) {
@@ -256,7 +256,7 @@ func TestProcessor_Run_DuplicateEvent_SkipsDerivedStateButAdvancesOffset(t *test
 	store.EXPECT().InsertEvent(mock.Anything, ev).Return(false, nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(5)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +281,7 @@ func TestProcessor_Run_StoreError_Retries(t *testing.T) {
 		}).Once()
 	store.EXPECT().SaveOffset(mock.Anything, int64(1)).Return(nil)
 
-	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
 func TestProcessor_Run_ContextCancelledDuringRetry(t *testing.T) {
@@ -301,6 +301,6 @@ func TestProcessor_Run_ContextCancelledDuringRetry(t *testing.T) {
 			return errors.New("persistent error")
 		})
 
-	err := engine.NewProcessor(fetcher, store, zap.NewNop()).Run(ctx)
+	err := engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
 }

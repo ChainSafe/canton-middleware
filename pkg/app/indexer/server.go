@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
@@ -33,6 +34,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -106,18 +109,26 @@ func (s *Server) Run() error {
 		EntityName: "TokenTransferEvent",
 	}
 
+	// ── Metrics — registered once, injected into processor and store ──────────
+
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "indexer_server")
+	engineMetrics := engine.NewMetrics(reg)
+	storeMetrics := indexerstore.NewStoreMetrics(reg)
+	httpMetrics := apphttp.NewHTTPMetrics(reg)
+
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
 	decode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
 	fetcher := engine.NewFetcher(streamClient, templateID, decode, logger)
-	store := indexerstore.NewStore(db)
-	processor := engine.NewProcessor(fetcher, store, logger)
+	rawStore := indexerstore.NewStore(db)
+	store := indexerstore.NewInstrumentedStore(rawStore, storeMetrics)
+	processor := engine.NewProcessor(fetcher, store, engineMetrics, logger)
 
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := newRouter(svc, logger)
+	router := newRouter(svc, httpMetrics, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -129,12 +140,39 @@ func (s *Server) Run() error {
 	})
 
 	g.Go(func() error {
-		logger.Info("Indexer HTTP server starting",
-			zap.String("host", cfg.Server.Host),
-			zap.Int("port", cfg.Server.Port),
-		)
-		return apphttp.ServeAndWait(gctx, router, logger, cfg.Server)
+		return s.serveAll(gctx, router, logger)
 	})
+
+	return g.Wait()
+}
+
+// serveAll runs the indexer HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		logger.Info("Indexer HTTP server starting",
+			zap.String("host", s.cfg.Server.Host),
+			zap.Int("port", s.cfg.Server.Port),
+		)
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
+
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		if s.cfg.Monitoring.Server == nil {
+			return fmt.Errorf("monitoring is enabled but server config is nil")
+		}
+
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
 
 	return g.Wait()
 }
@@ -147,12 +185,13 @@ func (s *Server) Run() error {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
+func newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultMiddlewareTimeout))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

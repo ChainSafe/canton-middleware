@@ -7,11 +7,14 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+
+	"google.golang.org/grpc"
 )
 
 // Client is the SDK facade.
@@ -32,10 +35,24 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 
 	propagateCommonConfig(cfg)
 
-	l, err := ledger.New(cfg.Ledger,
+	dialOpts := s.dialOpts
+	if s.promRegisterer != nil {
+		m := newSDKMetrics(s.promRegisterer)
+		dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(
+			rpcObserverInterceptor(func(method string, elapsed time.Duration) {
+				m.RPCDuration.WithLabelValues(method).Observe(elapsed.Seconds())
+			}),
+		))
+	}
+
+	ledgerOpts := []ledger.Option{
 		ledger.WithLogger(s.logger),
 		ledger.WithHTTPClient(s.httpClient),
-	)
+	}
+	if len(dialOpts) > 0 {
+		ledgerOpts = append(ledgerOpts, ledger.WithGRPCDialOptions(dialOpts...))
+	}
+	l, err := ledger.New(cfg.Ledger, ledgerOpts...)
 	if err != nil {
 		return nil, err
 	}

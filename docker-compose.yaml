@@ -230,6 +230,7 @@ services:
     container_name: erc20-api-server
     ports:
       - "8081:8081"
+      - "9093:9091"  # Prometheus metrics
     volumes:
       - config_state:/app/state:ro
     command: ["-config", "/app/state/api-server-config.yaml"]
@@ -271,6 +272,7 @@ services:
     container_name: canton-indexer
     ports:
       - "8082:8082"
+      - "9094:9092"  # Prometheus metrics
     volumes:
       - config_state:/app/state:ro
     command: ["-config", "/app/state/indexer-config.yaml"]
@@ -311,6 +313,10 @@ services:
       - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       relayer:
+        condition: service_healthy
+      api-server:
+        condition: service_healthy
+      indexer:
         condition: service_healthy
     networks:
       - bridge-network
