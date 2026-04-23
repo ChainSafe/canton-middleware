@@ -85,3 +85,6 @@ key_management:
   key_derivation: "generate"
 
 skip_canton_sig_verify: false
+
+cors:
+  - "${CORS_ALLOWED_ORIGINS}"
