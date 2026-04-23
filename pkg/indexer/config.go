@@ -4,13 +4,6 @@ package indexer
 // It lives in the indexer domain package so that app-level config
 // (pkg/config) can embed it without creating a god-config pattern.
 type Config struct {
-	// Party is the Canton party used to subscribe to the ledger update stream.
-	// The party must have read visibility into TokenTransferEvent contracts.
-	// Not validated at config load time so that the migration binary (which does
-	// not need the party) can load the same config file without a bootstrap-written
-	// value being present. The server validates this at startup in Run().
-	Party string `yaml:"party"`
-
 	// CIP56PackageID is the DAML package ID containing CIP56.Events.TokenTransferEvent.
 	// Setting this pins the indexer to a specific package version; leave empty to
 	// match the template across all package versions.

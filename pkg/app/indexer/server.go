@@ -56,10 +56,6 @@ func (s *Server) Run() error {
 	}
 	cfg := s.cfg
 
-	if cfg.Indexer.Party == "" {
-		return fmt.Errorf("indexer.party is required")
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -128,7 +124,7 @@ func (s *Server) Run() error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		logger.Info("Indexer processor starting", zap.String("party", cfg.Indexer.Party))
+		logger.Info("Indexer processor starting")
 		return processor.Run(gctx)
 	})
 
