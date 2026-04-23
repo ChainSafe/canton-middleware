@@ -8,11 +8,10 @@ import (
 
 // ERC20Token contains ERC-20 token metadata and Canton instrument mapping.
 type ERC20Token struct {
-	Name            string `yaml:"name" validate:"required"`
-	Symbol          string `yaml:"symbol" validate:"required"`
-	Decimals        int    `yaml:"decimals" validate:"gte=0,lte=18"`
-	InstrumentID    string `yaml:"instrument_id" validate:"required"`
-	InstrumentAdmin string `yaml:"instrument_admin"` // defaults to IssuerParty if empty
+	Name         string `yaml:"name" validate:"required"`
+	Symbol       string `yaml:"symbol" validate:"required"`
+	Decimals     int    `yaml:"decimals" validate:"gte=0,lte=18"`
+	InstrumentID string `yaml:"instrument_id" validate:"required"`
 }
 
 // Config holds token metadata indexed by contract address.

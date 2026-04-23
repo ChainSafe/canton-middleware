@@ -411,7 +411,6 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("CANTON_SPLICE_TRANSFER_PACKAGE_ID", "splice-transfer-package-id")
 	t.Setenv("CANTON_SPLICE_HOLDING_PACKAGE_ID", "splice-holding-package-id")
 	t.Setenv("CANTON_BRIDGE_PACKAGE_ID", "bridge-package-id")
-	t.Setenv("CANTON_USDCX_INSTRUMENT_ADMIN", "Bridge-Operator::1220test")
 	t.Setenv("ETHEREUM_RPC_URL", "https://eth.example")
 	t.Setenv("ETHEREUM_WS_URL", "wss://eth.example/ws")
 	t.Setenv("ETHEREUM_CHAIN_ID", "1")

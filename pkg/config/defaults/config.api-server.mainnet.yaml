@@ -57,7 +57,6 @@ token:
       symbol: "USDCx"
       decimals: 6
       instrument_id: "USDCx"
-      instrument_admin: "${CANTON_USDCX_INSTRUMENT_ADMIN}"
   native_balance_wei: "1000000000000000000000"
 
 eth_rpc:
