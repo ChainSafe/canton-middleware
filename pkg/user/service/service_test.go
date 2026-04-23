@@ -47,7 +47,7 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   testMessage,
@@ -71,7 +71,7 @@ func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, false, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   testMessage,
@@ -95,7 +95,7 @@ func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, false, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
 		Message:         testMessage,
@@ -121,7 +121,7 @@ func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
 	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, false, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
 		Message:         testMessage,
@@ -147,7 +147,7 @@ func TestRegistrationService_RegisterCantonNativeUser_StoreError(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(nil, storeErr).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, false, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -170,7 +170,7 @@ func TestRegistrationService_RegisterCantonNativeUser_PartyAlreadyRegistered(t *
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(&user.User{CantonPartyID: partyID}, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, false, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,

@@ -169,6 +169,7 @@ func initServices(
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
+		cfg.SkipWhitelistCheck,
 		topologyCache,
 	)
 
@@ -294,6 +295,7 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+	r.Use(apphttp.CORSMiddleware(s.cfg.CORSOrigins))
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
