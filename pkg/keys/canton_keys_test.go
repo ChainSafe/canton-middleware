@@ -1,7 +1,9 @@
 package keys
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"testing"
 )
 
@@ -210,6 +212,91 @@ func TestMasterKeyFromBase64Invalid(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for wrong key length")
 	}
+}
+
+func TestVerifyDER(t *testing.T) {
+	kp, err := GenerateCantonKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateCantonKeyPair failed: %v", err)
+	}
+
+	message := []byte("test message for DER verification")
+	hash := sha256.Sum256(message)
+
+	derSig, err := kp.SignHashDER(hash[:])
+	if err != nil {
+		t.Fatalf("SignHashDER failed: %v", err)
+	}
+
+	// Valid signature should verify
+	if err := VerifyDER(kp.PublicKey, hash[:], derSig); err != nil {
+		t.Errorf("VerifyDER failed for valid signature: %v", err)
+	}
+
+	// Wrong hash should fail
+	wrongHash := sha256.Sum256([]byte("wrong message"))
+	if err := VerifyDER(kp.PublicKey, wrongHash[:], derSig); err == nil {
+		t.Error("VerifyDER should fail for wrong hash")
+	}
+
+	// Wrong public key should fail
+	otherKP, _ := GenerateCantonKeyPair()
+	if err := VerifyDER(otherKP.PublicKey, hash[:], derSig); err == nil {
+		t.Error("VerifyDER should fail for wrong public key")
+	}
+
+	// Malformed DER should fail
+	if err := VerifyDER(kp.PublicKey, hash[:], []byte{0x30, 0x00}); err == nil {
+		t.Error("VerifyDER should fail for malformed DER")
+	}
+
+	// Wrong hash length should fail
+	if err := VerifyDER(kp.PublicKey, []byte("short"), derSig); err == nil {
+		t.Error("VerifyDER should fail for wrong hash length")
+	}
+
+	// Trailing bytes should fail
+	trailingSig := append(derSig, 0x00)
+	if err := VerifyDER(kp.PublicKey, hash[:], trailingSig); err == nil {
+		t.Error("VerifyDER should fail for trailing bytes")
+	}
+}
+
+func TestVerifyDERWithKnownVector(t *testing.T) {
+	// Use a deterministic key to ensure reproducibility
+	privKeyHex := "0000000000000000000000000000000000000000000000000000000000000001"
+	privBytes, _ := hex.DecodeString(privKeyHex)
+
+	kp, err := CantonKeyPairFromPrivateKey(privBytes)
+	if err != nil {
+		t.Fatalf("CantonKeyPairFromPrivateKey failed: %v", err)
+	}
+
+	hash := sha256.Sum256([]byte("deterministic test"))
+	derSig, err := kp.SignHashDER(hash[:])
+	if err != nil {
+		t.Fatalf("SignHashDER failed: %v", err)
+	}
+
+	// Verify the signature we just produced
+	if err := VerifyDER(kp.PublicKey, hash[:], derSig); err != nil {
+		t.Errorf("VerifyDER failed for known vector: %v", err)
+	}
+
+	// Verify SPKI and fingerprint are deterministic
+	spki, err := kp.SPKIPublicKey()
+	if err != nil {
+		t.Fatalf("SPKIPublicKey failed: %v", err)
+	}
+	fp, err := kp.Fingerprint()
+	if err != nil {
+		t.Fatalf("Fingerprint failed: %v", err)
+	}
+
+	t.Logf("pubkey:      %x", kp.PublicKey)
+	t.Logf("spki:        %x", spki)
+	t.Logf("fingerprint: %s", fp)
+	t.Logf("der_sig:     %x", derSig)
 }
 
 func TestPublicKeyEncodings(t *testing.T) {
