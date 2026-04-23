@@ -104,30 +104,22 @@ func EncodeInstrumentId(admin, id string) *lapiv2.Value {
 	}
 }
 
-// EncodeExtraArgs creates a Splice ExtraArgs { context: ChoiceContext { values: {} }, meta: Metadata { values: {} } } value.
-func EncodeExtraArgs() *lapiv2.Value {
-	emptyChoiceContext := &lapiv2.Value{
-		Sum: &lapiv2.Value_Record{
-			Record: &lapiv2.Record{
-				Fields: []*lapiv2.RecordField{
-					{
-						Label: "values",
-						Value: &lapiv2.Value{
-							Sum: &lapiv2.Value_TextMap{
-								TextMap: &lapiv2.TextMap{Entries: []*lapiv2.TextMap_Entry{}},
-							},
-						},
-					},
-				},
-			},
-		},
+// EncodeExtraArgs creates a Splice ExtraArgs { context: ChoiceContext { values: TextMap }, meta: Metadata { values: TextMap } } value.
+// If choiceContext is nil or empty, the context field contains an empty TextMap (default behavior).
+// If choiceContext is populated (e.g., from a Transfer Factory Registry response), its entries are encoded.
+func EncodeExtraArgs(choiceContext map[string]string) *lapiv2.Value {
+	var contextValue *lapiv2.Value
+	if len(choiceContext) > 0 {
+		contextValue = EncodeMetadata(choiceContext)
+	} else {
+		contextValue = EmptyMetadata()
 	}
 
 	return &lapiv2.Value{
 		Sum: &lapiv2.Value_Record{
 			Record: &lapiv2.Record{
 				Fields: []*lapiv2.RecordField{
-					{Label: "context", Value: emptyChoiceContext},
+					{Label: "context", Value: contextValue},
 					{Label: "meta", Value: EmptyMetadata()},
 				},
 			},

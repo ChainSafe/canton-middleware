@@ -2,6 +2,12 @@ package token
 
 import "errors"
 
+// ExternalTokenConfig holds the registry endpoint for an external token issuer.
+// Key in the map is the InstrumentAdmin party ID (e.g., Circle's Bridge-Operator).
+type ExternalTokenConfig struct {
+	RegistryURL string `yaml:"registry_url" validate:"required"`
+}
+
 // Config contains the configuration required to initialize the token client.
 type Config struct {
 	DomainID    string `yaml:"domain_id"`
@@ -11,6 +17,11 @@ type Config struct {
 	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
 	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
 	SpliceHoldingPackageID  string `yaml:"splice_holding_package_id" validate:"required"`
+
+	// ExternalTokens maps InstrumentAdmin party IDs to their registry configuration.
+	// Tokens whose InstrumentAdmin matches IssuerParty use local ACS-based factory discovery.
+	// Tokens whose InstrumentAdmin is in this map use the external registry API.
+	ExternalTokens map[string]ExternalTokenConfig `yaml:"external_tokens"`
 }
 
 func (c *Config) validate() error {
