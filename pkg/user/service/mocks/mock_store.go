@@ -176,6 +176,65 @@ func (_c *Store_GetUserByCantonPartyID_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// GetUserByEVMAddress provides a mock function with given fields: ctx, evmAddress
+func (_m *Store) GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error) {
+	ret := _m.Called(ctx, evmAddress)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUserByEVMAddress")
+	}
+
+	var r0 *user.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*user.User, error)); ok {
+		return rf(ctx, evmAddress)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *user.User); ok {
+		r0 = rf(ctx, evmAddress)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*user.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, evmAddress)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetUserByEVMAddress_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUserByEVMAddress'
+type Store_GetUserByEVMAddress_Call struct {
+	*mock.Call
+}
+
+// GetUserByEVMAddress is a helper method to define mock.On call
+//   - ctx context.Context
+//   - evmAddress string
+func (_e *Store_Expecter) GetUserByEVMAddress(ctx interface{}, evmAddress interface{}) *Store_GetUserByEVMAddress_Call {
+	return &Store_GetUserByEVMAddress_Call{Call: _e.mock.On("GetUserByEVMAddress", ctx, evmAddress)}
+}
+
+func (_c *Store_GetUserByEVMAddress_Call) Run(run func(ctx context.Context, evmAddress string)) *Store_GetUserByEVMAddress_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_GetUserByEVMAddress_Call) Return(_a0 *user.User, _a1 error) *Store_GetUserByEVMAddress_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetUserByEVMAddress_Call) RunAndReturn(run func(context.Context, string) (*user.User, error)) *Store_GetUserByEVMAddress_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IsWhitelisted provides a mock function with given fields: ctx, evmAddress
 func (_m *Store) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	ret := _m.Called(ctx, evmAddress)

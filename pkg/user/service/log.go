@@ -163,6 +163,39 @@ func (ls *logService) PrepareExternalRegistration(
 	return ls.svc.PrepareExternalRegistration(ctx, req)
 }
 
+func (ls *logService) GetUser(ctx context.Context, evmAddress, msg, sig string) (usr *user.User, err error) {
+	start := time.Now()
+
+	ls.logger.Info("GetUser started",
+		zap.String("service", serviceName),
+		zap.String("method", "GetUser"),
+		zap.String("evm_address", evmAddress),
+	)
+
+	defer func() {
+		duration := time.Since(start)
+
+		if err != nil {
+			ls.logger.Error("GetUser failed",
+				zap.String("service", serviceName),
+				zap.String("method", "GetUser"),
+				zap.String("evm_address", evmAddress),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("GetUser completed",
+				zap.String("service", serviceName),
+				zap.String("method", "GetUser"),
+				zap.String("evm_address", evmAddress),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+
+	return ls.svc.GetUser(ctx, evmAddress, msg, sig)
+}
+
 // Helper functions for sensitive data redaction
 
 // truncateString limits string length for logging to prevent log spam

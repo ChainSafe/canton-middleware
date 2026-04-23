@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,10 @@ const (
 
 	// cantonKeySize is the required size for Canton private keys (32 bytes for secp256k1)
 	cantonKeySize = 32
+
+	// loginMessageMaxAge is the maximum age accepted for a GET /user login message.
+	// Must match SESSION_MAX_AGE_MS in the dapp's session.ts.
+	loginMessageMaxAge = 24 * time.Hour
 )
 
 var (
@@ -50,6 +55,7 @@ type Store interface {
 	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 	CreateUser(ctx context.Context, user *user.User) error
 	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
+	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
 	DeleteUser(ctx context.Context, evmAddress string) error
 }
 
@@ -60,6 +66,7 @@ type Service interface {
 	RegisterWeb3User(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	RegisterCantonNativeUser(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	PrepareExternalRegistration(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error)
+	GetUser(ctx context.Context, evmAddress, msg, sig string) (*user.User, error)
 }
 
 type registrationService struct {
@@ -456,6 +463,29 @@ func (s *registrationService) PrepareExternalRegistration(
 		PublicKeyFingerprint: topology.Fingerprint,
 		RegistrationToken:    registrationToken,
 	}, nil
+}
+
+func (s *registrationService) GetUser(ctx context.Context, evmAddress, msg, sig string) (*user.User, error) {
+	evmAddress = auth.NormalizeAddress(evmAddress)
+	recoveredAddr, err := auth.VerifyEIP191Signature(msg, sig)
+	if err != nil {
+		return nil, apperrors.UnAuthorizedError(err, "invalid signature")
+	}
+	if !strings.EqualFold(recoveredAddr.Hex(), evmAddress) {
+		return nil, apperrors.UnAuthorizedError(nil, "signature does not match address")
+	}
+	if err = auth.ValidateTimedMessage(msg, loginMessageMaxAge); err != nil {
+		return nil, apperrors.UnAuthorizedError(err, "message expired or malformed")
+	}
+
+	usr, err := s.store.GetUserByEVMAddress(ctx, evmAddress)
+	if err != nil && !errors.Is(err, user.ErrUserNotFound) {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+	if usr == nil {
+		return nil, apperrors.ResourceNotFoundError(err, "user not found")
+	}
+	return usr, nil
 }
 
 // compressedKeyToSPKI derives an SPKI DER public key from a hex-encoded compressed secp256k1 public key.
