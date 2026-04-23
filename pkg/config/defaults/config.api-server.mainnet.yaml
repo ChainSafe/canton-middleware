@@ -39,6 +39,7 @@ canton:
   token:
     cip56_package_id: "${CANTON_CIP56_PACKAGE_ID}"
     splice_transfer_package_id: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+    splice_holding_package_id: "${CANTON_SPLICE_HOLDING_PACKAGE_ID}"
 
   bridge:
     package_id: "${CANTON_BRIDGE_PACKAGE_ID}"
@@ -50,6 +51,12 @@ token:
       name: "Demo Token"
       symbol: "DEMO"
       decimals: 18
+      instrument_id: "DEMO"
+    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":
+      name: "USD Coin"
+      symbol: "USDCx"
+      decimals: 6
+      instrument_id: "USDCx"
   native_balance_wei: "1000000000000000000000"
 
 eth_rpc:

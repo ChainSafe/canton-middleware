@@ -44,7 +44,7 @@ func TestGetBalance_AfterMintDEMO(t *testing.T) {
 	mintAmount := "100"
 	sys.DSL.MintDEMO(ctx, t, resp.Party, mintAmount)
 
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.DEMO, sys.Accounts.User1.Address, mintAmount)
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, mintAmount)
 }
 
 // TestERC20Balance_AfterDeposit_ReflectsChange verifies that after depositing

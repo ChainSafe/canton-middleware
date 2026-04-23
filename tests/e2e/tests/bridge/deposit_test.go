@@ -46,7 +46,7 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 	// Also verify the balance is reflected through the api-server's /eth JSON-RPC
 	// facade. This exercises the full path: indexer → token service → user store
 	// EVM-address→party lookup → eth_call balanceOf response.
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "1")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, account.Address, "1")
 }
 
 // TestDeposit_SmallAmount_Succeeds verifies that a small PROMPT deposit (0.1
@@ -71,7 +71,7 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 
 	sys.DSL.WaitForRelayerTransfer(ctx, t, txHash.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "0.1")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "0.1")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, account.Address, "0.1")
 }
 
 // TestDeposit_TwoDeposits_Accumulate verifies that two sequential deposits from
@@ -104,5 +104,5 @@ func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
 	tx2 := sys.DSL.Deposit(ctx, t, account, new(big.Int).Set(one18))
 	sys.DSL.WaitForRelayerTransfer(ctx, t, tx2.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "2")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, account.Address, "2")
 }

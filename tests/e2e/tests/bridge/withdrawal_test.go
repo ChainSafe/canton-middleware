@@ -56,7 +56,7 @@ func TestWithdrawal_PROMPT_CantonToEthereum(t *testing.T) {
 	// WaitForAPIBalance uses the same indexer data source as WaitForCantonBalance but
 	// exercises the additional api-server path: user-store EVM→party lookup + eth_call facade.
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "1")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "1")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, account.Address, "1")
 }
 
 // TestWithdrawal_PartialAmount verifies that withdrawing only part of the
@@ -92,7 +92,7 @@ func TestWithdrawal_PartialAmount(t *testing.T) {
 
 	// The remaining 2 PROMPT must be visible both on Canton and via the api-server.
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "2")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, account.Address, "2")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, account.Address, "2")
 }
 
 // TestWithdrawal_AfterCantonTransfer verifies that a user who received PROMPT
@@ -172,5 +172,5 @@ func TestWithdrawal_AfterCantonTransfer(t *testing.T) {
 	// (User1 withdrew their entire PROMPT holding).
 	sys.DSL.WaitForEthBalance(ctx, t, tokenAddr, sys.Accounts.User1.Address, one18)
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp1.Party, admin, id, "0")
-	sys.DSL.WaitForAPIBalance(ctx, t, sys.Tokens.PROMPT, sys.Accounts.User1.Address, "0")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.PROMPT, sys.Accounts.User1.Address, "0")
 }
