@@ -101,11 +101,12 @@ type Token interface {
 
 // Client implements CIP-56 token operations.
 type Client struct {
-	cfg         *Config
-	ledger      ledger.Ledger
-	identity    identity.Identity
-	keyResolver KeyResolver
-	logger      *zap.Logger
+	cfg            *Config
+	ledger         ledger.Ledger
+	identity       identity.Identity
+	keyResolver    KeyResolver
+	registryClient *RegistryClient
+	logger         *zap.Logger
 }
 
 // New creates a new token client.
@@ -123,11 +124,12 @@ func New(cfg *Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*C
 
 	s := applyOptions(opts)
 	return &Client{
-		cfg:         cfg,
-		ledger:      l,
-		identity:    id,
-		keyResolver: s.keyResolver,
-		logger:      s.logger,
+		cfg:            cfg,
+		ledger:         l,
+		identity:       id,
+		keyResolver:    s.keyResolver,
+		registryClient: s.registryClient,
+		logger:         s.logger,
 	}, nil
 }
 
@@ -448,12 +450,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 		return fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
-	factoryCID, err := c.getTransferFactoryCID(ctx)
-	if err != nil {
-		return err
-	}
-
-	return c.transferViaFactory(ctx, &transferFactoryRequest{
+	req := &transferFactoryRequest{
 		CommandID:        idempotencyKey,
 		FromPartyID:      fromParty,
 		ToPartyID:        toParty,
@@ -461,19 +458,27 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
-		FactoryCID:       factoryCID,
-	})
+	}
+
+	if err := c.resolveTransferFactory(ctx, req); err != nil {
+		return err
+	}
+
+	return c.transferViaFactory(ctx, req)
 }
 
 type transferFactoryRequest struct {
-	CommandID        string
-	FromPartyID      string
-	ToPartyID        string
-	Amount           string
-	InstrumentAdmin  string
-	InstrumentID     string
-	InputHoldingCIDs []string
-	FactoryCID       string
+	CommandID          string
+	FromPartyID        string
+	ToPartyID          string
+	Amount             string
+	InstrumentAdmin    string
+	InstrumentID       string
+	InputHoldingCIDs   []string
+	FactoryCID         string
+	ChoiceContext      map[string]string
+	DisclosedContracts []*lapiv2.DisclosedContract
+	IsExternal         bool
 }
 
 func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
@@ -488,13 +493,19 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 
 	cmd := c.buildTransferCommand(req)
 
+	readAs := []string{c.cfg.IssuerParty}
+	if req.IsExternal {
+		readAs = nil
+	}
+
 	commands := &lapiv2.Commands{
-		SynchronizerId: c.cfg.DomainID,
-		CommandId:      req.CommandID,
-		UserId:         c.cfg.UserID,
-		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.IssuerParty},
-		Commands:       []*lapiv2.Command{cmd},
+		SynchronizerId:     c.cfg.DomainID,
+		CommandId:          req.CommandID,
+		UserId:             c.cfg.UserID,
+		ActAs:              []string{req.FromPartyID},
+		ReadAs:             readAs,
+		Commands:           []*lapiv2.Command{cmd},
+		DisclosedContracts: req.DisclosedContracts,
 	}
 
 	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
@@ -527,6 +538,7 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Comma
 							now,
 							now.Add(defaultTransferValidity),
 							req.InputHoldingCIDs,
+							req.ChoiceContext,
 						),
 					},
 				},
@@ -541,6 +553,58 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return info.ContractID, nil
+}
+
+// resolveTransferFactory fills in factory info on the request by routing based on InstrumentAdmin.
+// For our tokens (InstrumentAdmin == IssuerParty): uses local ACS query.
+// For external tokens: calls the Transfer Factory Registry API.
+func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactoryRequest) error {
+	if req.InstrumentAdmin == c.cfg.IssuerParty {
+		cid, err := c.getTransferFactoryCID(ctx)
+		if err != nil {
+			return err
+		}
+		req.FactoryCID = cid
+		return nil
+	}
+
+	// External token — use registry
+	if c.registryClient == nil {
+		return fmt.Errorf("no registry client configured for external token transfers")
+	}
+	extCfg, ok := c.cfg.ExternalTokens[req.InstrumentAdmin]
+	if !ok {
+		return fmt.Errorf("unsupported external token issuer: %s", req.InstrumentAdmin)
+	}
+
+	regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, &RegistryRequest{
+		ExpectedAdmin: req.InstrumentAdmin,
+		Transfer: RegistryTransferDetail{
+			Sender:           req.FromPartyID,
+			Receiver:         req.ToPartyID,
+			Amount:           req.Amount,
+			InstrumentID:     req.InstrumentID,
+			InputHoldingCIDs: req.InputHoldingCIDs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("registry lookup for %s: %w", req.InstrumentAdmin, err)
+	}
+
+	req.FactoryCID = regResp.FactoryID
+	req.IsExternal = true
+
+	req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
+	if err != nil {
+		return fmt.Errorf("convert choice context: %w", err)
+	}
+
+	req.DisclosedContracts, err = ConvertDisclosedContracts(regResp.DisclosedContracts, c.cfg.DomainID)
+	if err != nil {
+		return fmt.Errorf("convert disclosed contracts: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {
@@ -628,12 +692,13 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 	authCtx := c.ledger.AuthContext(ctx)
 
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
-		UserId:         commands.UserId,
-		CommandId:      commands.CommandId,
-		Commands:       commands.Commands,
-		ActAs:          commands.ActAs,
-		ReadAs:         commands.ReadAs,
-		SynchronizerId: commands.SynchronizerId,
+		UserId:             commands.UserId,
+		CommandId:          commands.CommandId,
+		Commands:           commands.Commands,
+		ActAs:              commands.ActAs,
+		ReadAs:             commands.ReadAs,
+		SynchronizerId:     commands.SynchronizerId,
+		DisclosedContracts: commands.DisclosedContracts,
 	})
 	if err != nil {
 		return fmt.Errorf("prepare submission: %w", err)
@@ -739,11 +804,6 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		return nil, fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
-	factoryCID, err := c.getTransferFactoryCID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	factoryReq := &transferFactoryRequest{
 		FromPartyID:      req.FromPartyID,
 		ToPartyID:        req.ToPartyID,
@@ -751,27 +811,38 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
-		FactoryCID:       factoryCID,
 	}
+
+	if resolveErr := c.resolveTransferFactory(ctx, factoryReq); resolveErr != nil {
+		return nil, resolveErr
+	}
+
 	cmd := c.buildTransferCommand(factoryReq)
 
+	readAs := []string{c.cfg.IssuerParty}
+	if factoryReq.IsExternal {
+		readAs = nil
+	}
+
 	commands := &lapiv2.Commands{
-		SynchronizerId: c.cfg.DomainID,
-		CommandId:      uuid.NewString(),
-		UserId:         c.cfg.UserID,
-		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.IssuerParty},
-		Commands:       []*lapiv2.Command{cmd},
+		SynchronizerId:     c.cfg.DomainID,
+		CommandId:          uuid.NewString(),
+		UserId:             c.cfg.UserID,
+		ActAs:              []string{req.FromPartyID},
+		ReadAs:             readAs,
+		Commands:           []*lapiv2.Command{cmd},
+		DisclosedContracts: factoryReq.DisclosedContracts,
 	}
 
 	authCtx := c.ledger.AuthContext(ctx)
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
-		UserId:         commands.UserId,
-		CommandId:      commands.CommandId,
-		Commands:       commands.Commands,
-		ActAs:          commands.ActAs,
-		ReadAs:         commands.ReadAs,
-		SynchronizerId: commands.SynchronizerId,
+		UserId:             commands.UserId,
+		CommandId:          commands.CommandId,
+		Commands:           commands.Commands,
+		ActAs:              commands.ActAs,
+		ReadAs:             commands.ReadAs,
+		SynchronizerId:     commands.SynchronizerId,
+		DisclosedContracts: commands.DisclosedContracts,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare submission: %w", err)
