@@ -1,0 +1,71 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    paths:
+      - 'cmd/**'
+      - 'pkg/**'
+      - 'tests/e2e/**'
+      - '.github/workflows/e2e.yml'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  repository-projects: read
+
+jobs:
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Configure git SSH to HTTPS rewrite
+        run: git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Checkout canton-docker repository
+        uses: actions/checkout@v4
+        with:
+          repository: chainsafe/canton-docker
+          token: ${{ secrets.GH_PAT }}
+          path: canton-docker
+
+      - name: Build Canton Docker image
+        run: |
+          cd canton-docker
+          ./build_contianer.sh
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install Daml SDK
+        run: |
+          curl -sSL https://get.daml.com/ | sh -s -- 3.4.8
+          echo "$HOME/.daml/bin" >> "$GITHUB_PATH"
+
+      - name: Build DAML contracts
+        run: make build-dars
+
+      - name: Generate CANTON_MASTER_KEY
+        run: echo "CANTON_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Run E2E tests
+        run: make test-e2e
+
+      - name: Stop devstack
+        if: always()
+        run: make devstack-down
