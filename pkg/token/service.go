@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -51,6 +52,43 @@ func NewTokenService(
 		userStore:    userStore,
 		cantonClient: cantonClient,
 	}
+}
+
+// GetSupportedTokens returns a paginated list of supported tokens sorted by address.
+func (s *Service) GetSupportedTokens(_ context.Context, page, limit int) (*TokensPage, error) {
+	addrs := make([]common.Address, 0, len(s.cfg.SupportedTokens))
+	for addr := range s.cfg.SupportedTokens {
+		addrs = append(addrs, addr)
+	}
+	// sort by address
+	sort.Slice(addrs, func(i, j int) bool {
+		return addrs[i].Hex() < addrs[j].Hex()
+	})
+
+	total := len(addrs)
+	if total == 0 || page > total {
+		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
+	}
+	start := (page - 1) * limit
+	if start >= total {
+		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+
+	items := make([]TokenItem, 0, end-start)
+	for _, addr := range addrs[start:end] {
+		tok := s.cfg.SupportedTokens[addr]
+		items = append(items, TokenItem{
+			Address:  addr.Hex(),
+			Name:     tok.Name,
+			Symbol:   tok.Symbol,
+			Decimals: tok.Decimals,
+		})
+	}
+	return &TokensPage{Items: items, Total: total, Page: page, Limit: limit}, nil
 }
 
 // ERC20 returns an ERC-20 view for the given contract address, or an error if
