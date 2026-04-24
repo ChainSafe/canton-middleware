@@ -306,14 +306,15 @@ func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 	logs := make([]*types.Log, 0)
 	for _, dbLog := range dbLogs {
 		log := &types.Log{
-			Address:     common.BytesToAddress(dbLog.Address),
-			Data:        dbLog.Data,
-			BlockNumber: dbLog.BlockNumber,
-			TxHash:      hash,
-			TxIndex:     dbLog.TxIndex,
-			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       dbLog.LogIndex,
-			Removed:     dbLog.Removed,
+			Address:        common.BytesToAddress(dbLog.Address),
+			Data:           dbLog.Data,
+			BlockNumber:    dbLog.BlockNumber,
+			BlockTimestamp: dbLog.BlockNumber * syntheticBlockTimeSeconds,
+			TxHash:         hash,
+			TxIndex:        dbLog.TxIndex,
+			BlockHash:      common.BytesToHash(dbLog.BlockHash),
+			Index:          dbLog.LogIndex,
+			Removed:        dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
 			log.Topics = append(log.Topics, common.BytesToHash(topic))
@@ -506,14 +507,15 @@ func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*
 	var logs []*types.Log
 	for _, dbLog := range dbLogs {
 		log := &types.Log{
-			Address:     common.BytesToAddress(dbLog.Address),
-			Data:        dbLog.Data,
-			BlockNumber: dbLog.BlockNumber,
-			TxHash:      common.BytesToHash(dbLog.TxHash),
-			TxIndex:     dbLog.TxIndex,
-			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       dbLog.LogIndex,
-			Removed:     dbLog.Removed,
+			Address:        common.BytesToAddress(dbLog.Address),
+			Data:           dbLog.Data,
+			BlockNumber:    dbLog.BlockNumber,
+			BlockTimestamp: dbLog.BlockNumber * syntheticBlockTimeSeconds,
+			TxHash:         common.BytesToHash(dbLog.TxHash),
+			TxIndex:        dbLog.TxIndex,
+			BlockHash:      common.BytesToHash(dbLog.BlockHash),
+			Index:          dbLog.LogIndex,
+			Removed:        dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
 			log.Topics = append(log.Topics, common.BytesToHash(topic))
