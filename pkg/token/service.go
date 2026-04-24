@@ -66,6 +66,9 @@ func (s *Service) GetSupportedTokens(_ context.Context, page, limit int) (*Token
 	})
 
 	total := len(addrs)
+	if total == 0 || page > total {
+		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
+	}
 	start := (page - 1) * limit
 	if start >= total {
 		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
