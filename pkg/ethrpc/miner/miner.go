@@ -85,6 +85,7 @@ func (m *Miner) mine(ctx context.Context) error {
 		return nil // Abort via defer; block number is not consumed.
 	}
 
+	blockTimestamp := uint64(time.Now().Unix()) //nolint:gosec // time.Now() is always positive
 	for i := range entries {
 		e := &entries[i]
 		txIndex := uint(i) //nolint:gosec // i is bounded by len(entries) which fits in uint
@@ -106,7 +107,7 @@ func (m *Miner) mine(ctx context.Context) error {
 			return err
 		}
 
-		if err = block.AddEvmLog(ctx, buildTransferLog(e, block, txIndex)); err != nil {
+		if err = block.AddEvmLog(ctx, buildTransferLog(e, block, txIndex, blockTimestamp)); err != nil {
 			return err
 		}
 	}
@@ -123,8 +124,8 @@ func (m *Miner) mine(ctx context.Context) error {
 }
 
 // buildTransferLog constructs the synthetic ERC-20 Transfer event log for a
-// completed mempool entry.
-func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex uint) *ethrpc.EvmLog {
+// completed mempool entry. blockTimestamp is Unix seconds captured once per block.
+func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex uint, blockTimestamp uint64) *ethrpc.EvmLog {
 	fromAddr := common.HexToAddress(e.FromAddress)
 	toAddr := common.HexToAddress(e.RecipientAddress)
 	fromTopic := common.BytesToHash(common.LeftPadBytes(fromAddr.Bytes(), evmWordSize))
@@ -133,14 +134,15 @@ func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex
 	contractAddr := common.HexToAddress(e.ContractAddress)
 
 	return &ethrpc.EvmLog{
-		TxHash:      e.TxHash,
-		LogIndex:    txIndex,
-		Address:     contractAddr.Bytes(),
-		Topics:      [][]byte{transferEventTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
-		Data:        amountData,
-		BlockNumber: block.Number(),
-		BlockHash:   block.Hash(),
-		TxIndex:     txIndex,
-		Removed:     false,
+		TxHash:         e.TxHash,
+		LogIndex:       txIndex,
+		Address:        contractAddr.Bytes(),
+		Topics:         [][]byte{transferEventTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
+		Data:           amountData,
+		BlockNumber:    block.Number(),
+		BlockHash:      block.Hash(),
+		TxIndex:        txIndex,
+		Removed:        false,
+		BlockTimestamp: blockTimestamp,
 	}
 }

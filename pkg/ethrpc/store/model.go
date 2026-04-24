@@ -81,19 +81,20 @@ type EvmStateDao struct {
 
 // EvmLogDao maps to the evm_logs table.
 type EvmLogDao struct {
-	bun.BaseModel `bun:"table:evm_logs"`
-	TxHash        []byte  `bun:"tx_hash,pk,notnull,type:bytea"`
-	LogIndex      uint    `bun:"log_index,pk,notnull"`
-	Address       []byte  `bun:"address,notnull,type:bytea"`
-	Topic0        *[]byte `bun:"topic0,type:bytea"`
-	Topic1        *[]byte `bun:"topic1,type:bytea"`
-	Topic2        *[]byte `bun:"topic2,type:bytea"`
-	Topic3        *[]byte `bun:"topic3,type:bytea"`
-	Data          *[]byte `bun:"data,type:bytea"`
-	BlockNumber   uint64  `bun:"block_number,notnull"`
-	BlockHash     []byte  `bun:"block_hash,notnull,type:bytea"`
-	TxIndex       uint    `bun:"tx_index,notnull,default:0"`
-	Removed       bool    `bun:"removed,notnull,default:false"`
+	bun.BaseModel  `bun:"table:evm_logs"`
+	TxHash         []byte  `bun:"tx_hash,pk,notnull,type:bytea"`
+	LogIndex       uint    `bun:"log_index,pk,notnull"`
+	Address        []byte  `bun:"address,notnull,type:bytea"`
+	Topic0         *[]byte `bun:"topic0,type:bytea"`
+	Topic1         *[]byte `bun:"topic1,type:bytea"`
+	Topic2         *[]byte `bun:"topic2,type:bytea"`
+	Topic3         *[]byte `bun:"topic3,type:bytea"`
+	Data           *[]byte `bun:"data,type:bytea"`
+	BlockNumber    uint64  `bun:"block_number,notnull"`
+	BlockHash      []byte  `bun:"block_hash,notnull,type:bytea"`
+	TxIndex        uint    `bun:"tx_index,notnull,default:0"`
+	Removed        bool    `bun:"removed,notnull,default:false"`
+	BlockTimestamp uint64  `bun:"block_timestamp,notnull,default:0"`
 }
 
 func toEvmLogDao(log *ethrpc.EvmLog) *EvmLogDao {
@@ -102,18 +103,19 @@ func toEvmLogDao(log *ethrpc.EvmLog) *EvmLogDao {
 	}
 
 	return &EvmLogDao{
-		TxHash:      log.TxHash,
-		LogIndex:    log.LogIndex,
-		Address:     log.Address,
-		Topic0:      topicAt(log.Topics, 0),
-		Topic1:      topicAt(log.Topics, 1),
-		Topic2:      topicAt(log.Topics, 2),
-		Topic3:      topicAt(log.Topics, 3),
-		Data:        bytesPtr(log.Data),
-		BlockNumber: log.BlockNumber,
-		BlockHash:   log.BlockHash,
-		TxIndex:     log.TxIndex,
-		Removed:     log.Removed,
+		TxHash:         log.TxHash,
+		LogIndex:       log.LogIndex,
+		Address:        log.Address,
+		Topic0:         topicAt(log.Topics, 0),
+		Topic1:         topicAt(log.Topics, 1),
+		Topic2:         topicAt(log.Topics, 2),
+		Topic3:         topicAt(log.Topics, 3),
+		Data:           bytesPtr(log.Data),
+		BlockNumber:    log.BlockNumber,
+		BlockHash:      log.BlockHash,
+		TxIndex:        log.TxIndex,
+		Removed:        log.Removed,
+		BlockTimestamp: log.BlockTimestamp,
 	}
 }
 
@@ -123,14 +125,15 @@ func fromEvmLogDao(dao *EvmLogDao) *ethrpc.EvmLog {
 	}
 
 	log := &ethrpc.EvmLog{
-		TxHash:      dao.TxHash,
-		LogIndex:    dao.LogIndex,
-		Address:     dao.Address,
-		Data:        derefBytes(dao.Data),
-		BlockNumber: dao.BlockNumber,
-		BlockHash:   dao.BlockHash,
-		TxIndex:     dao.TxIndex,
-		Removed:     dao.Removed,
+		TxHash:         dao.TxHash,
+		LogIndex:       dao.LogIndex,
+		Address:        dao.Address,
+		Data:           derefBytes(dao.Data),
+		BlockNumber:    dao.BlockNumber,
+		BlockHash:      dao.BlockHash,
+		TxIndex:        dao.TxIndex,
+		Removed:        dao.Removed,
+		BlockTimestamp: dao.BlockTimestamp,
 	}
 
 	if dao.Topic0 != nil && len(*dao.Topic0) > 0 {
