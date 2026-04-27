@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
@@ -212,4 +214,29 @@ func TestTransferService_Execute_TransferExpired(t *testing.T) {
 		SignedBy:   sender.CantonPublicKeyFingerprint,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryGone)
+}
+
+func TestTransferService_Execute_InvalidSignature_ReturnsForbidden(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	pt := &token.PreparedTransfer{TransferID: "txn-sig-fail"}
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().GetAndDelete("txn-sig-fail").Return(pt, nil).Once()
+
+	cantonErr := grpcstatus.Error(codes.InvalidArgument, "signature verification failed")
+	tok := mocks.NewToken(t)
+	tok.EXPECT().ExecuteTransfer(ctx, mock.Anything).Return(cantonErr).Once()
+
+	svc := newTestService(tok, store, cache)
+
+	_, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
+		TransferID: "txn-sig-fail",
+		Signature:  "0xdeadbeef",
+		SignedBy:   sender.CantonPublicKeyFingerprint,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
 }

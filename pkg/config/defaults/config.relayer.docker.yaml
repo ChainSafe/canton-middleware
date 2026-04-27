@@ -56,6 +56,7 @@ canton:
 
   bridge:
     package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    core_package_id: "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
     module: "Wayfinder.Bridge"
 
 bridge:
