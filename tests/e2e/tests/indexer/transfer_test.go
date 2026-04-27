@@ -45,6 +45,8 @@ func signCantonTx(t *testing.T, kp interface {
 // Uses NewAPIStack (api-server + canton + postgres + indexer) rather than
 // NewFullStack because the relayer and Anvil are not needed for DEMO transfers.
 func TestIndexer_TransferEvent_AfterAPITransfer(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 

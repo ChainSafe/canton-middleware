@@ -9,9 +9,7 @@ package presets
 import (
 	"context"
 	"fmt"
-	"os/signal"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -20,46 +18,29 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/system"
 )
 
-const stopTimeout = 60 * time.Second
-
 var (
 	mu       sync.Mutex
 	manifest *stack.ServiceManifest
 )
 
-// DoMain starts the Docker Compose stack, resolves the service manifest, runs
-// all tests via m.Run(), and tears down the stack when done. It must be called
-// from TestMain. The exit code from m.Run() is returned and the caller should
-// pass it to os.Exit.
+// DoMain resolves the service manifest from the running devstack, then runs
+// all tests via m.Run(). It must be called from TestMain. The exit code from
+// m.Run() is returned and the caller should pass it to os.Exit.
 //
-// SIGINT and SIGTERM are trapped so that Ctrl+C during a test run still
-// triggers a clean docker compose down.
+// The devstack must be running before calling DoMain. Start it with:
+//
+//	make devstack-up
 //
 //	func TestMain(m *testing.M) { os.Exit(presets.DoMain(m)) }
 func DoMain(m *testing.M, opts ...Option) int {
 	o := applyOptions(opts)
 
-	// Signal-aware context: cancels on SIGINT/SIGTERM so in-flight docker
-	// operations (Start) abort promptly. Stop always uses a fresh context so
-	// it is not affected by signal cancellation.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	orch := docker.NewOrchestrator(o.composeFile, o.projectName)
-	if err := orch.Start(ctx); err != nil {
-		fmt.Printf("devstack start: %v\n", err)
-		return 1
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		defer cancel()
-		_ = orch.Stop(stopCtx)
-	}()
-
 	disc := docker.NewServiceDiscovery(o.projectName, o.composeFile)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	mfst, err := disc.Manifest(ctx)
 	if err != nil {
-		fmt.Printf("service discovery: %v\n", err)
+		fmt.Printf("service discovery failed (is the devstack running? try: make devstack-up): %v\n", err)
 		return 1
 	}
 

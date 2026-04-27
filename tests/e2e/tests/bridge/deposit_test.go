@@ -7,31 +7,35 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
-	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
 // one18 is 1 × 10^18 — one full token unit expressed in wei (18-decimal tokens).
 var one18 = new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
 
 // TestDeposit_PROMPT_EthereumToCanton exercises the full EVM → Canton bridge
-// deposit flow: AnvilAccount0 deposits PROMPT tokens, the relayer picks up the
-// event, creates a PendingDeposit on Canton, and mints the corresponding PROMPT
-// holding. The test asserts that the relayer records a completed transfer and
-// that the Canton PROMPT balance reflects the deposit.
+// deposit flow: a freshly funded account deposits PROMPT tokens, the relayer
+// picks up the event, creates a PendingDeposit on Canton, and mints the
+// corresponding PROMPT holding. The test asserts that the relayer records a
+// completed transfer and that the Canton PROMPT balance reflects the deposit.
 func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	// AnvilAccount0 is pre-funded with PROMPT tokens and ETH for gas.
-	account := stack.AnvilAccount0
+	admin := sys.Manifest.PromptInstrumentAdmin
+	id := sys.Manifest.PromptInstrumentID
+	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
+
+	// Fund a fresh isolated account. NewFundedAccount serializes AnvilAccount0
+	// nonce operations internally, so t.Parallel() at the top is safe.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 1)
 
 	// Register account so the api-server has a Canton party.
 	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
-	// Record the index-side admin and instrument ID for balance polling.
-	admin := sys.Manifest.PromptInstrumentAdmin
-	id := sys.Manifest.PromptInstrumentID
 
 	// Deposit 1 PROMPT (1e18 wei) into the bridge contract.
 	depositAmount := new(big.Int).Set(one18)
@@ -52,19 +56,20 @@ func TestDeposit_PROMPT_EthereumToCanton(t *testing.T) {
 // TestDeposit_SmallAmount_Succeeds verifies that a small PROMPT deposit (0.1
 // tokens = 1e17 wei) is handled correctly end-to-end. This confirms there is no
 // minimum-amount gate in the relayer or DAML bridge.
-//
-// Uses AnvilAccount0 (the only pre-funded PROMPT account). WaitForCantonBalance
-// and WaitForAPIBalance use >= semantics so accumulated balance from prior tests
-// does not cause a false failure.
 func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount0
-	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
+	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
+
+	// Fund with 1 PROMPT; deposit only 0.1 PROMPT from it.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 1)
+
+	regResp := sys.DSL.RegisterUser(ctx, t, account)
 
 	// 0.1 PROMPT = 1e17 wei
 	depositAmount := new(big.Int).Div(one18, big.NewInt(10))
@@ -78,25 +83,22 @@ func TestDeposit_SmallAmount_Succeeds(t *testing.T) {
 // TestDeposit_TwoDeposits_Accumulate verifies that two sequential deposits from
 // the same address accumulate in the user's Canton balance. The relayer must
 // process both events independently and the indexer must reflect the sum.
-//
-// NOTE: This test shares AnvilAccount0 with TestDeposit_PROMPT_EthereumToCanton.
-// Canton holdings for a party persist across tests, so AnvilAccount0's balance
-// will already be >= 1 PROMPT when this test runs. The WaitForCantonBalance /
-// WaitForAPIBalance assertions use >=, so they tolerate that pre-existing balance.
-// What this test actually verifies is that each of the two deposits it submits
-// is individually processed by the relayer and reflected in the balance.
 func TestDeposit_TwoDeposits_Accumulate(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
-	account := stack.AnvilAccount0
-	regResp := sys.DSL.RegisterUser(ctx, t, account)
-
 	admin := sys.Manifest.PromptInstrumentAdmin
 	id := sys.Manifest.PromptInstrumentID
+	tokenAddr := common.HexToAddress(sys.Manifest.PromptTokenAddr)
 
-	// First deposit: 1 PROMPT. Balance check uses >= so prior accumulated
-	// holdings from other tests using AnvilAccount0 do not cause a false failure.
+	// Fund with 2 PROMPT to cover two 1-PROMPT deposits.
+	account := sys.DSL.NewFundedAccount(ctx, t, 1, tokenAddr, 2)
+
+	regResp := sys.DSL.RegisterUser(ctx, t, account)
+
+	// First deposit: 1 PROMPT.
 	tx1 := sys.DSL.Deposit(ctx, t, account, new(big.Int).Set(one18))
 	sys.DSL.WaitForRelayerTransfer(ctx, t, tx1.Hex())
 	sys.DSL.WaitForCantonBalance(ctx, t, regResp.Party, admin, id, "1")
