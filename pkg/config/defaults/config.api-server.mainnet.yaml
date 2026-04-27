@@ -43,6 +43,7 @@ canton:
 
   bridge:
     package_id: "${CANTON_BRIDGE_PACKAGE_ID}"
+    core_package_id: "${CANTON_BRIDGE_CORE_PACKAGE_ID}"
     module: "Wayfinder.Bridge"
 
 token:

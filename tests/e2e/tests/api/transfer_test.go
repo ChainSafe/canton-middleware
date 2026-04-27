@@ -49,6 +49,8 @@ func signTransferHash(t *testing.T, kp interface {
 // register two external users, mint DEMO to User1, prepare+sign+execute a
 // transfer to User2, and assert User2's balance via the api-server RPC.
 func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewFullStack(t)
 	ctx := context.Background()
 
@@ -89,6 +91,8 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 // TestTransfer_CustodialUser_PrepareRejects verifies that calling PrepareTransfer
 // for a custodial (web3) user returns HTTP 400 since the API requires external key mode.
 func TestTransfer_CustodialUser_PrepareRejects(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -108,6 +112,8 @@ func TestTransfer_CustodialUser_PrepareRejects(t *testing.T) {
 // TestTransfer_InvalidAmount_Zero verifies that PrepareTransfer with amount "0"
 // returns HTTP 400.
 func TestTransfer_InvalidAmount_Zero(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -127,6 +133,8 @@ func TestTransfer_InvalidAmount_Zero(t *testing.T) {
 // TestTransfer_InvalidAmount_Negative verifies that PrepareTransfer with a
 // negative amount returns HTTP 400.
 func TestTransfer_InvalidAmount_Negative(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -146,6 +154,8 @@ func TestTransfer_InvalidAmount_Negative(t *testing.T) {
 // TestTransfer_UnknownRecipient_Fails verifies that PrepareTransfer where the
 // recipient EVM address is not registered returns HTTP 400.
 func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -168,6 +178,8 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 // kp2 — the server finds User1's record via the correct fingerprint but fails
 // signature verification because kp2 ≠ kp1.
 func TestTransfer_InvalidSignature_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -213,6 +225,8 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 // TestTransfer_InsufficientBalance_Fails verifies that PrepareTransfer for an
 // amount exceeding the user's canton balance returns HTTP 400.
 func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -239,6 +253,8 @@ func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 // /api/v2/transfer/prepare without X-Signature and X-Message headers returns
 // HTTP 401. This exercises the authentication gate before any business logic.
 func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -275,6 +291,8 @@ func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
 // signed with a timestamp more than 5 minutes old is rejected with HTTP 401.
 // This exercises the replay-protection window enforced by ValidateTimedMessage.
 func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -319,6 +337,8 @@ func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
 // with an empty request body (missing transfer_id, signature, signed_by) returns
 // HTTP 400. Auth headers are valid — the validation happens after authentication.
 func TestTransfer_Execute_MissingFields_Returns400(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -337,6 +357,8 @@ func TestTransfer_Execute_MissingFields_Returns400(t *testing.T) {
 // for the PROMPT token with no Canton balance returns HTTP 400, confirming that
 // PROMPT is a recognized token symbol and the balance gate fires correctly.
 func TestTransfer_PROMPT_InsufficientBalance_Fails(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 

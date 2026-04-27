@@ -193,12 +193,15 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 // Subset views
 // ---------------------------------------------------------------------------
 
-// IndexerSystem is a minimal view for indexer-focused tests. It only
-// initializes the Canton and Indexer shims — no Postgres connection, no Anvil.
+// IndexerSystem is a minimal view for indexer-focused tests. It initializes
+// Canton and Indexer shims and wires a DSL with those two shims so that
+// WaitForCantonBalance, WaitForPartyEvent*, and WaitForHolderCount are
+// available. No Anvil, Postgres, APIServer, or Relayer shims are initialized.
 type IndexerSystem struct {
 	Manifest *stack.ServiceManifest
 	Canton   stack.Canton
 	Indexer  stack.Indexer
+	DSL      *dsl.DSL
 
 	closeFunc func()
 }
@@ -217,23 +220,26 @@ func NewIndexerSystem(manifest *stack.ServiceManifest) (*IndexerSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("canton shim: %w", err)
 	}
+	indexerShim := shim.NewIndexer(manifest)
 	return &IndexerSystem{
 		Manifest:  manifest,
 		Canton:    cantonShim,
-		Indexer:   shim.NewIndexer(manifest),
+		Indexer:   indexerShim,
+		DSL:       dsl.New(nil, cantonShim, nil, indexerShim, nil, nil),
 		closeFunc: cantonShim.Close,
 	}, nil
 }
 
 // APISystem is a minimal view for api-server focused tests. It initializes
-// Anvil, Canton, APIServer, and Postgres shims together with the DSL and
-// pre-funded accounts.
+// Anvil, Canton, APIServer, Postgres, and Indexer shims together with the DSL
+// and pre-funded accounts. The Relayer shim is intentionally omitted.
 type APISystem struct {
 	Manifest  *stack.ServiceManifest
 	Anvil     stack.Anvil
 	Canton    stack.Canton
 	APIServer stack.APIServer
 	Postgres  stack.APIDatabase
+	Indexer   stack.Indexer
 	DSL       *dsl.DSL
 	Accounts  *Accounts
 	Tokens    *Tokens
@@ -264,13 +270,13 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 		Canton:    core.canton,
 		APIServer: core.apiServer,
 		Postgres:  core.postgres,
+		Indexer:   shim.NewIndexer(manifest),
 		Accounts:  defaultAccounts,
 		Tokens:    NewTokens(manifest),
 		closeFunc: core.close,
 	}
-	// Relayer and Indexer are not part of the API stack; nil is passed
-	// deliberately. DSL methods that require them call t.Fatal with a clear
-	// message rather than panicking.
-	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, nil, sys.Postgres, sys.Anvil)
+	// Relayer is not part of the API stack; nil is passed deliberately. DSL
+	// methods that require it call t.Fatal with a clear message.
+	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
 }

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
@@ -142,6 +145,12 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 		SignedBy:         req.SignedBy,
 	})
 	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			switch st.Code() {
+			case codes.InvalidArgument, codes.PermissionDenied:
+				return nil, apperrors.ForbiddenError(err, "signature verification failed")
+			}
+		}
 		return nil, fmt.Errorf("execute transfer: %w", err)
 	}
 

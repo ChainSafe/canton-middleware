@@ -21,6 +21,7 @@ const (
 	spliceTransferPackageID = "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 	identityPackageID       = "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
 	bridgePackageID         = "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+	bridgeCorePackageID     = "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
 	bridgeModule            = "Wayfinder.Bridge"
 
 	// cantonUserID is the JWT subject claim emitted by the mock OAuth2 server
@@ -138,6 +139,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		UserID:        cantonUserID,
 		OperatorParty: manifest.PromptInstrumentAdmin,
 		PackageID:     bridgePackageID,
+		CorePackageID: bridgeCorePackageID,
 		Module:        bridgeModule,
 	}
 	br, err := bridge.New(bridgeCfg, l, bridgeID)
@@ -261,4 +263,11 @@ func (c *CantonShim) InitiateWithdrawal(ctx context.Context, mappingCID, holding
 		Amount:         amount,
 		EvmDestination: evmDest,
 	})
+}
+
+// ProcessWithdrawal exercises the ProcessWithdrawal choice on a
+// WithdrawalRequest contract. This burns Canton tokens and creates a
+// WithdrawalEvent for the relayer to process. Returns the WithdrawalEvent CID.
+func (c *CantonShim) ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error) {
+	return c.bridgeClient.ProcessWithdrawal(ctx, withdrawalRequestCID)
 }
