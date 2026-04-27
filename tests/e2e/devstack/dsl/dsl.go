@@ -356,7 +356,10 @@ func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, eth int, token
 			t.Fatalf("NewFundedAccount: fund ETH: %v", err)
 		}
 	}
-	if tokens > 0 && (tokenAddr != common.Address{}) {
+	if tokens > 0 {
+		if (tokenAddr == common.Address{}) {
+			t.Fatalf("NewFundedAccount: tokens > 0 but tokenAddr is zero address")
+		}
 		tokenWei := new(big.Int).Mul(big.NewInt(int64(tokens)), exp18)
 		if err := d.anvil.TransferERC20(ctx, &funder, acc.Address, tokenAddr, tokenWei); err != nil {
 			t.Fatalf("NewFundedAccount: fund ERC20: %v", err)

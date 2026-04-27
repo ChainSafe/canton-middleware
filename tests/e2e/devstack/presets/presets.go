@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/docker"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
@@ -35,7 +36,9 @@ func DoMain(m *testing.M, opts ...Option) int {
 	o := applyOptions(opts)
 
 	disc := docker.NewServiceDiscovery(o.projectName, o.composeFile)
-	mfst, err := disc.Manifest(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	mfst, err := disc.Manifest(ctx)
 	if err != nil {
 		fmt.Printf("service discovery failed (is the devstack running? try: make devstack-up): %v\n", err)
 		return 1

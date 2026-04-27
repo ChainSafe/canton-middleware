@@ -7,6 +7,11 @@ on:
       - 'pkg/**'
       - 'tests/e2e/**'
       - '.github/workflows/e2e.yml'
+      - 'docker-compose.yaml'
+      - 'Makefile'
+      - 'contracts/**'
+      - 'go.mod'
+      - 'go.sum'
   push:
     branches:
       - main
@@ -23,6 +28,9 @@ jobs:
 
     steps:
       - name: Configure git SSH to HTTPS rewrite
+        # canton-erc20 and ethereum-wayfinder submodules use SSH URLs (git@github.com:).
+        # actions/checkout cannot authenticate SSH URLs via its token: input, so we
+        # rewrite them to HTTPS globally before the recursive submodule checkout.
         run: git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf "git@github.com:"
 
       - name: Checkout
