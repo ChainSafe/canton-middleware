@@ -263,7 +263,6 @@ func (d *DSL) lastPageItems(ctx context.Context, partyID string, eventType index
 	return last.Items, nil
 }
 
-
 // WaitForHolderCount polls until GetToken reports HolderCount == expected for
 // the token identified by (admin, id).
 func (d *DSL) WaitForHolderCount(ctx context.Context, t *testing.T, admin, id string, expected int64) {
