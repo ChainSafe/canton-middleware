@@ -8,15 +8,20 @@ package dsl
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"math/big"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/shim"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
 )
@@ -60,6 +65,10 @@ func New(
 
 // RegisterUser whitelists the account's EVM address and registers it as a
 // custodial web3 user via POST /register. Returns the RegisterResponse.
+//
+// If the account is already registered (HTTP 409), the existing registration
+// is fetched from Postgres and returned — making this method idempotent. This
+// allows multiple tests in a suite to share AnvilAccount0 without conflicting.
 func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Account) *user.RegisterResponse {
 	t.Helper()
 
@@ -78,6 +87,14 @@ func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Acco
 		Message:   msg,
 	})
 	if err != nil {
+		var he *shim.HTTPError
+		if errors.As(err, &he) && he.Code == http.StatusConflict {
+			existing, lookupErr := d.postgres.GetUser(ctx, account.Address.Hex())
+			if lookupErr != nil {
+				t.Fatalf("register %s: already registered but DB lookup failed: %v", account.Address.Hex(), lookupErr)
+			}
+			return existing
+		}
 		t.Fatalf("register %s: %v", account.Address.Hex(), err)
 	}
 	return resp
@@ -226,8 +243,10 @@ func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.A
 }
 
 // Withdraw looks up the FingerprintMapping and a suitable holding for the given
-// party and token, then calls InitiateWithdrawal on the Canton bridge. It
-// returns the WithdrawalRequest contract ID. Requires a full-stack system.
+// party and token, then calls InitiateWithdrawal followed by ProcessWithdrawal
+// on the Canton bridge (burning tokens and creating a WithdrawalEvent for the
+// relayer). It returns the WithdrawalRequest contract ID. Requires a full-stack
+// system.
 //
 // partyID and fingerprint are the Party and Fingerprint fields from the user's
 // RegisterResponse. tokenSymbol identifies the token (e.g. "PROMPT"). amount is
@@ -275,9 +294,76 @@ func (d *DSL) Withdraw(ctx context.Context, t *testing.T, partyID, fingerprint, 
 		t.Fatalf("no %s holding with amount >= %s for party %s", tokenSymbol, amount, partyID)
 	}
 
-	withdrawalCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdingCID, amount, evmDest)
+	withdrawalReqCID, err := d.canton.InitiateWithdrawal(ctx, mappingCID, holdingCID, amount, evmDest)
 	if err != nil {
 		t.Fatalf("initiate withdrawal for party %s: %v", partyID, err)
 	}
-	return withdrawalCID
+
+	// Exercise ProcessWithdrawal on the WithdrawalRequest — burns tokens on Canton
+	// and creates the WithdrawalEvent that the relayer streams to release on EVM.
+	if _, err := d.canton.ProcessWithdrawal(ctx, withdrawalReqCID); err != nil {
+		t.Fatalf("process withdrawal for party %s: %v", partyID, err)
+	}
+
+	return withdrawalReqCID
+}
+
+// anvilFundingMu serializes all NewFundedAccount calls so that concurrent
+// parallel tests never race on AnvilAccount0's nonce. A package-level mutex is
+// used because each test creates its own DSL instance; the mutex must be shared
+// across instances. Each funding call internally waits for the transaction to
+// mine, so the nonce is always monotonically incremented before the next caller
+// acquires the lock.
+var anvilFundingMu sync.Mutex
+
+// NewFundedAccount generates a fresh secp256k1 key and funds it from
+// AnvilAccount0. eth is the amount of ETH to transfer (whole units, e.g. 1 for
+// 1 ETH). tokens is the amount of the ERC-20 at tokenAddr to transfer (whole
+// units, 18-decimal assumed). Pass 0 for either to skip that transfer.
+//
+// The method is safe to call from parallel tests. Internally it holds a
+// package-level mutex while touching AnvilAccount0's nonce, so callers never
+// race each other. The returned account is fully funded before the method
+// returns.
+func (d *DSL) NewFundedAccount(ctx context.Context, t *testing.T, eth int, tokenAddr common.Address, tokens int) stack.Account {
+	t.Helper()
+	if d.anvil == nil {
+		t.Fatal("NewFundedAccount not available: Anvil shim not initialized")
+		return stack.Account{}
+	}
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("NewFundedAccount: generate key: %v", err)
+	}
+	acc := stack.Account{
+		Address:    crypto.PubkeyToAddress(key.PublicKey),
+		PrivateKey: hex.EncodeToString(crypto.FromECDSA(key)),
+	}
+
+	const (
+		base     = 10
+		decimals = 18
+	)
+	exp18 := new(big.Int).Exp(big.NewInt(base), big.NewInt(decimals), nil)
+
+	anvilFundingMu.Lock()
+	defer anvilFundingMu.Unlock()
+
+	funder := stack.AnvilAccount0
+	if eth > 0 {
+		ethWei := new(big.Int).Mul(big.NewInt(int64(eth)), exp18)
+		if err := d.anvil.FundWithETH(ctx, &funder, acc.Address, ethWei); err != nil {
+			t.Fatalf("NewFundedAccount: fund ETH: %v", err)
+		}
+	}
+	if tokens > 0 {
+		if (tokenAddr == common.Address{}) {
+			t.Fatalf("NewFundedAccount: tokens > 0 but tokenAddr is zero address")
+		}
+		tokenWei := new(big.Int).Mul(big.NewInt(int64(tokens)), exp18)
+		if err := d.anvil.TransferERC20(ctx, &funder, acc.Address, tokenAddr, tokenWei); err != nil {
+			t.Fatalf("NewFundedAccount: fund ERC20: %v", err)
+		}
+	}
+	return acc
 }

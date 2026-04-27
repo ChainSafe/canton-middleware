@@ -12,6 +12,9 @@ type Config struct {
 	OperatorParty string `yaml:"operator_party"`
 	// PackageID is the package id that contains Wayfinder.Bridge templates/choices.
 	PackageID string `yaml:"package_id" validate:"required"`
+	// CorePackageID is the package id for Bridge.Contracts (bridge-core package).
+	// WithdrawalRequest and WithdrawalEvent live here, separate from PackageID.
+	CorePackageID string `yaml:"core_package_id" validate:"required"`
 	// Module is the DAML module name that contains WayfinderBridgeConfig template.
 	Module string `yaml:"module" validate:"required"`
 }
@@ -35,6 +38,9 @@ func (c *Config) validate() error {
 	}
 	if c.Module == "" {
 		return fmt.Errorf("bridge module is required")
+	}
+	if c.CorePackageID == "" {
+		return fmt.Errorf("bridge core_package_id is required")
 	}
 	return nil
 }
