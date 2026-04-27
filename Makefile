@@ -146,4 +146,5 @@ test-e2e-bridge:
 		go test -v -tags e2e -timeout 15m ./tests/e2e/tests/bridge/...
 
 test-e2e-indexer:
-	@echo "not yet implemented"
+	CANTON_MASTER_KEY=$${CANTON_MASTER_KEY:-$$(openssl rand -base64 32)} \
+		go test -v -tags e2e -timeout 20m ./tests/e2e/tests/indexer/...

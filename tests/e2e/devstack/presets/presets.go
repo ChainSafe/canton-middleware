@@ -56,7 +56,7 @@ func DoMain(m *testing.M, opts ...Option) int {
 		_ = orch.Stop(stopCtx)
 	}()
 
-	disc := docker.NewServiceDiscovery(o.projectName)
+	disc := docker.NewServiceDiscovery(o.projectName, o.composeFile)
 	mfst, err := disc.Manifest(ctx)
 	if err != nil {
 		fmt.Printf("service discovery: %v\n", err)

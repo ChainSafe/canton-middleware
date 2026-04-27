@@ -27,6 +27,8 @@ const (
 	streamReconnectDelay      = 5 * time.Second
 	streamMaxReconnectDelay   = 60 * time.Second
 	withdrawalEventChannelCap = 10
+
+	bridgeContractsModule = "Bridge.Contracts"
 )
 
 // Bridge defines bridge operations.
@@ -46,6 +48,10 @@ type Bridge interface {
 
 	// InitiateWithdrawal creates a WithdrawalRequest for a user (choice on WayfinderBridgeConfig).
 	InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalRequest) (string, error)
+
+	// ProcessWithdrawal exercises the ProcessWithdrawal choice on a WithdrawalRequest contract,
+	// burning tokens on Canton and creating a WithdrawalEvent. Returns the WithdrawalEvent CID.
+	ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error)
 
 	// CompleteWithdrawal marks a WithdrawalEvent as completed after the EVM release is finalized.
 	CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalRequest) error
@@ -72,6 +78,9 @@ func New(cfg *Config, l ledger.Ledger, i identity.Identity, opts ...Option) (*Cl
 	}
 	if l == nil {
 		return nil, fmt.Errorf("nil ledger client")
+	}
+	if i == nil {
+		return nil, fmt.Errorf("nil identity client")
 	}
 	s := applyOptions(opts)
 
@@ -122,15 +131,16 @@ func (c *Client) IsDepositProcessed(ctx context.Context, evmTxHash string) (bool
 		return false, nil
 	}
 
-	// We enforce module/entity filtering via template id. This assumes deposits live in the same package/module.
-	// If your deposits are in a different package/module, adjust these template IDs accordingly.
+	// Common.FingerprintAuth templates live in the identity package, not the bridge package.
+	// Use the identity client's package ID so the ACS query targets the correct package.
+	identityPkgID := c.identity.PackageID()
 	pendingTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.PackageID,
+		PackageId:  identityPkgID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "PendingDeposit",
 	}
 	receiptTID := &lapiv2.Identifier{
-		PackageId:  c.cfg.PackageID,
+		PackageId:  identityPkgID,
 		ModuleName: "Common.FingerprintAuth",
 		EntityName: "DepositReceipt",
 	}
@@ -340,12 +350,60 @@ func (c *Client) InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalR
 		if created == nil || created.TemplateId == nil {
 			continue
 		}
-		if created.TemplateId.ModuleName == "Bridge.Contracts" && created.TemplateId.EntityName == "WithdrawalRequest" {
+		if created.TemplateId.ModuleName == bridgeContractsModule && created.TemplateId.EntityName == "WithdrawalRequest" {
 			return created.ContractId, nil
 		}
 	}
 
 	return "", fmt.Errorf("WithdrawalRequest contract not found in response")
+}
+
+func (c *Client) ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error) {
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.corePackageID(),
+					ModuleName: bridgeContractsModule,
+					EntityName: "WithdrawalRequest",
+				},
+				ContractId:     withdrawalRequestCID,
+				Choice:         "ProcessWithdrawal",
+				ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: encodeProcessWithdrawalArgs()}},
+			},
+		},
+	}
+
+	resp, err := c.ledger.Command().SubmitAndWaitForTransaction(
+		c.ledger.AuthContext(ctx),
+		&lapiv2.SubmitAndWaitForTransactionRequest{
+			Commands: &lapiv2.Commands{
+				SynchronizerId: c.cfg.DomainID,
+				CommandId:      uuid.NewString(),
+				UserId:         c.cfg.UserID,
+				ActAs:          []string{c.cfg.OperatorParty},
+				Commands:       []*lapiv2.Command{cmd},
+			},
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("process withdrawal: %w", err)
+	}
+	if resp.Transaction == nil {
+		return "", fmt.Errorf("process withdrawal: missing transaction in response")
+	}
+
+	for _, e := range resp.Transaction.Events {
+		created := e.GetCreated()
+		if created == nil || created.TemplateId == nil {
+			continue
+		}
+		if created.TemplateId.ModuleName == bridgeContractsModule && created.TemplateId.EntityName == "WithdrawalEvent" {
+			return created.ContractId, nil
+		}
+	}
+
+	return "", fmt.Errorf("WithdrawalEvent contract not found in response")
 }
 
 func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalRequest) error {
@@ -357,8 +415,8 @@ func (c *Client) CompleteWithdrawal(ctx context.Context, req CompleteWithdrawalR
 		Command: &lapiv2.Command_Exercise{
 			Exercise: &lapiv2.ExerciseCommand{
 				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.PackageID,
-					ModuleName: "Bridge.Contracts",
+					PackageId:  c.corePackageID(),
+					ModuleName: bridgeContractsModule,
 					EntityName: "WithdrawalEvent",
 				},
 				ContractId:     req.WithdrawalEventCID,
@@ -447,8 +505,8 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 								IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
 									TemplateFilter: &lapiv2.TemplateFilter{
 										TemplateId: &lapiv2.Identifier{
-											PackageId:  c.cfg.PackageID,
-											ModuleName: "Bridge.Contracts",
+											PackageId:  c.corePackageID(),
+											ModuleName: bridgeContractsModule,
 											EntityName: "WithdrawalEvent",
 										},
 									},
@@ -489,7 +547,7 @@ func (c *Client) streamWithdrawalEventsOnce(ctx context.Context, offset string, 
 			}
 
 			tid := created.TemplateId
-			if tid.ModuleName != "Bridge.Contracts" || tid.EntityName != "WithdrawalEvent" {
+			if tid.ModuleName != bridgeContractsModule || tid.EntityName != "WithdrawalEvent" {
 				continue
 			}
 
@@ -534,6 +592,13 @@ func isAuthError(err error) bool {
 
 func (c *Client) GetLatestLedgerOffset(ctx context.Context) (int64, error) {
 	return c.ledger.GetLedgerEnd(ctx)
+}
+
+// corePackageID returns the bridge-core package ID for Bridge.Contracts templates
+// (WithdrawalRequest, WithdrawalEvent). CorePackageID is validated as required at
+// construction time, so this will never be empty in practice.
+func (c *Client) corePackageID() string {
+	return c.cfg.CorePackageID
 }
 
 func isAlreadyExistsError(err error) bool {

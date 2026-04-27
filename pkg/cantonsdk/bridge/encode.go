@@ -34,7 +34,18 @@ func encodeInitiateWithdrawalArgs(req InitiateWithdrawalRequest) *lapiv2.Record 
 			{Label: "mappingCid", Value: values.ContractIDValue(req.MappingCID)},
 			{Label: "holdingCid", Value: values.ContractIDValue(req.HoldingCID)},
 			{Label: "amount", Value: values.NumericValue(req.Amount)},
-			{Label: "evmDestination", Value: values.TextValue(req.EvmDestination)},
+			{Label: "evmDestination", Value: values.NewtypeValue(values.TextValue(req.EvmDestination))},
+		},
+	}
+}
+
+// encodeProcessWithdrawalArgs encodes the argument record for the
+// Bridge.Contracts.WithdrawalRequest:ProcessWithdrawal choice.
+// DAML signature: ProcessWithdrawal : Time -> ContractId WithdrawalEvent
+// The choice takes a single `timestamp : Time` field.
+func encodeProcessWithdrawalArgs() *lapiv2.Record {
+	return &lapiv2.Record{
+		Fields: []*lapiv2.RecordField{
 			{Label: "timestamp", Value: values.TimestampValue(time.Now())},
 		},
 	}
