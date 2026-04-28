@@ -180,15 +180,16 @@ type EvmTransaction struct {
 
 // EvmLog represents a synthetic EVM log persisted for JSON-RPC responses.
 type EvmLog struct {
-	TxHash      []byte
-	LogIndex    uint
-	Address     []byte   // Contract address (20 bytes)
-	Topics      [][]byte // Topic hashes (each 32 bytes)
-	Data        []byte
-	BlockNumber uint64
-	BlockHash   []byte
-	TxIndex     uint
-	Removed     bool
+	TxHash         []byte
+	LogIndex       uint
+	Address        []byte   // Contract address (20 bytes)
+	Topics         [][]byte // Topic hashes (each 32 bytes)
+	Data           []byte
+	BlockNumber    uint64
+	BlockHash      []byte
+	TxIndex        uint
+	Removed        bool
+	BlockTimestamp uint64 // Unix seconds; set by the miner at block commit time
 }
 
 // MempoolStatus is the lifecycle state of a mempool intent entry.

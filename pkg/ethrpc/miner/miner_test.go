@@ -244,7 +244,7 @@ func TestBuildTransferLog_CorrectTopicsAndData(t *testing.T) {
 	block.EXPECT().Number().Return(uint64(7)).Maybe()
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 
-	log := buildTransferLog(entry, block, 3)
+	log := buildTransferLog(entry, block, 3, 0)
 
 	assert.Equal(t, uint64(7), log.BlockNumber)
 	assert.Equal(t, blockHash, log.BlockHash)
@@ -288,7 +288,7 @@ func TestBuildTransferLog_LargeAmount(t *testing.T) {
 	block.EXPECT().Number().Return(uint64(1)).Maybe()
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 
-	log := buildTransferLog(entry, block, 0)
+	log := buildTransferLog(entry, block, 0, 0)
 
 	got := new(big.Int).SetBytes(log.Data)
 	assert.Equal(t, 0, got.Cmp(amount), "round-trip amount mismatch: got %s, want %s", got, amount)
