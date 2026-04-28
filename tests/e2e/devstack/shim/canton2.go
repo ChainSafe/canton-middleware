@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
@@ -94,11 +94,11 @@ func (c *Canton2Shim) GRPCEndpoint() string { return c.grpcEndpoint }
 
 // HTTPEndpoint returns an empty string — Participant 2 does not expose an HTTP
 // JSON API endpoint in the E2E devstack manifest.
-func (c *Canton2Shim) HTTPEndpoint() string { return "" }
+func (*Canton2Shim) HTTPEndpoint() string { return "" }
 
 // IsHealthy always returns true. Docker Compose healthchecks guarantee P2 is
 // ready before any test runs; no runtime probe is needed.
-func (c *Canton2Shim) IsHealthy(_ context.Context) bool { return true }
+func (*Canton2Shim) IsHealthy(_ context.Context) bool { return true }
 
 // Close releases the P2 gRPC connection.
 func (c *Canton2Shim) Close() {
@@ -164,16 +164,16 @@ func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientP
 }
 
 // GetFingerprintMapping is not supported on Participant 2.
-func (c *Canton2Shim) GetFingerprintMapping(_ context.Context, _ string) (string, error) {
+func (*Canton2Shim) GetFingerprintMapping(_ context.Context, _ string) (string, error) {
 	return "", errP2NotSupported
 }
 
 // InitiateWithdrawal is not supported on Participant 2.
-func (c *Canton2Shim) InitiateWithdrawal(_ context.Context, _, _, _, _ string) (string, error) {
+func (*Canton2Shim) InitiateWithdrawal(_ context.Context, _, _, _, _ string) (string, error) {
 	return "", errP2NotSupported
 }
 
 // ProcessWithdrawal is not supported on Participant 2.
-func (c *Canton2Shim) ProcessWithdrawal(_ context.Context, _ string) (string, error) {
+func (*Canton2Shim) ProcessWithdrawal(_ context.Context, _ string) (string, error) {
 	return "", errP2NotSupported
 }

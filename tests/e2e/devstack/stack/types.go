@@ -24,6 +24,7 @@ const (
 
 	// USDCxTokenVirtualAddr is the well-known virtual EVM address mapped to the
 	// USDCx external token in the api-server configuration.
+	// #nosec G101 -- public deterministic EVM contract address, not a credential.
 	USDCxTokenVirtualAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 )
 
