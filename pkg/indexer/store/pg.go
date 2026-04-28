@@ -169,8 +169,8 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 	newAmount := oldAmount.Add(d)
 	if newAmount.IsNegative() {
 		return fmt.Errorf(
-			"negative balance for party %s on %s/%s: current=%s delta=%s",
-			partyID, instrumentAdmin, instrumentID, oldAmount.String(), delta,
+			"%w for party %s on %s/%s: current=%s delta=%s",
+			engine.ErrNegativeBalance, partyID, instrumentAdmin, instrumentID, oldAmount.String(), delta,
 		)
 	}
 
