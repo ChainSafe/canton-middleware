@@ -7,6 +7,8 @@ package client
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
@@ -59,6 +61,11 @@ func New(ctx context.Context, cfg *Config, opts ...Option) (*Client, error) {
 	tokenOpts := []token.Option{token.WithLogger(s.logger)}
 	if s.keyResolver != nil {
 		tokenOpts = append(tokenOpts, token.WithKeyResolver(s.keyResolver))
+	}
+	if len(cfg.Token.ExternalTokens) > 0 {
+		tokenOpts = append(tokenOpts, token.WithRegistryClient(
+			token.NewRegistryClient(&http.Client{Timeout: 10 * time.Second}),
+		))
 	}
 	tk, err := token.New(cfg.Token, l, id, tokenOpts...)
 	if err != nil {

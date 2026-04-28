@@ -22,6 +22,7 @@ canton:
   token:
     cip56_package_id: "cip56-package"
     splice_transfer_package_id: "splice-package"
+    splice_holding_package_id: "test-splice-holding-pkg-id"
 
 token:
   supported_tokens:
@@ -29,6 +30,12 @@ token:
       name: "PROMPT"
       symbol: "PROMPT"
       decimals: 18
+      instrument_id: "PROMPT"
+    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":
+      name: "USD Coin"
+      symbol: "USDCx"
+      decimals: 6
+      instrument_id: "USDCx"
 
 eth_rpc:
   chain_id: 31337
