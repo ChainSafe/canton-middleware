@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,11 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// ErrNegativeBalance is returned by Store.ApplyBalanceDelta when the delta
+// would make the balance negative. Exposed so the processor can distinguish
+// incomplete cross-participant history from actual store errors.
+var ErrNegativeBalance = errors.New("negative balance")
 
 var (
 	processorRetryBaseDelay = 5 * time.Second
@@ -187,9 +193,25 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 			}
 
 			for _, u := range balanceUpdatesFromEvent(e) {
-				if err := tx.ApplyBalanceDelta(ctx, u[0], e.InstrumentAdmin, e.InstrumentID, u[1]); err != nil {
-					return fmt.Errorf("apply balance delta: %w", err)
+				err = tx.ApplyBalanceDelta(ctx, u[0], e.InstrumentAdmin, e.InstrumentID, u[1])
+				if err == nil {
+					continue
 				}
+				// For a TRANSFER where the sender delta is negative and the store reports
+				// ErrNegativeBalance: the sender's full mint history is on another participant
+				// and was never delivered to P1. Log a warning and skip the sender deduction —
+				// the receiver's credit is still applied correctly.
+				if e.EventType == indexer.EventTransfer && isNegativeDelta(u[1]) && errors.Is(err, ErrNegativeBalance) {
+					p.logger.Warn("sender balance underflow — mint history on another participant; skipping sender deduction",
+						zap.String("party", u[0]),
+						zap.String("instrument_admin", e.InstrumentAdmin),
+						zap.String("instrument_id", e.InstrumentID),
+						zap.String("delta", u[1]),
+						zap.Int64("offset", batch.Offset),
+					)
+					continue
+				}
+				return fmt.Errorf("apply balance delta: %w", err)
 			}
 		}
 
@@ -238,6 +260,11 @@ func supplyDeltaFromEvent(e *indexer.ParsedEvent) (instrumentAdmin, instrumentID
 	default:
 		return "", "", "", false
 	}
+}
+
+// isNegativeDelta reports whether a signed decimal delta string is negative.
+func isNegativeDelta(delta string) bool {
+	return len(delta) > 0 && delta[0] == '-'
 }
 
 // balanceUpdatesFromEvent returns [partyID, signedDelta] pairs for each balance
