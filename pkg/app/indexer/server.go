@@ -89,9 +89,10 @@ func (s *Server) Run() error {
 	logger.Info("Canton ledger connection established", zap.String("rpc_url", cfg.CantonLedger.RPCURL))
 
 	// ── Streaming client ──────────────────────────────────────────────────────
-	// One streaming.Client per indexer party. It wraps GetUpdates with automatic
-	// reconnection and OAuth2 token refresh (mirrors bridge/client.go pattern).
-	// Requires the Canton auth token to carry CanReadAsAnyParty rights.
+	// One streaming.Client for the indexer in wildcard mode (FiltersForAnyParty).
+	// Wraps GetUpdates with automatic reconnection and OAuth2 token refresh
+	// (mirrors bridge/client.go pattern). Requires the Canton auth token to
+	// carry CanReadAsAnyParty rights.
 
 	streamClient, err := streaming.New(ledgerClient, streaming.WithLogger(logger))
 	if err != nil {
