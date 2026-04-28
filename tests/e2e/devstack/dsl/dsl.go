@@ -188,7 +188,7 @@ func (d *DSL) Deposit(ctx context.Context, t *testing.T, account stack.Account, 
 // ERC-20 balance of ownerAddr for tok is >= minTokens (human-readable token
 // amount, e.g. "50"). This is the preferred balance check for api-server tests
 // — no indexer needed. Pass sys.Tokens.DEMO or sys.Tokens.PROMPT as tok.
-func (d *DSL) WaitForAPIBalance(ctx context.Context, t *testing.T, tok stack.Token, ownerAddr common.Address, minTokens string) {
+func (d *DSL) WaitForAPIBalance(ctx context.Context, t *testing.T, tok *stack.Token, ownerAddr common.Address, minTokens string) {
 	t.Helper()
 	// Scale minTokens by 10^tok.Decimals.
 	exp := new(big.Int).Exp(big.NewInt(decimalBase), big.NewInt(int64(tok.Decimals)), nil)

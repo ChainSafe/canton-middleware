@@ -41,6 +41,7 @@ func encodeTransferFactoryTransferArgs(
 	requestedAt time.Time,
 	executeBefore time.Time,
 	inputHoldingCIDs []string,
+	choiceContext map[string]string,
 ) *lapiv2.Record {
 	holdingCidValues := make([]*lapiv2.Value, len(inputHoldingCIDs))
 	for i, cid := range inputHoldingCIDs {
@@ -68,7 +69,7 @@ func encodeTransferFactoryTransferArgs(
 		Fields: []*lapiv2.RecordField{
 			{Label: "expectedAdmin", Value: values.PartyValue(expectedAdmin)},
 			{Label: "transfer", Value: transfer},
-			{Label: "extraArgs", Value: values.EncodeExtraArgs()},
+			{Label: "extraArgs", Value: values.EncodeExtraArgs(choiceContext)},
 		},
 	}
 }
