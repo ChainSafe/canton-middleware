@@ -135,6 +135,10 @@ type ServiceManifest struct {
 	// (the USDCx issuer participant), e.g. "localhost:5021".
 	Canton2GRPC string
 
+	// Canton2HTTP is the Canton HTTP JSON API endpoint for Participant 2
+	// (e.g. "http://localhost:5023").
+	Canton2HTTP string
+
 	// USDCxInstrumentAdmin is the Canton party ID of the USDCx token issuer on
 	// Participant 2.
 	USDCxInstrumentAdmin string

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,8 @@ var _ stack.Canton = (*Canton2Shim)(nil)
 // methods are fully implemented.
 type Canton2Shim struct {
 	grpcEndpoint string
+	httpEndpoint string
+	client       *http.Client
 	ledgerClient ledger.Ledger
 	tokenCli     token.Token
 }
@@ -85,20 +88,32 @@ func NewCanton2(manifest *stack.ServiceManifest) (*Canton2Shim, error) {
 
 	return &Canton2Shim{
 		grpcEndpoint: manifest.Canton2GRPC,
+		httpEndpoint: manifest.Canton2HTTP,
+		client:       &http.Client{Timeout: 10 * time.Second},
 		ledgerClient: l,
 		tokenCli:     tk,
 	}, nil
 }
 
 func (c *Canton2Shim) GRPCEndpoint() string { return c.grpcEndpoint }
+func (c *Canton2Shim) HTTPEndpoint() string { return c.httpEndpoint }
 
-// HTTPEndpoint returns an empty string — Participant 2 does not expose an HTTP
-// JSON API endpoint in the E2E devstack manifest.
-func (*Canton2Shim) HTTPEndpoint() string { return "" }
-
-// IsHealthy always returns true. Docker Compose healthchecks guarantee P2 is
-// ready before any test runs; no runtime probe is needed.
-func (*Canton2Shim) IsHealthy(_ context.Context) bool { return true }
+// IsHealthy returns true when Participant 2's HTTP JSON API responds with 200.
+// The docker-compose canton healthcheck verifies P2 package readiness before
+// marking the service healthy, so this probe is a lightweight liveness check.
+func (c *Canton2Shim) IsHealthy(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/v1/version", c.httpEndpoint), nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
 
 // Close releases the P2 gRPC connection.
 func (c *Canton2Shim) Close() {
