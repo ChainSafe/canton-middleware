@@ -33,7 +33,7 @@ const (
 	// cantonKeySize is the required size for Canton private keys (32 bytes for secp256k1)
 	cantonKeySize = 32
 
-	// loginMessageMaxAge is the maximum age accepted for a GET /user login message.
+	// loginMessageMaxAge is the maximum age accepted for a GET /profile login message.
 	// Must match SESSION_MAX_AGE_MS in the dapp's session.ts.
 	loginMessageMaxAge = 24 * time.Hour
 )

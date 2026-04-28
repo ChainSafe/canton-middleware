@@ -30,7 +30,7 @@ func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
 
 	r.Post("/register", apphttp.HandleError(h.register))
 	r.Post("/register/prepare-topology", apphttp.HandleError(h.prepareTopology))
-	r.Get("/user", apphttp.HandleError(h.getUser))
+	r.Get("/profile", apphttp.HandleError(h.getUser))
 }
 
 // register handles HTTP requests

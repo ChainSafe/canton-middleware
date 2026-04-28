@@ -149,7 +149,7 @@ func TestGetUserHTTP_MissingAddress_ReturnsBadRequest(t *testing.T) {
 	svc := mocks.NewService(t)
 	handler := newRegisterTestServer(svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/user", nil)
+	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
 	req.Header.Set("X-Signature", "0xsig")
 	req.Header.Set("X-Message", "login:0xabc:1234567890")
 	rec := httptest.NewRecorder()
