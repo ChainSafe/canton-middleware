@@ -98,6 +98,7 @@ native-user-info.json
 native-wallet-demo
 register-native-user
 1go
+deployments/usdcx-dars/
 
 # Script build artifacts
 bridge-activity
@@ -110,6 +111,7 @@ upload-dars
 archive-cip56
 bootstrap-bridge
 bootstrap-demo
+bootstrap-usdcx
 
 # Local config variants
 config.docker-local.yaml

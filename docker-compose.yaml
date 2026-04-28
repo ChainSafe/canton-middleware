@@ -86,6 +86,7 @@ services:
       - "--bootstrap=/canton/deploy-dars.canton"
     volumes:
       - ./contracts/canton-erc20:/canton/contracts
+      - ./deployments/usdcx-dars:/canton/usdcx-dars
       - ./deployments/canton-config/simple-topology.conf:/canton/simple-topology.conf
       - ./deployments/canton-config/deploy-dars.canton:/canton/deploy-dars.canton
     healthcheck:
