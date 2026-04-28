@@ -294,6 +294,15 @@ if [ $attempt -ge $MAX_RETRIES ]; then
     echo ""
     echo "[WARN] Participant2 HTTP API not ready — skipping USDCx bootstrap"
 else
+    # The docker-compose canton healthcheck ensures P2 has >= 30 packages uploaded,
+    # but package vetting (the topology transaction that authorises packages for use
+    # in contracts) propagates asynchronously on the synchronizer. Wait for it here,
+    # mirroring the equivalent sleep done for P1 above.
+    echo ""
+    echo ">>> Waiting for P2 package vetting to propagate..."
+    sleep 10
+    echo "    P2 vetting propagation wait complete"
+
     echo ""
     echo ">>> Allocating USDCxIssuer party on participant2..."
     USDCX_EXISTING=$(curl -s "${CANTON_P2_HTTP}/v2/parties" | jq -r '.partyDetails[].party' | grep "^USDCxIssuer::" | head -1 || true)
