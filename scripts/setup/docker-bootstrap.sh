@@ -267,6 +267,73 @@ echo ">>> Running register-user..."
 }
 
 # =============================================================================
+# Bootstrap USDCx on participant2
+# =============================================================================
+# USDCxIssuer lives on participant2 (the "external" node). The middleware
+# (participant1) sees all USDCx events via FiltersForAnyParty on the indexer.
+CANTON_P2_HTTP="${CANTON_P2_HTTP:-http://canton:5023}"
+CANTON_P2_GRPC="${CANTON_P2_GRPC:-canton:5021}"
+CANTON_P2_AUDIENCE="${CANTON_P2_AUDIENCE:-http://canton:5021}"
+CANTON_AUTH_CLIENT_ID="${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+CANTON_AUTH_CLIENT_SECRET="${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+
+echo ""
+echo ">>> Waiting for participant2 HTTP API..."
+attempt=0
+while [ $attempt -lt $MAX_RETRIES ]; do
+    if curl -s "${CANTON_P2_HTTP}/v2/version" >/dev/null 2>&1; then
+        echo "    Participant2 HTTP API is ready!"
+        break
+    fi
+    echo -n "."
+    sleep 2
+    attempt=$((attempt + 1))
+done
+
+if [ $attempt -ge $MAX_RETRIES ]; then
+    echo ""
+    echo "[WARN] Participant2 HTTP API not ready — skipping USDCx bootstrap"
+else
+    echo ""
+    echo ">>> Allocating USDCxIssuer party on participant2..."
+    USDCX_EXISTING=$(curl -s "${CANTON_P2_HTTP}/v2/parties" | jq -r '.partyDetails[].party' | grep "^USDCxIssuer::" | head -1 || true)
+
+    if [ -n "$USDCX_EXISTING" ]; then
+        echo "    USDCxIssuer already exists: $USDCX_EXISTING"
+        USDCX_PARTY_ID="$USDCX_EXISTING"
+    else
+        USDCX_PARTY_RESPONSE=$(curl -s -X POST "${CANTON_P2_HTTP}/v2/parties" \
+            -H 'Content-Type: application/json' \
+            -d '{"partyIdHint": "USDCxIssuer"}')
+        USDCX_PARTY_ID=$(echo "$USDCX_PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
+        echo "    Allocated: $USDCX_PARTY_ID"
+    fi
+
+    if [ -z "$USDCX_PARTY_ID" ]; then
+        echo "[WARN] Failed to allocate USDCxIssuer — skipping USDCx bootstrap"
+    else
+        echo ""
+        echo ">>> Running bootstrap-usdcx on participant2..."
+        /app/bootstrap-usdcx \
+            -p2           "$CANTON_P2_GRPC" \
+            -p2-audience  "$CANTON_P2_AUDIENCE" \
+            -issuer       "$USDCX_PARTY_ID" \
+            -domain       "$DOMAIN_ID" \
+            -token-url    "http://mock-oauth2:8088/oauth/token" \
+            -client-id    "$CANTON_AUTH_CLIENT_ID" \
+            -client-secret "$CANTON_AUTH_CLIENT_SECRET" || {
+            echo "    [WARN] bootstrap-usdcx may have failed or contracts already exist"
+        }
+
+        # Substitute USDCx issuer party in api-server config
+        if [ -f "$API_SERVER_CONFIG_FILE" ]; then
+            sed -i "s|\${CANTON_USDCX_ISSUER_PARTY}|$USDCX_PARTY_ID|g" "$API_SERVER_CONFIG_FILE"
+            echo "    API server config updated with CANTON_USDCX_ISSUER_PARTY=$USDCX_PARTY_ID"
+        fi
+    fi
+fi
+
+# =============================================================================
 # Write E2E deploy manifest
 # =============================================================================
 E2E_MANIFEST_FILE="${E2E_MANIFEST_FILE:-/tmp/e2e-deploy.json}"
@@ -280,7 +347,9 @@ cat > "$E2E_MANIFEST_FILE" <<JSON
   "prompt_instrument_admin": "${PARTY_ID}",
   "prompt_instrument_id":    "PROMPT",
   "demo_instrument_admin":   "${PARTY_ID}",
-  "demo_instrument_id":      "DEMO"
+  "demo_instrument_id":      "DEMO",
+  "usdcx_instrument_admin":  "${USDCX_PARTY_ID}",
+  "usdcx_instrument_id":     "USDCx"
 }
 JSON
 echo ">>> Deploy manifest written to $E2E_MANIFEST_FILE"
@@ -292,8 +361,9 @@ echo ""
 echo "========================================================================"
 echo "BOOTSTRAP COMPLETE"
 echo "========================================================================"
-echo "Party ID:  $PARTY_ID"
-echo "Domain ID: $DOMAIN_ID"
+echo "Party ID:       $PARTY_ID"
+echo "Domain ID:      $DOMAIN_ID"
+echo "USDCx Party ID: ${USDCX_PARTY_ID:-<not bootstrapped>}"
 echo ""
 echo "The relayer can now be started."
 echo "========================================================================"
