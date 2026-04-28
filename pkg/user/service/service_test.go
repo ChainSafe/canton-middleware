@@ -291,6 +291,35 @@ func TestGetUser_InvalidSignature(t *testing.T) {
 	}
 }
 
+func TestGetUser_InvalidMessageFormat_ReturnsUnauthorized(t *testing.T) {
+	ctx := context.Background()
+
+	privateKey, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey() failed: %v", err)
+	}
+	addr := auth.NormalizeAddress(crypto.PubkeyToAddress(privateKey.PublicKey).Hex())
+
+	// Sign a message with the wrong operation prefix (transfer instead of login).
+	msg := fmt.Sprintf("transfer:%s:%d", strings.ToLower(addr), time.Now().Unix())
+	prefixed := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(msg), msg)
+	hash := crypto.Keccak256Hash([]byte(prefixed))
+	sig, err := crypto.Sign(hash.Bytes(), privateKey)
+	if err != nil {
+		t.Fatalf("Sign() failed: %v", err)
+	}
+	hexSig := "0x" + hex.EncodeToString(sig)
+
+	svc := NewService(nil, nil, nil, zap.NewNop(), false, false, nil)
+	_, err = svc.GetUser(ctx, addr, msg, hexSig)
+	if err == nil {
+		t.Fatal("expected unauthorized error for wrong message prefix, got nil")
+	}
+	if !apperrors.Is(err, apperrors.CategoryUnauthorized) {
+		t.Fatalf("expected CategoryUnauthorized, got %v", err)
+	}
+}
+
 func TestGetUser_StoreError(t *testing.T) {
 	ctx := context.Background()
 	evmAddress, message, signature := signLoginMessage(t, 0)

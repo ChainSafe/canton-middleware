@@ -474,6 +474,9 @@ func (s *registrationService) GetUser(ctx context.Context, evmAddress, msg, sig 
 	if !strings.EqualFold(recoveredAddr.Hex(), evmAddress) {
 		return nil, apperrors.UnAuthorizedError(nil, "signature does not match address")
 	}
+	if !strings.HasPrefix(strings.ToLower(msg), "login:"+strings.ToLower(evmAddress)+":") {
+		return nil, apperrors.UnAuthorizedError(nil, "message must be of form login:<address>:<timestamp>")
+	}
 	if err = auth.ValidateTimedMessage(msg, loginMessageMaxAge); err != nil {
 		return nil, apperrors.UnAuthorizedError(err, "message expired or malformed")
 	}

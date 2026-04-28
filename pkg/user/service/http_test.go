@@ -164,7 +164,7 @@ func TestGetUserHTTP_MissingHeaders_ReturnsUnauthorized(t *testing.T) {
 	svc := mocks.NewService(t)
 	handler := newRegisterTestServer(svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/user?address=0xabc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0xabc", nil)
 	// no X-Signature / X-Message headers
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -191,7 +191,7 @@ func TestGetUserHTTP_ValidHeaders_ReturnsUser(t *testing.T) {
 		Return(&user.User{EVMAddress: "0xabc", CantonParty: "party::xyz"}, nil)
 	handler := newRegisterTestServer(svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/user?address=0xabc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0xabc", nil)
 	req.Header.Set("X-Signature", "0xsig")
 	req.Header.Set("X-Message", "login:0xabc:1234567890")
 	rec := httptest.NewRecorder()
@@ -217,7 +217,7 @@ func TestGetUserHTTP_ServiceReturnsNotFound_Returns404(t *testing.T) {
 		Return(nil, apperrors.ResourceNotFoundError(nil, "user not found"))
 	handler := newRegisterTestServer(svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/user?address=0xabc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0xabc", nil)
 	req.Header.Set("X-Signature", "0xsig")
 	req.Header.Set("X-Message", "login:0xabc:1234567890")
 	rec := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestGetUserHTTP_ServiceReturnsUnauthorized_Returns401(t *testing.T) {
 		Return(nil, apperrors.UnAuthorizedError(nil, "invalid signature"))
 	handler := newRegisterTestServer(svc)
 
-	req := httptest.NewRequest(http.MethodGet, "/user?address=0xabc", nil)
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0xabc", nil)
 	req.Header.Set("X-Signature", "0xsig")
 	req.Header.Set("X-Message", "login:0xabc:1234567890")
 	rec := httptest.NewRecorder()
