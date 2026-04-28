@@ -15,11 +15,17 @@ type Token struct {
 	Address common.Address
 }
 
-// DemoTokenVirtualAddr is the virtual EVM address of the DEMO Canton-native
-// token as recognized by the api-server's /eth JSON-RPC facade. It is a
-// well-known constant derived from the api-server's contract mapping — update
-// here if that mapping ever changes.
-const DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
+const (
+	// DemoTokenVirtualAddr is the virtual EVM address of the DEMO Canton-native
+	// token as recognized by the api-server's /eth JSON-RPC facade. It is a
+	// well-known constant derived from the api-server's contract mapping — update
+	// here if that mapping ever changes.
+	DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
+
+	// USDCxTokenVirtualAddr is the well-known virtual EVM address mapped to the
+	// USDCx external token in the api-server configuration.
+	USDCxTokenVirtualAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+)
 
 // CantonHolding is a minimal view of a CIP56Holding contract used by E2E tests.
 // It carries only the fields needed for bridge withdrawal operations.
@@ -123,4 +129,16 @@ type ServiceManifest struct {
 	// as recognized by the api-server's /eth JSON-RPC facade.
 	// It is a well-known constant: 0xDE30000000000000000000000000000000000001.
 	DemoTokenAddr string
+
+	// Canton2GRPC is the Canton Ledger API gRPC endpoint for Participant 2
+	// (the USDCx issuer participant), e.g. "localhost:5021".
+	Canton2GRPC string
+
+	// USDCxInstrumentAdmin is the Canton party ID of the USDCx token issuer on
+	// Participant 2.
+	USDCxInstrumentAdmin string
+
+	// USDCxInstrumentID is the instrument identifier of the USDCx token
+	// (e.g. "USDCx").
+	USDCxInstrumentID string
 }

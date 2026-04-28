@@ -110,3 +110,21 @@ func NewAPIStack(t *testing.T) *system.APISystem {
 	t.Cleanup(func() { _ = sys.Close() })
 	return sys
 }
+
+// NewMultiParticipantStack returns a MultiParticipantSystem with the full API
+// stack (Anvil, Canton P1, APIServer, Postgres, Indexer) plus a Canton2 shim
+// for Participant 2. Use this for tests that involve cross-participant Canton
+// operations, such as USDCx transfers from the P2 issuer to a P1 holder.
+//
+// Accounts are derived uniquely from t.Name() to prevent registration conflicts
+// across tests that share the same suite run.
+func NewMultiParticipantStack(t *testing.T) *system.MultiParticipantSystem {
+	t.Helper()
+	sys, err := system.NewMultiParticipantSystem(context.Background(), resolvedManifest(t))
+	if err != nil {
+		t.Fatalf("multi-participant stack init: %v", err)
+	}
+	sys.Accounts = system.NewTestAccounts(t)
+	t.Cleanup(func() { _ = sys.Close() })
+	return sys
+}
