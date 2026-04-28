@@ -303,6 +303,9 @@ func (s *Server) setupRouter(
 		_, _ = w.Write([]byte("OK"))
 	})
 
+	// Supported tokens metadata
+	token.RegisterRoutes(r, tokenService, logger)
+
 	// Registration endpoints
 	userservice.RegisterRoutes(r, registrationService, logger)
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -51,6 +53,56 @@ func NewTokenService(
 		userStore:    userStore,
 		cantonClient: cantonClient,
 	}
+}
+
+// GetSupportedTokens returns a cursor-paginated list of supported tokens sorted by address.
+// cursor is the address of the last item from the previous page; empty string starts from the beginning.
+func (s *Service) GetSupportedTokens(_ context.Context, cursor string, limit int) (*TokensPage, error) {
+	addrs := make([]common.Address, 0, len(s.cfg.SupportedTokens))
+	for addr := range s.cfg.SupportedTokens {
+		addrs = append(addrs, addr)
+	}
+	sort.Slice(addrs, func(i, j int) bool {
+		return addrs[i].Hex() < addrs[j].Hex()
+	})
+
+	start := 0
+	if cursor != "" {
+		found := false
+		for i, addr := range addrs {
+			if strings.EqualFold(addr.Hex(), cursor) {
+				start = i + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, apperr.BadRequestError(nil, "invalid cursor")
+		}
+	}
+
+	end := start + limit
+	hasMore := end < len(addrs)
+	if end > len(addrs) {
+		end = len(addrs)
+	}
+
+	items := make([]TokenItem, 0, end-start)
+	for _, addr := range addrs[start:end] {
+		tok := s.cfg.SupportedTokens[addr]
+		items = append(items, TokenItem{
+			Address:  addr.Hex(),
+			Name:     tok.Name,
+			Symbol:   tok.Symbol,
+			Decimals: tok.Decimals,
+		})
+	}
+
+	var nextCursor string
+	if hasMore && len(items) > 0 {
+		nextCursor = items[len(items)-1].Address
+	}
+	return &TokensPage{Items: items, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
 // ERC20 returns an ERC-20 view for the given contract address, or an error if
