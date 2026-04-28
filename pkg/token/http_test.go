@@ -24,14 +24,12 @@ func newTokenTestServer(svc token.ListService) http.Handler {
 func TestListTokensHTTP_DefaultPagination_ReturnsOK(t *testing.T) {
 	svc := mocks.NewListService(t)
 	svc.EXPECT().
-		GetSupportedTokens(mock.Anything, 1, token.DefaultLimit).
+		GetSupportedTokens(mock.Anything, "", token.DefaultLimit).
 		Return(&token.TokensPage{
 			Items: []token.TokenItem{
 				{Address: "0xabc", Name: "Demo", Symbol: "DEMO", Decimals: 18},
 			},
-			Total: 1,
-			Page:  1,
-			Limit: token.DefaultLimit,
+			HasMore: false,
 		}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/tokens", nil)
@@ -49,21 +47,40 @@ func TestListTokensHTTP_DefaultPagination_ReturnsOK(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if got.Total != 1 {
-		t.Fatalf("expected total 1, got %d", got.Total)
-	}
 	if len(got.Items) != 1 || got.Items[0].Symbol != "DEMO" {
 		t.Fatalf("unexpected items: %+v", got.Items)
 	}
+	if got.HasMore {
+		t.Fatal("expected has_more false")
+	}
 }
 
-func TestListTokensHTTP_ExplicitPagination_CallsServiceWithParams(t *testing.T) {
+func TestListTokensHTTP_WithCursor_CallsServiceWithParams(t *testing.T) {
 	svc := mocks.NewListService(t)
 	svc.EXPECT().
-		GetSupportedTokens(mock.Anything, 2, 10).
-		Return(&token.TokensPage{Items: []token.TokenItem{}, Total: 5, Page: 2, Limit: 10}, nil)
+		GetSupportedTokens(mock.Anything, "0x2abc", 10).
+		Return(&token.TokensPage{Items: []token.TokenItem{}, HasMore: false}, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/tokens?page=2&limit=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tokens?cursor=0x2abc&limit=10", nil)
+	rec := httptest.NewRecorder()
+	newTokenTestServer(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestListTokensHTTP_HasMore_ReturnsNextCursor(t *testing.T) {
+	svc := mocks.NewListService(t)
+	svc.EXPECT().
+		GetSupportedTokens(mock.Anything, "", 1).
+		Return(&token.TokensPage{
+			Items:      []token.TokenItem{{Address: "0x1aaa", Name: "Demo", Symbol: "DEMO", Decimals: 18}},
+			NextCursor: "0x1aaa",
+			HasMore:    true,
+		}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/tokens?limit=1", nil)
 	rec := httptest.NewRecorder()
 	newTokenTestServer(svc).ServeHTTP(rec, req)
 
@@ -75,23 +92,11 @@ func TestListTokensHTTP_ExplicitPagination_CallsServiceWithParams(t *testing.T) 
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if got.Page != 2 || got.Limit != 10 {
-		t.Fatalf("expected page=2 limit=10, got page=%d limit=%d", got.Page, got.Limit)
+	if !got.HasMore {
+		t.Fatal("expected has_more true")
 	}
-}
-
-func TestListTokensHTTP_InvalidPage_ReturnsBadRequest(t *testing.T) {
-	svc := mocks.NewListService(t)
-	handler := newTokenTestServer(svc)
-
-	for _, tc := range []string{"0", "-1", "abc"} {
-		req := httptest.NewRequest(http.MethodGet, "/tokens?page="+tc, nil)
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("page=%q: expected status %d, got %d", tc, http.StatusBadRequest, rec.Code)
-		}
+	if got.NextCursor != "0x1aaa" {
+		t.Fatalf("expected next_cursor %q, got %q", "0x1aaa", got.NextCursor)
 	}
 }
 
@@ -113,7 +118,7 @@ func TestListTokensHTTP_InvalidLimit_ReturnsBadRequest(t *testing.T) {
 func TestListTokensHTTP_ServiceError_Returns500(t *testing.T) {
 	svc := mocks.NewListService(t)
 	svc.EXPECT().
-		GetSupportedTokens(mock.Anything, 1, token.DefaultLimit).
+		GetSupportedTokens(mock.Anything, "", token.DefaultLimit).
 		Return(nil, errors.New("unexpected store error"))
 
 	req := httptest.NewRequest(http.MethodGet, "/tokens", nil)
@@ -128,8 +133,8 @@ func TestListTokensHTTP_ServiceError_Returns500(t *testing.T) {
 func TestListTokensHTTP_EmptyList_ReturnsOKWithEmptyItems(t *testing.T) {
 	svc := mocks.NewListService(t)
 	svc.EXPECT().
-		GetSupportedTokens(mock.Anything, 1, token.DefaultLimit).
-		Return(&token.TokensPage{Items: []token.TokenItem{}, Total: 0, Page: 1, Limit: token.DefaultLimit}, nil)
+		GetSupportedTokens(mock.Anything, "", token.DefaultLimit).
+		Return(&token.TokensPage{Items: []token.TokenItem{}, HasMore: false}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/tokens", nil)
 	rec := httptest.NewRecorder()

@@ -16,10 +16,9 @@ type TokenItem struct {
 	Decimals int    `json:"decimals"`
 }
 
-// TokensPage is the paginated response for GET /tokens.
+// TokensPage is the cursor-paginated response for GET /tokens.
 type TokensPage struct {
-	Items []TokenItem `json:"items"`
-	Total int         `json:"total"`
-	Page  int         `json:"page"`
-	Limit int         `json:"limit"`
+	Items      []TokenItem `json:"items"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+	HasMore    bool        `json:"has_more"`
 }

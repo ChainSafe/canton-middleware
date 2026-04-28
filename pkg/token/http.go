@@ -22,7 +22,7 @@ const (
 //
 //go:generate mockery --name ListService --output mocks --outpkg mocks --filename mock_list_service.go --with-expecter
 type ListService interface {
-	GetSupportedTokens(ctx context.Context, page, limit int) (*TokensPage, error)
+	GetSupportedTokens(ctx context.Context, cursor string, limit int) (*TokensPage, error)
 }
 
 // HTTP wraps ListService to provide token HTTP endpoints.
@@ -38,11 +38,11 @@ func RegisterRoutes(r chi.Router, svc ListService, logger *zap.Logger) {
 }
 
 func (h *HTTP) listTokens(w http.ResponseWriter, r *http.Request) error {
-	page, limit, err := parsePagination(r)
+	cursor, limit, err := parsePagination(r)
 	if err != nil {
 		return err
 	}
-	resp, err := h.svc.GetSupportedTokens(r.Context(), page, limit)
+	resp, err := h.svc.GetSupportedTokens(r.Context(), cursor, limit)
 	if err != nil {
 		return err
 	}
@@ -50,26 +50,19 @@ func (h *HTTP) listTokens(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func parsePagination(r *http.Request) (page, limit int, err error) {
-	page, limit = 1, DefaultLimit
-
-	if s := r.URL.Query().Get("page"); s != "" {
-		v, parseErr := strconv.Atoi(s)
-		if parseErr != nil || v < 1 {
-			return 0, 0, apperrors.BadRequestError(nil, "page must be an integer >= 1")
-		}
-		page = v
-	}
+func parsePagination(r *http.Request) (cursor string, limit int, err error) {
+	cursor = r.URL.Query().Get("cursor")
+	limit = DefaultLimit
 
 	if s := r.URL.Query().Get("limit"); s != "" {
 		v, parseErr := strconv.Atoi(s)
 		if parseErr != nil || v < 1 || v > MaxLimit {
-			return 0, 0, apperrors.BadRequestError(nil, "limit must be an integer between 1 and 200")
+			return "", 0, apperrors.BadRequestError(nil, "limit must be an integer between 1 and 200")
 		}
 		limit = v
 	}
 
-	return page, limit, nil
+	return cursor, limit, nil
 }
 
 func (h *HTTP) writeJSON(w http.ResponseWriter, status int, data any) {

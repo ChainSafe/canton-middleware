@@ -22,9 +22,9 @@ func (_m *ListService) EXPECT() *ListService_Expecter {
 	return &ListService_Expecter{mock: &_m.Mock}
 }
 
-// GetSupportedTokens provides a mock function with given fields: ctx, page, limit
-func (_m *ListService) GetSupportedTokens(ctx context.Context, page int, limit int) (*token.TokensPage, error) {
-	ret := _m.Called(ctx, page, limit)
+// GetSupportedTokens provides a mock function with given fields: ctx, cursor, limit
+func (_m *ListService) GetSupportedTokens(ctx context.Context, cursor string, limit int) (*token.TokensPage, error) {
+	ret := _m.Called(ctx, cursor, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetSupportedTokens")
@@ -32,19 +32,19 @@ func (_m *ListService) GetSupportedTokens(ctx context.Context, page int, limit i
 
 	var r0 *token.TokensPage
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int, int) (*token.TokensPage, error)); ok {
-		return rf(ctx, page, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (*token.TokensPage, error)); ok {
+		return rf(ctx, cursor, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int, int) *token.TokensPage); ok {
-		r0 = rf(ctx, page, limit)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) *token.TokensPage); ok {
+		r0 = rf(ctx, cursor, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*token.TokensPage)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int, int) error); ok {
-		r1 = rf(ctx, page, limit)
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, cursor, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -59,15 +59,15 @@ type ListService_GetSupportedTokens_Call struct {
 
 // GetSupportedTokens is a helper method to define mock.On call
 //   - ctx context.Context
-//   - page int
+//   - cursor string
 //   - limit int
-func (_e *ListService_Expecter) GetSupportedTokens(ctx interface{}, page interface{}, limit interface{}) *ListService_GetSupportedTokens_Call {
-	return &ListService_GetSupportedTokens_Call{Call: _e.mock.On("GetSupportedTokens", ctx, page, limit)}
+func (_e *ListService_Expecter) GetSupportedTokens(ctx interface{}, cursor interface{}, limit interface{}) *ListService_GetSupportedTokens_Call {
+	return &ListService_GetSupportedTokens_Call{Call: _e.mock.On("GetSupportedTokens", ctx, cursor, limit)}
 }
 
-func (_c *ListService_GetSupportedTokens_Call) Run(run func(ctx context.Context, page int, limit int)) *ListService_GetSupportedTokens_Call {
+func (_c *ListService_GetSupportedTokens_Call) Run(run func(ctx context.Context, cursor string, limit int)) *ListService_GetSupportedTokens_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int), args[2].(int))
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
 	})
 	return _c
 }
@@ -77,7 +77,7 @@ func (_c *ListService_GetSupportedTokens_Call) Return(_a0 *token.TokensPage, _a1
 	return _c
 }
 
-func (_c *ListService_GetSupportedTokens_Call) RunAndReturn(run func(context.Context, int, int) (*token.TokensPage, error)) *ListService_GetSupportedTokens_Call {
+func (_c *ListService_GetSupportedTokens_Call) RunAndReturn(run func(context.Context, string, int) (*token.TokensPage, error)) *ListService_GetSupportedTokens_Call {
 	_c.Call.Return(run)
 	return _c
 }

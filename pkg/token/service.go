@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -54,28 +55,36 @@ func NewTokenService(
 	}
 }
 
-// GetSupportedTokens returns a paginated list of supported tokens sorted by address.
-func (s *Service) GetSupportedTokens(_ context.Context, page, limit int) (*TokensPage, error) {
+// GetSupportedTokens returns a cursor-paginated list of supported tokens sorted by address.
+// cursor is the address of the last item from the previous page; empty string starts from the beginning.
+func (s *Service) GetSupportedTokens(_ context.Context, cursor string, limit int) (*TokensPage, error) {
 	addrs := make([]common.Address, 0, len(s.cfg.SupportedTokens))
 	for addr := range s.cfg.SupportedTokens {
 		addrs = append(addrs, addr)
 	}
-	// sort by address
 	sort.Slice(addrs, func(i, j int) bool {
 		return addrs[i].Hex() < addrs[j].Hex()
 	})
 
-	total := len(addrs)
-	if total == 0 || page > total {
-		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
+	start := 0
+	if cursor != "" {
+		found := false
+		for i, addr := range addrs {
+			if strings.EqualFold(addr.Hex(), cursor) {
+				start = i + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, apperr.BadRequestError(nil, "invalid cursor")
+		}
 	}
-	start := (page - 1) * limit
-	if start >= total {
-		return &TokensPage{Items: []TokenItem{}, Total: total, Page: page, Limit: limit}, nil
-	}
+
 	end := start + limit
-	if end > total {
-		end = total
+	hasMore := end < len(addrs)
+	if end > len(addrs) {
+		end = len(addrs)
 	}
 
 	items := make([]TokenItem, 0, end-start)
@@ -88,7 +97,12 @@ func (s *Service) GetSupportedTokens(_ context.Context, page, limit int) (*Token
 			Decimals: tok.Decimals,
 		})
 	}
-	return &TokensPage{Items: items, Total: total, Page: page, Limit: limit}, nil
+
+	var nextCursor string
+	if hasMore && len(items) > 0 {
+		nextCursor = items[len(items)-1].Address
+	}
+	return &TokensPage{Items: items, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
 // ERC20 returns an ERC-20 view for the given contract address, or an error if
