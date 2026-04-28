@@ -38,6 +38,9 @@ const (
 
 	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
 	spliceTransferFactory = "TransferFactory"
+
+	spliceHoldingModule = "Splice.Api.Token.HoldingV1"
+	spliceHoldingEntity = "Holding"
 )
 
 // Token defines CIP-56 token operations.
@@ -51,10 +54,17 @@ type Token interface {
 	// Burn burns tokens using TokenConfig.IssuerBurn.
 	Burn(ctx context.Context, req *BurnRequest) error
 
-	// GetHoldings returns all CIP56Holding contracts for the owner and token symbol.
+	// GetHoldings returns holdings for the owner and token symbol.
+	// Delegates to GetHoldingsByParty using the Splice HoldingV1 interface.
 	GetHoldings(ctx context.Context, ownerParty string, tokenSymbol string) ([]*Holding, error)
 
-	// GetAllHoldings GetHoldings returns all CIP56Holding contracts.
+	// GetHoldingsByParty queries all Splice HoldingV1 holdings visible to the given party,
+	// optionally filtered by instrumentID (empty string returns all instruments).
+	// This is the unified query path for all Splice-compliant tokens (CIP-56 and external).
+	GetHoldingsByParty(ctx context.Context, ownerParty, instrumentID string) ([]*Holding, error)
+
+	// GetAllHoldings returns all CIP56Holding contracts queried as IssuerParty.
+	// Used by the indexer and totalSupply — does NOT use the unified HoldingV1 path.
 	GetAllHoldings(ctx context.Context) ([]*Holding, error) // TODO: use pagination
 
 	// GetBalanceByFingerprint returns the owner's total balance (sum of holdings) for the token symbol.
@@ -99,11 +109,12 @@ type Token interface {
 
 // Client implements CIP-56 token operations.
 type Client struct {
-	cfg         *Config
-	ledger      ledger.Ledger
-	identity    identity.Identity
-	keyResolver KeyResolver
-	logger      *zap.Logger
+	cfg            *Config
+	ledger         ledger.Ledger
+	identity       identity.Identity
+	keyResolver    KeyResolver
+	registryClient *RegistryClient
+	logger         *zap.Logger
 }
 
 // New creates a new token client.
@@ -121,11 +132,12 @@ func New(cfg *Config, l ledger.Ledger, id identity.Identity, opts ...Option) (*C
 
 	s := applyOptions(opts)
 	return &Client{
-		cfg:         cfg,
-		ledger:      l,
-		identity:    id,
-		keyResolver: s.keyResolver,
-		logger:      s.logger,
+		cfg:            cfg,
+		ledger:         l,
+		identity:       id,
+		keyResolver:    s.keyResolver,
+		registryClient: s.registryClient,
+		logger:         s.logger,
 	}, nil
 }
 
@@ -267,21 +279,52 @@ func (c *Client) GetHoldings(ctx context.Context, ownerParty string, tokenSymbol
 	if tokenSymbol == "" {
 		return nil, fmt.Errorf("token symbol is required")
 	}
+	return c.GetHoldingsByParty(ctx, ownerParty, tokenSymbol)
+}
 
-	allHoldings, err := c.GetAllHoldings(ctx)
+// GetHoldingsByParty queries all Splice HoldingV1 holdings visible to the given party.
+// This is the unified query path for all Splice-compliant tokens (CIP-56 and external like USDCx).
+// If instrumentID is non-empty, results are filtered to that instrument.
+// TODO: add unit tests with mocked ledger client (happy path, filtering, errors).
+func (c *Client) GetHoldingsByParty(ctx context.Context, ownerParty, instrumentID string) ([]*Holding, error) {
+	if ownerParty == "" {
+		return nil, fmt.Errorf("owner party is required")
+	}
+
+	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	validHoldings := make([]*Holding, 0)
-	for _, h := range allHoldings {
-		if h.Owner != ownerParty || h.Symbol != tokenSymbol {
-			continue
-		}
-		validHoldings = append(validHoldings, h)
+	if end == 0 {
+		return []*Holding{}, nil
 	}
 
-	return validHoldings, nil
+	iid := &lapiv2.Identifier{
+		PackageId:  c.cfg.SpliceHoldingPackageID,
+		ModuleName: spliceHoldingModule,
+		EntityName: spliceHoldingEntity,
+	}
+
+	// GetActiveContractsByInterface returns CreatedEvents with create_arguments populated
+	// (Required field per Canton Ledger API v2 proto), so decodeHolding works identically
+	// for both template-based and interface-based queries.
+	events, err := c.ledger.GetActiveContractsByInterface(ctx, end, []string{ownerParty}, iid)
+	if err != nil {
+		return nil, fmt.Errorf("query holdings by party: %w", err)
+	}
+
+	out := make([]*Holding, 0, len(events))
+	for _, ce := range events {
+		h := decodeHolding(ce)
+		if h.Owner != ownerParty {
+			continue
+		}
+		if instrumentID != "" && h.InstrumentID != instrumentID {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 func (c *Client) GetAllHoldings(ctx context.Context) ([]*Holding, error) {
@@ -469,12 +512,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 		return fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
-	factoryCID, err := c.getTransferFactoryCID(ctx)
-	if err != nil {
-		return err
-	}
-
-	return c.transferViaFactory(ctx, &transferFactoryRequest{
+	req := &transferFactoryRequest{
 		CommandID:        idempotencyKey,
 		FromPartyID:      fromParty,
 		ToPartyID:        toParty,
@@ -482,19 +520,27 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
-		FactoryCID:       factoryCID,
-	})
+	}
+
+	if err := c.resolveTransferFactory(ctx, req); err != nil {
+		return err
+	}
+
+	return c.transferViaFactory(ctx, req)
 }
 
 type transferFactoryRequest struct {
-	CommandID        string
-	FromPartyID      string
-	ToPartyID        string
-	Amount           string
-	InstrumentAdmin  string
-	InstrumentID     string
-	InputHoldingCIDs []string
-	FactoryCID       string
+	CommandID          string
+	FromPartyID        string
+	ToPartyID          string
+	Amount             string
+	InstrumentAdmin    string
+	InstrumentID       string
+	InputHoldingCIDs   []string
+	FactoryCID         string
+	ChoiceContext      map[string]string
+	DisclosedContracts []*lapiv2.DisclosedContract
+	IsExternal         bool
 }
 
 func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
@@ -509,13 +555,19 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 
 	cmd := c.buildTransferCommand(req)
 
+	readAs := []string{c.cfg.IssuerParty}
+	if req.IsExternal {
+		readAs = nil
+	}
+
 	commands := &lapiv2.Commands{
-		SynchronizerId: c.cfg.DomainID,
-		CommandId:      req.CommandID,
-		UserId:         c.cfg.UserID,
-		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.IssuerParty},
-		Commands:       []*lapiv2.Command{cmd},
+		SynchronizerId:     c.cfg.DomainID,
+		CommandId:          req.CommandID,
+		UserId:             c.cfg.UserID,
+		ActAs:              []string{req.FromPartyID},
+		ReadAs:             readAs,
+		Commands:           []*lapiv2.Command{cmd},
+		DisclosedContracts: req.DisclosedContracts,
 	}
 
 	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, req.FromPartyID)
@@ -548,6 +600,7 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Comma
 							now,
 							now.Add(defaultTransferValidity),
 							req.InputHoldingCIDs,
+							req.ChoiceContext,
 						),
 					},
 				},
@@ -562,6 +615,58 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return info.ContractID, nil
+}
+
+// resolveTransferFactory fills in factory info on the request by routing based on InstrumentAdmin.
+// For our tokens (InstrumentAdmin == IssuerParty): uses local ACS query.
+// For external tokens: calls the Transfer Factory Registry API.
+func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactoryRequest) error {
+	if req.InstrumentAdmin == c.cfg.IssuerParty {
+		cid, err := c.getTransferFactoryCID(ctx)
+		if err != nil {
+			return err
+		}
+		req.FactoryCID = cid
+		return nil
+	}
+
+	// External token — use registry
+	if c.registryClient == nil {
+		return fmt.Errorf("no registry client configured for external token transfers")
+	}
+	extCfg, ok := c.cfg.ExternalTokens[req.InstrumentAdmin]
+	if !ok {
+		return fmt.Errorf("unsupported external token issuer: %s", req.InstrumentAdmin)
+	}
+
+	regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, &RegistryRequest{
+		ExpectedAdmin: req.InstrumentAdmin,
+		Transfer: RegistryTransferDetail{
+			Sender:           req.FromPartyID,
+			Receiver:         req.ToPartyID,
+			Amount:           req.Amount,
+			InstrumentID:     req.InstrumentID,
+			InputHoldingCIDs: req.InputHoldingCIDs,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("registry lookup for %s: %w", req.InstrumentAdmin, err)
+	}
+
+	req.FactoryCID = regResp.FactoryID
+	req.IsExternal = true
+
+	req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
+	if err != nil {
+		return fmt.Errorf("convert choice context: %w", err)
+	}
+
+	req.DisclosedContracts, err = ConvertDisclosedContracts(regResp.DisclosedContracts, c.cfg.DomainID)
+	if err != nil {
+		return fmt.Errorf("convert disclosed contracts: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {
@@ -649,12 +754,13 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 	authCtx := c.ledger.AuthContext(ctx)
 
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
-		UserId:         commands.UserId,
-		CommandId:      commands.CommandId,
-		Commands:       commands.Commands,
-		ActAs:          commands.ActAs,
-		ReadAs:         commands.ReadAs,
-		SynchronizerId: commands.SynchronizerId,
+		UserId:             commands.UserId,
+		CommandId:          commands.CommandId,
+		Commands:           commands.Commands,
+		ActAs:              commands.ActAs,
+		ReadAs:             commands.ReadAs,
+		SynchronizerId:     commands.SynchronizerId,
+		DisclosedContracts: commands.DisclosedContracts,
 	})
 	if err != nil {
 		return fmt.Errorf("prepare submission: %w", err)
@@ -760,11 +866,6 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		return nil, fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
-	factoryCID, err := c.getTransferFactoryCID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	factoryReq := &transferFactoryRequest{
 		FromPartyID:      req.FromPartyID,
 		ToPartyID:        req.ToPartyID,
@@ -772,27 +873,38 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
-		FactoryCID:       factoryCID,
 	}
+
+	if resolveErr := c.resolveTransferFactory(ctx, factoryReq); resolveErr != nil {
+		return nil, resolveErr
+	}
+
 	cmd := c.buildTransferCommand(factoryReq)
 
+	readAs := []string{c.cfg.IssuerParty}
+	if factoryReq.IsExternal {
+		readAs = nil
+	}
+
 	commands := &lapiv2.Commands{
-		SynchronizerId: c.cfg.DomainID,
-		CommandId:      uuid.NewString(),
-		UserId:         c.cfg.UserID,
-		ActAs:          []string{req.FromPartyID},
-		ReadAs:         []string{c.cfg.IssuerParty},
-		Commands:       []*lapiv2.Command{cmd},
+		SynchronizerId:     c.cfg.DomainID,
+		CommandId:          uuid.NewString(),
+		UserId:             c.cfg.UserID,
+		ActAs:              []string{req.FromPartyID},
+		ReadAs:             readAs,
+		Commands:           []*lapiv2.Command{cmd},
+		DisclosedContracts: factoryReq.DisclosedContracts,
 	}
 
 	authCtx := c.ledger.AuthContext(ctx)
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
-		UserId:         commands.UserId,
-		CommandId:      commands.CommandId,
-		Commands:       commands.Commands,
-		ActAs:          commands.ActAs,
-		ReadAs:         commands.ReadAs,
-		SynchronizerId: commands.SynchronizerId,
+		UserId:             commands.UserId,
+		CommandId:          commands.CommandId,
+		Commands:           commands.Commands,
+		ActAs:              commands.ActAs,
+		ReadAs:             commands.ReadAs,
+		SynchronizerId:     commands.SynchronizerId,
+		DisclosedContracts: commands.DisclosedContracts,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("prepare submission: %w", err)

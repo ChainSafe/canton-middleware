@@ -56,10 +56,6 @@ func (s *Server) Run() error {
 	}
 	cfg := s.cfg
 
-	if cfg.Indexer.Party == "" {
-		return fmt.Errorf("indexer.party is required")
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -93,10 +89,15 @@ func (s *Server) Run() error {
 	logger.Info("Canton ledger connection established", zap.String("rpc_url", cfg.CantonLedger.RPCURL))
 
 	// ── Streaming client ──────────────────────────────────────────────────────
-	// One streaming.Client per indexer party. It wraps GetUpdates with automatic
-	// reconnection and OAuth2 token refresh (mirrors bridge/client.go pattern).
+	// One streaming.Client for the indexer in wildcard mode (FiltersForAnyParty).
+	// Wraps GetUpdates with automatic reconnection and OAuth2 token refresh
+	// (mirrors bridge/client.go pattern). Requires the Canton auth token to
+	// carry CanReadAsAnyParty rights.
 
-	streamClient := streaming.New(ledgerClient, cfg.Indexer.Party, streaming.WithLogger(logger))
+	streamClient, err := streaming.New(ledgerClient, streaming.WithLogger(logger))
+	if err != nil {
+		return fmt.Errorf("create streaming client: %w", err)
+	}
 
 	// ── Template identifier ───────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ func (s *Server) Run() error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		logger.Info("Indexer processor starting", zap.String("party", cfg.Indexer.Party))
+		logger.Info("Indexer processor starting")
 		return processor.Run(gctx)
 	})
 

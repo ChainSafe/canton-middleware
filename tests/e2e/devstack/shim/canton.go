@@ -19,6 +19,7 @@ import (
 const (
 	cip56PackageID          = "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
 	spliceTransferPackageID = "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+	spliceHoldingPackageID  = "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
 	identityPackageID       = "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
 	bridgePackageID         = "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
 	bridgeCorePackageID     = "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
@@ -96,6 +97,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		UserID:                  cantonUserID,
 		CIP56PackageID:          cip56PackageID,
 		SpliceTransferPackageID: spliceTransferPackageID,
+		SpliceHoldingPackageID:  spliceHoldingPackageID,
 	}
 	demoTk, err := token.New(tokenCfg, l, demoID)
 	if err != nil {
@@ -127,6 +129,7 @@ func NewCanton(manifest *stack.ServiceManifest) (*CantonShim, error) {
 		UserID:                  cantonUserID,
 		CIP56PackageID:          cip56PackageID,
 		SpliceTransferPackageID: spliceTransferPackageID,
+		SpliceHoldingPackageID:  spliceHoldingPackageID,
 	}
 	promptTk, err := token.New(promptTokenCfg, l, bridgeID)
 	if err != nil {
