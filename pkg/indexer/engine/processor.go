@@ -182,12 +182,12 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 				continue
 			}
 
-			if err := tx.UpsertToken(ctx, tokenFromEvent(e)); err != nil {
+			if err = tx.UpsertToken(ctx, tokenFromEvent(e)); err != nil {
 				return fmt.Errorf("upsert token: %w", err)
 			}
 
 			if admin, id, delta, ok := supplyDeltaFromEvent(e); ok {
-				if err := tx.ApplySupplyDelta(ctx, admin, id, delta); err != nil {
+				if err = tx.ApplySupplyDelta(ctx, admin, id, delta); err != nil {
 					return fmt.Errorf("apply supply delta: %w", err)
 				}
 			}
