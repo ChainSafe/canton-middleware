@@ -37,9 +37,6 @@ canton_ledger:
     expiry_leeway: "60s"
 
 indexer:
-  # party must have read visibility into TokenTransferEvent contracts.
-  # The issuer party is used here as it has full visibility into all token events.
-  party: "${CANTON_ISSUER_PARTY}"
   cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
   filter_mode: "all"
 
