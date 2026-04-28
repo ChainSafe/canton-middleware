@@ -70,9 +70,17 @@ type Token interface {
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
 	TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string) error
 
-	// TransferByPartyID transfers tokens by party IDs.
+	// TransferByPartyID transfers tokens by party IDs using Interactive Submission.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
+	// Requires a KeyResolver configured via WithKeyResolver (external/secp256k1 parties only).
 	TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error
+
+	// TransferInternalByPartyID transfers tokens for an internal Canton party using
+	// regular command submission (SubmitAndWaitForTransaction). Unlike TransferByPartyID,
+	// no KeyResolver is required — the Canton node holds the signing key. Use this for
+	// issuer or bridge parties that are not registered with an external secp256k1 key.
+	// idempotencyKey is used as the Canton CommandId for idempotent submission.
+	TransferInternalByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error
 
 	// GetTokenTransferEvents returns all active CIP56.Events.TokenTransferEvent contracts visible to relayerParty.
 	GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error)
@@ -368,6 +376,60 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 	}
 
 	return total, nil
+}
+
+func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
+	if idempotencyKey == "" {
+		return fmt.Errorf("idempotencyKey is required")
+	}
+	if fromParty == "" || toParty == "" {
+		return fmt.Errorf("from/to party is required")
+	}
+	if amount == "" {
+		return fmt.Errorf("amount is required")
+	}
+	if tokenSymbol == "" {
+		return fmt.Errorf("token symbol is required")
+	}
+
+	holdings, err := c.GetHoldings(ctx, fromParty, tokenSymbol)
+	if err != nil {
+		return err
+	}
+	selected, err := selectHoldingsForTransfer(holdings, amount)
+	if err != nil {
+		return fmt.Errorf("select holdings for transfer: %w", err)
+	}
+
+	factoryCID, err := c.getTransferFactoryCID(ctx)
+	if err != nil {
+		return err
+	}
+
+	req := &transferFactoryRequest{
+		CommandID:        idempotencyKey,
+		FromPartyID:      fromParty,
+		ToPartyID:        toParty,
+		Amount:           amount,
+		InstrumentAdmin:  selected.InstrumentAdmin,
+		InstrumentID:     selected.InstrumentID,
+		InputHoldingCIDs: selected.CIDs,
+		FactoryCID:       factoryCID,
+	}
+
+	cmd := c.buildTransferCommand(req)
+	authCtx := c.ledger.AuthContext(ctx)
+	_, err = c.ledger.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.cfg.DomainID,
+			CommandId:      idempotencyKey,
+			UserId:         c.cfg.UserID,
+			ActAs:          []string{fromParty},
+			ReadAs:         []string{c.cfg.IssuerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
+	})
+	return err
 }
 
 func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
