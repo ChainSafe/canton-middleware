@@ -30,6 +30,7 @@ func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
 
 	r.Post("/register", apphttp.HandleError(h.register))
 	r.Post("/register/prepare-topology", apphttp.HandleError(h.prepareTopology))
+	r.Get("/profile", apphttp.HandleError(h.getUser))
 }
 
 // register handles HTTP requests
@@ -107,6 +108,32 @@ func (h *HTTP) prepareTopology(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	resp, err := h.service.PrepareExternalRegistration(r.Context(), &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+	return nil
+}
+
+// getUser handles GET /user?address=0x... and returns the registered user profile.
+// The caller must provide an EIP-191 signature over the message via X-Signature and
+// X-Message headers. Credentials are kept out of query params to avoid leaking them
+// into server access logs, CDN logs, and browser history.
+// Returns 404 if the address is not registered.
+func (h *HTTP) getUser(w http.ResponseWriter, r *http.Request) error {
+	address := r.URL.Query().Get("address")
+	if address == "" {
+		return apperrors.BadRequestError(nil, "address query parameter required")
+	}
+
+	signature := r.Header.Get("X-Signature")
+	message := r.Header.Get("X-Message")
+	if signature == "" || message == "" {
+		return apperrors.UnAuthorizedError(nil, "X-Signature and X-Message headers required")
+	}
+
+	resp, err := h.service.GetUser(r.Context(), address, message, signature)
 	if err != nil {
 		return err
 	}
