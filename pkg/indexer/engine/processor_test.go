@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -223,6 +224,38 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	}).Return(nil)
 	// Transfer: no ApplySupplyDelta.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
+	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+}
+
+// TestProcessor_Run_Transfer_CrossParticipantSender verifies that when the sender's
+// ApplyBalanceDelta returns ErrNegativeBalance (their mint history lives on another
+// participant and was never delivered to this one), the processor skips the sender
+// deduction, still applies the receiver credit, and commits the offset.
+func TestProcessor_Run_Transfer_CrossParticipantSender(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	ev := transferEvent()
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeBatch(3, ev)))
+
+	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(true, nil)
+	store.EXPECT().UpsertToken(mock.Anything, &indexer.Token{
+		InstrumentAdmin: testInstrumentAdmin,
+		InstrumentID:    testInstrumentID,
+		Issuer:          testIssuer,
+		FirstSeenOffset: 3,
+		FirstSeenAt:     time.Unix(1_700_000_000, 0),
+	}).Return(nil)
+	// Sender delta returns ErrNegativeBalance — simulates a P2-only party with no local mint history.
+	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).
+		Return(fmt.Errorf("%w for party %s: current=0 delta=-%s", engine.ErrNegativeBalance, testSender, testAmount))
+	// Receiver credit must still be applied despite the sender error being skipped.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 

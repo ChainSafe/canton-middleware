@@ -88,8 +88,12 @@ import (
 var (
 	p1Addr = flag.String("p1", "localhost:5011",
 		"Participant1 gRPC address — holders live here")
+	p1Audience = flag.String("p1-audience", "http://canton:5011",
+		"JWT audience for participant1")
 	p2Addr = flag.String("p2", "localhost:5021",
 		"Participant2 gRPC address — USDCxIssuer lives here")
+	p2Audience = flag.String("p2-audience", "http://canton:5021",
+		"JWT audience for participant2")
 	indexerURL = flag.String("indexer-url", "http://localhost:8082",
 		"Indexer HTTP base URL")
 	mint1Amount = flag.String("mint1", "100.0",
@@ -102,9 +106,12 @@ var (
 		"OAuth2 token endpoint")
 	clientID     = flag.String("client-id", "local-test-client", "OAuth2 client ID")
 	clientSecret = flag.String("client-secret", "local-test-secret", "OAuth2 client secret")
-	cip56PkgID   = flag.String("cip56-package-id",
+	cip56PkgID = flag.String("cip56-package-id",
 		"c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2",
 		"CIP56 DAML package ID")
+	spliceTransferPkgID = flag.String("splice-transfer-package-id",
+		"55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281",
+		"Splice.Api.Token.TransferInstructionV1 package ID")
 	darDir = flag.String("dar-dir", "contracts/canton-erc20/daml",
 		"Root directory containing .dar files to upload to P2 before bootstrapping")
 )
@@ -155,14 +162,14 @@ func main() {
 	// ── connect ───────────────────────────────────────────────────────────────
 
 	fmt.Printf("\n>>> Connecting to participant1 (%s)\n", *p1Addr)
-	p1, err := newLedgerClient(*p1Addr, "http://canton:5011")
+	p1, err := newLedgerClient(*p1Addr, *p1Audience)
 	if err != nil {
 		log.Fatalf("connect p1: %v", err)
 	}
 	defer p1.Close()
 
 	fmt.Printf(">>> Connecting to participant2 (%s)\n", *p2Addr)
-	p2, err := newLedgerClient(*p2Addr, "http://canton:5021")
+	p2, err := newLedgerClient(*p2Addr, *p2Audience)
 	if err != nil {
 		log.Fatalf("connect p2: %v", err)
 	}
@@ -268,6 +275,37 @@ func main() {
 	}
 	printEvents("Holder2", events2)
 
+	// ── Phase 6: cross-participant transfer P2 → P1 ──────────────────────────
+
+	fmt.Printf("\n%s\n", sep)
+	fmt.Println("  Phase 6: Cross-Participant Transfer  P2 (issuer) → P1 (Holder1)")
+	fmt.Println("  (sends a TRANSFER event the indexer should catch)")
+	fmt.Println(sep)
+
+	fmt.Println("    Minting 20 USDCx → USDCxIssuer (self-mint to create a P2 holding)...")
+	issuerHoldingCID, err := mintUSDCx(ctx, p2, issuer, tokenConfigCID, issuer, "20.0", syncID)
+	if err != nil {
+		log.Fatalf("mint to issuer: %v", err)
+	}
+	fmt.Printf("    IssuerHolding (P2): %s\n", issuerHoldingCID)
+
+	factoryCID, err := findContractID(ctx, p2, issuer, "CIP56.TransferFactory", "CIP56TransferFactory")
+	if err != nil {
+		log.Fatalf("find CIP56TransferFactory on P2: %v", err)
+	}
+	fmt.Printf("    TransferFactory:    %s\n", factoryCID)
+
+	fmt.Printf("    Transferring 10 USDCx: USDCxIssuer (P2) → Holder1 (P1)...\n")
+	if err := transferUSDCx(ctx, p2, issuer, factoryCID, issuerHoldingCID, holder1.PartyID, "10.0", syncID); err != nil {
+		log.Fatalf("transfer USDCx P2→P1: %v", err)
+	}
+	fmt.Println("    Transfer submitted")
+	fmt.Println()
+	fmt.Println("    To verify the TRANSFER event in the indexer:")
+	fmt.Printf("    curl %s/indexer/v1/admin/parties/%s/events | jq .\n", *indexerURL, holder1.PartyID)
+	fmt.Println()
+	fmt.Println("    Look for an event with event_type=TRANSFER, amount=10, instrument_id=USDCx.")
+
 	// ── Summary ───────────────────────────────────────────────────────────────
 
 	fmt.Printf("\n%s\n", sep)
@@ -278,7 +316,7 @@ func main() {
 	fmt.Printf("  Holder1 (P1):       %s\n", holder1.PartyID)
 	fmt.Printf("  Holder2 (P1):       %s\n", holder2.PartyID)
 	fmt.Println()
-	fmt.Printf("  Holder1 indexed balance: %s USDCx\n", bal1.Amount)
+	fmt.Printf("  Holder1 indexed balance: %s USDCx (minted) + 10 USDCx (transferred)\n", bal1.Amount)
 	fmt.Printf("  Holder2 indexed balance: %s USDCx\n", bal2.Amount)
 	fmt.Println()
 	fmt.Println("  The indexer correctly received TokenTransferEvents for a token")
@@ -445,6 +483,77 @@ func printEvents(label string, events []*indexerEvent) {
 	if len(events) == 0 {
 		fmt.Printf("      (no events yet)\n")
 	}
+}
+
+// ─── transfer helpers ─────────────────────────────────────────────────────────
+
+// findContractID returns the contract ID of the first active contract matching
+// the given CIP56 module/entity visible to party.
+func findContractID(ctx context.Context, c *ledger.Client, party, module, entity string) (string, error) {
+	authCtx := c.AuthContext(ctx)
+	offset, err := c.GetLedgerEnd(authCtx)
+	if err != nil {
+		return "", err
+	}
+	events, err := c.GetActiveContractsByTemplate(authCtx, offset, []string{party},
+		cip56Identifier(module, entity))
+	if err != nil {
+		return "", err
+	}
+	if len(events) == 0 {
+		return "", fmt.Errorf("%s::%s not found for party %s", module, entity, shortID(party))
+	}
+	return events[0].ContractId, nil
+}
+
+// transferUSDCx exercises TransferFactory_Transfer on P2, moving USDCx from
+// the issuer (an internal P2 party) to a recipient on P1. No Interactive
+// Submission is needed because the issuer is not an external secp256k1 party.
+func transferUSDCx(ctx context.Context, c *ledger.Client, issuer, factoryCID, inputHoldingCID, recipient, amount, syncID string) error {
+	authCtx := c.AuthContext(ctx)
+	sub, _ := c.JWTSubject(authCtx)
+	if sub == "" {
+		sub = "test-user"
+	}
+	now := time.Now().UTC()
+	_, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: syncID,
+			CommandId:      fmt.Sprintf("usdcx-xfer-%d", time.Now().UnixNano()),
+			UserId:         sub,
+			ActAs:          []string{issuer},
+			Commands: []*lapiv2.Command{{
+				Command: &lapiv2.Command_Exercise{Exercise: &lapiv2.ExerciseCommand{
+					TemplateId: &lapiv2.Identifier{
+						PackageId:  *spliceTransferPkgID,
+						ModuleName: "Splice.Api.Token.TransferInstructionV1",
+						EntityName: "TransferFactory",
+					},
+					ContractId: factoryCID,
+					Choice:     "TransferFactory_Transfer",
+					ChoiceArgument: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
+						Fields: []*lapiv2.RecordField{
+							{Label: "expectedAdmin", Value: values.PartyValue(issuer)},
+							{Label: "transfer", Value: &lapiv2.Value{Sum: &lapiv2.Value_Record{Record: &lapiv2.Record{
+								Fields: []*lapiv2.RecordField{
+									{Label: "sender", Value: values.PartyValue(issuer)},
+									{Label: "receiver", Value: values.PartyValue(recipient)},
+									{Label: "amount", Value: values.NumericValue(amount)},
+									{Label: "instrumentId", Value: values.EncodeInstrumentId(issuer, "USDCx")},
+									{Label: "requestedAt", Value: values.TimestampValue(now)},
+									{Label: "executeBefore", Value: values.TimestampValue(now.Add(time.Hour))},
+									{Label: "inputHoldingCids", Value: values.ListValue([]*lapiv2.Value{values.ContractIDValue(inputHoldingCID)})},
+									{Label: "meta", Value: values.EmptyMetadata()},
+								},
+							}}}},
+							{Label: "extraArgs", Value: values.EncodeExtraArgs(nil)},
+						},
+					}}},
+				}},
+			}},
+		},
+	})
+	return err
 }
 
 // ─── Canton helpers ───────────────────────────────────────────────────────────

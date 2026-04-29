@@ -86,13 +86,21 @@ services:
       - "--bootstrap=/canton/deploy-dars.canton"
     volumes:
       - ./contracts/canton-erc20:/canton/contracts
+      - ./deployments/usdcx-dars:/canton/usdcx-dars
       - ./deployments/canton-config/simple-topology.conf:/canton/simple-topology.conf
       - ./deployments/canton-config/deploy-dars.canton:/canton/deploy-dars.canton
     healthcheck:
-      test: "grpcurl --plaintext localhost:5011 com.digitalasset.canton.health.admin.v0.StatusService.Status | jq -e '.success | select(.active)'"
+      test:
+        - CMD-SHELL
+        - >-
+          grpcurl --plaintext localhost:5011
+          com.digitalasset.canton.health.admin.v0.StatusService.Status
+          | jq -e '.success | select(.active)'
+          && curl -sf http://localhost:5023/v2/packages
+          | jq -e '(.packageIds | length) >= 30'
       interval: 10s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 30
       start_period: 60s
     depends_on:
       postgres:

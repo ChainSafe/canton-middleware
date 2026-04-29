@@ -18,7 +18,9 @@ val darDirs = Seq(
   "/canton/contracts/daml/common/.daml/dist",
   "/canton/contracts/daml/cip56-token/.daml/dist",
   "/canton/contracts/daml/bridge-core/.daml/dist",
-  "/canton/contracts/daml/bridge-wayfinder/.daml/dist"
+  "/canton/contracts/daml/bridge-wayfinder/.daml/dist",
+  "/canton/usdcx-dars",
+  "/canton/usdcx-dars/utility"
 )
 
 val dars = darDirs.flatMap { dir =>
@@ -73,3 +75,16 @@ utils.retry_until_true {
 }
 
 participant2.health.ping(participant1)
+
+if (!dars.isEmpty) {
+  println(s"Uploading ${dars.size} DAR files to participant2...")
+  dars.foreach { darPath =>
+    println(s"Uploading $darPath to participant2...")
+    try {
+      participant2.dars.upload(darPath)
+      println(s"Successfully uploaded $darPath to participant2")
+    } catch {
+      case e: Exception => println(s"Failed to upload $darPath to participant2: ${e.getMessage}")
+    }
+  }
+}

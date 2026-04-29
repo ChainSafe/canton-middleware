@@ -60,6 +60,7 @@ token_provider:
     instruments:
       PROMPT: "${CANTON_ISSUER_PARTY}"
       DEMO:   "${CANTON_ISSUER_PARTY}"
+      USDCx:  "${CANTON_USDCX_ISSUER_PARTY}"
 
 # Token metadata
 token:
