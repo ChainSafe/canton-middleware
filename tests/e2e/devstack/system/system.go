@@ -37,6 +37,7 @@ var defaultAccounts = &Accounts{
 type Tokens struct {
 	DEMO   stack.Token
 	PROMPT stack.Token
+	USDCx  stack.Token
 }
 
 // NewTokens builds the well-known token descriptors from a resolved manifest.
@@ -49,6 +50,10 @@ func NewTokens(manifest *stack.ServiceManifest) *Tokens {
 		PROMPT: stack.Token{
 			ERC20Token: token.ERC20Token{Symbol: "PROMPT", Decimals: 18, InstrumentID: "PROMPT"},
 			Address:    common.HexToAddress(manifest.PromptTokenAddr),
+		},
+		USDCx: stack.Token{
+			ERC20Token: token.ERC20Token{Symbol: "USDCx", Decimals: 6, InstrumentID: manifest.USDCxInstrumentID},
+			Address:    common.HexToAddress(stack.USDCxTokenVirtualAddr),
 		},
 	}
 }
@@ -277,6 +282,71 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 	}
 	// Relayer is not part of the API stack; nil is passed deliberately. DSL
 	// methods that require it call t.Fatal with a clear message.
+	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
+	return sys, nil
+}
+
+// ---------------------------------------------------------------------------
+// MultiParticipantSystem — API stack with a second Canton participant
+// ---------------------------------------------------------------------------
+
+// MultiParticipantSystem extends APISystem with a Canton2 shim that connects
+// to Participant 2. Use this for tests that require both participants — for
+// example, cross-participant token transfers where the issuer lives on P2 and
+// the holder lives on P1.
+type MultiParticipantSystem struct {
+	Manifest  *stack.ServiceManifest
+	Anvil     stack.Anvil
+	Canton    stack.Canton // P1 — middleware participant
+	Canton2   stack.Canton // P2 — USDCx issuer participant
+	APIServer stack.APIServer
+	Postgres  stack.APIDatabase
+	Indexer   stack.Indexer
+	DSL       *dsl.DSL
+	Accounts  *Accounts
+	Tokens    *Tokens
+
+	closeFunc func() error
+}
+
+// Close releases all resources held by the MultiParticipantSystem.
+func (s *MultiParticipantSystem) Close() error {
+	if s.closeFunc != nil {
+		return s.closeFunc()
+	}
+	return nil
+}
+
+// NewMultiParticipantSystem constructs a MultiParticipantSystem from a resolved
+// manifest. It initializes the full API stack (P1) and adds a Canton2 shim for
+// Participant 2. Returns an error if any shim fails to connect.
+func NewMultiParticipantSystem(ctx context.Context, manifest *stack.ServiceManifest) (*MultiParticipantSystem, error) {
+	core, err := initCoreShims(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	canton2Shim, err := shim.NewCanton2(manifest)
+	if err != nil {
+		_ = core.close()
+		return nil, fmt.Errorf("canton2 shim: %w", err)
+	}
+
+	sys := &MultiParticipantSystem{
+		Manifest:  manifest,
+		Anvil:     core.anvil,
+		Canton:    core.canton,
+		Canton2:   canton2Shim,
+		APIServer: core.apiServer,
+		Postgres:  core.postgres,
+		Indexer:   shim.NewIndexer(manifest),
+		Accounts:  defaultAccounts,
+		Tokens:    NewTokens(manifest),
+		closeFunc: func() error {
+			canton2Shim.Close()
+			return core.close()
+		},
+	}
 	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
 }

@@ -99,6 +99,15 @@ type Canton interface {
 	// creates a WithdrawalEvent that the relayer streams to release tokens on EVM.
 	// Returns the WithdrawalEvent contract ID.
 	ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error)
+
+	// TransferToken finds a CIP56TransferFactory and a suitable CIP56Holding
+	// for senderParty, then exercises TransferFactory_Transfer to move amount
+	// of tokenSymbol to recipientParty. This is a Canton-native operation —
+	// no EVM bridge involvement.
+	//
+	// Implementations that do not support direct token transfer (e.g. the P1
+	// shim when no CIP56TransferFactory exists for the token) return an error.
+	TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error
 }
 
 // APIServer is the interface for the canton-middleware api-server.

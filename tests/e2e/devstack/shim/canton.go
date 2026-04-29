@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/bridge"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
@@ -273,4 +275,11 @@ func (c *CantonShim) InitiateWithdrawal(ctx context.Context, mappingCID, holding
 // WithdrawalEvent for the relayer to process. Returns the WithdrawalEvent CID.
 func (c *CantonShim) ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error) {
 	return c.bridgeClient.ProcessWithdrawal(ctx, withdrawalRequestCID)
+}
+
+// TransferToken finds a CIP56TransferFactory and a suitable CIP56Holding for
+// senderParty, then exercises TransferFactory_Transfer to move amount of
+// tokenSymbol to recipientParty on the P1 ledger.
+func (c *CantonShim) TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error {
+	return c.tokenClientFor(tokenSymbol).TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
 }

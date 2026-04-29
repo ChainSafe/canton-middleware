@@ -20,15 +20,17 @@ import (
 )
 
 const (
-	anvilPort      = 8545
-	cantonGRPCPort = 5011
-	cantonHTTPPort = 5013
-	apiServerPort  = 8081
-	relayerPort    = 8080
-	indexerPort    = 8082
-	mockOAuth2Port = 8088
-	postgresPort   = 5432
-	maxErrorBody   = 4096
+	anvilPort       = 8545
+	cantonGRPCPort  = 5011
+	cantonHTTPPort  = 5013
+	canton2HTTPPort = 5023
+	canton2GRPCPort = 5021
+	apiServerPort   = 8081
+	relayerPort     = 8080
+	indexerPort     = 8082
+	mockOAuth2Port  = 8088
+	postgresPort    = 5432
+	maxErrorBody    = 4096
 )
 
 // ServiceDiscovery resolves running container ports and reads the bootstrap
@@ -55,6 +57,8 @@ type deployManifest struct {
 	PromptInstrumentID    string `json:"prompt_instrument_id"`
 	DemoInstrumentAdmin   string `json:"demo_instrument_admin"`
 	DemoInstrumentID      string `json:"demo_instrument_id"`
+	USDCxInstrumentAdmin  string `json:"usdcx_instrument_admin"`
+	USDCxInstrumentID     string `json:"usdcx_instrument_id"`
 }
 
 // Manifest resolves all service endpoints and contract addresses from the
@@ -72,7 +76,9 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	var (
 		anvilRPC     string
 		cantonGRPC   string
+		canton2GRPC  string
 		cantonHTTP   string
+		canton2HTTP  string
 		apiHTTP      string
 		relayerHTTP  string
 		indexerHTTP  string
@@ -84,6 +90,8 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	g1, gctx := errgroup.WithContext(ctx)
 	g1.Go(func() (err error) { anvilRPC, err = d.httpEndpoint(gctx, "anvil", anvilPort); return })
 	g1.Go(func() (err error) { cantonGRPC, err = d.tcpEndpoint(gctx, "canton", cantonGRPCPort); return })
+	g1.Go(func() (err error) { canton2GRPC, err = d.tcpEndpoint(gctx, "canton", canton2GRPCPort); return })
+	g1.Go(func() (err error) { canton2HTTP, err = d.httpEndpoint(gctx, "canton", canton2HTTPPort); return })
 	g1.Go(func() (err error) { cantonHTTP, err = d.httpEndpoint(gctx, "canton", cantonHTTPPort); return })
 	g1.Go(func() (err error) { apiHTTP, err = d.httpEndpoint(gctx, "api-server", apiServerPort); return })
 	g1.Go(func() (err error) { relayerHTTP, err = d.httpEndpoint(gctx, "relayer", relayerPort); return })
@@ -108,6 +116,8 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	return &stack.ServiceManifest{
 		AnvilRPC:              anvilRPC,
 		CantonGRPC:            cantonGRPC,
+		Canton2GRPC:           canton2GRPC,
+		Canton2HTTP:           canton2HTTP,
 		CantonHTTP:            cantonHTTP,
 		APIHTTP:               apiHTTP,
 		RelayerHTTP:           relayerHTTP,
@@ -120,6 +130,8 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		PromptInstrumentID:    dm.PromptInstrumentID,
 		DemoInstrumentAdmin:   dm.DemoInstrumentAdmin,
 		DemoInstrumentID:      dm.DemoInstrumentID,
+		USDCxInstrumentAdmin:  dm.USDCxInstrumentAdmin,
+		USDCxInstrumentID:     dm.USDCxInstrumentID,
 		CantonDomainID:        cantonDomainID,
 		DemoTokenAddr:         stack.DemoTokenVirtualAddr,
 	}, nil
