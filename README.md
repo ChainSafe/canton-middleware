@@ -327,6 +327,7 @@ Key Canton-specific fields (auto-detected by bootstrap):
 
 | Document | Description |
 |----------|-------------|
+| [dApp & Snap Testing](docs/DAPP_SNAP_TESTING.md) | Testing with the Wayfinder dApp and MetaMask Snap |
 | [Local Interop Testing](docs/LOCAL_INTEROP_TESTING.md) | Full local bootstrap and 8-step interop test guide |
 | [API Documentation](docs/API_DOCUMENTATION.md) | Endpoint reference (JSON-RPC, Registration, Splice Registry) |
 | [Architecture](docs/ARCHITECTURE.md) | System design and data flows |
