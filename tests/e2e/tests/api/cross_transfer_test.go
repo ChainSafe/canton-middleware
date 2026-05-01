@@ -123,6 +123,8 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 
 	// Verify User2 received the tokens.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User2.Address, "10")
+	// Verify User1's balance was deducted (15 - 10 = 5).
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
 }
 
 // TODO: add test for P1 external party → P2 issuer transfer, which requires
