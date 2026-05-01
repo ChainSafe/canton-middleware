@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 )
 
@@ -37,6 +38,15 @@ func TestUSDCx_CrossParticipantTransfer_P2ToP1(t *testing.T) {
 		t.Fatalf("mint USDCx to issuer: %v", err)
 	}
 
+	// Check the initial balance of the user - should be zero
+	b, err := sys.APIServer.ERC20Balance(ctx, sys.Tokens.USDCx.Address, sys.Accounts.User1.Address)
+	if err != nil {
+		t.Fatalf("get balance: %v", err)
+	}
+	if b.Sign() != 0 {
+		t.Fatalf("expected zero balance, got %s", b)
+	}
+
 	// Transfer 10 USDCx from P2 issuer to the P1 holder. The indexer will
 	// observe the TokenTransferEvent and credit the receiver's balance. The
 	// sender's deduction is silently skipped (cross-participant incomplete
@@ -53,8 +63,69 @@ func TestUSDCx_CrossParticipantTransfer_P2ToP1(t *testing.T) {
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "10")
 }
 
-// TODO: add test for same-participant USDCx transfer (P1 holder → P1 holder)
-// once a P1-side USDCx holder flow is available.
+// TestUSDCx_InternalTransfer_P1HolderToP1Holder verifies that USDCx can be
+// transferred between two P1-registered parties using the api-server's
+// PrepareTransfer / ExecuteTransfer flow.
+//
+// Setup: seed User1 with USDCx via a cross-participant P2 issuer → P1 holder
+// transfer (the same mechanism exercised by TestUSDCx_CrossParticipantTransfer_P2ToP1).
+// Once User1 holds USDCx on P1, the api-server's transfer API is used to move
+// a portion to User2, exercising the same-participant P1 → P1 path through the
+// CIP56TransferFactory visible to both parties on the shared synchronizer.
+func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+
+	// Register two P1 holders in external key mode so PrepareTransfer is available
+	// to them (custodial users cannot sign Canton transaction hashes).
+	regResp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
+
+	// Self-mint 20 USDCx to the P2 issuer so there is enough to fund User1.
+	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "20"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+
+	// Cross-participant transfer: P2 issuer → User1's P1 party (15 USDCx).
+	// This gives User1 a USDCx holding on P1 that the api-server can query.
+	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp1.Party, "USDCx", "15"); err != nil {
+		t.Fatalf("transfer USDCx P2→P1 (User1): %v", err)
+	}
+
+	// Wait for User1's balance to appear before preparing the P1→P1 transfer.
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "15")
+
+	// Prepare a same-participant transfer of 10 USDCx from User1 to User2.
+	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
+		To:     sys.Accounts.User2.Address.Hex(),
+		Amount: "10",
+		Token:  "USDCx",
+	})
+	if err != nil {
+		t.Fatalf("prepare USDCx P1→P1 transfer: %v", err)
+	}
+
+	sig, fingerprint := signTransferHash(t, kp1, prepResp.TransactionHash)
+
+	execResp, err := sys.APIServer.ExecuteTransfer(ctx, &sys.Accounts.User1, &transfer.ExecuteRequest{
+		TransferID: prepResp.TransferID,
+		Signature:  sig,
+		SignedBy:   fingerprint,
+	})
+	if err != nil {
+		t.Fatalf("execute USDCx P1→P1 transfer: %v", err)
+	}
+	if execResp.Status != "completed" {
+		t.Fatalf("expected status 'completed', got %q", execResp.Status)
+	}
+
+	// Verify User2 received the tokens.
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User2.Address, "10")
+	// Verify User1's balance was deducted (15 - 10 = 5).
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+}
 
 // TODO: add test for P1 external party → P2 issuer transfer, which requires
 // the Interactive Submission API to exercise choices as a secp256k1 party.
