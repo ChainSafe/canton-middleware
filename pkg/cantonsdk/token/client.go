@@ -619,9 +619,7 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 
 // resolveTransferFactory fills in factory info on the request by routing based on InstrumentAdmin.
 // For our tokens (InstrumentAdmin == IssuerParty): uses local ACS query.
-// For external tokens with a registry configured: calls the Transfer Factory Registry API.
-// For external tokens without a registry: falls back to local ACS filtered by admin party,
-// which works when IssuerParty is an audit observer of the external factory (e.g. devstack).
+// For external tokens: calls the Transfer Factory Registry API.
 func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactoryRequest) error {
 	if req.InstrumentAdmin == c.cfg.IssuerParty {
 		cid, err := c.getTransferFactoryCID(ctx)
@@ -632,108 +630,43 @@ func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactor
 		return nil
 	}
 
-	// External token — use registry if configured.
-	if c.registryClient != nil {
-		if extCfg, ok := c.cfg.ExternalTokens[req.InstrumentAdmin]; ok {
-			regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, &RegistryRequest{
-				ExpectedAdmin: req.InstrumentAdmin,
-				Transfer: RegistryTransferDetail{
-					Sender:           req.FromPartyID,
-					Receiver:         req.ToPartyID,
-					Amount:           req.Amount,
-					InstrumentID:     req.InstrumentID,
-					InputHoldingCIDs: req.InputHoldingCIDs,
-				},
-			})
-			if err != nil {
-				return fmt.Errorf("registry lookup for %s: %w", req.InstrumentAdmin, err)
-			}
-
-			req.FactoryCID = regResp.FactoryID
-			req.IsExternal = true
-
-			req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
-			if err != nil {
-				return fmt.Errorf("convert choice context: %w", err)
-			}
-
-			req.DisclosedContracts, err = ConvertDisclosedContracts(regResp.DisclosedContracts, c.cfg.DomainID)
-			if err != nil {
-				return fmt.Errorf("convert disclosed contracts: %w", err)
-			}
-
-			return nil
-		}
+	// External token — use registry
+	if c.registryClient == nil {
+		return fmt.Errorf("no registry client configured for external token transfers")
+	}
+	extCfg, ok := c.cfg.ExternalTokens[req.InstrumentAdmin]
+	if !ok {
+		return fmt.Errorf("unsupported external token issuer: %s", req.InstrumentAdmin)
 	}
 
-	// Fallback: query local ACS filtered by admin party. Requires IssuerParty to be an
-	// audit observer of the external factory (set during devstack bootstrap via -p1-issuer).
-	cid, err := c.findTransferFactoryCIDByAdmin(ctx, req.InstrumentAdmin)
-	if err != nil {
-		return fmt.Errorf("prepare transfer: no registry configured for external token issuer %s and local ACS lookup failed: %w", req.InstrumentAdmin, err)
-	}
-	c.logger.Info("external token factory resolved via local ACS fallback",
-		zap.String("instrument_admin", req.InstrumentAdmin),
-		zap.String("factory_cid", cid))
-	req.FactoryCID = cid
-	return nil
-}
-
-// findTransferFactoryCIDByAdmin queries CIP56TransferFactory contracts visible to
-// IssuerParty and returns the contract ID of the one whose admin field matches
-// adminParty. Used as a registry-free fallback when IssuerParty is an audit
-// observer of the external factory (e.g. devstack USDCx bootstrap).
-func (c *Client) findTransferFactoryCIDByAdmin(ctx context.Context, adminParty string) (string, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
-	if err != nil {
-		return "", err
-	}
-	if end == 0 {
-		return "", fmt.Errorf("ledger is empty")
-	}
-
-	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.CIP56PackageID,
-		ModuleName: moduleTransferFactory,
-		EntityName: entityTransferFactory,
-	}
-
-	authCtx := c.ledger.AuthContext(ctx)
-	stream, err := c.ledger.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: end,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				c.cfg.IssuerParty: {
-					Cumulative: []*lapiv2.CumulativeFilter{{
-						IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-							TemplateFilter: &lapiv2.TemplateFilter{TemplateId: tid},
-						},
-					}},
-				},
-			},
-			Verbose: true,
+	regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, &RegistryRequest{
+		ExpectedAdmin: req.InstrumentAdmin,
+		Transfer: RegistryTransferDetail{
+			Sender:           req.FromPartyID,
+			Receiver:         req.ToPartyID,
+			Amount:           req.Amount,
+			InstrumentID:     req.InstrumentID,
+			InputHoldingCIDs: req.InputHoldingCIDs,
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("query transfer factory by admin: %w", err)
+		return fmt.Errorf("registry lookup for %s: %w", req.InstrumentAdmin, err)
 	}
 
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return "", fmt.Errorf("receive transfer factory: %w", err)
-		}
-		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
-			fields := values.RecordToMap(ac.CreatedEvent.CreateArguments)
-			if adminVal, ok := fields["admin"]; ok && adminVal.GetParty() == adminParty {
-				return ac.CreatedEvent.ContractId, nil
-			}
-		}
+	req.FactoryCID = regResp.FactoryID
+	req.IsExternal = true
+
+	req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
+	if err != nil {
+		return fmt.Errorf("convert choice context: %w", err)
 	}
-	return "", fmt.Errorf("no CIP56TransferFactory for admin %s: %w", adminParty, ErrTransferFactoryNotFound)
+
+	req.DisclosedContracts, err = ConvertDisclosedContracts(regResp.DisclosedContracts, c.cfg.DomainID)
+	if err != nil {
+		return fmt.Errorf("convert disclosed contracts: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {

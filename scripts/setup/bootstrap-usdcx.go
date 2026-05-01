@@ -39,15 +39,14 @@ import (
 )
 
 var (
-	p2Addr        = flag.String("p2", "canton:5021", "Participant2 gRPC address")
-	p2Audience    = flag.String("p2-audience", "http://canton:5021", "JWT audience for participant2")
-	issuerParty   = flag.String("issuer", "", "USDCxIssuer party ID (required)")
-	p1IssuerParty = flag.String("p1-issuer", "", "P1 issuer party ID to add as audit observer of CIP56TransferFactory (optional; enables P1-side ACS discovery without registry)")
-	domainIDFlag  = flag.String("domain", "", "Synchronizer/domain ID (required)")
-	tokenURLFlag  = flag.String("token-url", "http://mock-oauth2:8088/oauth/token", "OAuth2 token endpoint")
-	clientIDFlag  = flag.String("client-id", "local-test-client", "OAuth2 client ID")
+	p2Addr       = flag.String("p2", "canton:5021", "Participant2 gRPC address")
+	p2Audience   = flag.String("p2-audience", "http://canton:5021", "JWT audience for participant2")
+	issuerParty  = flag.String("issuer", "", "USDCxIssuer party ID (required)")
+	domainIDFlag = flag.String("domain", "", "Synchronizer/domain ID (required)")
+	tokenURLFlag = flag.String("token-url", "http://mock-oauth2:8088/oauth/token", "OAuth2 token endpoint")
+	clientIDFlag = flag.String("client-id", "local-test-client", "OAuth2 client ID")
 	clientSecFlag = flag.String("client-secret", "local-test-secret", "OAuth2 client secret")
-	cip56PkgID    = flag.String("cip56-package-id", "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2", "CIP56 package ID")
+	cip56PkgID   = flag.String("cip56-package-id", "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2", "CIP56 package ID")
 )
 
 func main() {
@@ -122,10 +121,7 @@ func main() {
 		fmt.Printf("    CIP56TransferFactory already exists: %s\n", factoryCID)
 	} else {
 		fmt.Println(">>> Creating CIP56TransferFactory for USDCx...")
-		if *p1IssuerParty != "" {
-			fmt.Printf("    audit observer: %s\n", *p1IssuerParty)
-		}
-		factoryCID, err = createTransferFactory(ctx, p2, *issuerParty, *domainIDFlag, *p1IssuerParty)
+		factoryCID, err = createTransferFactory(ctx, p2, *issuerParty, *domainIDFlag)
 		if err != nil {
 			fmt.Printf("    [WARN] CIP56TransferFactory: %v (may already exist)\n", err)
 		} else {
@@ -259,17 +255,8 @@ func createTokenConfig(ctx context.Context, c *ledger.Client, issuer, syncID, ma
 	return findInTx(resp.Transaction, "TokenConfig")
 }
 
-func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID, p1Issuer string) (string, error) {
+func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID string) (string, error) {
 	authCtx := c.AuthContext(ctx)
-
-	// Include P1's issuer party as an audit observer when provided. This lets P1's
-	// token client discover the factory via its local ACS without a registry, enabling
-	// same-participant USDCx transfers through the P1 api-server's PrepareTransfer path.
-	var auditObservers []*lapiv2.Value
-	if p1Issuer != "" {
-		auditObservers = append(auditObservers, values.PartyValue(p1Issuer))
-	}
-
 	resp, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: syncID,
@@ -281,7 +268,7 @@ func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID,
 					TemplateId: cip56ID("CIP56.TransferFactory", "CIP56TransferFactory"),
 					CreateArguments: &lapiv2.Record{Fields: []*lapiv2.RecordField{
 						{Label: "admin", Value: values.PartyValue(admin)},
-						{Label: "auditObservers", Value: values.ListValue(auditObservers)},
+						{Label: "auditObservers", Value: values.ListValue(nil)},
 					}},
 				}},
 			}},

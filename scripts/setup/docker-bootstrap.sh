@@ -327,7 +327,6 @@ else
             -p2           "$CANTON_P2_GRPC" \
             -p2-audience  "$CANTON_P2_AUDIENCE" \
             -issuer       "$USDCX_PARTY_ID" \
-            -p1-issuer    "$PARTY_ID" \
             -domain       "$DOMAIN_ID" \
             -token-url    "http://mock-oauth2:8088/oauth/token" \
             -client-id    "$CANTON_AUTH_CLIENT_ID" \
