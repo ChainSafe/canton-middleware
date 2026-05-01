@@ -25,6 +25,7 @@ RUN CGO_ENABLED=0 go build -o /app/bin/relayer ./cmd/relayer && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-bridge ./scripts/setup/bootstrap-bridge.go && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-demo ./scripts/setup/bootstrap-demo.go && \
     CGO_ENABLED=0 go build -o /app/bin/bootstrap-usdcx ./scripts/setup/bootstrap-usdcx.go && \
+    CGO_ENABLED=0 go build -o /app/bin/usdcx-registry ./scripts/setup/usdcx-registry.go && \
     CGO_ENABLED=0 go build -o /app/bin/register-user ./scripts/testing/register-user.go && \
     CGO_ENABLED=0 go build -o /app/bin/mock-oauth2-server ./scripts/utils/mock-oauth2-server.go
 
@@ -92,6 +93,17 @@ ENV ENV=docker
 EXPOSE 8082
 
 ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Runtime stage for usdcx-registry
+FROM alpine:latest AS usdcx-registry
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/bin/usdcx-registry /app/usdcx-registry
+
+EXPOSE 8090
+
+ENTRYPOINT ["/app/usdcx-registry"]
 
 # Runtime stage for api-server
 FROM alpine:latest AS api-server
