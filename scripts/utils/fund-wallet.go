@@ -1,5 +1,4 @@
 //go:build ignore
-// +build ignore
 
 // Fund Address Script
 //
@@ -17,22 +16,16 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/auth"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontoken "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
-	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
+	"github.com/chainsafe/canton-middleware/scripts/utils/dockerconfig"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
-)
-
-const (
-	containerName = "erc20-api-server"
-	resolvedCfg   = "/app/state/api-server-config.yaml"
 )
 
 func main() {
@@ -41,7 +34,7 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	cfg, err := loadConfigFromDocker()
+	cfg, err := dockerconfig.Load()
 	if err != nil {
 		fatalf("failed to load config from Docker: %v", err)
 	}
@@ -157,57 +150,6 @@ func main() {
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Println("  Done")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-}
-
-// loadConfigFromDocker pulls config values from the running Docker stack:
-// - env vars (DATABASE_URL, auth credentials) from the api-server container
-// - resolved YAML (domain_id, issuer_party) from the container's state volume
-// Docker-internal hostnames are rewritten to localhost for host-side access.
-func loadConfigFromDocker() (*config.APIServer, error) {
-	// 1. Read env vars from the running container and set them locally so
-	//    config.LoadAPIServer can expand ${VAR} placeholders via os.ExpandEnv.
-	envOut, err := exec.Command("docker", "inspect", containerName,
-		"--format", "{{range .Config.Env}}{{println .}}{{end}}").Output()
-	if err != nil {
-		return nil, fmt.Errorf("docker inspect %s failed: %w\n(is the Docker stack running?)", containerName, err)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(envOut)), "\n") {
-		if idx := strings.IndexByte(line, '='); idx > 0 {
-			os.Setenv(line[:idx], line[idx+1:])
-		}
-	}
-
-	// Fix DATABASE_URL: container uses postgres hostname, host machine uses localhost
-	if dbURL := os.Getenv("API_SERVER_DATABASE_URL"); dbURL != "" {
-		os.Setenv("API_SERVER_DATABASE_URL", strings.ReplaceAll(dbURL, "@postgres:", "@localhost:"))
-	}
-
-	// 2. Read the bootstrap-resolved config YAML from the shared state volume.
-	//    This file already has domain_id and issuer_party substituted by the
-	//    bootstrap script; the remaining ${VAR} placeholders are expanded by
-	//    config.LoadAPIServer via os.ExpandEnv using the env vars set above.
-	yamlOut, err := exec.Command("docker", "exec", containerName, "cat", resolvedCfg).Output()
-	if err != nil {
-		return nil, fmt.Errorf("docker exec cat %s failed: %w", resolvedCfg, err)
-	}
-
-	// Rewrite docker-internal service hostnames to localhost for host access.
-	resolved := string(yamlOut)
-	resolved = strings.ReplaceAll(resolved, "canton:5011", "localhost:5011")
-	resolved = strings.ReplaceAll(resolved, "mock-oauth2:8088", "localhost:8088")
-
-	// 3. Write patched YAML to a temp file and load via the standard loader.
-	tmp, err := os.CreateTemp("", "fund-addr-*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(resolved); err != nil {
-		return nil, err
-	}
-	tmp.Close()
-
-	return config.LoadAPIServer(tmp.Name())
 }
 
 func truncate(s string, n int) string {
