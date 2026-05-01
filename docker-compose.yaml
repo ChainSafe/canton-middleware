@@ -229,6 +229,54 @@ services:
       - bridge-network
 
   # ===========================================================================
+  # USDCx Transfer Factory Registry (devstack only)
+  # In production this is run by the USDCx issuer (e.g., Circle).
+  # Here it wraps participant2's CIP56TransferFactory for P1 api-server.
+  # ===========================================================================
+  usdcx-registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: usdcx-registry
+    container_name: usdcx-registry
+    ports:
+      - "8090:8090"
+    environment:
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+    command:
+      - "-p2"
+      - "canton:5021"
+      - "-p2-http"
+      - "http://canton:5023"
+      - "-p2-audience"
+      - "http://canton:5021"
+      - "-token-url"
+      - "http://mock-oauth2:8088/oauth/token"
+      - "-client-id"
+      - "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      - "-client-secret"
+      - "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+      - "-port"
+      - "8090"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      canton:
+        condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - bridge-network
+
+  # ===========================================================================
   # ERC-20 API Server
   # ===========================================================================
   api-server:
@@ -258,6 +306,8 @@ services:
       canton:
         condition: service_healthy
       mock-oauth2:
+        condition: service_healthy
+      usdcx-registry:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
