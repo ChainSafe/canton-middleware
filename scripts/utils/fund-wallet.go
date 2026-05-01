@@ -8,7 +8,7 @@
 // Reads all config values automatically from the running Docker stack.
 //
 // Usage:
-//   go run scripts/utils/fund-address.go
+//   go run scripts/utils/fund-wallet.go
 
 package main
 
