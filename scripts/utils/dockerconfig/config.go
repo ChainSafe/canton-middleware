@@ -4,6 +4,7 @@
 package dockerconfig
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,8 +26,10 @@ const (
 //   - the bootstrap-resolved YAML is fetched via docker exec cat and docker-
 //     internal hostnames are rewritten to localhost for host-side access
 func Load() (*config.APIServer, error) {
+	ctx := context.Background()
+
 	// 1. Read env vars from the running container.
-	envOut, err := exec.Command("docker", "inspect", ContainerName,
+	envOut, err := exec.CommandContext(ctx, "docker", "inspect", ContainerName,
 		"--format", "{{range .Config.Env}}{{println .}}{{end}}").Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker inspect %s failed: %w\n(is the Docker stack running?)", ContainerName, err)
@@ -43,7 +46,7 @@ func Load() (*config.APIServer, error) {
 	}
 
 	// 2. Read the bootstrap-resolved config YAML from the shared state volume.
-	yamlOut, err := exec.Command("docker", "exec", ContainerName, "cat", resolvedCfg).Output()
+	yamlOut, err := exec.CommandContext(ctx, "docker", "exec", ContainerName, "cat", resolvedCfg).Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker exec cat %s failed: %w", resolvedCfg, err)
 	}
