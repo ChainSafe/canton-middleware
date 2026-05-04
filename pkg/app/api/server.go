@@ -183,16 +183,22 @@ func initServices(
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
 	go transferCache.Start(ctx)
 
+	var evmLogStore transfer.EvmLogStore
 	if cfg.EthRPC.Enabled {
 		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
 		go m.Start(ctx)
+		evmLogStore = evmStore
 	}
 
 	return &services{
 		evmStore:     evmStore,
 		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
 		regSvc:       userservice.NewLog(registrationService, logger),
-		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token)), logger),
+		transferSvc: transfer.NewLog(transfer.NewTransferService(
+			cantonClient.Token, userStore, transferCache,
+			tokenSymbols(cfg.Token), cfg.Token,
+			evmLogStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, logger,
+		), logger),
 	}, nil
 }
 
@@ -338,3 +344,4 @@ func tokenSymbols(cfg *token.Config) []string {
 	}
 	return symbols
 }
+
