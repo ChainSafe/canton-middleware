@@ -420,4 +420,7 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("ETHEREUM_RELAYER_PRIVATE_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("SEPOLIA_RPC_URL", "https://sepolia.example")
 	t.Setenv("SEPOLIA_WS_URL", "wss://sepolia.example/ws")
+	t.Setenv("INDEXER_URL", "http://indexer:8082")
+	t.Setenv("CANTON_USDCX_ISSUER_PARTY", "usdcx-issuer::1220test")
+	t.Setenv("CANTON_USDCX_REGISTRY_URL", "http://usdcx-registry:8090")
 }
