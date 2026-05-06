@@ -38,9 +38,14 @@ const (
 
 	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
 	spliceTransferFactory = "TransferFactory"
+	transferInstrEntity   = "TransferInstruction"
+	acceptChoice          = "TransferInstruction_Accept"
 
 	spliceHoldingModule = "Splice.Api.Token.HoldingV1"
 	spliceHoldingEntity = "Holding"
+
+	moduleTransferOffer = "Utility.Registry.App.V0.Model.Transfer"
+	entityTransferOffer = "TransferOffer"
 )
 
 // Token defines CIP-56 token operations.
@@ -105,6 +110,16 @@ type Token interface {
 
 	// ExecuteTransfer completes a previously prepared transfer using the client's DER signature.
 	ExecuteTransfer(ctx context.Context, req *ExecuteTransferRequest) error
+
+	// FindPendingInboundTransferInstructions returns contract IDs of active TransferOffer contracts
+	// where partyID is an observer (i.e. the receiver). Used by the accept worker to find offers
+	// to accept on behalf of custodial parties.
+	FindPendingInboundTransferInstructions(ctx context.Context, partyID string) ([]string, error)
+
+	// AcceptTransferInstruction accepts a pending inbound transfer for a custodial party.
+	// Calls the registrar's accept choice-context endpoint (keyed by instrumentAdmin), encodes
+	// the AnyValue choiceContext, and exercises TransferInstruction_Accept via SubmitAndWait.
+	AcceptTransferInstruction(ctx context.Context, partyID, instructionCID, instrumentAdmin string) error
 }
 
 // Client implements CIP-56 token operations.
@@ -967,6 +982,118 @@ func (c *Client) ExecuteTransfer(ctx context.Context, req *ExecuteTransferReques
 		zap.String("transfer_id", pt.TransferID),
 		zap.String("party", pt.PartyID))
 
+	return nil
+}
+
+func (c *Client) FindPendingInboundTransferInstructions(ctx context.Context, partyID string) ([]string, error) {
+	if partyID == "" {
+		return nil, fmt.Errorf("partyID is required")
+	}
+	if c.cfg.UtilityRegistryAppPackageID == "" {
+		return nil, fmt.Errorf("utility_registry_app_package_id not configured")
+	}
+
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if end == 0 {
+		return nil, nil
+	}
+
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.UtilityRegistryAppPackageID,
+		ModuleName: moduleTransferOffer,
+		EntityName: entityTransferOffer,
+	}
+
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{partyID}, tid)
+	if err != nil {
+		return nil, fmt.Errorf("query pending TransferOffers: %w", err)
+	}
+
+	out := make([]string, 0, len(events))
+	for _, ce := range events {
+		out = append(out, ce.ContractId)
+	}
+	return out, nil
+}
+
+func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instructionCID, instrumentAdmin string) error {
+	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
+		return fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
+	}
+	if c.registryClient == nil {
+		return fmt.Errorf("no registry client configured for accept")
+	}
+	extCfg, ok := c.cfg.ExternalTokens[instrumentAdmin]
+	if !ok {
+		return fmt.Errorf("unsupported external token issuer: %s", instrumentAdmin)
+	}
+
+	acceptResp, err := c.registryClient.GetAcceptChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	if err != nil {
+		return fmt.Errorf("get accept choice context: %w", err)
+	}
+
+	ctxValue, err := encodeChoiceContextRecord(acceptResp.ChoiceContextData)
+	if err != nil {
+		return fmt.Errorf("encode choice context: %w", err)
+	}
+
+	extraArgs := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "context", Value: ctxValue},
+					{Label: "meta", Value: values.EmptyMetadata()},
+				},
+			},
+		},
+	}
+
+	disclosed, err := convertDisclosedContractSlice(acceptResp.DisclosedContracts, c.cfg.DomainID)
+	if err != nil {
+		return fmt.Errorf("convert disclosed contracts: %w", err)
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.cfg.SpliceTransferPackageID,
+					ModuleName: spliceTransferModule,
+					EntityName: transferInstrEntity,
+				},
+				ContractId: instructionCID,
+				Choice:     acceptChoice,
+				ChoiceArgument: &lapiv2.Value{
+					Sum: &lapiv2.Value_Record{
+						Record: &lapiv2.Record{
+							Fields: []*lapiv2.RecordField{
+								{Label: "extraArgs", Value: extraArgs},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	authCtx := c.ledger.AuthContext(ctx)
+	_, err = c.ledger.Command().SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId:     c.cfg.DomainID,
+			CommandId:          uuid.NewString(),
+			UserId:             c.cfg.UserID,
+			ActAs:              []string{partyID},
+			Commands:           []*lapiv2.Command{cmd},
+			DisclosedContracts: disclosed,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("accept transfer instruction: %w", err)
+	}
 	return nil
 }
 

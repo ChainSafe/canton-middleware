@@ -1,6 +1,7 @@
 package token
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -199,4 +200,22 @@ type TemplateIdentifier struct {
 	PackageID  string `json:"package_id"`
 	ModuleName string `json:"module_name"`
 	EntityName string `json:"entity_name"`
+}
+
+// AnyValue is the JSON {"tag": "...", "value": ...} ADT for a Daml-LF AnyValue.
+// Tags: AV_ContractId | AV_Text | AV_Party | AV_Bool | AV_Int | AV_Decimal | AV_List | AV_Map.
+type AnyValue struct {
+	Tag   string          `json:"tag"`
+	Value json.RawMessage `json:"value"`
+}
+
+// AcceptChoiceContext holds the TextMap AnyValue for TransferInstruction_Accept.
+type AcceptChoiceContext struct {
+	Values map[string]AnyValue `json:"values"`
+}
+
+// AcceptContextResponse is returned by the registrar's accept choice-context endpoint.
+type AcceptContextResponse struct {
+	ChoiceContextData  AcceptChoiceContext         `json:"choiceContextData"`
+	DisclosedContracts []registryDisclosedContract `json:"disclosedContracts"`
 }
