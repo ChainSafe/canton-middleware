@@ -32,94 +32,62 @@ func encodeIssuerBurnArgs(req *BurnRequest) *lapiv2.Record {
 	}
 }
 
-// encodeTransferFactoryTransferArgs encodes the Splice TransferFactory_Transfer choice arguments.
-// The choice is exercised on the TransferFactory interface of a CIP56TransferFactory contract.
 // encodeAnyValue converts an AnyValue (JSON ADT) into a Daml-LF Variant value.
 // Covers all AV_* tags used by the DA registrar protocol.
 func encodeAnyValue(av AnyValue) (*lapiv2.Value, error) {
 	var inner *lapiv2.Value
+	var err error
 	switch av.Tag {
 	case "AV_ContractId":
 		var s string
-		if err := json.Unmarshal(av.Value, &s); err != nil {
+		if err = json.Unmarshal(av.Value, &s); err != nil {
 			return nil, fmt.Errorf("AV_ContractId: %w", err)
 		}
 		inner = values.ContractIDValue(s)
 	case "AV_Text":
 		var s string
-		if err := json.Unmarshal(av.Value, &s); err != nil {
+		if err = json.Unmarshal(av.Value, &s); err != nil {
 			return nil, fmt.Errorf("AV_Text: %w", err)
 		}
 		inner = values.TextValue(s)
 	case "AV_Party":
 		var s string
-		if err := json.Unmarshal(av.Value, &s); err != nil {
+		if err = json.Unmarshal(av.Value, &s); err != nil {
 			return nil, fmt.Errorf("AV_Party: %w", err)
 		}
 		inner = values.PartyValue(s)
 	case "AV_Bool":
 		var b bool
-		if err := json.Unmarshal(av.Value, &b); err != nil {
+		if err = json.Unmarshal(av.Value, &b); err != nil {
 			return nil, fmt.Errorf("AV_Bool: %w", err)
 		}
 		inner = &lapiv2.Value{Sum: &lapiv2.Value_Bool{Bool: b}}
 	case "AV_Int":
 		var n json.Number
-		if err := json.Unmarshal(av.Value, &n); err != nil {
+		if err = json.Unmarshal(av.Value, &n); err != nil {
 			return nil, fmt.Errorf("AV_Int: %w", err)
 		}
-		i, err := n.Int64()
-		if err != nil {
+		var i int64
+		if i, err = n.Int64(); err != nil {
 			return nil, fmt.Errorf("AV_Int: %w", err)
 		}
 		inner = values.Int64Value(i)
 	case "AV_Decimal":
 		var s string
-		if err := json.Unmarshal(av.Value, &s); err != nil {
+		if err = json.Unmarshal(av.Value, &s); err != nil {
 			return nil, fmt.Errorf("AV_Decimal: %w", err)
 		}
 		inner = values.NumericValue(s)
 	case "AV_List":
-		var items []AnyValue
-		if err := json.Unmarshal(av.Value, &items); err != nil {
-			return nil, fmt.Errorf("AV_List: %w", err)
+		inner, err = encodeAnyValueList(av.Value)
+		if err != nil {
+			return nil, err
 		}
-		elems := make([]*lapiv2.Value, 0, len(items))
-		for _, it := range items {
-			v, err := encodeAnyValue(it)
-			if err != nil {
-				return nil, err
-			}
-			elems = append(elems, v)
-		}
-		inner = values.ListValue(elems)
 	case "AV_Map":
-		// Encoded as list of {"_1": key, "_2": value} tuples.
-		var items []struct {
-			Key   string  `json:"_1"`
-			Value AnyValue `json:"_2"`
+		inner, err = encodeAnyValueMap(av.Value)
+		if err != nil {
+			return nil, err
 		}
-		if err := json.Unmarshal(av.Value, &items); err != nil {
-			return nil, fmt.Errorf("AV_Map: %w", err)
-		}
-		elems := make([]*lapiv2.Value, 0, len(items))
-		for _, it := range items {
-			v, err := encodeAnyValue(it.Value)
-			if err != nil {
-				return nil, err
-			}
-			elems = append(elems, &lapiv2.Value{
-				Sum: &lapiv2.Value_Record{
-					Record: &lapiv2.Record{
-						Fields: []*lapiv2.RecordField{
-							{Label: "_1", Value: values.TextValue(it.Key)},
-							{Label: "_2", Value: v},
-						},
-					},
-				},
-			})
-		}
-		inner = values.ListValue(elems)
 	default:
 		return nil, fmt.Errorf("unsupported AnyValue tag %q", av.Tag)
 	}
@@ -131,6 +99,51 @@ func encodeAnyValue(av AnyValue) (*lapiv2.Value, error) {
 			},
 		},
 	}, nil
+}
+
+func encodeAnyValueList(raw json.RawMessage) (*lapiv2.Value, error) {
+	var items []AnyValue
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("AV_List: %w", err)
+	}
+	elems := make([]*lapiv2.Value, 0, len(items))
+	for _, it := range items {
+		v, err := encodeAnyValue(it)
+		if err != nil {
+			return nil, err
+		}
+		elems = append(elems, v)
+	}
+	return values.ListValue(elems), nil
+}
+
+func encodeAnyValueMap(raw json.RawMessage) (*lapiv2.Value, error) {
+	// AV_Map is encoded as a list of {"_1": key, "_2": value} tuples.
+	var items []struct {
+		Key   string   `json:"_1"`
+		Value AnyValue `json:"_2"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, fmt.Errorf("AV_Map: %w", err)
+	}
+	elems := make([]*lapiv2.Value, 0, len(items))
+	for _, it := range items {
+		v, err := encodeAnyValue(it.Value)
+		if err != nil {
+			return nil, err
+		}
+		elems = append(elems, &lapiv2.Value{
+			Sum: &lapiv2.Value_Record{
+				Record: &lapiv2.Record{
+					Fields: []*lapiv2.RecordField{
+						{Label: "_1", Value: values.TextValue(it.Key)},
+						{Label: "_2", Value: v},
+					},
+				},
+			},
+		})
+	}
+	return values.ListValue(elems), nil
 }
 
 // encodeChoiceContextRecord builds Splice ChoiceContext { values: TextMap AnyValue }.

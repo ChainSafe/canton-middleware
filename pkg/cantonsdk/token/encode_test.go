@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 )
 
 func TestEncodeAnyValue(t *testing.T) {
@@ -79,8 +80,8 @@ func TestEncodeAnyValue(t *testing.T) {
 			},
 		},
 		{
-			name: "AV_List empty",
-			input: AnyValue{Tag: "AV_List", Value: raw(`[]`)},
+			name:    "AV_List empty",
+			input:   AnyValue{Tag: "AV_List", Value: raw(`[]`)},
 			wantTag: "AV_List",
 			check: func(t *testing.T, v *lapiv2.Value) {
 				vr := v.Sum.(*lapiv2.Value_Variant)

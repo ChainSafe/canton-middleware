@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	registryPath        = "/registry/transfer-instruction/v1/transfer-factory"
+	registryPath         = "/registry/transfer-instruction/v1/transfer-factory"
 	acceptContextPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/%s/choice-contexts/accept"
 )
 
@@ -183,7 +183,9 @@ func ConvertChoiceContext(raw json.RawMessage) (map[string]string, error) {
 // GetAcceptChoiceContext calls the registrar's accept choice-context endpoint for a pending
 // TransferInstruction. Returns the choiceContextData (AnyValue map) and disclosed contracts
 // needed to exercise TransferInstruction_Accept.
-func (rc *RegistryClient) GetAcceptChoiceContext(ctx context.Context, registryBaseURL, registrarParty, instructionCID string) (*AcceptContextResponse, error) {
+func (rc *RegistryClient) GetAcceptChoiceContext(
+	ctx context.Context, registryBaseURL, registrarParty, instructionCID string,
+) (*AcceptContextResponse, error) {
 	path := fmt.Sprintf(acceptContextPathFmt, registrarParty, instructionCID)
 	url := strings.TrimRight(registryBaseURL, "/") + path
 	body := []byte(`{"meta":{},"excludeDebugFields":false}`)
