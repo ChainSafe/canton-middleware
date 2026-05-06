@@ -42,6 +42,7 @@ func newTestService(tok *mocks.Token, store *mocks.UserStore, cache *mocks.Trans
 		userStore:           store,
 		cache:               cache,
 		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true},
+		tokensBySymbol:      map[string]tokenEntry{},
 	}
 }
 
