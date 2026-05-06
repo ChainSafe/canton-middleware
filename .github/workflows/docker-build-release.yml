@@ -9,6 +9,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       tag:
@@ -28,15 +30,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get tag
-        id: get_tag
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -50,15 +43,47 @@ jobs:
             username: ${{ github.actor }}
             password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata for middleware
+        id: meta_middleware
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/chainsafe/canton-middleware
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=main-,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Extract metadata for ERC20 API
+        id: meta_api
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/chainsafe/canton-erc20-api
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=main-,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Extract metadata for indexer
+        id: meta_indexer
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/chainsafe/canton-indexer
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=main-,enable={{is_default_branch}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
       - name: Build and push Middlewware Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./cmd/relayer/Dockerfile
           push: true
-          tags: |
-            ghcr.io/chainsafe/canton-middleware:latest
-            ghcr.io/chainsafe/canton-middleware:${{ steps.get_tag.outputs.tag }}
+          tags: ${{ steps.meta_middleware.outputs.tags }}
+          labels: ${{ steps.meta_middleware.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
@@ -69,9 +94,8 @@ jobs:
           context: .
           file: ./cmd/api-server/Dockerfile
           push: true
-          tags: |
-            ghcr.io/chainsafe/canton-erc20-api:latest
-            ghcr.io/chainsafe/canton-erc20-api:${{ steps.get_tag.outputs.tag }}
+          tags: ${{ steps.meta_api.outputs.tags }}
+          labels: ${{ steps.meta_api.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
@@ -82,9 +106,8 @@ jobs:
           context: .
           file: ./cmd/indexer/Dockerfile
           push: true
-          tags: |
-            ghcr.io/chainsafe/canton-indexer:latest
-            ghcr.io/chainsafe/canton-indexer:${{ steps.get_tag.outputs.tag }}
+          tags: ${{ steps.meta_indexer.outputs.tags }}
+          labels: ${{ steps.meta_indexer.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
