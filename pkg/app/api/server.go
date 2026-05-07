@@ -113,6 +113,25 @@ func (s *Server) Run() error {
 		return err
 	}
 
+	if cfg.AcceptWorker != nil {
+		ic, icErr := indexerclient.New(cfg.AcceptWorker.IndexerURL, nil)
+		if icErr != nil {
+			return fmt.Errorf("create accept worker indexer client: %w", icErr)
+		}
+		worker := transfer.NewAcceptWorker(
+			cantonClient.Token,
+			userStore,
+			ic,
+			cfg.AcceptWorker.PollInterval,
+			logger,
+		)
+		go worker.Run(ctx)
+		logger.Info("accept worker started",
+			zap.String("indexer_url", cfg.AcceptWorker.IndexerURL),
+			zap.Duration("poll_interval", cfg.AcceptWorker.PollInterval),
+		)
+	}
+
 	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, logger)
 
 	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
