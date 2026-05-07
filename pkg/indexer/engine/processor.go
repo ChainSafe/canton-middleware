@@ -198,6 +198,11 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 						return fmt.Errorf("insert pending offer %s: %w", item.ContractID, err)
 					}
 				}
+			default:
+				p.logger.Error("processBatch: unrecognized item type, skipping",
+					zap.String("type", fmt.Sprintf("%T", raw)),
+					zap.Int64("offset", batch.Offset),
+				)
 			}
 		}
 

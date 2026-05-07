@@ -216,9 +216,10 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 
 // InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.
 func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	offer.Status = indexer.OfferStatusPending
+	dao := toPendingOfferDao(offer)
+	dao.Status = string(indexer.OfferStatusPending)
 	_, err := s.db.NewInsert().
-		Model(toPendingOfferDao(offer)).
+		Model(dao).
 		On("CONFLICT (contract_id) DO NOTHING").
 		Exec(ctx)
 	if err != nil {

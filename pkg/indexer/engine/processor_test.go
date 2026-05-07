@@ -92,6 +92,32 @@ func makeBatch(offset int64, events ...*indexer.ParsedEvent) *streaming.Batch[an
 	}
 }
 
+func makeOfferBatch(offset int64, offers ...*indexer.PendingOffer) *streaming.Batch[any] {
+	items := make([]any, len(offers))
+	for i, o := range offers {
+		items[i] = o
+	}
+	return &streaming.Batch[any]{
+		Offset:   offset,
+		UpdateID: "update-" + string(rune('0'+offset)),
+		Items:    items,
+	}
+}
+
+func pendingOffer() *indexer.PendingOffer {
+	return &indexer.PendingOffer{
+		ContractID:      "offer-contract-1",
+		IsArchived:      false,
+		ReceiverPartyID: testRecipient,
+		SenderPartyID:   testSender,
+		InstrumentAdmin: testInstrumentAdmin,
+		InstrumentID:    testInstrumentID,
+		Amount:          testAmount,
+		LedgerOffset:    10,
+		CreatedAt:       time.Unix(1_700_000_000, 0),
+	}
+}
+
 func feedCh(batches ...*streaming.Batch[any]) <-chan *streaming.Batch[any] {
 	ch := make(chan *streaming.Batch[any], len(batches))
 	for _, b := range batches {
@@ -340,4 +366,74 @@ func TestProcessor_Run_ContextCancelledDuringRetry(t *testing.T) {
 
 	err := engine.NewProcessor(fetcher, store, zap.NewNop()).Run(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// ---------------------------------------------------------------------------
+// PendingOffer handling
+// ---------------------------------------------------------------------------
+
+func TestProcessor_Run_PendingOfferCreated_Inserted(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	offer := pendingOffer()
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(10, offer)))
+
+	setupRunInTx(store)
+	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(10)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_PendingOfferArchived_MarkedAccepted(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	offer := pendingOffer()
+	offer.IsArchived = true
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, offer)))
+
+	setupRunInTx(store)
+	store.EXPECT().MarkOfferAccepted(mock.Anything, offer.ContractID).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_MixedBatch_ParsedEventAndOffer(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	ev := mintEvent()
+	offer := pendingOffer()
+
+	mixed := &streaming.Batch[any]{
+		Offset:   20,
+		UpdateID: "update-mixed",
+		Items:    []any{ev, offer},
+	}
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(mixed))
+
+	setupRunInTx(store)
+	store.EXPECT().InsertEvent(mock.Anything, ev).Return(true, nil)
+	store.EXPECT().UpsertToken(mock.Anything, &indexer.Token{
+		InstrumentAdmin: testInstrumentAdmin,
+		InstrumentID:    testInstrumentID,
+		Issuer:          testIssuer,
+		FirstSeenOffset: 1,
+		FirstSeenAt:     time.Unix(1_700_000_000, 0),
+	}).Return(nil)
+	store.EXPECT().ApplySupplyDelta(mock.Anything, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(20)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, zap.NewNop()).Run(context.Background()))
 }

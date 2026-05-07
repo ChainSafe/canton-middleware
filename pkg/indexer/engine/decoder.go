@@ -131,7 +131,9 @@ func NewTokenTransferDecoder(
 
 // NewOfferDecoder returns a decode function for TransferOffer CREATED and ARCHIVED events.
 // Returns nil, false when packageID is empty (feature disabled).
-func NewOfferDecoder(packageID string) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+func NewOfferDecoder(
+	packageID string, logger *zap.Logger,
+) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
 	if packageID == "" {
 		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
 			return nil, false
@@ -148,14 +150,17 @@ func NewOfferDecoder(packageID string) func(*streaming.LedgerTransaction, *strea
 			CreatedAt:    tx.EffectiveTime,
 		}
 		if ev.IsCreated {
-			// TransferOffer has top-level sender/receiver/amount fields and an
-			// instrumentId: InstrumentId{ admin, id } record. Field names may
-			// need adjustment once tested against the real devnet template.
 			offer.ReceiverPartyID = ev.PartyField("receiver")
 			offer.SenderPartyID = ev.PartyField("sender")
 			offer.Amount = ev.NumericField("amount")
 			offer.InstrumentAdmin = ev.NestedPartyField("instrumentId", "admin")
 			offer.InstrumentID = ev.NestedTextField("instrumentId", "id")
+			if offer.ReceiverPartyID == "" {
+				logger.Warn("TransferOffer CREATED decoded with empty receiver — field name mismatch?",
+					zap.String("contract_id", ev.ContractID),
+					zap.Int64("offset", tx.Offset),
+				)
+			}
 		}
 		return offer, true
 	}

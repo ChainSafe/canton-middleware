@@ -120,7 +120,7 @@ func (s *Server) Run() error {
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
 	transferDecode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
-	offerDecode := engine.NewOfferDecoder(cfg.Indexer.UtilityRegistryPackageID)
+	offerDecode := engine.NewOfferDecoder(cfg.Indexer.UtilityRegistryPackageID, logger)
 	decode := engine.NewMultiDecoder(transferDecode, offerDecode)
 	fetcher := engine.NewFetcher(streamClient, templateIDs, decode, logger)
 	store := indexerstore.NewStore(db)
