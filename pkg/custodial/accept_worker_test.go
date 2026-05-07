@@ -1,4 +1,4 @@
-package transfer
+package custodial
 
 import (
 	"context"
@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/chainsafe/canton-middleware/pkg/custodial/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	indexermocks "github.com/chainsafe/canton-middleware/pkg/indexer/client/mocks"
-	"github.com/chainsafe/canton-middleware/pkg/transfer/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -47,12 +47,21 @@ func pendingOffer(contractID string) indexer.PendingOffer {
 	}
 }
 
+func allOffersPage(offers ...indexer.PendingOffer) *indexer.Page[indexer.PendingOffer] {
+	return &indexer.Page[indexer.PendingOffer]{
+		Items: offers,
+		Total: int64(len(offers)),
+		Page:  1,
+		Limit: acceptWorkerPageLimit,
+	}
+}
+
 func TestAcceptWorker_SkipsExternalUsers(t *testing.T) {
 	tok := mocks.NewToken(t)
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
-	// Only external user returned — no offers should be fetched
+	// Only external user — custodialParties map is empty so worker returns early
 	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{externalUser()}, nil)
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
@@ -68,12 +77,37 @@ func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
 	ic := indexermocks.NewClient(t)
 
 	offer := pendingOffer("contract-1")
-	page := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer}, Total: 1, Page: 1, Limit: 200}
+	page := allOffersPage(offer)
 
 	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetPendingOffersForParty(mock.Anything, "custodial-party::abc", indexer.Pagination{Page: 1, Limit: 200}).
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page, nil)
-	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-1", "admin-party::zzz").
+	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-1", testInstrumentAdmin).
+		Return(nil)
+
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker.acceptPending(context.Background())
+}
+
+func TestAcceptWorker_SkipsOffersForNonCustodialParties(t *testing.T) {
+	tok := mocks.NewToken(t)
+	lister := mocks.NewUserLister(t)
+	ic := indexermocks.NewClient(t)
+
+	// Offer for a party not in our custodialParties map
+	nonCustodialOffer := indexer.PendingOffer{
+		ContractID:      "contract-external",
+		ReceiverPartyID: "external-party::def",
+		InstrumentAdmin: testInstrumentAdmin,
+	}
+	custodialOffer := pendingOffer("contract-custodial")
+	page := allOffersPage(nonCustodialOffer, custodialOffer)
+	page.Total = 2
+
+	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
+	// Only the custodial offer should be accepted
+	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-custodial", testInstrumentAdmin).
 		Return(nil)
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
@@ -87,11 +121,16 @@ func TestAcceptWorker_LogsAndContinuesOnAcceptError(t *testing.T) {
 
 	offer1 := pendingOffer("contract-1")
 	offer2 := pendingOffer("contract-2")
-	page := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer1, offer2}, Total: 2, Page: 1, Limit: 200}
+	page := &indexer.Page[indexer.PendingOffer]{
+		Items: []indexer.PendingOffer{offer1, offer2},
+		Total: 2,
+		Page:  1,
+		Limit: acceptWorkerPageLimit,
+	}
 
 	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetPendingOffersForParty(mock.Anything, mock.Anything, mock.Anything).Return(page, nil)
-	// First offer fails (e.g. already accepted double-accept)
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
+	// First offer fails
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).
 		Return(errors.New("ALREADY_EXISTS"))
 	// Second offer should still be attempted
@@ -108,7 +147,7 @@ func TestAcceptWorker_LogsAndContinuesOnIndexerError(t *testing.T) {
 	ic := indexermocks.NewClient(t)
 
 	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetPendingOffersForParty(mock.Anything, mock.Anything, mock.Anything).
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).
 		Return(nil, errors.New("indexer unavailable"))
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
@@ -149,13 +188,13 @@ func TestAcceptWorker_PaginatesAllOffers(t *testing.T) {
 	offer2 := pendingOffer("contract-2")
 
 	// Total is 400, limit 200 → 2 pages
-	page1 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer1}, Total: 400, Page: 1, Limit: 200}
-	page2 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer2}, Total: 400, Page: 2, Limit: 200}
+	page1 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer1}, Total: 400, Page: 1, Limit: acceptWorkerPageLimit}
+	page2 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer2}, Total: 400, Page: 2, Limit: acceptWorkerPageLimit}
 
 	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetPendingOffersForParty(mock.Anything, "custodial-party::abc", indexer.Pagination{Page: 1, Limit: 200}).
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page1, nil)
-	ic.EXPECT().GetPendingOffersForParty(mock.Anything, "custodial-party::abc", indexer.Pagination{Page: 2, Limit: 200}).
+	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 2, Limit: acceptWorkerPageLimit}).
 		Return(page2, nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).Return(nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).Return(nil)

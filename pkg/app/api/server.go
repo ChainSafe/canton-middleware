@@ -14,6 +14,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/custodial"
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
@@ -118,7 +119,7 @@ func (s *Server) Run() error {
 		if icErr != nil {
 			return fmt.Errorf("create accept worker indexer client: %w", icErr)
 		}
-		worker := transfer.NewAcceptWorker(
+		worker := custodial.NewAcceptWorker(
 			cantonClient.Token,
 			userStore,
 			ic,

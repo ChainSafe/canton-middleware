@@ -1,4 +1,5 @@
-package transfer
+// Package custodial implements background automation for custodial Canton parties.
+package custodial
 
 import (
 	"context"
@@ -17,16 +18,22 @@ const acceptWorkerPageLimit = 200
 // UserLister is the narrow user-store interface the AcceptWorker needs.
 //
 //go:generate mockery --name UserLister --output mocks --outpkg mocks --filename mock_user_lister.go --with-expecter
+//go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 type UserLister interface {
 	ListUsers(ctx context.Context) ([]*user.User, error)
 }
 
-// AcceptWorker polls the indexer for pending inbound TransferOffers and automatically
-// accepts them on behalf of custodial parties.
+// AcceptWorker polls the indexer for all pending TransferOffers and automatically
+// accepts them on behalf of registered custodial parties.
 //
 // It runs as a background goroutine and stops when ctx is canceled.
-// On restart, the indexer returns only PENDING offers (accepted ones are filtered out),
-// so double-accept attempts are handled by Canton which the worker logs and skips.
+// Each poll cycle fetches all PENDING offers in one paginated stream and
+// checks each receiver against an in-memory map of custodial party IDs built
+// from a single ListUsers call. This is O(1 DB round-trip + P indexer pages)
+// per cycle regardless of how many custodial users exist.
+//
+// A custodial user registered after the ListUsers call at the start of a cycle
+// is caught on the next tick — at most one poll-interval delay.
 type AcceptWorker struct {
 	cantonToken  cantontkn.Token
 	userLister   UserLister
@@ -76,41 +83,44 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 		return
 	}
 
+	custodialParties := make(map[string]bool, len(users))
 	for _, u := range users {
-		if u.KeyMode != user.KeyModeCustodial {
-			continue
+		if u.KeyMode == user.KeyModeCustodial {
+			custodialParties[u.CantonPartyID] = true
 		}
-		w.acceptForParty(ctx, u.CantonPartyID)
 	}
-}
+	if len(custodialParties) == 0 {
+		return
+	}
 
-func (w *AcceptWorker) acceptForParty(ctx context.Context, partyID string) {
 	page := 1
 	for {
-		result, err := w.indexer.GetPendingOffersForParty(ctx, partyID, indexer.Pagination{
+		result, err := w.indexer.GetAllPendingOffers(ctx, indexer.Pagination{
 			Page:  page,
 			Limit: acceptWorkerPageLimit,
 		})
 		if err != nil {
-			w.logger.Warn("accept worker: failed to fetch pending offers",
-				zap.String("party_id", partyID),
-				zap.Error(err),
-			)
+			w.logger.Warn("accept worker: failed to fetch pending offers", zap.Error(err))
 			return
 		}
 
 		for i := range result.Items {
 			offer := result.Items[i]
-			if err := w.cantonToken.AcceptTransferInstruction(ctx, partyID, offer.ContractID, offer.InstrumentAdmin); err != nil {
+			if !custodialParties[offer.ReceiverPartyID] {
+				continue
+			}
+			if err := w.cantonToken.AcceptTransferInstruction(
+				ctx, offer.ReceiverPartyID, offer.ContractID, offer.InstrumentAdmin,
+			); err != nil {
 				w.logger.Warn("accept worker: failed to accept offer",
-					zap.String("party_id", partyID),
+					zap.String("party_id", offer.ReceiverPartyID),
 					zap.String("contract_id", offer.ContractID),
 					zap.Error(err),
 				)
 				continue
 			}
 			w.logger.Info("accept worker: accepted transfer offer",
-				zap.String("party_id", partyID),
+				zap.String("party_id", offer.ReceiverPartyID),
 				zap.String("contract_id", offer.ContractID),
 				zap.String("sender", offer.SenderPartyID),
 				zap.String("amount", offer.Amount),

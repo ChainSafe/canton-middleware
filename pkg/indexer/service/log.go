@@ -297,3 +297,9 @@ func (ls *logService) GetPendingOffersForParty(
 ) (*indexer.Page[indexer.PendingOffer], error) {
 	return ls.svc.GetPendingOffersForParty(ctx, partyID, p)
 }
+
+func (ls *logService) GetAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	return ls.svc.GetAllPendingOffers(ctx, p)
+}
