@@ -2,6 +2,22 @@ package indexer
 
 import "time"
 
+// PendingOffer represents a TransferOffer contract awaiting receiver acceptance.
+// CREATED events add a row; ARCHIVED events remove it (IsArchived is decode-time only).
+type PendingOffer struct {
+	ContractID      string    `json:"contract_id"`
+	ReceiverPartyID string    `json:"receiver_party_id"`
+	SenderPartyID   string    `json:"sender_party_id"`
+	InstrumentAdmin string    `json:"instrument_admin"`
+	InstrumentID    string    `json:"instrument_id"`
+	Amount          string    `json:"amount"`
+	LedgerOffset    int64     `json:"ledger_offset"`
+	CreatedAt       time.Time `json:"created_at"`
+
+	// IsArchived is a decode-time signal only — not persisted.
+	IsArchived bool `json:"-"`
+}
+
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.
 // Derived from the fromParty/toParty Optional fields — mirrors ERC-20 Transfer semantics:
 //

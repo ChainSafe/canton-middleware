@@ -563,6 +563,66 @@ func (_c *Service_TotalSupply_Call) RunAndReturn(run func(context.Context, strin
 	return _c
 }
 
+// GetPendingOffersForParty provides a mock function with given fields: ctx, partyID, afterOffset
+func (_m *Service) GetPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error) {
+	ret := _m.Called(ctx, partyID, afterOffset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPendingOffersForParty")
+	}
+
+	var r0 []indexer.PendingOffer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int64) ([]indexer.PendingOffer, error)); ok {
+		return rf(ctx, partyID, afterOffset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int64) []indexer.PendingOffer); ok {
+		r0 = rf(ctx, partyID, afterOffset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]indexer.PendingOffer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int64) error); ok {
+		r1 = rf(ctx, partyID, afterOffset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetPendingOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPendingOffersForParty'
+type Service_GetPendingOffersForParty_Call struct {
+	*mock.Call
+}
+
+// GetPendingOffersForParty is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - afterOffset int64
+func (_e *Service_Expecter) GetPendingOffersForParty(ctx interface{}, partyID interface{}, afterOffset interface{}) *Service_GetPendingOffersForParty_Call {
+	return &Service_GetPendingOffersForParty_Call{Call: _e.mock.On("GetPendingOffersForParty", ctx, partyID, afterOffset)}
+}
+
+func (_c *Service_GetPendingOffersForParty_Call) Run(run func(ctx context.Context, partyID string, afterOffset int64)) *Service_GetPendingOffersForParty_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int64))
+	})
+	return _c
+}
+
+func (_c *Service_GetPendingOffersForParty_Call) Return(_a0 []indexer.PendingOffer, _a1 error) *Service_GetPendingOffersForParty_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetPendingOffersForParty_Call) RunAndReturn(run func(context.Context, string, int64) ([]indexer.PendingOffer, error)) *Service_GetPendingOffersForParty_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

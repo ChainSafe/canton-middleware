@@ -15,6 +15,9 @@ const (
 	metaKeyExternalTxID    = "bridge.externalTxId"
 	metaKeyExternalAddress = "bridge.externalAddress"
 	metaKeyFingerprint     = "bridge.fingerprint"
+
+	transferOfferModule = "Utility.Registry.App.V0.Model.Transfer"
+	transferOfferEntity = "TransferOffer"
 )
 
 // NewTokenTransferDecoder returns a decode function for use with streaming.NewStream.
@@ -123,5 +126,53 @@ func NewTokenTransferDecoder(
 			Timestamp:       ev.TimestampField("timestamp"),
 			EffectiveTime:   tx.EffectiveTime,
 		}, true
+	}
+}
+
+// NewOfferDecoder returns a decode function for TransferOffer CREATED and ARCHIVED events.
+// Returns nil, false when packageID is empty (feature disabled).
+func NewOfferDecoder(packageID string) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+	if packageID == "" {
+		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+			return nil, false
+		}
+	}
+	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+		if ev.PackageID != packageID || ev.ModuleName != transferOfferModule || ev.TemplateName != transferOfferEntity {
+			return nil, false
+		}
+		offer := &indexer.PendingOffer{
+			ContractID:   ev.ContractID,
+			IsArchived:   !ev.IsCreated,
+			LedgerOffset: tx.Offset,
+			CreatedAt:    tx.EffectiveTime,
+		}
+		if ev.IsCreated {
+			// TransferOffer has top-level sender/receiver/amount fields and an
+			// instrumentId: InstrumentId{ admin, id } record. Field names may
+			// need adjustment once tested against the real devnet template.
+			offer.ReceiverPartyID = ev.PartyField("receiver")
+			offer.SenderPartyID = ev.PartyField("sender")
+			offer.Amount = ev.NumericField("amount")
+			offer.InstrumentAdmin = ev.NestedPartyField("instrumentId", "admin")
+			offer.InstrumentID = ev.NestedTextField("instrumentId", "id")
+		}
+		return offer, true
+	}
+}
+
+// NewMultiDecoder wraps a TokenTransfer decoder and an Offer decoder into a single any-typed decode function.
+func NewMultiDecoder(
+	transferDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.ParsedEvent, bool),
+	offerDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool),
+) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (any, bool) {
+	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (any, bool) {
+		if item, ok := transferDecode(tx, ev); ok {
+			return item, true
+		}
+		if item, ok := offerDecode(tx, ev); ok {
+			return item, true
+		}
+		return nil, false
 	}
 }

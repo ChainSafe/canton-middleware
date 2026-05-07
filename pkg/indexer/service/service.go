@@ -26,6 +26,8 @@ type Store interface {
 	ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error)
 	// GetEvent looks up a single event by its unique contract ID.
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
+	// ListPendingOffersForParty returns pending TransferOffers for the given receiver party.
+	ListPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error)
 }
 
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
@@ -56,6 +58,9 @@ type Service interface {
 		f indexer.EventFilter,
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
+
+	// Pending inbound transfers for a custodial party.
+	GetPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error)
 }
 
 // NewService creates a new indexer Service backed by store.
@@ -163,4 +168,8 @@ func (s *svc) ListPartyEvents(
 		return nil, err
 	}
 	return &indexer.Page[*indexer.ParsedEvent]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
+}
+
+func (s *svc) GetPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error) {
+	return s.store.ListPendingOffersForParty(ctx, partyID, afterOffset)
 }

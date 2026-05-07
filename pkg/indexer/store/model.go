@@ -60,6 +60,21 @@ type OffsetDao struct {
 	LedgerOffset  int64 `bun:",notnull,default:0"`
 }
 
+// PendingOfferDao maps to the 'indexer_pending_offers' table.
+// Each row is a TransferOffer contract awaiting receiver acceptance.
+// Rows are inserted on CREATED events and deleted on ARCHIVED events.
+type PendingOfferDao struct {
+	bun.BaseModel   `bun:"table:indexer_pending_offers"`
+	ContractID      string    `bun:",pk,type:varchar(255)"`
+	ReceiverPartyID string    `bun:",notnull,type:varchar(255)"`
+	SenderPartyID   string    `bun:",notnull,type:varchar(255)"`
+	InstrumentAdmin string    `bun:",notnull,type:varchar(255)"`
+	InstrumentID    string    `bun:",notnull,type:varchar(255)"`
+	Amount          string    `bun:",notnull,type:text"`
+	LedgerOffset    int64     `bun:",notnull"`
+	CreatedAt       time.Time `bun:",notnull"`
+}
+
 func toEventDao(e *indexer.ParsedEvent) *EventDao {
 	return &EventDao{
 		ContractID:      e.ContractID,
@@ -118,5 +133,31 @@ func fromBalanceDao(d *BalanceDao) *indexer.Balance {
 		InstrumentAdmin: d.InstrumentAdmin,
 		InstrumentID:    d.InstrumentID,
 		Amount:          d.Amount,
+	}
+}
+
+func toPendingOfferDao(o *indexer.PendingOffer) *PendingOfferDao {
+	return &PendingOfferDao{
+		ContractID:      o.ContractID,
+		ReceiverPartyID: o.ReceiverPartyID,
+		SenderPartyID:   o.SenderPartyID,
+		InstrumentAdmin: o.InstrumentAdmin,
+		InstrumentID:    o.InstrumentID,
+		Amount:          o.Amount,
+		LedgerOffset:    o.LedgerOffset,
+		CreatedAt:       o.CreatedAt,
+	}
+}
+
+func fromPendingOfferDao(d *PendingOfferDao) indexer.PendingOffer {
+	return indexer.PendingOffer{
+		ContractID:      d.ContractID,
+		ReceiverPartyID: d.ReceiverPartyID,
+		SenderPartyID:   d.SenderPartyID,
+		InstrumentAdmin: d.InstrumentAdmin,
+		InstrumentID:    d.InstrumentID,
+		Amount:          d.Amount,
+		LedgerOffset:    d.LedgerOffset,
+		CreatedAt:       d.CreatedAt,
 	}
 }

@@ -39,6 +39,7 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances", apphttp.HandleError(h.listPartyBalances))
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
+		r.Get("/parties/{partyID}/pending-offers", apphttp.HandleError(h.listPendingOffers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
 	})
@@ -164,6 +165,27 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	h.writeJSON(w, e)
+	return nil
+}
+
+func (h *HTTP) listPendingOffers(w http.ResponseWriter, r *http.Request) error {
+	partyID := chi.URLParam(r, "partyID")
+	var afterOffset int64
+	if s := r.URL.Query().Get("after_offset"); s != "" {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || v < 0 {
+			return apperrors.BadRequestError(nil, "after_offset must be a non-negative integer")
+		}
+		afterOffset = v
+	}
+	offers, err := h.service.GetPendingOffersForParty(r.Context(), partyID, afterOffset)
+	if err != nil {
+		return err
+	}
+	if offers == nil {
+		offers = []indexer.PendingOffer{}
+	}
+	h.writeJSON(w, map[string]any{"items": offers})
 	return nil
 }
 

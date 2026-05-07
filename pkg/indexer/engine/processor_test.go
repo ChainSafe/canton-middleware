@@ -80,16 +80,20 @@ func transferEvent() *indexer.ParsedEvent {
 	}
 }
 
-func makeBatch(offset int64, events ...*indexer.ParsedEvent) *streaming.Batch[*indexer.ParsedEvent] {
-	return &streaming.Batch[*indexer.ParsedEvent]{
+func makeBatch(offset int64, events ...*indexer.ParsedEvent) *streaming.Batch[any] {
+	items := make([]any, len(events))
+	for i, e := range events {
+		items[i] = e
+	}
+	return &streaming.Batch[any]{
 		Offset:   offset,
 		UpdateID: "update-" + string(rune('0'+offset)),
-		Items:    events,
+		Items:    items,
 	}
 }
 
-func feedCh(batches ...*streaming.Batch[*indexer.ParsedEvent]) <-chan *streaming.Batch[*indexer.ParsedEvent] {
-	ch := make(chan *streaming.Batch[*indexer.ParsedEvent], len(batches))
+func feedCh(batches ...*streaming.Batch[any]) <-chan *streaming.Batch[any] {
+	ch := make(chan *streaming.Batch[any], len(batches))
 	for _, b := range batches {
 		ch <- b
 	}
@@ -136,11 +140,11 @@ func TestProcessor_Run_ContextCancelled(t *testing.T) {
 	store := mocks.NewStore(t)
 	fetcher := mocks.NewEventFetcher(t)
 
-	ch := make(chan *streaming.Batch[*indexer.ParsedEvent])
+	ch := make(chan *streaming.Batch[any])
 
 	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
 	fetcher.EXPECT().Start(mock.Anything, int64(0))
-	fetcher.EXPECT().Events().Return((<-chan *streaming.Batch[*indexer.ParsedEvent])(ch))
+	fetcher.EXPECT().Events().Return((<-chan *streaming.Batch[any])(ch))
 
 	done := make(chan error, 1)
 	go func() { done <- engine.NewProcessor(fetcher, store, zap.NewNop()).Run(ctx) }()

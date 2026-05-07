@@ -212,6 +212,52 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 	return nil
 }
 
+// ─── pending offer methods ───────────────────────────────────────────────────
+
+// InsertPendingOffer records a new TransferOffer. Idempotent by ContractID.
+func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	_, err := s.db.NewInsert().
+		Model(toPendingOfferDao(offer)).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert pending offer: %w", err)
+	}
+	return nil
+}
+
+// DeletePendingOffer removes a TransferOffer by ContractID. No-op when not found.
+func (s *PGStore) DeletePendingOffer(ctx context.Context, contractID string) error {
+	_, err := s.db.NewDelete().
+		Model((*PendingOfferDao)(nil)).
+		Where("contract_id = ?", contractID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("delete pending offer: %w", err)
+	}
+	return nil
+}
+
+// ListPendingOffersForParty returns offers where receiver = partyID and
+// ledger_offset > afterOffset, in ascending offset order.
+func (s *PGStore) ListPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error) {
+	var daos []PendingOfferDao
+	err := s.db.NewSelect().
+		Model(&daos).
+		Where("receiver_party_id = ?", partyID).
+		Where("ledger_offset > ?", afterOffset).
+		OrderExpr("ledger_offset ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list pending offers: %w", err)
+	}
+	offers := make([]indexer.PendingOffer, len(daos))
+	for i := range daos {
+		offers[i] = fromPendingOfferDao(&daos[i])
+	}
+	return offers, nil
+}
+
 // ─── service.Store read-path methods ─────────────────────────────────────────
 
 // GetToken retrieves token metadata by composite key. Returns nil, nil when not found.

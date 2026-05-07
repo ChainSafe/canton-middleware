@@ -17,6 +17,11 @@ type Config struct {
 	// Instruments is the whitelist of CIP-56 instruments to index.
 	// Only consulted when FilterMode is "whitelist".
 	Instruments []InstrumentKey `yaml:"instruments"`
+
+	// UtilityRegistryPackageID is the DAML package ID for the Utility Registry app
+	// (Utility.Registry.App.V0.Model.Transfer.TransferOffer).
+	// Leave empty to disable TransferOffer tracking.
+	UtilityRegistryPackageID string `yaml:"utility_registry_package_id"`
 }
 
 // FilterModeAndKeys converts the config into the domain FilterMode and instrument

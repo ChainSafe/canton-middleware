@@ -99,19 +99,30 @@ func (s *Server) Run() error {
 		return fmt.Errorf("create streaming client: %w", err)
 	}
 
-	// ── Template identifier ───────────────────────────────────────────────────
+	// ── Template identifiers ──────────────────────────────────────────────────
 
-	templateID := streaming.TemplateID{
+	transferEventTemplateID := streaming.TemplateID{
 		PackageID:  cfg.Indexer.CIP56PackageID,
 		ModuleName: "CIP56.Events",
 		EntityName: "TokenTransferEvent",
 	}
 
+	templateIDs := []streaming.TemplateID{transferEventTemplateID}
+	if cfg.Indexer.UtilityRegistryPackageID != "" {
+		templateIDs = append(templateIDs, streaming.TemplateID{
+			PackageID:  cfg.Indexer.UtilityRegistryPackageID,
+			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
+			EntityName: "TransferOffer",
+		})
+	}
+
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
-	decode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
-	fetcher := engine.NewFetcher(streamClient, templateID, decode, logger)
+	transferDecode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
+	offerDecode := engine.NewOfferDecoder(cfg.Indexer.UtilityRegistryPackageID)
+	decode := engine.NewMultiDecoder(transferDecode, offerDecode)
+	fetcher := engine.NewFetcher(streamClient, templateIDs, decode, logger)
 	store := indexerstore.NewStore(db)
 	processor := engine.NewProcessor(fetcher, store, logger)
 
