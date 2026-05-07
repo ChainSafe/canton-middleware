@@ -49,7 +49,7 @@ type Client interface {
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// Pending inbound transfers
-	GetPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error)
+	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -191,15 +191,15 @@ func (c *HTTP) ListPartyEvents(
 }
 
 // GetPendingOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/pending-offers.
-func (c *HTTP) GetPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error) {
-	u := c.partyBase(partyID) + "/pending-offers?after_offset=" + strconv.FormatInt(afterOffset, 10)
-	var resp struct {
-		Items []indexer.PendingOffer `json:"items"`
-	}
-	if err := c.getJSON(ctx, u, &resp); err != nil {
+func (c *HTTP) GetPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	u := c.partyBase(partyID) + "/pending-offers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.PendingOffer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
 		return nil, fmt.Errorf("pending offers for party %s: %w", partyID, err)
 	}
-	return resp.Items, nil
+	return &page, nil
 }
 
 func (c *HTTP) tokenBase(admin, id string) string {

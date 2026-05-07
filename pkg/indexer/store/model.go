@@ -61,11 +61,12 @@ type OffsetDao struct {
 }
 
 // PendingOfferDao maps to the 'indexer_pending_offers' table.
-// Each row is a TransferOffer contract awaiting receiver acceptance.
-// Rows are inserted on CREATED events and deleted on ARCHIVED events.
+// Rows are written on TransferOffer CREATED events and updated (status→ACCEPTED)
+// on ARCHIVED events. Rows are never deleted — the table is a full audit log.
 type PendingOfferDao struct {
 	bun.BaseModel   `bun:"table:indexer_pending_offers"`
 	ContractID      string    `bun:",pk,type:varchar(255)"`
+	Status          string    `bun:",notnull,type:varchar(20),default:'PENDING'"`
 	ReceiverPartyID string    `bun:",notnull,type:varchar(255)"`
 	SenderPartyID   string    `bun:",notnull,type:varchar(255)"`
 	InstrumentAdmin string    `bun:",notnull,type:varchar(255)"`
@@ -139,6 +140,7 @@ func fromBalanceDao(d *BalanceDao) *indexer.Balance {
 func toPendingOfferDao(o *indexer.PendingOffer) *PendingOfferDao {
 	return &PendingOfferDao{
 		ContractID:      o.ContractID,
+		Status:          string(o.Status),
 		ReceiverPartyID: o.ReceiverPartyID,
 		SenderPartyID:   o.SenderPartyID,
 		InstrumentAdmin: o.InstrumentAdmin,
@@ -152,6 +154,7 @@ func toPendingOfferDao(o *indexer.PendingOffer) *PendingOfferDao {
 func fromPendingOfferDao(d *PendingOfferDao) indexer.PendingOffer {
 	return indexer.PendingOffer{
 		ContractID:      d.ContractID,
+		Status:          indexer.OfferStatus(d.Status),
 		ReceiverPartyID: d.ReceiverPartyID,
 		SenderPartyID:   d.SenderPartyID,
 		InstrumentAdmin: d.InstrumentAdmin,

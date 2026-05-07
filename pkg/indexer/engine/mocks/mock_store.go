@@ -377,12 +377,12 @@ func (_c *Store_UpsertToken_Call) RunAndReturn(run func(context.Context, *indexe
 	return _c
 }
 
-// DeletePendingOffer provides a mock function with given fields: ctx, contractID
-func (_m *Store) DeletePendingOffer(ctx context.Context, contractID string) error {
+// MarkOfferAccepted provides a mock function with given fields: ctx, contractID
+func (_m *Store) MarkOfferAccepted(ctx context.Context, contractID string) error {
 	ret := _m.Called(ctx, contractID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeletePendingOffer")
+		panic("no return value specified for MarkOfferAccepted")
 	}
 
 	var r0 error
@@ -395,31 +395,31 @@ func (_m *Store) DeletePendingOffer(ctx context.Context, contractID string) erro
 	return r0
 }
 
-// Store_DeletePendingOffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeletePendingOffer'
-type Store_DeletePendingOffer_Call struct {
+// Store_MarkOfferAccepted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkOfferAccepted'
+type Store_MarkOfferAccepted_Call struct {
 	*mock.Call
 }
 
-// DeletePendingOffer is a helper method to define mock.On call
+// MarkOfferAccepted is a helper method to define mock.On call
 //   - ctx context.Context
 //   - contractID string
-func (_e *Store_Expecter) DeletePendingOffer(ctx interface{}, contractID interface{}) *Store_DeletePendingOffer_Call {
-	return &Store_DeletePendingOffer_Call{Call: _e.mock.On("DeletePendingOffer", ctx, contractID)}
+func (_e *Store_Expecter) MarkOfferAccepted(ctx any, contractID any) *Store_MarkOfferAccepted_Call {
+	return &Store_MarkOfferAccepted_Call{Call: _e.mock.On("MarkOfferAccepted", ctx, contractID)}
 }
 
-func (_c *Store_DeletePendingOffer_Call) Run(run func(ctx context.Context, contractID string)) *Store_DeletePendingOffer_Call {
+func (_c *Store_MarkOfferAccepted_Call) Run(run func(ctx context.Context, contractID string)) *Store_MarkOfferAccepted_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *Store_DeletePendingOffer_Call) Return(_a0 error) *Store_DeletePendingOffer_Call {
+func (_c *Store_MarkOfferAccepted_Call) Return(_a0 error) *Store_MarkOfferAccepted_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Store_DeletePendingOffer_Call) RunAndReturn(run func(context.Context, string) error) *Store_DeletePendingOffer_Call {
+func (_c *Store_MarkOfferAccepted_Call) RunAndReturn(run func(context.Context, string) error) *Store_MarkOfferAccepted_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -467,66 +467,6 @@ func (_c *Store_InsertPendingOffer_Call) Return(_a0 error) *Store_InsertPendingO
 }
 
 func (_c *Store_InsertPendingOffer_Call) RunAndReturn(run func(context.Context, *indexer.PendingOffer) error) *Store_InsertPendingOffer_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListPendingOffersForParty provides a mock function with given fields: ctx, partyID, afterOffset
-func (_m *Store) ListPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error) {
-	ret := _m.Called(ctx, partyID, afterOffset)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListPendingOffersForParty")
-	}
-
-	var r0 []indexer.PendingOffer
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, int64) ([]indexer.PendingOffer, error)); ok {
-		return rf(ctx, partyID, afterOffset)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, int64) []indexer.PendingOffer); ok {
-		r0 = rf(ctx, partyID, afterOffset)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]indexer.PendingOffer)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, int64) error); ok {
-		r1 = rf(ctx, partyID, afterOffset)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Store_ListPendingOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPendingOffersForParty'
-type Store_ListPendingOffersForParty_Call struct {
-	*mock.Call
-}
-
-// ListPendingOffersForParty is a helper method to define mock.On call
-//   - ctx context.Context
-//   - partyID string
-//   - afterOffset int64
-func (_e *Store_Expecter) ListPendingOffersForParty(ctx interface{}, partyID interface{}, afterOffset interface{}) *Store_ListPendingOffersForParty_Call {
-	return &Store_ListPendingOffersForParty_Call{Call: _e.mock.On("ListPendingOffersForParty", ctx, partyID, afterOffset)}
-}
-
-func (_c *Store_ListPendingOffersForParty_Call) Run(run func(ctx context.Context, partyID string, afterOffset int64)) *Store_ListPendingOffersForParty_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(int64))
-	})
-	return _c
-}
-
-func (_c *Store_ListPendingOffersForParty_Call) Return(_a0 []indexer.PendingOffer, _a1 error) *Store_ListPendingOffersForParty_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Store_ListPendingOffersForParty_Call) RunAndReturn(run func(context.Context, string, int64) ([]indexer.PendingOffer, error)) *Store_ListPendingOffersForParty_Call {
 	_c.Call.Return(run)
 	return _c
 }

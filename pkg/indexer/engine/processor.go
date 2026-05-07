@@ -81,15 +81,14 @@ type Store interface {
 	// Called once per mint (+amount) or burn (-amount). Transfer events must not call this.
 	ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error
 
-	// InsertPendingOffer records a new pending TransferOffer (idempotent by ContractID).
+	// InsertPendingOffer records a new TransferOffer (idempotent by ContractID).
+	// Status is set to PENDING on insert.
 	InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error
 
-	// DeletePendingOffer removes a TransferOffer by ContractID (no-op when not found).
-	DeletePendingOffer(ctx context.Context, contractID string) error
-
-	// ListPendingOffersForParty returns pending offers where receiver = partyID
-	// with ledger_offset > afterOffset, in ascending offset order.
-	ListPendingOffersForParty(ctx context.Context, partyID string, afterOffset int64) ([]indexer.PendingOffer, error)
+	// MarkOfferAccepted transitions a TransferOffer to ACCEPTED status when the Canton
+	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
+	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
+	MarkOfferAccepted(ctx context.Context, contractID string) error
 }
 
 // Processor is the main run loop of the indexer. It wires the EventFetcher to the
@@ -191,8 +190,8 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				}
 			case *indexer.PendingOffer:
 				if item.IsArchived {
-					if err := tx.DeletePendingOffer(ctx, item.ContractID); err != nil {
-						return fmt.Errorf("delete pending offer %s: %w", item.ContractID, err)
+					if err := tx.MarkOfferAccepted(ctx, item.ContractID); err != nil {
+						return fmt.Errorf("mark offer accepted %s: %w", item.ContractID, err)
 					}
 				} else {
 					if err := tx.InsertPendingOffer(ctx, item); err != nil {
