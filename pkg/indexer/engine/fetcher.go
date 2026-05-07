@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
-	"github.com/chainsafe/canton-middleware/pkg/indexer"
 
 	"go.uber.org/zap"
 )
@@ -16,34 +15,34 @@ import (
 //
 // Typical usage:
 //
-//	decode := engine.NewTokenTransferDecoder(mode, allowed, logger)
-//	f := engine.NewFetcher(streamClient, templateID, decode, logger)
+//	decode := engine.NewMultiDecoder(transferDecode, offerDecode)
+//	f := engine.NewFetcher(streamClient, templateIDs, decode, logger)
 //	f.Start(ctx, lastProcessedOffset)
 //	for batch := range f.Events() { ... }
 type Fetcher struct {
-	stream     *streaming.Stream[*indexer.ParsedEvent]
-	templateID streaming.TemplateID
-	out        <-chan *streaming.Batch[*indexer.ParsedEvent]
-	once       sync.Once
-	logger     *zap.Logger
+	stream      *streaming.Stream[any]
+	templateIDs []streaming.TemplateID
+	out         <-chan *streaming.Batch[any]
+	once        sync.Once
+	logger      *zap.Logger
 }
 
 // NewFetcher creates a new Fetcher.
 //
-//   - streamer:   Canton streaming client (handles reconnection, auth, backoff)
-//   - templateID: DAML template to subscribe to (e.g. TokenTransferEvent)
-//   - decode:     per-event decode function (see NewTokenTransferDecoder)
-//   - logger:     caller-provided logger
+//   - streamer:     Canton streaming client (handles reconnection, auth, backoff)
+//   - templateIDs:  DAML templates to subscribe to
+//   - decode:       per-event decode function (see NewMultiDecoder)
+//   - logger:       caller-provided logger
 func NewFetcher(
 	streamer streaming.Streamer,
-	templateID streaming.TemplateID,
-	decode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.ParsedEvent, bool),
+	templateIDs []streaming.TemplateID,
+	decode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (any, bool),
 	logger *zap.Logger,
 ) *Fetcher {
 	return &Fetcher{
-		stream:     streaming.NewStream(streamer, decode),
-		templateID: templateID,
-		logger:     logger,
+		stream:      streaming.NewStream(streamer, decode),
+		templateIDs: templateIDs,
+		logger:      logger,
 	}
 }
 
@@ -63,13 +62,13 @@ func (f *Fetcher) Start(ctx context.Context, offset int64) {
 
 		f.out = f.stream.Subscribe(ctx, streaming.SubscribeRequest{
 			FromOffset:  offset,
-			TemplateIDs: []streaming.TemplateID{f.templateID},
+			TemplateIDs: f.templateIDs,
 		}, &lastOffset)
 	})
 }
 
 // Events returns the read-only channel of decoded batches.
 // Must be called after Start. The channel is closed when the stream terminates.
-func (f *Fetcher) Events() <-chan *streaming.Batch[*indexer.ParsedEvent] {
+func (f *Fetcher) Events() <-chan *streaming.Batch[any] {
 	return f.out
 }

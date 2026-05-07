@@ -470,6 +470,73 @@ func (_c *Store_ListTokens_Call) RunAndReturn(run func(context.Context, indexer.
 	return _c
 }
 
+// ListPendingOffersForParty provides a mock function with given fields: ctx, partyID, p
+func (_m *Store) ListPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]indexer.PendingOffer, int64, error) {
+	ret := _m.Called(ctx, partyID, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPendingOffersForParty")
+	}
+
+	var r0 []indexer.PendingOffer
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) ([]indexer.PendingOffer, int64, error)); ok {
+		return rf(ctx, partyID, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) []indexer.PendingOffer); ok {
+		r0 = rf(ctx, partyID, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]indexer.PendingOffer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.Pagination) int64); ok {
+		r1 = rf(ctx, partyID, p)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, indexer.Pagination) error); ok {
+		r2 = rf(ctx, partyID, p)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// Store_ListPendingOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPendingOffersForParty'
+type Store_ListPendingOffersForParty_Call struct {
+	*mock.Call
+}
+
+// ListPendingOffersForParty is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - p indexer.Pagination
+func (_e *Store_Expecter) ListPendingOffersForParty(ctx any, partyID any, p any) *Store_ListPendingOffersForParty_Call {
+	return &Store_ListPendingOffersForParty_Call{Call: _e.mock.On("ListPendingOffersForParty", ctx, partyID, p)}
+}
+
+func (_c *Store_ListPendingOffersForParty_Call) Run(run func(ctx context.Context, partyID string, p indexer.Pagination)) *Store_ListPendingOffersForParty_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(indexer.Pagination))
+	})
+	return _c
+}
+
+func (_c *Store_ListPendingOffersForParty_Call) Return(_a0 []indexer.PendingOffer, _a1 int64, _a2 error) *Store_ListPendingOffersForParty_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *Store_ListPendingOffersForParty_Call) RunAndReturn(run func(context.Context, string, indexer.Pagination) ([]indexer.PendingOffer, int64, error)) *Store_ListPendingOffersForParty_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewStore creates a new instance of Store. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewStore(t interface {
