@@ -27,3 +27,19 @@ type ExecuteRequest struct {
 type ExecuteResponse struct {
 	Status string `json:"status"` // "completed"
 }
+
+// IncomingTransfer represents a single pending inbound transfer offer.
+type IncomingTransfer struct {
+	ContractID string `json:"contract_id"`
+}
+
+// ListIncomingResponse is the HTTP response body for GET /transfer/incoming.
+type ListIncomingResponse struct {
+	Items []IncomingTransfer `json:"items"`
+	Total int                `json:"total"`
+}
+
+// PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.
+type PrepareAcceptRequest struct {
+	InstrumentAdmin string `json:"instrument_admin"` // Canton party ID of the instrument admin
+}
