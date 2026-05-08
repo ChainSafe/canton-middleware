@@ -23,12 +23,12 @@ func (_m *UserLister) EXPECT() *UserLister_Expecter {
 	return &UserLister_Expecter{mock: &_m.Mock}
 }
 
-// ListUsers provides a mock function with given fields: ctx
-func (_m *UserLister) ListUsers(ctx context.Context) ([]*user.User, error) {
+// ListCustodialUsers provides a mock function with given fields: ctx
+func (_m *UserLister) ListCustodialUsers(ctx context.Context) ([]*user.User, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListUsers")
+		panic("no return value specified for ListCustodialUsers")
 	}
 
 	var r0 []*user.User
@@ -53,30 +53,30 @@ func (_m *UserLister) ListUsers(ctx context.Context) ([]*user.User, error) {
 	return r0, r1
 }
 
-// UserLister_ListUsers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListUsers'
-type UserLister_ListUsers_Call struct {
+// UserLister_ListCustodialUsers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCustodialUsers'
+type UserLister_ListCustodialUsers_Call struct {
 	*mock.Call
 }
 
-// ListUsers is a helper method to define mock.On call
+// ListCustodialUsers is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *UserLister_Expecter) ListUsers(ctx interface{}) *UserLister_ListUsers_Call {
-	return &UserLister_ListUsers_Call{Call: _e.mock.On("ListUsers", ctx)}
+func (_e *UserLister_Expecter) ListCustodialUsers(ctx interface{}) *UserLister_ListCustodialUsers_Call {
+	return &UserLister_ListCustodialUsers_Call{Call: _e.mock.On("ListCustodialUsers", ctx)}
 }
 
-func (_c *UserLister_ListUsers_Call) Run(run func(ctx context.Context)) *UserLister_ListUsers_Call {
+func (_c *UserLister_ListCustodialUsers_Call) Run(run func(ctx context.Context)) *UserLister_ListCustodialUsers_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *UserLister_ListUsers_Call) Return(_a0 []*user.User, _a1 error) *UserLister_ListUsers_Call {
+func (_c *UserLister_ListCustodialUsers_Call) Return(_a0 []*user.User, _a1 error) *UserLister_ListCustodialUsers_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *UserLister_ListUsers_Call) RunAndReturn(run func(context.Context) ([]*user.User, error)) *UserLister_ListUsers_Call {
+func (_c *UserLister_ListCustodialUsers_Call) RunAndReturn(run func(context.Context) ([]*user.User, error)) *UserLister_ListCustodialUsers_Call {
 	_c.Call.Return(run)
 	return _c
 }

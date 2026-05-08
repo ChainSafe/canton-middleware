@@ -99,6 +99,21 @@ func (s *pgStore) ListUsers(ctx context.Context) ([]*user.User, error) {
 	return users, nil
 }
 
+func (s *pgStore) ListCustodialUsers(ctx context.Context) ([]*user.User, error) {
+	var daos []UserDao
+	err := s.db.NewSelect().Model(&daos).
+		Where("key_mode = ?", user.KeyModeCustodial).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list custodial users: %w", err)
+	}
+	users := make([]*user.User, len(daos))
+	for i := range daos {
+		users[i] = toUser(&daos[i])
+	}
+	return users, nil
+}
+
 func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	exists, err := s.db.NewSelect().
 		Model(&WhitelistDao{}).

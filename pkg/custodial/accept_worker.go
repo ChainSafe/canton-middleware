@@ -20,7 +20,7 @@ const acceptWorkerPageLimit = 200
 //go:generate mockery --name UserLister --output mocks --outpkg mocks --filename mock_user_lister.go --with-expecter
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 type UserLister interface {
-	ListUsers(ctx context.Context) ([]*user.User, error)
+	ListCustodialUsers(ctx context.Context) ([]*user.User, error)
 }
 
 // AcceptWorker polls the indexer for all pending TransferOffers and automatically
@@ -77,20 +77,18 @@ func (w *AcceptWorker) Run(ctx context.Context) {
 }
 
 func (w *AcceptWorker) acceptPending(ctx context.Context) {
-	users, err := w.userLister.ListUsers(ctx)
+	users, err := w.userLister.ListCustodialUsers(ctx)
 	if err != nil {
-		w.logger.Warn("accept worker: failed to list users", zap.Error(err))
+		w.logger.Warn("accept worker: failed to list custodial users", zap.Error(err))
+		return
+	}
+	if len(users) == 0 {
 		return
 	}
 
 	custodialParties := make(map[string]bool, len(users))
 	for _, u := range users {
-		if u.KeyMode == user.KeyModeCustodial {
-			custodialParties[u.CantonPartyID] = true
-		}
-	}
-	if len(custodialParties) == 0 {
-		return
+		custodialParties[u.CantonPartyID] = true
 	}
 
 	page := 1

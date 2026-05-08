@@ -24,14 +24,6 @@ func custodialUser() *user.User {
 	}
 }
 
-func externalUser() *user.User {
-	return &user.User{
-		EVMAddress:    "0xdddddddddddddddddddddddddddddddddddddddd",
-		CantonPartyID: "external-party::def",
-		KeyMode:       user.KeyModeExternal,
-	}
-}
-
 const testInstrumentAdmin = "admin-party::zzz"
 
 func pendingOffer(contractID string) indexer.PendingOffer {
@@ -56,19 +48,16 @@ func allOffersPage(offers ...indexer.PendingOffer) *indexer.Page[indexer.Pending
 	}
 }
 
-func TestAcceptWorker_SkipsExternalUsers(t *testing.T) {
+func TestAcceptWorker_NoCustodialUsers(t *testing.T) {
 	tok := mocks.NewToken(t)
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
-	// Only external user — custodialParties map is empty so worker returns early
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{externalUser()}, nil)
+	// DB returns no custodial users — worker exits early, no indexer call
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{}, nil)
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	worker.acceptPending(ctx)
+	worker.acceptPending(context.Background())
 }
 
 func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
@@ -79,7 +68,7 @@ func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
 	offer := pendingOffer("contract-1")
 	page := allOffersPage(offer)
 
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page, nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-1", testInstrumentAdmin).
@@ -89,24 +78,26 @@ func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
 	worker.acceptPending(context.Background())
 }
 
-func TestAcceptWorker_SkipsOffersForNonCustodialParties(t *testing.T) {
+func TestAcceptWorker_SkipsOffersForUnregisteredParties(t *testing.T) {
 	tok := mocks.NewToken(t)
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
 	// Offer for a party not in our custodialParties map
-	nonCustodialOffer := indexer.PendingOffer{
-		ContractID:      "contract-external",
-		ReceiverPartyID: "external-party::def",
+	unregisteredOffer := indexer.PendingOffer{
+		ContractID:      "contract-unknown",
+		ReceiverPartyID: "unknown-party::xyz",
 		InstrumentAdmin: testInstrumentAdmin,
 	}
 	custodialOffer := pendingOffer("contract-custodial")
-	page := allOffersPage(nonCustodialOffer, custodialOffer)
-	page.Total = 2
+	page := &indexer.Page[indexer.PendingOffer]{
+		Items: []indexer.PendingOffer{unregisteredOffer, custodialOffer},
+		Total: 2, Page: 1, Limit: acceptWorkerPageLimit,
+	}
 
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
-	// Only the custodial offer should be accepted
+	// Only the registered custodial offer should be accepted
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-custodial", testInstrumentAdmin).
 		Return(nil)
 
@@ -123,17 +114,13 @@ func TestAcceptWorker_LogsAndContinuesOnAcceptError(t *testing.T) {
 	offer2 := pendingOffer("contract-2")
 	page := &indexer.Page[indexer.PendingOffer]{
 		Items: []indexer.PendingOffer{offer1, offer2},
-		Total: 2,
-		Page:  1,
-		Limit: acceptWorkerPageLimit,
+		Total: 2, Page: 1, Limit: acceptWorkerPageLimit,
 	}
 
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
-	// First offer fails
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).
 		Return(errors.New("ALREADY_EXISTS"))
-	// Second offer should still be attempted
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).
 		Return(nil)
 
@@ -146,12 +133,11 @@ func TestAcceptWorker_LogsAndContinuesOnIndexerError(t *testing.T) {
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).
 		Return(nil, errors.New("indexer unavailable"))
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
-	// Must not panic or call AcceptTransferInstruction
 	worker.acceptPending(context.Background())
 }
 
@@ -160,7 +146,7 @@ func TestAcceptWorker_StopsOnContextCancel(t *testing.T) {
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
-	lister.EXPECT().ListUsers(mock.Anything).Maybe().Return([]*user.User{}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Maybe().Return([]*user.User{}, nil)
 
 	worker := NewAcceptWorker(tok, lister, ic, 50*time.Millisecond, zap.NewNop())
 
@@ -191,7 +177,7 @@ func TestAcceptWorker_PaginatesAllOffers(t *testing.T) {
 	page1 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer1}, Total: 400, Page: 1, Limit: acceptWorkerPageLimit}
 	page2 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer2}, Total: 400, Page: 2, Limit: acceptWorkerPageLimit}
 
-	lister.EXPECT().ListUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page1, nil)
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 2, Limit: acceptWorkerPageLimit}).
@@ -203,12 +189,12 @@ func TestAcceptWorker_PaginatesAllOffers(t *testing.T) {
 	worker.acceptPending(context.Background())
 }
 
-func TestAcceptWorker_ListUsersError(t *testing.T) {
+func TestAcceptWorker_ListCustodialUsersError(t *testing.T) {
 	tok := mocks.NewToken(t)
 	lister := mocks.NewUserLister(t)
 	ic := indexermocks.NewClient(t)
 
-	lister.EXPECT().ListUsers(mock.Anything).Return(nil, errors.New("db down"))
+	lister.EXPECT().ListCustodialUsers(mock.Anything).Return(nil, errors.New("db down"))
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
 	require.NotPanics(t, func() { worker.acceptPending(context.Background()) })
