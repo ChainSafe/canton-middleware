@@ -1186,6 +1186,7 @@ func (c *Client) PrepareAcceptTransfer(
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 		PartyID:              partyID,
+		ExpiresAt:            time.Now().Add(defaultTransferValidity),
 	}
 
 	c.logger.Info("prepared non-custodial accept",
