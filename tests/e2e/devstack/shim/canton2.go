@@ -192,3 +192,14 @@ func (*Canton2Shim) InitiateWithdrawal(_ context.Context, _, _, _, _ string) (st
 func (*Canton2Shim) ProcessWithdrawal(_ context.Context, _ string) (string, error) {
 	return "", errP2NotSupported
 }
+
+// FindPendingInboundTransferInstructions is not supported on Participant 2
+// (P2 is the issuer, not the receiver).
+func (*Canton2Shim) FindPendingInboundTransferInstructions(_ context.Context, _ string) ([]string, error) {
+	return nil, errP2NotSupported
+}
+
+// AcceptTransferInstruction is not supported on Participant 2.
+func (*Canton2Shim) AcceptTransferInstruction(_ context.Context, _, _, _ string) error {
+	return errP2NotSupported
+}

@@ -28,9 +28,10 @@ const (
 	apiServerPort   = 8081
 	relayerPort     = 8080
 	indexerPort     = 8082
-	mockOAuth2Port  = 8088
-	postgresPort    = 5432
-	maxErrorBody    = 4096
+	mockOAuth2Port     = 8088
+	postgresPort       = 5432
+	usdcxRegistryPort  = 8090
+	maxErrorBody       = 4096
 )
 
 // ServiceDiscovery resolves running container ports and reads the bootstrap
@@ -74,17 +75,18 @@ type deployManifest struct {
 func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest, error) {
 	// Phase 1: resolve all endpoints and the postgres host in parallel.
 	var (
-		anvilRPC     string
-		cantonGRPC   string
-		canton2GRPC  string
-		cantonHTTP   string
-		canton2HTTP  string
-		apiHTTP      string
-		relayerHTTP  string
-		indexerHTTP  string
-		oauthHTTP    string
-		postgresHost string
-		dm           *deployManifest
+		anvilRPC          string
+		cantonGRPC        string
+		canton2GRPC       string
+		cantonHTTP        string
+		canton2HTTP       string
+		apiHTTP           string
+		relayerHTTP       string
+		indexerHTTP       string
+		oauthHTTP         string
+		usdcxRegistryHTTP string
+		postgresHost      string
+		dm                *deployManifest
 	)
 
 	g1, gctx := errgroup.WithContext(ctx)
@@ -97,6 +99,7 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 	g1.Go(func() (err error) { relayerHTTP, err = d.httpEndpoint(gctx, "relayer", relayerPort); return })
 	g1.Go(func() (err error) { indexerHTTP, err = d.httpEndpoint(gctx, "indexer", indexerPort); return })
 	g1.Go(func() (err error) { oauthHTTP, err = d.httpEndpoint(gctx, "mock-oauth2", mockOAuth2Port); return })
+	g1.Go(func() (err error) { usdcxRegistryHTTP, err = d.httpEndpoint(gctx, "usdcx-registry", usdcxRegistryPort); return })
 	g1.Go(func() (err error) { postgresHost, err = d.publishedPort(gctx, "postgres", postgresPort); return })
 	g1.Go(func() (err error) { dm, err = d.readDeployManifest(gctx); return })
 	if err := g1.Wait(); err != nil {
@@ -132,6 +135,7 @@ func (d *ServiceDiscovery) Manifest(ctx context.Context) (*stack.ServiceManifest
 		DemoInstrumentID:      dm.DemoInstrumentID,
 		USDCxInstrumentAdmin:  dm.USDCxInstrumentAdmin,
 		USDCxInstrumentID:     dm.USDCxInstrumentID,
+		USDCxRegistryHTTP:     usdcxRegistryHTTP,
 		CantonDomainID:        cantonDomainID,
 		DemoTokenAddr:         stack.DemoTokenVirtualAddr,
 	}, nil

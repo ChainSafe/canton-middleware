@@ -52,6 +52,33 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 	t.Fatal("timeout waiting for relayer to be ready")
 }
 
+// WaitForPendingTransferOffer polls Canton until at least one TransferOffer is
+// pending for partyID in the ACS, then returns the first contract ID. Fails
+// the test if no offer appears within 60 seconds.
+func (d *DSL) WaitForPendingTransferOffer(ctx context.Context, t *testing.T, partyID string) string {
+	t.Helper()
+	if d.canton == nil {
+		t.Fatal("WaitForPendingTransferOffer not available: Canton shim not initialized")
+		return ""
+	}
+	deadline := time.Now().Add(cantonBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		ids, err := d.canton.FindPendingInboundTransferInstructions(ctx, partyID)
+		if err == nil && len(ids) > 0 {
+			return ids[0]
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for pending TransferOffer")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for pending TransferOffer for party %s", partyID)
+	return ""
+}
+
 // WaitForCantonBalance polls the indexer until partyID holds at least
 // minAmount for the token identified by (admin, id), or the 60s timeout
 // is reached.

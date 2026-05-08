@@ -108,6 +108,17 @@ type Canton interface {
 	// Implementations that do not support direct token transfer (e.g. the P1
 	// shim when no CIP56TransferFactory exists for the token) return an error.
 	TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error
+
+	// FindPendingInboundTransferInstructions returns contract IDs of active
+	// TransferOffer contracts where partyID is the designated receiver.
+	// Used to discover offers that require an explicit accept step.
+	FindPendingInboundTransferInstructions(ctx context.Context, partyID string) ([]string, error)
+
+	// AcceptTransferInstruction accepts a pending inbound transfer offer.
+	// partyID is the receiving party, contractID is the TransferOffer contract
+	// ID, and instrumentAdmin is the issuer party used to look up the registry
+	// endpoint for the accept choice-context.
+	AcceptTransferInstruction(ctx context.Context, partyID, contractID, instrumentAdmin string) error
 }
 
 // APIServer is the interface for the canton-middleware api-server.

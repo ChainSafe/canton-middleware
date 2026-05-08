@@ -146,4 +146,9 @@ type ServiceManifest struct {
 	// USDCxInstrumentID is the instrument identifier of the USDCx token
 	// (e.g. "USDCx").
 	USDCxInstrumentID string
+
+	// USDCxRegistryHTTP is the base URL of the usdcx-registry service
+	// (e.g. "http://localhost:8090"). Used to look up the accept choice-context
+	// when exercising TransferInstruction_Accept for USDCx transfers.
+	USDCxRegistryHTTP string
 }
