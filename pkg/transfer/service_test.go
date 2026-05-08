@@ -240,3 +240,154 @@ func TestTransferService_Execute_InvalidSignature_ReturnsForbidden(t *testing.T)
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
 }
+
+// --- ListIncoming tests ---
+
+func TestTransferService_ListIncoming_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().FindPendingInboundTransferInstructions(ctx, sender.CantonPartyID).
+		Return([]string{"cid-1", "cid-2"}, nil).Once()
+
+	svc := newTestService(tok, store, mocks.NewTransferCache(t))
+
+	resp, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	require.NoError(t, err)
+	assert.Equal(t, 2, resp.Total)
+	assert.Equal(t, "cid-1", resp.Items[0].ContractID)
+	assert.Equal(t, "cid-2", resp.Items[1].ContractID)
+}
+
+func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+
+	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress)
+	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
+}
+
+func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	sender.KeyMode = user.KeyModeCustodial
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+
+	_, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+// --- PrepareAccept tests ---
+
+func TestTransferService_PrepareAccept_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	const contractID = "offer-contract-1"
+	const instrumentAdmin = "admin::zzz"
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	pt := &token.PreparedTransfer{
+		TransferID:      "accept-txn-1",
+		TransactionHash: []byte{0xab, 0xcd},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareAcceptTransfer(ctx, sender.CantonPartyID, contractID, instrumentAdmin).
+		Return(pt, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(pt).Return(nil).Once()
+
+	svc := newTestService(tok, store, cache)
+
+	resp, err := svc.PrepareAccept(ctx, sender.EVMAddress, contractID, &PrepareAcceptRequest{
+		InstrumentAdmin: instrumentAdmin,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "accept-txn-1", resp.TransferID)
+	assert.Equal(t, "0xabcd", resp.TransactionHash)
+	assert.Equal(t, sender.CantonPartyID, resp.PartyID)
+}
+
+func TestTransferService_PrepareAccept_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+
+	_, err := svc.PrepareAccept(ctx, senderUser().EVMAddress, "cid-1", &PrepareAcceptRequest{
+		InstrumentAdmin: "admin::zzz",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
+}
+
+func TestTransferService_PrepareAccept_CustodialUserRejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	sender.KeyMode = user.KeyModeCustodial
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+
+	_, err := svc.PrepareAccept(ctx, sender.EVMAddress, "cid-1", &PrepareAcceptRequest{
+		InstrumentAdmin: "admin::zzz",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+// --- ExecuteAccept tests ---
+
+func TestTransferService_ExecuteAccept_DelegatesToExecute(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	pt := &token.PreparedTransfer{
+		TransferID:      "accept-exec-1",
+		TransactionHash: []byte{0xff},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().GetAndDelete("accept-exec-1").Return(pt, nil).Once()
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().ExecuteTransfer(ctx, mock.MatchedBy(func(req *token.ExecuteTransferRequest) bool {
+		return req.PreparedTransfer == pt && req.SignedBy == sender.CantonPublicKeyFingerprint
+	})).Return(nil).Once()
+
+	svc := newTestService(tok, store, cache)
+
+	resp, err := svc.ExecuteAccept(ctx, sender.EVMAddress, &ExecuteRequest{
+		TransferID: "accept-exec-1",
+		Signature:  "0xdeadbeef",
+		SignedBy:   sender.CantonPublicKeyFingerprint,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "completed", resp.Status)
+}

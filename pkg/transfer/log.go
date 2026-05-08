@@ -116,6 +116,106 @@ func (ls *logService) Execute(
 	return ls.svc.Execute(ctx, senderEVMAddr, req)
 }
 
+// ListIncoming wraps the service method with logging.
+func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *ListIncomingResponse, err error) {
+	start := time.Now()
+	ls.logger.Info("ListIncoming started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "ListIncoming"),
+		zap.String("evm_addr", evmAddr),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("ListIncoming failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListIncoming"),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("ListIncoming completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListIncoming"),
+				zap.Int("total", resp.Total),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.ListIncoming(ctx, evmAddr)
+}
+
+// PrepareAccept wraps the service method with logging.
+func (ls *logService) PrepareAccept(
+	ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
+) (resp *PrepareResponse, err error) {
+	start := time.Now()
+	ls.logger.Info("PrepareAccept started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "PrepareAccept"),
+		zap.String("evm_addr", evmAddr),
+		zap.String("contract_id", contractID),
+		zap.String("instrument_admin", req.InstrumentAdmin),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("PrepareAccept failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "PrepareAccept"),
+				zap.String("contract_id", contractID),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("PrepareAccept completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "PrepareAccept"),
+				zap.String("transfer_id", resp.TransferID),
+				zap.String("party_id", resp.PartyID),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.PrepareAccept(ctx, evmAddr, contractID, req)
+}
+
+// ExecuteAccept wraps the service method with logging.
+func (ls *logService) ExecuteAccept(
+	ctx context.Context, evmAddr string, req *ExecuteRequest,
+) (resp *ExecuteResponse, err error) {
+	start := time.Now()
+	ls.logger.Info("ExecuteAccept started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "ExecuteAccept"),
+		zap.String("evm_addr", evmAddr),
+		zap.String("transfer_id", req.TransferID),
+		zap.String("signature", redactSignature(req.Signature)),
+		zap.String("signed_by", req.SignedBy),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("ExecuteAccept failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ExecuteAccept"),
+				zap.String("transfer_id", req.TransferID),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("ExecuteAccept completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ExecuteAccept"),
+				zap.String("transfer_id", req.TransferID),
+				zap.String("status", resp.Status),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.ExecuteAccept(ctx, evmAddr, req)
+}
+
 // redactSignature redacts signature data to show only metadata.
 // Signatures are sensitive and should not be logged in full.
 func redactSignature(sig string) string {

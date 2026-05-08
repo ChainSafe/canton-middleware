@@ -14,9 +14,10 @@ type Config struct {
 	IssuerParty string `yaml:"issuer_party"`
 	UserID      string `yaml:"user_id"`
 
-	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
-	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
-	SpliceHoldingPackageID  string `yaml:"splice_holding_package_id" validate:"required"`
+	CIP56PackageID              string `yaml:"cip56_package_id" validate:"required"`
+	SpliceTransferPackageID     string `yaml:"splice_transfer_package_id" validate:"required"`
+	SpliceHoldingPackageID      string `yaml:"splice_holding_package_id" validate:"required"`
+	UtilityRegistryAppPackageID string `yaml:"utility_registry_app_package_id"`
 
 	// ExternalTokens maps InstrumentAdmin party IDs to their registry configuration.
 	// Tokens whose InstrumentAdmin matches IssuerParty use local ACS-based factory discovery.

@@ -22,6 +22,55 @@ func (_m *Token) EXPECT() *Token_Expecter {
 	return &Token_Expecter{mock: &_m.Mock}
 }
 
+// AcceptTransferInstruction provides a mock function with given fields: ctx, partyID, instructionCID, instrumentAdmin
+func (_m *Token) AcceptTransferInstruction(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string) error {
+	ret := _m.Called(ctx, partyID, instructionCID, instrumentAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AcceptTransferInstruction")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_AcceptTransferInstruction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AcceptTransferInstruction'
+type Token_AcceptTransferInstruction_Call struct {
+	*mock.Call
+}
+
+// AcceptTransferInstruction is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - instructionCID string
+//   - instrumentAdmin string
+func (_e *Token_Expecter) AcceptTransferInstruction(ctx interface{}, partyID interface{}, instructionCID interface{}, instrumentAdmin interface{}) *Token_AcceptTransferInstruction_Call {
+	return &Token_AcceptTransferInstruction_Call{Call: _e.mock.On("AcceptTransferInstruction", ctx, partyID, instructionCID, instrumentAdmin)}
+}
+
+func (_c *Token_AcceptTransferInstruction_Call) Run(run func(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string)) *Token_AcceptTransferInstruction_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Token_AcceptTransferInstruction_Call) Return(_a0 error) *Token_AcceptTransferInstruction_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_AcceptTransferInstruction_Call) RunAndReturn(run func(context.Context, string, string, string) error) *Token_AcceptTransferInstruction_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Burn provides a mock function with given fields: ctx, req
 func (_m *Token) Burn(ctx context.Context, req *token.BurnRequest) error {
 	ret := _m.Called(ctx, req)
@@ -112,6 +161,65 @@ func (_c *Token_ExecuteTransfer_Call) Return(_a0 error) *Token_ExecuteTransfer_C
 }
 
 func (_c *Token_ExecuteTransfer_Call) RunAndReturn(run func(context.Context, *token.ExecuteTransferRequest) error) *Token_ExecuteTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// FindPendingInboundTransferInstructions provides a mock function with given fields: ctx, partyID
+func (_m *Token) FindPendingInboundTransferInstructions(ctx context.Context, partyID string) ([]string, error) {
+	ret := _m.Called(ctx, partyID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindPendingInboundTransferInstructions")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, partyID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, partyID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, partyID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_FindPendingInboundTransferInstructions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindPendingInboundTransferInstructions'
+type Token_FindPendingInboundTransferInstructions_Call struct {
+	*mock.Call
+}
+
+// FindPendingInboundTransferInstructions is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+func (_e *Token_Expecter) FindPendingInboundTransferInstructions(ctx interface{}, partyID interface{}) *Token_FindPendingInboundTransferInstructions_Call {
+	return &Token_FindPendingInboundTransferInstructions_Call{Call: _e.mock.On("FindPendingInboundTransferInstructions", ctx, partyID)}
+}
+
+func (_c *Token_FindPendingInboundTransferInstructions_Call) Run(run func(ctx context.Context, partyID string)) *Token_FindPendingInboundTransferInstructions_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Token_FindPendingInboundTransferInstructions_Call) Return(_a0 []string, _a1 error) *Token_FindPendingInboundTransferInstructions_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_FindPendingInboundTransferInstructions_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *Token_FindPendingInboundTransferInstructions_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -693,6 +801,67 @@ func (_c *Token_Mint_Call) Return(_a0 string, _a1 error) *Token_Mint_Call {
 }
 
 func (_c *Token_Mint_Call) RunAndReturn(run func(context.Context, *token.MintRequest) (string, error)) *Token_Mint_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PrepareAcceptTransfer provides a mock function with given fields: ctx, partyID, instructionCID, instrumentAdmin
+func (_m *Token) PrepareAcceptTransfer(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, partyID, instructionCID, instrumentAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareAcceptTransfer")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, partyID, instructionCID, instrumentAdmin)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_PrepareAcceptTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareAcceptTransfer'
+type Token_PrepareAcceptTransfer_Call struct {
+	*mock.Call
+}
+
+// PrepareAcceptTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - instructionCID string
+//   - instrumentAdmin string
+func (_e *Token_Expecter) PrepareAcceptTransfer(ctx interface{}, partyID interface{}, instructionCID interface{}, instrumentAdmin interface{}) *Token_PrepareAcceptTransfer_Call {
+	return &Token_PrepareAcceptTransfer_Call{Call: _e.mock.On("PrepareAcceptTransfer", ctx, partyID, instructionCID, instrumentAdmin)}
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) Run(run func(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string)) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) RunAndReturn(run func(context.Context, string, string, string) (*token.PreparedTransfer, error)) *Token_PrepareAcceptTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -5,8 +5,6 @@ package mocks
 import (
 	context "context"
 
-	indexer "github.com/chainsafe/canton-middleware/pkg/indexer"
-
 	mock "github.com/stretchr/testify/mock"
 
 	streaming "github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
@@ -26,19 +24,19 @@ func (_m *EventFetcher) EXPECT() *EventFetcher_Expecter {
 }
 
 // Events provides a mock function with no fields
-func (_m *EventFetcher) Events() <-chan *streaming.Batch[*indexer.ParsedEvent] {
+func (_m *EventFetcher) Events() <-chan *streaming.Batch[any] {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Events")
 	}
 
-	var r0 <-chan *streaming.Batch[*indexer.ParsedEvent]
-	if rf, ok := ret.Get(0).(func() <-chan *streaming.Batch[*indexer.ParsedEvent]); ok {
+	var r0 <-chan *streaming.Batch[any]
+	if rf, ok := ret.Get(0).(func() <-chan *streaming.Batch[any]); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan *streaming.Batch[*indexer.ParsedEvent])
+			r0 = ret.Get(0).(<-chan *streaming.Batch[any])
 		}
 	}
 
@@ -62,12 +60,12 @@ func (_c *EventFetcher_Events_Call) Run(run func()) *EventFetcher_Events_Call {
 	return _c
 }
 
-func (_c *EventFetcher_Events_Call) Return(_a0 <-chan *streaming.Batch[*indexer.ParsedEvent]) *EventFetcher_Events_Call {
+func (_c *EventFetcher_Events_Call) Return(_a0 <-chan *streaming.Batch[any]) *EventFetcher_Events_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *EventFetcher_Events_Call) RunAndReturn(run func() <-chan *streaming.Batch[*indexer.ParsedEvent]) *EventFetcher_Events_Call {
+func (_c *EventFetcher_Events_Call) RunAndReturn(run func() <-chan *streaming.Batch[any]) *EventFetcher_Events_Call {
 	_c.Call.Return(run)
 	return _c
 }

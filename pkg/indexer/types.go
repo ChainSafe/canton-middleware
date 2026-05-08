@@ -2,6 +2,37 @@ package indexer
 
 import "time"
 
+// OfferStatus is the lifecycle state of a TransferOffer contract.
+type OfferStatus string
+
+const (
+	// OfferStatusPending is the initial state: the offer exists and awaits receiver acceptance.
+	OfferStatusPending OfferStatus = "PENDING"
+
+	// OfferStatusAccepted means the Canton ledger emitted an ARCHIVED event for the
+	// TransferOffer contract — either because the receiver exercised TransferInstruction_Accept
+	// or because the offer was rejected/expired. The row is kept for audit history.
+	OfferStatusAccepted OfferStatus = "ACCEPTED"
+)
+
+// PendingOffer represents a TransferOffer contract on the Canton ledger.
+// Rows are written on CREATED events and updated to ACCEPTED on ARCHIVED events.
+// Rows are never deleted so the full transfer history is preserved.
+type PendingOffer struct {
+	ContractID      string      `json:"contract_id"`
+	Status          OfferStatus `json:"status"`
+	ReceiverPartyID string      `json:"receiver_party_id"`
+	SenderPartyID   string      `json:"sender_party_id"`
+	InstrumentAdmin string      `json:"instrument_admin"`
+	InstrumentID    string      `json:"instrument_id"`
+	Amount          string      `json:"amount"`
+	LedgerOffset    int64       `json:"ledger_offset"`
+	CreatedAt       time.Time   `json:"created_at"`
+
+	// IsArchived is a decode-time signal only — not persisted.
+	IsArchived bool `json:"-"`
+}
+
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.
 // Derived from the fromParty/toParty Optional fields — mirrors ERC-20 Transfer semantics:
 //

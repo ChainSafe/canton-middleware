@@ -10,6 +10,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/custodial"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
@@ -66,19 +67,20 @@ type TokenProviderConfig struct {
 
 // APIServer represents the ERC-20 API server configuration
 type APIServer struct {
-	Server              *http.ServerConfig   `yaml:"server" validate:"required"`
-	Database            *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
-	Canton              *canton.Config       `yaml:"canton" validate:"required"`
-	Token               *token.Config        `yaml:"token" validate:"required"`
-	TokenProvider       *TokenProviderConfig `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
-	EthRPC              *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
-	JWKS                *JWKS                `yaml:"jwks" default:"-"` // nil by default (feature disabled)
-	Logging             *log.Config          `yaml:"logging" validate:"required"`
-	Reconciliation      *reconciler.Config   `yaml:"reconciliation" validate:"required"`
-	KeyManagement       *KeyManagement       `yaml:"key_management" validate:"required"` // Custodial Canton key settings
-	SkipCantonSigVerify bool                 `yaml:"skip_canton_sig_verify" default:"false"`
-	SkipWhitelistCheck  bool                 `yaml:"skip_whitelist_check" default:"false"`
-	CORSOrigins         []string             `yaml:"cors" default:"[\"*\"]"`
+	Server              *http.ServerConfig            `yaml:"server" validate:"required"`
+	Database            *pgdb.DatabaseConfig          `yaml:"database" validate:"required"`
+	Canton              *canton.Config                `yaml:"canton" validate:"required"`
+	Token               *token.Config                 `yaml:"token" validate:"required"`
+	TokenProvider       *TokenProviderConfig          `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
+	EthRPC              *ethrpc.Config                `yaml:"eth_rpc" validate:"required"`
+	JWKS                *JWKS                         `yaml:"jwks" default:"-"`          // nil by default (feature disabled)
+	AcceptWorker        *custodial.AcceptWorkerConfig `yaml:"accept_worker" default:"-"` // nil disables the worker
+	Logging             *log.Config                   `yaml:"logging" validate:"required"`
+	Reconciliation      *reconciler.Config            `yaml:"reconciliation" validate:"required"`
+	KeyManagement       *KeyManagement                `yaml:"key_management" validate:"required"`
+	SkipCantonSigVerify bool                          `yaml:"skip_canton_sig_verify" default:"false"`
+	SkipWhitelistCheck  bool                          `yaml:"skip_whitelist_check" default:"false"`
+	CORSOrigins         []string                      `yaml:"cors" default:"[\"*\"]"`
 }
 
 // RelayerServer represents the application configuration for relayer.

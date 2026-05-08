@@ -212,6 +212,90 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 	return nil
 }
 
+// ─── pending offer methods ───────────────────────────────────────────────────
+
+// InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.
+func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	dao := toPendingOfferDao(offer)
+	dao.Status = string(indexer.OfferStatusPending)
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert pending offer: %w", err)
+	}
+	return nil
+}
+
+// MarkOfferAccepted sets a TransferOffer's status to ACCEPTED. No-op when not found.
+func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+	_, err := s.db.NewUpdate().
+		Model((*PendingOfferDao)(nil)).
+		Set("status = ?", string(indexer.OfferStatusAccepted)).
+		Where("contract_id = ?", contractID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("mark offer accepted: %w", err)
+	}
+	return nil
+}
+
+// ListPendingOffersForParty returns PENDING offers where receiver = partyID,
+// ordered by ledger_offset ASC, with pagination.
+func (s *PGStore) ListPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	var daos []PendingOfferDao
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("receiver_party_id = ?", partyID).
+			Where("status = ?", string(indexer.OfferStatusPending)).
+			OrderExpr("ledger_offset ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list pending offers: %w", err)
+	}
+	offers := make([]indexer.PendingOffer, len(daos))
+	for i := range daos {
+		offers[i] = fromPendingOfferDao(&daos[i])
+	}
+	return offers, int64(total), nil
+}
+
+// ListAllPendingOffers returns all PENDING offers across all parties,
+// ordered by ledger_offset ASC, with pagination.
+func (s *PGStore) ListAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	var daos []PendingOfferDao
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("status = ?", string(indexer.OfferStatusPending)).
+			OrderExpr("ledger_offset ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list all pending offers: %w", err)
+	}
+	offers := make([]indexer.PendingOffer, len(daos))
+	for i := range daos {
+		offers[i] = fromPendingOfferDao(&daos[i])
+	}
+	return offers, int64(total), nil
+}
+
 // ─── service.Store read-path methods ─────────────────────────────────────────
 
 // GetToken retrieves token metadata by composite key. Returns nil, nil when not found.

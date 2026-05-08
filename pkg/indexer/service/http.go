@@ -39,6 +39,8 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances", apphttp.HandleError(h.listPartyBalances))
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
+		r.Get("/parties/{partyID}/pending-offers", apphttp.HandleError(h.listPendingOffers))
+		r.Get("/pending-offers", apphttp.HandleError(h.listAllPendingOffers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
 	})
@@ -164,6 +166,33 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	h.writeJSON(w, e)
+	return nil
+}
+
+func (h *HTTP) listPendingOffers(w http.ResponseWriter, r *http.Request) error {
+	partyID := chi.URLParam(r, "partyID")
+	p, err := parsePagination(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetPendingOffersForParty(r.Context(), partyID, p)
+	if err != nil {
+		return err
+	}
+	h.writeJSON(w, page)
+	return nil
+}
+
+func (h *HTTP) listAllPendingOffers(w http.ResponseWriter, r *http.Request) error {
+	p, err := parsePagination(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetAllPendingOffers(r.Context(), p)
+	if err != nil {
+		return err
+	}
+	h.writeJSON(w, page)
 	return nil
 }
 

@@ -31,6 +31,10 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 
 	r.Post("/api/v2/transfer/prepare", apphttp.HandleError(h.prepare))
 	r.Post("/api/v2/transfer/execute", apphttp.HandleError(h.execute))
+
+	r.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
+	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
+	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
 }
 
 func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
@@ -60,7 +64,7 @@ func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, resp)
 	return nil
 }
 
@@ -84,7 +88,73 @@ func (h *httpHandler) execute(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, resp)
+	return nil
+}
+
+func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.svc.ListIncoming(r.Context(), evmAddr)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+func (h *httpHandler) prepareAccept(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	contractID := chi.URLParam(r, "contractID")
+	if contractID == "" {
+		return apperrors.BadRequestError(nil, "contractID path parameter is required")
+	}
+
+	var req PrepareAcceptRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.InstrumentAdmin == "" {
+		return apperrors.BadRequestError(nil, "instrument_admin is required")
+	}
+
+	resp, err := h.svc.PrepareAccept(r.Context(), evmAddr, contractID, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+func (h *httpHandler) executeAccept(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req ExecuteRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.TransferID == "" || req.Signature == "" || req.SignedBy == "" {
+		return apperrors.BadRequestError(nil, "transfer_id, signature, and signed_by are required")
+	}
+
+	resp, err := h.svc.ExecuteAccept(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
 	return nil
 }
 
@@ -119,9 +189,9 @@ func readJSON(r *http.Request, dst any) error {
 	return nil
 }
 
-func (h *httpHandler) writeJSON(w http.ResponseWriter, status int, data any) {
+func (h *httpHandler) writeJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		h.logger.Error("failed to write JSON response", zap.Error(err))
 	}

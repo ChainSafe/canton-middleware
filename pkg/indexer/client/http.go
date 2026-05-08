@@ -47,6 +47,10 @@ type Client interface {
 		f indexer.EventFilter,
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
+
+	// Pending inbound transfers
+	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -183,6 +187,30 @@ func (c *HTTP) ListPartyEvents(
 	var page indexer.Page[*indexer.ParsedEvent]
 	if err := c.getJSON(ctx, u, &page); err != nil {
 		return nil, fmt.Errorf("list events for party %s: %w", partyID, err)
+	}
+	return &page, nil
+}
+
+// GetPendingOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/pending-offers.
+func (c *HTTP) GetPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	u := c.partyBase(partyID) + "/pending-offers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.PendingOffer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("pending offers for party %s: %w", partyID, err)
+	}
+	return &page, nil
+}
+
+// GetAllPendingOffers calls GET /indexer/v1/admin/pending-offers.
+func (c *HTTP) GetAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	u := c.baseURL + "/indexer/v1/admin/pending-offers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.PendingOffer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("get all pending offers: %w", err)
 	}
 	return &page, nil
 }
