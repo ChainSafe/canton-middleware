@@ -74,12 +74,13 @@ func NewCanton2(manifest *stack.ServiceManifest) (*Canton2Shim, error) {
 	}
 
 	tk, err := token.New(&token.Config{
-		DomainID:                manifest.CantonDomainID,
-		IssuerParty:             manifest.USDCxInstrumentAdmin,
-		UserID:                  cantonUserID,
-		CIP56PackageID:          cip56PackageID,
-		SpliceTransferPackageID: spliceTransferPackageID,
-		SpliceHoldingPackageID:  spliceHoldingPackageID,
+		DomainID:                    manifest.CantonDomainID,
+		IssuerParty:                 manifest.USDCxInstrumentAdmin,
+		UserID:                      cantonUserID,
+		CIP56PackageID:              cip56PackageID,
+		SpliceTransferPackageID:     spliceTransferPackageID,
+		SpliceHoldingPackageID:      spliceHoldingPackageID,
+		UtilityRegistryAppPackageID: utilityRegistryAppPackageID,
 	}, l, id)
 	if err != nil {
 		_ = l.Close()

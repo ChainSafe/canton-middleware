@@ -34,7 +34,10 @@ const (
 	entityHolding         = "CIP56Holding"
 	moduleTransferFactory = "CIP56.TransferFactory"
 	entityTransferFactory = "CIP56TransferFactory"
-	moduleEvents          = "CIP56.Events"
+
+	moduleAllocationFactory = "Utility.Registry.App.V0.Service.AllocationFactory"
+	entityAllocationFactory = "AllocationFactory"
+	moduleEvents            = "CIP56.Events"
 
 	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
 	spliceTransferFactory = "TransferFactory"
@@ -633,10 +636,104 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Comma
 
 func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 	info, err := c.GetTransferFactory(ctx)
+	if err == nil {
+		return info.ContractID, nil
+	}
+	if !errors.Is(err, ErrTransferFactoryNotFound) || c.cfg.UtilityRegistryAppPackageID == "" {
+		return "", err
+	}
+	// Fallback: AllocationFactory (used by external tokens like USDCx that do not
+	// deploy a CIP56TransferFactory). The exercise command is identical — both
+	// implement TransferFactory_Transfer via the Splice interface.
+	info, err = c.GetAllocationFactory(ctx)
 	if err != nil {
 		return "", err
 	}
 	return info.ContractID, nil
+}
+
+// GetAllocationFactory returns the active AllocationFactory contract from the
+// utility_registry_app_v0 package. Used as a fallback when no CIP56TransferFactory
+// is found (e.g. for USDCx, which uses AllocationFactory instead).
+func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo, error) {
+	if c.cfg.UtilityRegistryAppPackageID == "" {
+		return nil, fmt.Errorf("utility_registry_app_package_id not configured")
+	}
+
+	end, err := c.ledger.GetLedgerEnd(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if end == 0 {
+		return nil, fmt.Errorf("ledger is empty, no contracts exist")
+	}
+
+	tid := &lapiv2.Identifier{
+		PackageId:  c.cfg.UtilityRegistryAppPackageID,
+		ModuleName: moduleAllocationFactory,
+		EntityName: entityAllocationFactory,
+	}
+
+	authCtx := c.ledger.AuthContext(ctx)
+	filtersByParty := map[string]*lapiv2.Filters{
+		c.cfg.IssuerParty: {
+			Cumulative: []*lapiv2.CumulativeFilter{
+				{
+					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+						TemplateFilter: &lapiv2.TemplateFilter{
+							TemplateId:              tid,
+							IncludeCreatedEventBlob: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	stream, err := c.ledger.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: end,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersByParty: filtersByParty,
+			Verbose:        true,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query AllocationFactory: %w", err)
+	}
+
+	var events []*lapiv2.CreatedEvent
+	for {
+		msg, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("receive AllocationFactory contract: %w", err)
+		}
+		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
+			events = append(events, ac.CreatedEvent)
+		}
+	}
+
+	if len(events) == 0 {
+		return nil, ErrTransferFactoryNotFound
+	}
+	if len(events) > 1 {
+		c.logger.Warn("multiple AllocationFactory contracts found, using first",
+			zap.Int("count", len(events)),
+			zap.String("selected_cid", events[0].ContractId))
+	}
+
+	ev := events[0]
+	return &TransferFactoryInfo{
+		ContractID:       ev.ContractId,
+		CreatedEventBlob: ev.CreatedEventBlob,
+		TemplateID: TemplateIdentifier{
+			PackageID:  tid.PackageId,
+			ModuleName: tid.ModuleName,
+			EntityName: tid.EntityName,
+		},
+	}, nil
 }
 
 // resolveTransferFactory fills in factory info on the request by routing based on InstrumentAdmin.
