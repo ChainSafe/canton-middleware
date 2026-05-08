@@ -6,11 +6,11 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
+	"github.com/chainsafe/canton-middleware/pkg/custodial"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
@@ -65,31 +65,22 @@ type TokenProviderConfig struct {
 	Indexer *IndexerProviderConfig `yaml:"indexer"`
 }
 
-// AcceptWorkerConfig configures the background worker that auto-accepts inbound
-// USDCx TransferOffers for custodial parties. Omitting this block disables the worker.
-type AcceptWorkerConfig struct {
-	// IndexerURL is the base URL of the indexer service (e.g. "http://localhost:8081").
-	// Required when the worker is enabled.
-	IndexerURL   string        `yaml:"indexer_url" validate:"required"`
-	PollInterval time.Duration `yaml:"poll_interval" default:"10s"`
-}
-
 // APIServer represents the ERC-20 API server configuration
 type APIServer struct {
-	Server              *http.ServerConfig   `yaml:"server" validate:"required"`
-	Database            *pgdb.DatabaseConfig `yaml:"database" validate:"required"`
-	Canton              *canton.Config       `yaml:"canton" validate:"required"`
-	Token               *token.Config        `yaml:"token" validate:"required"`
-	TokenProvider       *TokenProviderConfig `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
-	EthRPC              *ethrpc.Config       `yaml:"eth_rpc" validate:"required"`
-	JWKS                *JWKS                `yaml:"jwks" default:"-"`          // nil by default (feature disabled)
-	AcceptWorker        *AcceptWorkerConfig  `yaml:"accept_worker" default:"-"` // nil disables the worker
-	Logging             *log.Config          `yaml:"logging" validate:"required"`
-	Reconciliation      *reconciler.Config   `yaml:"reconciliation" validate:"required"`
-	KeyManagement       *KeyManagement       `yaml:"key_management" validate:"required"`
-	SkipCantonSigVerify bool                 `yaml:"skip_canton_sig_verify" default:"false"`
-	SkipWhitelistCheck  bool                 `yaml:"skip_whitelist_check" default:"false"`
-	CORSOrigins         []string             `yaml:"cors" default:"[\"*\"]"`
+	Server              *http.ServerConfig            `yaml:"server" validate:"required"`
+	Database            *pgdb.DatabaseConfig          `yaml:"database" validate:"required"`
+	Canton              *canton.Config                `yaml:"canton" validate:"required"`
+	Token               *token.Config                 `yaml:"token" validate:"required"`
+	TokenProvider       *TokenProviderConfig          `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
+	EthRPC              *ethrpc.Config                `yaml:"eth_rpc" validate:"required"`
+	JWKS                *JWKS                         `yaml:"jwks" default:"-"`          // nil by default (feature disabled)
+	AcceptWorker        *custodial.AcceptWorkerConfig `yaml:"accept_worker" default:"-"` // nil disables the worker
+	Logging             *log.Config                   `yaml:"logging" validate:"required"`
+	Reconciliation      *reconciler.Config            `yaml:"reconciliation" validate:"required"`
+	KeyManagement       *KeyManagement                `yaml:"key_management" validate:"required"`
+	SkipCantonSigVerify bool                          `yaml:"skip_canton_sig_verify" default:"false"`
+	SkipWhitelistCheck  bool                          `yaml:"skip_whitelist_check" default:"false"`
+	CORSOrigins         []string                      `yaml:"cors" default:"[\"*\"]"`
 }
 
 // RelayerServer represents the application configuration for relayer.
