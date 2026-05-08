@@ -120,6 +120,13 @@ type Token interface {
 	// Calls the registrar's accept choice-context endpoint (keyed by instrumentAdmin), encodes
 	// the AnyValue choiceContext, and exercises TransferInstruction_Accept via SubmitAndWait.
 	AcceptTransferInstruction(ctx context.Context, partyID, instructionCID, instrumentAdmin string) error
+
+	// PrepareAcceptTransfer builds a Canton transaction for accepting a pending inbound
+	// transfer instruction and returns the hash that the client must sign externally.
+	// Use ExecuteTransfer to complete the accept once the client has signed.
+	PrepareAcceptTransfer(
+		ctx context.Context, partyID, instructionCID, instrumentAdmin string,
+	) (*PreparedTransfer, error)
 }
 
 // Client implements CIP-56 token operations.
@@ -1095,6 +1102,100 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 		return fmt.Errorf("accept transfer instruction: %w", err)
 	}
 	return nil
+}
+
+func (c *Client) PrepareAcceptTransfer(
+	ctx context.Context, partyID, instructionCID, instrumentAdmin string,
+) (*PreparedTransfer, error) {
+	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
+		return nil, fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
+	}
+	if c.registryClient == nil {
+		return nil, fmt.Errorf("no registry client configured for accept")
+	}
+	extCfg, ok := c.cfg.ExternalTokens[instrumentAdmin]
+	if !ok {
+		return nil, fmt.Errorf("unsupported external token issuer: %s", instrumentAdmin)
+	}
+
+	acceptResp, err := c.registryClient.GetAcceptChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	if err != nil {
+		return nil, fmt.Errorf("get accept choice context: %w", err)
+	}
+
+	ctxValue, err := encodeChoiceContextRecord(acceptResp.ChoiceContextData)
+	if err != nil {
+		return nil, fmt.Errorf("encode choice context: %w", err)
+	}
+
+	extraArgs := &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{
+				Fields: []*lapiv2.RecordField{
+					{Label: "context", Value: ctxValue},
+					{Label: "meta", Value: values.EmptyMetadata()},
+				},
+			},
+		},
+	}
+
+	disclosed, err := convertDisclosedContractSlice(acceptResp.DisclosedContracts, c.cfg.DomainID)
+	if err != nil {
+		return nil, fmt.Errorf("convert disclosed contracts: %w", err)
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Exercise{
+			Exercise: &lapiv2.ExerciseCommand{
+				TemplateId: &lapiv2.Identifier{
+					PackageId:  c.cfg.SpliceTransferPackageID,
+					ModuleName: spliceTransferModule,
+					EntityName: transferInstrEntity,
+				},
+				ContractId: instructionCID,
+				Choice:     acceptChoice,
+				ChoiceArgument: &lapiv2.Value{
+					Sum: &lapiv2.Value_Record{
+						Record: &lapiv2.Record{
+							Fields: []*lapiv2.RecordField{
+								{Label: "extraArgs", Value: extraArgs},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	authCtx := c.ledger.AuthContext(ctx)
+	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
+		UserId:             c.cfg.UserID,
+		CommandId:          uuid.NewString(),
+		Commands:           []*lapiv2.Command{cmd},
+		ActAs:              []string{partyID},
+		SynchronizerId:     c.cfg.DomainID,
+		DisclosedContracts: disclosed,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("prepare accept submission: %w", err)
+	}
+
+	pt := &PreparedTransfer{
+		TransferID:           uuid.NewString(),
+		TransactionHash:      prepResp.PreparedTransactionHash,
+		PreparedTransaction:  prepResp.PreparedTransaction,
+		HashingSchemeVersion: prepResp.HashingSchemeVersion,
+		PartyID:              partyID,
+		ExpiresAt:            time.Now().Add(defaultTransferValidity),
+	}
+
+	c.logger.Info("prepared non-custodial accept",
+		zap.String("transfer_id", pt.TransferID),
+		zap.String("party_id", partyID),
+		zap.String("contract_id", instructionCID),
+	)
+
+	return pt, nil
 }
 
 func (c *Client) GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error) {
