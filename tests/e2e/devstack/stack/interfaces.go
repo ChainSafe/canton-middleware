@@ -108,17 +108,6 @@ type Canton interface {
 	// Implementations that do not support direct token transfer (e.g. the P1
 	// shim when no CIP56TransferFactory exists for the token) return an error.
 	TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error
-
-	// FindPendingInboundTransferInstructions returns contract IDs of active
-	// TransferOffer contracts where partyID is the designated receiver.
-	// Used to discover offers that require an explicit accept step.
-	FindPendingInboundTransferInstructions(ctx context.Context, partyID string) ([]string, error)
-
-	// AcceptTransferInstruction accepts a pending inbound transfer offer.
-	// partyID is the receiving party, contractID is the TransferOffer contract
-	// ID, and instrumentAdmin is the issuer party used to look up the registry
-	// endpoint for the accept choice-context.
-	AcceptTransferInstruction(ctx context.Context, partyID, contractID, instrumentAdmin string) error
 }
 
 // APIServer is the interface for the canton-middleware api-server.
@@ -183,6 +172,29 @@ type APIServer interface {
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
 	// discovery.
 	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
+
+	// ListIncomingTransfers returns pending inbound TransferOffer contract IDs
+	// for the authenticated user via GET /api/v2/transfer/incoming.
+	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.ListIncomingResponse, error)
+
+	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
+	// via POST /api/v2/transfer/incoming/{contractID}/prepare. Returns the
+	// transaction hash the receiver must sign.
+	PrepareAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.PrepareAcceptRequest,
+	) (*transfer.PrepareResponse, error)
+
+	// ExecuteAcceptTransfer completes a prepared accept with the receiver's
+	// DER-encoded Canton signature via POST /api/v2/transfer/incoming/{contractID}/execute.
+	ExecuteAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.ExecuteRequest,
+	) (*transfer.ExecuteResponse, error)
 }
 
 // Relayer is the interface for the canton-bridge relayer service.

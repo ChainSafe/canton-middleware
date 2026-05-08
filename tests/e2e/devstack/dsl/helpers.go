@@ -16,6 +16,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
 const (
@@ -52,30 +53,26 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 	t.Fatal("timeout waiting for relayer to be ready")
 }
 
-// WaitForPendingTransferOffer polls Canton until at least one TransferOffer is
-// pending for partyID in the ACS, then returns the first contract ID. Fails
-// the test if no offer appears within 60 seconds.
-func (d *DSL) WaitForPendingTransferOffer(ctx context.Context, t *testing.T, partyID string) string {
+// WaitForIncomingTransferOffer polls the api-server's GET /api/v2/transfer/incoming
+// until at least one pending TransferOffer appears for account, then returns the
+// first contract ID. Fails the test after 60 seconds.
+func (d *DSL) WaitForIncomingTransferOffer(ctx context.Context, t *testing.T, account stack.Account) string {
 	t.Helper()
-	if d.canton == nil {
-		t.Fatal("WaitForPendingTransferOffer not available: Canton shim not initialized")
-		return ""
-	}
 	deadline := time.Now().Add(cantonBalanceTimeout)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for time.Now().Before(deadline) {
-		ids, err := d.canton.FindPendingInboundTransferInstructions(ctx, partyID)
-		if err == nil && len(ids) > 0 {
-			return ids[0]
+		resp, err := d.apiServer.ListIncomingTransfers(ctx, &account)
+		if err == nil && len(resp.Items) > 0 {
+			return resp.Items[0].ContractID
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context canceled waiting for pending TransferOffer")
+			t.Fatal("context canceled waiting for incoming TransferOffer")
 		case <-ticker.C:
 		}
 	}
-	t.Fatalf("timeout waiting for pending TransferOffer for party %s", partyID)
+	t.Fatalf("timeout waiting for incoming TransferOffer for %s", account.Address.Hex())
 	return ""
 }
 
