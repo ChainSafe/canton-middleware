@@ -14,6 +14,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/custodial"
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
@@ -111,6 +112,25 @@ func (s *Server) Run() error {
 	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, cipher, logger)
 	if err != nil {
 		return err
+	}
+
+	if cfg.AcceptWorker != nil {
+		ic, icErr := indexerclient.New(cfg.AcceptWorker.IndexerURL, nil)
+		if icErr != nil {
+			return fmt.Errorf("create accept worker indexer client: %w", icErr)
+		}
+		worker := custodial.NewAcceptWorker(
+			cantonClient.Token,
+			userStore,
+			ic,
+			cfg.AcceptWorker.PollInterval,
+			logger,
+		)
+		go worker.Run(ctx)
+		logger.Info("accept worker started",
+			zap.String("indexer_url", cfg.AcceptWorker.IndexerURL),
+			zap.Duration("poll_interval", cfg.AcceptWorker.PollInterval),
+		)
 	}
 
 	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, logger)

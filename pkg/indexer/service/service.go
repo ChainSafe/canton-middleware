@@ -28,6 +28,8 @@ type Store interface {
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
 	// ListPendingOffersForParty returns PENDING TransferOffers for the given receiver party.
 	ListPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]indexer.PendingOffer, int64, error)
+	// ListAllPendingOffers returns all PENDING TransferOffers across all parties.
+	ListAllPendingOffers(ctx context.Context, p indexer.Pagination) ([]indexer.PendingOffer, int64, error)
 }
 
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
@@ -61,6 +63,8 @@ type Service interface {
 
 	// GetPendingOffersForParty returns paginated PENDING TransferOffers for a custodial party.
 	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	// GetAllPendingOffers returns all PENDING TransferOffers across all parties, paginated.
+	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
 
 // NewService creates a new indexer Service backed by store.
@@ -174,6 +178,16 @@ func (s *svc) GetPendingOffersForParty(
 	ctx context.Context, partyID string, p indexer.Pagination,
 ) (*indexer.Page[indexer.PendingOffer], error) {
 	items, total, err := s.store.ListPendingOffersForParty(ctx, partyID, p)
+	if err != nil {
+		return nil, err
+	}
+	return &indexer.Page[indexer.PendingOffer]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
+}
+
+func (s *svc) GetAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	items, total, err := s.store.ListAllPendingOffers(ctx, p)
 	if err != nil {
 		return nil, err
 	}
