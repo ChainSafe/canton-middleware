@@ -192,4 +192,3 @@ func (*Canton2Shim) InitiateWithdrawal(_ context.Context, _, _, _, _ string) (st
 func (*Canton2Shim) ProcessWithdrawal(_ context.Context, _ string) (string, error) {
 	return "", errP2NotSupported
 }
-

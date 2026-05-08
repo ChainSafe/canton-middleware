@@ -80,8 +80,9 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 		t.Fatalf("prepare accept (User1): %v", err)
 	}
 	sig1, fp1 := signTransferHash(t, kp1, prepAccept1.TransactionHash)
-	if _, err := sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User1, cid1,
-		&transfer.ExecuteRequest{TransferID: prepAccept1.TransferID, Signature: sig1, SignedBy: fp1}); err != nil {
+	_, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User1, cid1,
+		&transfer.ExecuteRequest{TransferID: prepAccept1.TransferID, Signature: sig1, SignedBy: fp1})
+	if err != nil {
 		t.Fatalf("execute accept (User1): %v", err)
 	}
 
@@ -118,8 +119,9 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 		t.Fatalf("prepare accept (User2): %v", err)
 	}
 	sig2, fp2 := signTransferHash(t, kp2, prepAccept2.TransactionHash)
-	if _, err := sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User2, cid2,
-		&transfer.ExecuteRequest{TransferID: prepAccept2.TransferID, Signature: sig2, SignedBy: fp2}); err != nil {
+	_, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User2, cid2,
+		&transfer.ExecuteRequest{TransferID: prepAccept2.TransferID, Signature: sig2, SignedBy: fp2})
+	if err != nil {
 		t.Fatalf("execute accept (User2): %v", err)
 	}
 

@@ -805,6 +805,67 @@ func (_c *Token_Mint_Call) RunAndReturn(run func(context.Context, *token.MintReq
 	return _c
 }
 
+// PrepareAcceptTransfer provides a mock function with given fields: ctx, partyID, instructionCID, instrumentAdmin
+func (_m *Token) PrepareAcceptTransfer(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, partyID, instructionCID, instrumentAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareAcceptTransfer")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, partyID, instructionCID, instrumentAdmin)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_PrepareAcceptTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareAcceptTransfer'
+type Token_PrepareAcceptTransfer_Call struct {
+	*mock.Call
+}
+
+// PrepareAcceptTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - instructionCID string
+//   - instrumentAdmin string
+func (_e *Token_Expecter) PrepareAcceptTransfer(ctx interface{}, partyID interface{}, instructionCID interface{}, instrumentAdmin interface{}) *Token_PrepareAcceptTransfer_Call {
+	return &Token_PrepareAcceptTransfer_Call{Call: _e.mock.On("PrepareAcceptTransfer", ctx, partyID, instructionCID, instrumentAdmin)}
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) Run(run func(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string)) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareAcceptTransfer_Call) RunAndReturn(run func(context.Context, string, string, string) (*token.PreparedTransfer, error)) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PrepareTransfer provides a mock function with given fields: ctx, req
 func (_m *Token) PrepareTransfer(ctx context.Context, req *token.PrepareTransferRequest) (*token.PreparedTransfer, error) {
 	ret := _m.Called(ctx, req)

@@ -28,9 +28,9 @@ const (
 	apiServerPort   = 8081
 	relayerPort     = 8080
 	indexerPort     = 8082
-	mockOAuth2Port = 8088
-	postgresPort   = 5432
-	maxErrorBody   = 4096
+	mockOAuth2Port  = 8088
+	postgresPort    = 5432
+	maxErrorBody    = 4096
 )
 
 // ServiceDiscovery resolves running container ports and reads the bootstrap
