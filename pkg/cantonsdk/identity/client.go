@@ -367,7 +367,6 @@ func fingerprintMappingFromCreateEvent(event *lapiv2.CreatedEvent) *FingerprintM
 
 func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 	authCtx := c.ledger.AuthContext(ctx)
-
 	right := &adminv2.Right{
 		Kind: &adminv2.Right_CanActAs_{
 			CanActAs: &adminv2.Right_CanActAs{Party: partyID},
@@ -378,39 +377,27 @@ func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 		UserId: c.cfg.UserID,
 		Rights: []*adminv2.Right{right},
 	})
-	if err == nil {
+	if err == nil || isAlreadyExistsError(err) {
 		return nil
 	}
-	if isAlreadyExistsError(err) {
-		return nil
-	}
-	// Canton's User Management API requires the user record to exist before any
-	// rights can be granted. Wildcard JWT auth lets us submit commands without
-	// having created the user, so the first grant attempt frequently hits
-	// USER_NOT_FOUND. Create the user lazily here and retry once.
-	if isUserNotFoundError(err) {
-		if _, createErr := c.ledger.UserAdmin().CreateUser(authCtx, &adminv2.CreateUserRequest{
+	// Canton's user record must exist before rights can be granted. Wildcard JWT
+	// auth lets the api-server submit commands without ever creating its own user,
+	// so the first grant after fresh devstack-up hits USER_NOT_FOUND. Create the
+	// user with the right inline so the second registration onwards finds it.
+	if isNotFoundError(err) {
+		_, createErr := c.ledger.UserAdmin().CreateUser(authCtx, &adminv2.CreateUserRequest{
 			User:   &adminv2.User{Id: c.cfg.UserID},
 			Rights: []*adminv2.Right{right},
-		}); createErr != nil {
-			if isAlreadyExistsError(createErr) {
-				// Lost a race with another call — retry the grant once.
-				if _, retryErr := c.ledger.UserAdmin().GrantUserRights(authCtx, &adminv2.GrantUserRightsRequest{
-					UserId: c.cfg.UserID,
-					Rights: []*adminv2.Right{right},
-				}); retryErr != nil && !isAlreadyExistsError(retryErr) {
-					return fmt.Errorf("grant can act as after create race: %w", retryErr)
-				}
-				return nil
-			}
-			return fmt.Errorf("create user for grant: %w", createErr)
+		})
+		if createErr == nil || isAlreadyExistsError(createErr) {
+			return nil
 		}
-		return nil
+		return fmt.Errorf("create user for grant: %w", createErr)
 	}
 	return fmt.Errorf("grant can act as: %w", err)
 }
 
-func isUserNotFoundError(err error) bool {
+func isNotFoundError(err error) bool {
 	if s, ok := status.FromError(err); ok {
 		return s.Code() == codes.NotFound
 	}

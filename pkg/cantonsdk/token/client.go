@@ -759,13 +759,12 @@ func jsonRawString(s string) json.RawMessage {
 // are issued); they must still be present or DAML interpretation fails with
 // "Missing context entry for: utility.digitalasset.com/sender-credentials".
 func (c *Client) getUtilityRegistryChoiceContext(ctx context.Context) (AcceptChoiceContext, error) {
-	authCtx := c.ledger.AuthContext(ctx)
-	end, err := c.ledger.GetLedgerEnd(authCtx)
+	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return AcceptChoiceContext{}, fmt.Errorf("get ledger end: %w", err)
 	}
 
-	configCID, err := c.queryContractCIDFromACS(authCtx, end, &lapiv2.Identifier{
+	configCID, err := c.firstContractCID(ctx, end, &lapiv2.Identifier{
 		PackageId:  c.cfg.UtilityRegistryPackageID,
 		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
 		EntityName: "InstrumentConfiguration",
@@ -773,8 +772,7 @@ func (c *Client) getUtilityRegistryChoiceContext(ctx context.Context) (AcceptCho
 	if err != nil {
 		return AcceptChoiceContext{}, fmt.Errorf("InstrumentConfiguration: %w", err)
 	}
-
-	ruleCID, err := c.queryContractCIDFromACS(authCtx, end, &lapiv2.Identifier{
+	ruleCID, err := c.firstContractCID(ctx, end, &lapiv2.Identifier{
 		PackageId:  c.cfg.UtilityRegistryPackageID,
 		ModuleName: "Utility.Registry.V0.Rule.Transfer",
 		EntityName: "TransferRule",
@@ -797,42 +795,19 @@ func (c *Client) getUtilityRegistryChoiceContext(ctx context.Context) (AcceptCho
 	}, nil
 }
 
-// queryContractCIDFromACS fetches the first active contract matching tid from the ACS,
-// using FiltersForAnyParty so it works regardless of which party hosts the contract.
-func (c *Client) queryContractCIDFromACS(ctx context.Context, end int64, tid *lapiv2.Identifier) (string, error) {
-	stream, err := c.ledger.State().GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: end,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersForAnyParty: &lapiv2.Filters{
-				Cumulative: []*lapiv2.CumulativeFilter{{
-					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-						TemplateFilter: &lapiv2.TemplateFilter{
-							TemplateId:              tid,
-							IncludeCreatedEventBlob: false,
-						},
-					},
-				}},
-			},
-			Verbose: false,
-		},
-	})
+// firstContractCID returns the contract ID of the first active contract matching tid
+// visible to the IssuerParty. Used to fetch ACS-resident reference data (e.g. the
+// USDCx InstrumentConfiguration and TransferRule) when building an AllocationFactory
+// choice context locally rather than via the registry.
+func (c *Client) firstContractCID(ctx context.Context, end int64, tid *lapiv2.Identifier) (string, error) {
+	events, err := c.ledger.GetActiveContractsByTemplate(ctx, end, []string{c.cfg.IssuerParty}, tid)
 	if err != nil {
-		return "", fmt.Errorf("get active contracts (%s): %w", tid.EntityName, err)
+		return "", err
 	}
-
-	for {
-		msg, recvErr := stream.Recv()
-		if recvErr != nil {
-			if errors.Is(recvErr, io.EOF) {
-				break
-			}
-			return "", fmt.Errorf("recv (%s): %w", tid.EntityName, recvErr)
-		}
-		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
-			return ac.CreatedEvent.ContractId, nil
-		}
+	if len(events) == 0 {
+		return "", fmt.Errorf("%s not found on ACS", tid.EntityName)
 	}
-	return "", fmt.Errorf("%s not found on ACS", tid.EntityName)
+	return events[0].ContractId, nil
 }
 
 // queryFactoryContracts streams active contracts for the issuer party matching

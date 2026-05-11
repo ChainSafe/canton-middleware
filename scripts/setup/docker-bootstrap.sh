@@ -303,23 +303,6 @@ else
     sleep 10
     echo "    P2 vetting propagation wait complete"
 
-    # P2 reports HTTP-ready before its synchronizer connection is fully established.
-    # Allocating a party in that window returns PARTY_ALLOCATION_WITHOUT_CONNECTED_SYNCHRONIZER.
-    # Poll until P2 is connected, mirroring the P1 wait above.
-    echo ""
-    echo ">>> Waiting for participant2 to connect to synchronizer..."
-    attempt=0
-    while [ $attempt -lt $MAX_RETRIES ]; do
-        p2_sync_count=$(curl -s "${CANTON_P2_HTTP}/v2/state/connected-synchronizers" 2>/dev/null | jq '.connectedSynchronizers | length' 2>/dev/null || echo "0")
-        if [ "$p2_sync_count" -gt 0 ] 2>/dev/null; then
-            echo "    Participant2 connected to synchronizer!"
-            break
-        fi
-        echo -n "."
-        sleep 2
-        attempt=$((attempt + 1))
-    done
-
     echo ""
     echo ">>> Allocating USDCxIssuer party on participant2..."
     USDCX_EXISTING=$(curl -s "${CANTON_P2_HTTP}/v2/parties" | jq -r '.partyDetails[].party' | grep "^USDCxIssuer::" | head -1 || true)
