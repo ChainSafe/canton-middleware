@@ -90,6 +90,26 @@ type ParsedEvent struct {
 	EffectiveTime time.Time `json:"effective_time"` // Ledger transaction effective time
 }
 
+// HoldingChange is a Utility.Registry.Holding.V0.Holding lifecycle event.
+// Each CREATED event becomes a synthetic MINT-style balance increment for the owner;
+// each ARCHIVED event becomes the symmetric decrement (looked up from the store using
+// ContractID since archive events carry no field payload). Unlike CIP-56 — which emits
+// dedicated TokenTransferEvent contracts — Utility.Registry tokens have no separate
+// event template, so the indexer derives balance deltas from the Holding contracts
+// themselves to keep indexer_balances consistent for USDCx and similar instruments.
+type HoldingChange struct {
+	ContractID   string
+	IsArchived   bool
+	LedgerOffset int64
+
+	// Only populated for CREATED events. ARCHIVED events leave these empty and the
+	// processor reads the matching row from indexer_holdings by ContractID.
+	Owner           string
+	InstrumentAdmin string
+	InstrumentID    string
+	Amount          string
+}
+
 // InstrumentKey is the Canton equivalent of an ERC-20 contract address.
 // It uniquely identifies a CIP56 token deployment.
 // Corresponds to the DAML InstrumentId{admin: Party, id: Text} record.

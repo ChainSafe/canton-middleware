@@ -378,14 +378,43 @@ func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 		UserId: c.cfg.UserID,
 		Rights: []*adminv2.Right{right},
 	})
-	if err != nil {
-		if isAlreadyExistsError(err) { // TODO: need to verify this works
-			return nil
-		}
-		return fmt.Errorf("grant can act as: %w", err)
+	if err == nil {
+		return nil
 	}
+	if isAlreadyExistsError(err) {
+		return nil
+	}
+	// Canton's User Management API requires the user record to exist before any
+	// rights can be granted. Wildcard JWT auth lets us submit commands without
+	// having created the user, so the first grant attempt frequently hits
+	// USER_NOT_FOUND. Create the user lazily here and retry once.
+	if isUserNotFoundError(err) {
+		if _, createErr := c.ledger.UserAdmin().CreateUser(authCtx, &adminv2.CreateUserRequest{
+			User:   &adminv2.User{Id: c.cfg.UserID},
+			Rights: []*adminv2.Right{right},
+		}); createErr != nil {
+			if isAlreadyExistsError(createErr) {
+				// Lost a race with another call — retry the grant once.
+				if _, retryErr := c.ledger.UserAdmin().GrantUserRights(authCtx, &adminv2.GrantUserRightsRequest{
+					UserId: c.cfg.UserID,
+					Rights: []*adminv2.Right{right},
+				}); retryErr != nil && !isAlreadyExistsError(retryErr) {
+					return fmt.Errorf("grant can act as after create race: %w", retryErr)
+				}
+				return nil
+			}
+			return fmt.Errorf("create user for grant: %w", createErr)
+		}
+		return nil
+	}
+	return fmt.Errorf("grant can act as: %w", err)
+}
 
-	return nil
+func isUserNotFoundError(err error) bool {
+	if s, ok := status.FromError(err); ok {
+		return s.Code() == codes.NotFound
+	}
+	return false
 }
 
 func isAlreadyExistsError(err error) bool {

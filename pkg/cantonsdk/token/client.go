@@ -4,6 +4,7 @@ package token
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,10 +35,7 @@ const (
 	entityHolding         = "CIP56Holding"
 	moduleTransferFactory = "CIP56.TransferFactory"
 	entityTransferFactory = "CIP56TransferFactory"
-
-	moduleAllocationFactory = "Utility.Registry.App.V0.Service.AllocationFactory"
-	entityAllocationFactory = "AllocationFactory"
-	moduleEvents            = "CIP56.Events"
+	moduleEvents          = "CIP56.Events"
 
 	spliceTransferModule  = "Splice.Api.Token.TransferInstructionV1"
 	spliceTransferFactory = "TransferFactory"
@@ -469,9 +467,28 @@ func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, 
 		return fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
-	factoryCID, err := c.getTransferFactoryCID(ctx)
-	if err != nil {
-		return err
+	// Try CIP56TransferFactory first; if not found, fall back to AllocationFactory.
+	// AllocationFactory (used by external tokens like USDCx) requires InstrumentConfiguration
+	// and TransferRule CIDs in the choice context for TransferFactory_Transfer.
+	var factoryCID string
+	var anyValueCtx AcceptChoiceContext
+	factoryInfo, factoryErr := c.GetTransferFactory(ctx)
+	if factoryErr == nil {
+		factoryCID = factoryInfo.ContractID
+	} else if errors.Is(factoryErr, ErrTransferFactoryNotFound) {
+		allocInfo, allocErr := c.GetAllocationFactory(ctx)
+		if allocErr != nil {
+			return allocErr
+		}
+		factoryCID = allocInfo.ContractID
+		if c.cfg.UtilityRegistryPackageID != "" {
+			anyValueCtx, err = c.getUtilityRegistryChoiceContext(ctx)
+			if err != nil {
+				return fmt.Errorf("get utility registry choice context: %w", err)
+			}
+		}
+	} else {
+		return factoryErr
 	}
 
 	req := &transferFactoryRequest{
@@ -483,9 +500,13 @@ func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, 
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
 		FactoryCID:       factoryCID,
+		AnyValueContext:  anyValueCtx,
 	}
 
-	cmd := c.buildTransferCommand(req)
+	cmd, err := c.buildTransferCommand(req)
+	if err != nil {
+		return err
+	}
 	authCtx := c.ledger.AuthContext(ctx)
 	_, err = c.ledger.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
@@ -555,15 +576,18 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 }
 
 type transferFactoryRequest struct {
-	CommandID          string
-	FromPartyID        string
-	ToPartyID          string
-	Amount             string
-	InstrumentAdmin    string
-	InstrumentID       string
-	InputHoldingCIDs   []string
-	FactoryCID         string
-	ChoiceContext      map[string]string
+	CommandID        string
+	FromPartyID      string
+	ToPartyID        string
+	Amount           string
+	InstrumentAdmin  string
+	InstrumentID     string
+	InputHoldingCIDs []string
+	FactoryCID       string
+	ChoiceContext    map[string]string
+	// AnyValueContext holds the choice context when values need AnyValue encoding
+	// (required for AllocationFactory's TransferFactory_Transfer choice).
+	AnyValueContext    AcceptChoiceContext
 	DisclosedContracts []*lapiv2.DisclosedContract
 	IsExternal         bool
 }
@@ -578,7 +602,10 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 		return fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
 	}
 
-	cmd := c.buildTransferCommand(req)
+	cmd, err := c.buildTransferCommand(req)
+	if err != nil {
+		return err
+	}
 
 	readAs := []string{c.cfg.IssuerParty}
 	if req.IsExternal {
@@ -600,8 +627,36 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 
 // buildTransferCommand creates the exercise command for a TransferFactory_Transfer.
 // Shared between custodial (transferViaFactory) and non-custodial (PrepareTransfer) paths.
-func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Command {
-	now := time.Now().UTC()
+// Returns an error only when AnyValueContext encoding fails (invalid AnyValue tags).
+func (c *Client) buildTransferCommand(req *transferFactoryRequest) (*lapiv2.Command, error) {
+	// Backdate requestedAt by 5s to avoid `Transfer requestedAt must be in the past`
+	// when the host clock is slightly ahead of the Canton ledger clock. The
+	// AllocationFactory_TransferInternal choice asserts requestedAt < ledger time
+	// (assertDeadlineExceeded), so a now() value that the ledger sees as future
+	// fails interpretation.
+	now := time.Now().UTC().Add(-5 * time.Second)
+
+	// For AllocationFactory tokens the choice context must be encoded as TextMap AnyValue.
+	// For CIP56TransferFactory tokens (empty context) the standard TextMap Text encoding is used.
+	var extraArgsValue *lapiv2.Value
+	if len(req.AnyValueContext.Values) > 0 {
+		ctxValue, err := encodeChoiceContextRecord(req.AnyValueContext)
+		if err != nil {
+			return nil, fmt.Errorf("encode choice context: %w", err)
+		}
+		extraArgsValue = &lapiv2.Value{
+			Sum: &lapiv2.Value_Record{
+				Record: &lapiv2.Record{
+					Fields: []*lapiv2.RecordField{
+						{Label: "context", Value: ctxValue},
+						{Label: "meta", Value: values.EmptyMetadata()},
+					},
+				},
+			},
+		}
+	} else {
+		extraArgsValue = values.EncodeExtraArgs(req.ChoiceContext)
+	}
 
 	return &lapiv2.Command{
 		Command: &lapiv2.Command_Exercise{
@@ -625,13 +680,13 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) *lapiv2.Comma
 							now,
 							now.Add(defaultTransferValidity),
 							req.InputHoldingCIDs,
-							req.ChoiceContext,
+							extraArgsValue,
 						),
 					},
 				},
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
@@ -639,12 +694,12 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 	if err == nil {
 		return info.ContractID, nil
 	}
-	if !errors.Is(err, ErrTransferFactoryNotFound) || c.cfg.UtilityRegistryAppPackageID == "" {
+	if !errors.Is(err, ErrTransferFactoryNotFound) {
 		return "", err
 	}
-	// Fallback: AllocationFactory (used by external tokens like USDCx that do not
-	// deploy a CIP56TransferFactory). The exercise command is identical — both
-	// implement TransferFactory_Transfer via the Splice interface.
+	// Fallback: query via the Splice TransferFactory interface, which is
+	// implemented by both CIP56TransferFactory and AllocationFactory. This
+	// avoids hardcoding the concrete template's package ID.
 	info, err = c.GetAllocationFactory(ctx)
 	if err != nil {
 		return "", err
@@ -652,14 +707,138 @@ func (c *Client) getTransferFactoryCID(ctx context.Context) (string, error) {
 	return info.ContractID, nil
 }
 
-// GetAllocationFactory returns the active AllocationFactory contract from the
-// utility_registry_app_v0 package. Used as a fallback when no CIP56TransferFactory
-// is found (e.g. for USDCx, which uses AllocationFactory instead).
+// GetAllocationFactory finds any active contract implementing the Splice
+// TransferFactory interface. Used as a fallback when no CIP56TransferFactory
+// exists (e.g. tokens using AllocationFactory from utility_registry_app_v0).
+// Uses an interface filter keyed on SpliceTransferPackageID so the concrete
+// template's package ID never needs to be known.
 func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo, error) {
-	if c.cfg.UtilityRegistryAppPackageID == "" {
-		return nil, fmt.Errorf("utility_registry_app_package_id not configured")
+	ifaceID := &lapiv2.Identifier{
+		PackageId:  c.cfg.SpliceTransferPackageID,
+		ModuleName: spliceTransferModule,
+		EntityName: spliceTransferFactory,
+	}
+	filter := &lapiv2.CumulativeFilter{
+		IdentifierFilter: &lapiv2.CumulativeFilter_InterfaceFilter{
+			InterfaceFilter: &lapiv2.InterfaceFilter{
+				InterfaceId:             ifaceID,
+				IncludeCreatedEventBlob: true,
+			},
+		},
+	}
+	events, err := c.queryFactoryContracts(ctx, filter, "TransferFactory interface")
+	if err != nil {
+		return nil, err
+	}
+	ev := events[0]
+	return &TransferFactoryInfo{
+		ContractID:       ev.ContractId,
+		CreatedEventBlob: ev.CreatedEventBlob,
+		TemplateID: TemplateIdentifier{
+			PackageID:  ifaceID.PackageId,
+			ModuleName: ifaceID.ModuleName,
+			EntityName: ifaceID.EntityName,
+		},
+	}, nil
+}
+
+// jsonRawString encodes a Go string as a JSON string literal (e.g. `"foo"` → `"\"foo\""`).
+// Used to build json.RawMessage values for AnyValue fields.
+func jsonRawString(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return b
+}
+
+// getUtilityRegistryChoiceContext queries the ACS for InstrumentConfiguration and
+// TransferRule contract IDs and returns them as an AcceptChoiceContext with AV_ContractId
+// values. Required when exercising TransferFactory_Transfer on an AllocationFactory.
+//
+// AllocationFactory's TransferFactory_Transfer choice requires four context entries:
+// instrument-configuration, transfer-rule, sender-credentials, receiver-credentials.
+// The credential entries are empty AV_List values for the local devstack (no credentials
+// are issued); they must still be present or DAML interpretation fails with
+// "Missing context entry for: utility.digitalasset.com/sender-credentials".
+func (c *Client) getUtilityRegistryChoiceContext(ctx context.Context) (AcceptChoiceContext, error) {
+	authCtx := c.ledger.AuthContext(ctx)
+	end, err := c.ledger.GetLedgerEnd(authCtx)
+	if err != nil {
+		return AcceptChoiceContext{}, fmt.Errorf("get ledger end: %w", err)
 	}
 
+	configCID, err := c.queryContractCIDFromACS(authCtx, end, &lapiv2.Identifier{
+		PackageId:  c.cfg.UtilityRegistryPackageID,
+		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
+		EntityName: "InstrumentConfiguration",
+	})
+	if err != nil {
+		return AcceptChoiceContext{}, fmt.Errorf("InstrumentConfiguration: %w", err)
+	}
+
+	ruleCID, err := c.queryContractCIDFromACS(authCtx, end, &lapiv2.Identifier{
+		PackageId:  c.cfg.UtilityRegistryPackageID,
+		ModuleName: "Utility.Registry.V0.Rule.Transfer",
+		EntityName: "TransferRule",
+	})
+	if err != nil {
+		return AcceptChoiceContext{}, fmt.Errorf("TransferRule: %w", err)
+	}
+
+	avCID := func(cid string) AnyValue {
+		return AnyValue{Tag: "AV_ContractId", Value: jsonRawString(cid)}
+	}
+	emptyList := AnyValue{Tag: "AV_List", Value: json.RawMessage("[]")}
+	return AcceptChoiceContext{
+		Values: map[string]AnyValue{
+			"utility.digitalasset.com/instrument-configuration": avCID(configCID),
+			"utility.digitalasset.com/transfer-rule":            avCID(ruleCID),
+			"utility.digitalasset.com/sender-credentials":       emptyList,
+			"utility.digitalasset.com/receiver-credentials":     emptyList,
+		},
+	}, nil
+}
+
+// queryContractCIDFromACS fetches the first active contract matching tid from the ACS,
+// using FiltersForAnyParty so it works regardless of which party hosts the contract.
+func (c *Client) queryContractCIDFromACS(ctx context.Context, end int64, tid *lapiv2.Identifier) (string, error) {
+	stream, err := c.ledger.State().GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: end,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersForAnyParty: &lapiv2.Filters{
+				Cumulative: []*lapiv2.CumulativeFilter{{
+					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+						TemplateFilter: &lapiv2.TemplateFilter{
+							TemplateId:              tid,
+							IncludeCreatedEventBlob: false,
+						},
+					},
+				}},
+			},
+			Verbose: false,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("get active contracts (%s): %w", tid.EntityName, err)
+	}
+
+	for {
+		msg, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				break
+			}
+			return "", fmt.Errorf("recv (%s): %w", tid.EntityName, recvErr)
+		}
+		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
+			return ac.CreatedEvent.ContractId, nil
+		}
+	}
+	return "", fmt.Errorf("%s not found on ACS", tid.EntityName)
+}
+
+// queryFactoryContracts streams active contracts for the issuer party matching
+// the given filter. Returns ErrTransferFactoryNotFound when none are found.
+// Shared by GetTransferFactory and GetAllocationFactory.
+func (c *Client) queryFactoryContracts(ctx context.Context, filter *lapiv2.CumulativeFilter, label string) ([]*lapiv2.CreatedEvent, error) {
 	end, err := c.ledger.GetLedgerEnd(ctx)
 	if err != nil {
 		return nil, err
@@ -668,25 +847,10 @@ func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo
 		return nil, fmt.Errorf("ledger is empty, no contracts exist")
 	}
 
-	tid := &lapiv2.Identifier{
-		PackageId:  c.cfg.UtilityRegistryAppPackageID,
-		ModuleName: moduleAllocationFactory,
-		EntityName: entityAllocationFactory,
-	}
-
 	authCtx := c.ledger.AuthContext(ctx)
 	filtersByParty := map[string]*lapiv2.Filters{
 		c.cfg.IssuerParty: {
-			Cumulative: []*lapiv2.CumulativeFilter{
-				{
-					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-						TemplateFilter: &lapiv2.TemplateFilter{
-							TemplateId:              tid,
-							IncludeCreatedEventBlob: true,
-						},
-					},
-				},
-			},
+			Cumulative: []*lapiv2.CumulativeFilter{filter},
 		},
 	}
 
@@ -698,7 +862,7 @@ func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("query AllocationFactory: %w", err)
+		return nil, fmt.Errorf("query %s: %w", label, err)
 	}
 
 	var events []*lapiv2.CreatedEvent
@@ -708,7 +872,7 @@ func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("receive AllocationFactory contract: %w", err)
+			return nil, fmt.Errorf("receive %s contract: %w", label, err)
 		}
 		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
 			events = append(events, ac.CreatedEvent)
@@ -719,21 +883,12 @@ func (c *Client) GetAllocationFactory(ctx context.Context) (*TransferFactoryInfo
 		return nil, ErrTransferFactoryNotFound
 	}
 	if len(events) > 1 {
-		c.logger.Warn("multiple AllocationFactory contracts found, using first",
+		c.logger.Warn("multiple factory contracts found, using first",
+			zap.String("filter", label),
 			zap.Int("count", len(events)),
 			zap.String("selected_cid", events[0].ContractId))
 	}
-
-	ev := events[0]
-	return &TransferFactoryInfo{
-		ContractID:       ev.ContractId,
-		CreatedEventBlob: ev.CreatedEventBlob,
-		TemplateID: TemplateIdentifier{
-			PackageID:  tid.PackageId,
-			ModuleName: tid.ModuleName,
-			EntityName: tid.EntityName,
-		},
-	}, nil
+	return events, nil
 }
 
 // resolveTransferFactory fills in factory info on the request by routing based on InstrumentAdmin.
@@ -775,9 +930,20 @@ func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactor
 	req.FactoryCID = regResp.FactoryID
 	req.IsExternal = true
 
-	req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
+	// Try the AnyValue shape first (AllocationFactory-style registries). Fall back
+	// to the legacy TextMap-of-Text shape only when no AnyValue context is present
+	// — never mix the two on one request.
+	anyCtx, err := ConvertAnyValueChoiceContext(regResp.ChoiceContext)
 	if err != nil {
-		return fmt.Errorf("convert choice context: %w", err)
+		return fmt.Errorf("convert anyvalue choice context: %w", err)
+	}
+	if len(anyCtx.Values) > 0 {
+		req.AnyValueContext = anyCtx
+	} else {
+		req.ChoiceContext, err = ConvertChoiceContext(regResp.ChoiceContext)
+		if err != nil {
+			return fmt.Errorf("convert choice context: %w", err)
+		}
 	}
 
 	req.DisclosedContracts, err = ConvertDisclosedContracts(regResp.DisclosedContracts, c.cfg.DomainID)
@@ -789,71 +955,23 @@ func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactor
 }
 
 func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, error) {
-	end, err := c.ledger.GetLedgerEnd(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if end == 0 {
-		return nil, fmt.Errorf("ledger is empty, no contracts exist")
-	}
-
 	tid := &lapiv2.Identifier{
 		PackageId:  c.cfg.CIP56PackageID,
 		ModuleName: moduleTransferFactory,
 		EntityName: entityTransferFactory,
 	}
-
-	authCtx := c.ledger.AuthContext(ctx)
-
-	filtersByParty := map[string]*lapiv2.Filters{
-		c.cfg.IssuerParty: {
-			Cumulative: []*lapiv2.CumulativeFilter{
-				{
-					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-						TemplateFilter: &lapiv2.TemplateFilter{
-							TemplateId:              tid,
-							IncludeCreatedEventBlob: true,
-						},
-					},
-				},
+	filter := &lapiv2.CumulativeFilter{
+		IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+			TemplateFilter: &lapiv2.TemplateFilter{
+				TemplateId:              tid,
+				IncludeCreatedEventBlob: true,
 			},
 		},
 	}
-
-	stream, err := c.ledger.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
-		ActiveAtOffset: end,
-		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: filtersByParty,
-			Verbose:        true,
-		},
-	})
+	events, err := c.queryFactoryContracts(ctx, filter, "CIP56TransferFactory")
 	if err != nil {
-		return nil, fmt.Errorf("query transfer factory with blob: %w", err)
+		return nil, err
 	}
-
-	var events []*lapiv2.CreatedEvent
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("receive transfer factory contract: %w", err)
-		}
-		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
-			events = append(events, ac.CreatedEvent)
-		}
-	}
-
-	if len(events) == 0 {
-		return nil, ErrTransferFactoryNotFound
-	}
-	if len(events) > 1 {
-		c.logger.Warn("multiple CIP56TransferFactory contracts found, using first",
-			zap.Int("count", len(events)),
-			zap.String("selected_cid", events[0].ContractId))
-	}
-
 	ev := events[0]
 	return &TransferFactoryInfo{
 		ContractID:       ev.ContractId,
@@ -998,7 +1116,10 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		return nil, resolveErr
 	}
 
-	cmd := c.buildTransferCommand(factoryReq)
+	cmd, err := c.buildTransferCommand(factoryReq)
+	if err != nil {
+		return nil, err
+	}
 
 	readAs := []string{c.cfg.IssuerParty}
 	if factoryReq.IsExternal {
@@ -1184,18 +1305,27 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 		},
 	}
 
-	authCtx := c.ledger.AuthContext(ctx)
-	_, err = c.ledger.Command().SubmitAndWait(authCtx, &lapiv2.SubmitAndWaitRequest{
-		Commands: &lapiv2.Commands{
-			SynchronizerId:     c.cfg.DomainID,
-			CommandId:          uuid.NewString(),
-			UserId:             c.cfg.UserID,
-			ActAs:              []string{partyID},
-			Commands:           []*lapiv2.Command{cmd},
-			DisclosedContracts: disclosed,
-		},
-	})
+	// External parties (the only kind this api-server creates for custodial users)
+	// can't be submitted as via plain SubmitAndWait — the participant doesn't hold
+	// the signing key. Use Interactive Submission with the user's stored key.
+	if c.keyResolver == nil {
+		return fmt.Errorf("accept transfer instruction: no key resolver configured " +
+			"(custodial accept requires the api-server to hold the user's signing key)")
+	}
+	signerKey, err := c.keyResolver(partyID)
 	if err != nil {
+		return fmt.Errorf("accept transfer instruction: resolve signing key for %s: %w", partyID, err)
+	}
+
+	commands := &lapiv2.Commands{
+		SynchronizerId:     c.cfg.DomainID,
+		CommandId:          uuid.NewString(),
+		UserId:             c.cfg.UserID,
+		ActAs:              []string{partyID},
+		Commands:           []*lapiv2.Command{cmd},
+		DisclosedContracts: disclosed,
+	}
+	if err := c.prepareAndExecuteAsUser(ctx, commands, signerKey, partyID); err != nil {
 		return fmt.Errorf("accept transfer instruction: %w", err)
 	}
 	return nil

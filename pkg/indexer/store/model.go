@@ -60,6 +60,20 @@ type OffsetDao struct {
 	LedgerOffset  int64 `bun:",notnull,default:0"`
 }
 
+// HoldingDao maps to the 'indexer_holdings' table.
+// One row per active Utility.Registry.Holding.V0.Holding contract. Inserted on
+// CREATED events and deleted on ARCHIVED events; the stored amount is needed at
+// archive time to decrement balances since archive events carry only contract_id.
+type HoldingDao struct {
+	bun.BaseModel   `bun:"table:indexer_holdings"`
+	ContractID      string `bun:",pk,type:varchar(255)"`
+	Owner           string `bun:",notnull,type:varchar(255)"`
+	InstrumentAdmin string `bun:",notnull,type:varchar(255)"`
+	InstrumentID    string `bun:",notnull,type:varchar(255)"`
+	Amount          string `bun:",notnull,type:text"`
+	LedgerOffset    int64  `bun:",notnull"`
+}
+
 // PendingOfferDao maps to the 'indexer_pending_offers' table.
 // Rows are written on TransferOffer CREATED events and updated (status→ACCEPTED)
 // on ARCHIVED events. Rows are never deleted — the table is a full audit log.

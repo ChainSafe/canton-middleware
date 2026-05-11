@@ -115,13 +115,21 @@ func (s *Server) Run() error {
 			EntityName: "TransferOffer",
 		})
 	}
+	if cfg.Indexer.UtilityRegistryHoldingPackageID != "" {
+		templateIDs = append(templateIDs, streaming.TemplateID{
+			PackageID:  cfg.Indexer.UtilityRegistryHoldingPackageID,
+			ModuleName: "Utility.Registry.Holding.V0.Holding",
+			EntityName: "Holding",
+		})
+	}
 
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
 	transferDecode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
 	offerDecode := engine.NewOfferDecoder(cfg.Indexer.UtilityRegistryPackageID, logger)
-	decode := engine.NewMultiDecoder(transferDecode, offerDecode)
+	holdingDecode := engine.NewHoldingDecoder(cfg.Indexer.UtilityRegistryHoldingPackageID, logger)
+	decode := engine.NewMultiDecoder(transferDecode, offerDecode, holdingDecode)
 	fetcher := engine.NewFetcher(streamClient, templateIDs, decode, logger)
 	store := indexerstore.NewStore(db)
 	processor := engine.NewProcessor(fetcher, store, logger)

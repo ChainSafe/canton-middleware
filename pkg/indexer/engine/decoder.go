@@ -18,6 +18,9 @@ const (
 
 	transferOfferModule = "Utility.Registry.App.V0.Model.Transfer"
 	transferOfferEntity = "TransferOffer"
+
+	holdingModule = "Utility.Registry.Holding.V0.Holding"
+	holdingEntity = "Holding"
 )
 
 // NewTokenTransferDecoder returns a decode function for use with streaming.NewStream.
@@ -150,11 +153,13 @@ func NewOfferDecoder(
 			CreatedAt:    tx.EffectiveTime,
 		}
 		if ev.IsCreated {
-			offer.ReceiverPartyID = ev.PartyField("receiver")
-			offer.SenderPartyID = ev.PartyField("sender")
-			offer.Amount = ev.NumericField("amount")
-			offer.InstrumentAdmin = ev.NestedPartyField("instrumentId", "admin")
-			offer.InstrumentID = ev.NestedTextField("instrumentId", "id")
+			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
+			// Receiver/sender/amount/instrumentId all live inside the nested transfer record.
+			offer.ReceiverPartyID = ev.NestedPartyField("transfer", "receiver")
+			offer.SenderPartyID = ev.NestedPartyField("transfer", "sender")
+			offer.Amount = ev.NestedNumericField("transfer", "amount")
+			offer.InstrumentAdmin = ev.DoublyNestedPartyField("transfer", "instrumentId", "admin")
+			offer.InstrumentID = ev.DoublyNestedTextField("transfer", "instrumentId", "id")
 			if offer.ReceiverPartyID == "" {
 				logger.Warn("TransferOffer CREATED decoded with empty receiver — field name mismatch?",
 					zap.String("contract_id", ev.ContractID),
@@ -166,16 +171,66 @@ func NewOfferDecoder(
 	}
 }
 
-// NewMultiDecoder wraps a TokenTransfer decoder and an Offer decoder into a single any-typed decode function.
+// NewHoldingDecoder returns a decode function for Utility.Registry.Holding.V0.Holding
+// CREATED and ARCHIVED events. Returns nil, false when packageID is empty (feature
+// disabled). Used so the indexer can maintain indexer_balances for Utility.Registry
+// instruments (e.g. USDCx) which do not emit a separate TokenTransferEvent contract.
+//
+// The Holding template's create_arguments are {operator, provider, registrar, owner,
+// instrument{source,id,scheme}, label, amount, lock}. The Splice HoldingV1 view derives
+// instrumentId.admin from `registrar` and instrumentId.id from `instrument.id` — the
+// decoder mirrors that mapping so balances keyed by (admin, id) line up with the
+// per-instrument balance table.
+func NewHoldingDecoder(
+	packageID string, logger *zap.Logger,
+) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.HoldingChange, bool) {
+	if packageID == "" {
+		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.HoldingChange, bool) {
+			return nil, false
+		}
+	}
+	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.HoldingChange, bool) {
+		if ev.PackageID != packageID || ev.ModuleName != holdingModule || ev.TemplateName != holdingEntity {
+			return nil, false
+		}
+		change := &indexer.HoldingChange{
+			ContractID:   ev.ContractID,
+			IsArchived:   !ev.IsCreated,
+			LedgerOffset: tx.Offset,
+		}
+		if ev.IsCreated {
+			change.Owner = ev.PartyField("owner")
+			change.InstrumentAdmin = ev.PartyField("registrar")
+			change.InstrumentID = ev.NestedTextField("instrument", "id")
+			change.Amount = ev.NumericField("amount")
+			if change.Owner == "" || change.InstrumentID == "" {
+				logger.Warn("Holding CREATED decoded with empty owner or instrument — field-name mismatch?",
+					zap.String("contract_id", ev.ContractID),
+					zap.Int64("offset", tx.Offset),
+				)
+			}
+		}
+		return change, true
+	}
+}
+
+// NewMultiDecoder wraps the TokenTransfer, Offer, and Holding decoders into a single
+// any-typed decode function. The Holding decoder is only consulted when both prior
+// decoders miss — TokenTransferEvents and TransferOffers never collide with Holding
+// templates, so the order is purely a fast-path optimization for the common case.
 func NewMultiDecoder(
 	transferDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.ParsedEvent, bool),
 	offerDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool),
+	holdingDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.HoldingChange, bool),
 ) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (any, bool) {
 	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (any, bool) {
 		if item, ok := transferDecode(tx, ev); ok {
 			return item, true
 		}
 		if item, ok := offerDecode(tx, ev); ok {
+			return item, true
+		}
+		if item, ok := holdingDecode(tx, ev); ok {
 			return item, true
 		}
 		return nil, false

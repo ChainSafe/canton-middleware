@@ -187,10 +187,27 @@ func (c *acceptContextCache) store(resp *AcceptContextResponse) {
 
 type server struct {
 	p2          *ledger.Client
-	issuer      string
-	domain      string
 	cache       *factoryCache
 	acceptCache *acceptContextCache
+
+	// Bootstrap discovery state. Populated asynchronously after main() exits the
+	// listener loop, so the HTTP server can satisfy Docker's /health probe without
+	// waiting for the bootstrap container to allocate USDCxIssuer + create the
+	// AllocationFactory + InstrumentConfiguration + TransferRule. Reads through
+	// readyState() block until ready or return an error if bootstrap is still in
+	// progress.
+	mu     sync.RWMutex
+	issuer string
+	domain string
+	ready  bool
+}
+
+// readyState returns the current bootstrap discovery state under a read lock.
+// Handlers must call this before serving any factory or accept-context requests.
+func (s *server) readyState() (issuer, domain string, ready bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.issuer, s.domain, s.ready
 }
 
 func main() {
@@ -216,24 +233,8 @@ func main() {
 	}
 	defer p2.Close()
 
-	log.Println(">>> USDCx Registry: discovering USDCxIssuer party...")
-	issuer, err := discoverIssuer(ctx, *p2HTTP)
-	if err != nil {
-		log.Fatalf("discover USDCxIssuer party: %v", err)
-	}
-	log.Printf("    USDCxIssuer: %s", issuer)
-
-	log.Println(">>> USDCx Registry: discovering domain ID...")
-	domain, err := discoverDomain(ctx, *p2HTTP)
-	if err != nil {
-		log.Fatalf("discover domain ID: %v", err)
-	}
-	log.Printf("    Domain: %s", domain)
-
 	srv := &server{
 		p2:          p2,
-		issuer:      issuer,
-		domain:      domain,
 		cache:       &factoryCache{ttl: *cacheTTL},
 		acceptCache: &acceptContextCache{ttl: *cacheTTL},
 	}
@@ -243,15 +244,55 @@ func main() {
 	// Receiver-side accept context endpoint — matches DA's registrar URL pattern.
 	mux.HandleFunc("/api/token-standard/v0/registrars/", srv.handleAcceptContext)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		// Always return OK so Docker considers the container healthy even while
+		// USDCxIssuer discovery is still in progress. Docker's --wait gate would
+		// otherwise time out before the bootstrap container has allocated the
+		// issuer (a 1-2 minute window after canton becomes healthy).
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
 
+	// Discover the USDCxIssuer party and synchronizer ID in the background. We
+	// poll until ready, retrying indefinitely — the registry is useless until
+	// bootstrap-usdcx has run, but we still want the HTTP server up so /health
+	// passes.
+	go srv.bootstrapDiscovery(ctx)
+
 	addr := ":" + *listenPort
-	log.Printf(">>> USDCx Registry listening on %s (issuer: %s, cache TTL: %s)", addr, issuer, *cacheTTL)
+	log.Printf(">>> USDCx Registry listening on %s (cache TTL: %s) — discovering issuer in background", addr, *cacheTTL)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("listen: %v", err)
 	}
+}
+
+// bootstrapDiscovery resolves the USDCxIssuer party and synchronizer ID from P2,
+// retrying every 5 seconds until both are found. Once complete, marks the server
+// ready and lets handlers serve real responses. Logs errors but never exits — a
+// failure here just delays the readiness flip; the HTTP /health endpoint stays
+// healthy independently so Docker doesn't kill the container.
+func (s *server) bootstrapDiscovery(ctx context.Context) {
+	log.Println(">>> USDCx Registry: discovering USDCxIssuer party in background...")
+	issuer, err := waitForIssuer(ctx, *p2HTTP, 30*time.Minute, 5*time.Second)
+	if err != nil {
+		log.Printf("ERROR: discover USDCxIssuer party: %v", err)
+		return
+	}
+	log.Printf("    USDCxIssuer: %s", issuer)
+
+	log.Println(">>> USDCx Registry: discovering domain ID...")
+	domain, err := discoverDomain(ctx, *p2HTTP)
+	if err != nil {
+		log.Printf("ERROR: discover domain ID: %v", err)
+		return
+	}
+	log.Printf("    Domain: %s", domain)
+
+	s.mu.Lock()
+	s.issuer = issuer
+	s.domain = domain
+	s.ready = true
+	s.mu.Unlock()
+	log.Printf(">>> USDCx Registry ready (issuer: %s, domain: %s)", issuer, domain)
 }
 
 // ─── Sender-side handler ──────────────────────────────────────────────────────
@@ -263,6 +304,12 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	issuer, _, ready := s.readyState()
+	if !ready {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "registry still discovering USDCxIssuer party"})
+		return
+	}
+
 	defer r.Body.Close()
 	var req RegistryRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
@@ -270,7 +317,7 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ExpectedAdmin != s.issuer {
+	if req.ExpectedAdmin != issuer {
 		writeJSON(w, http.StatusBadRequest, errorBody{
 			Error: fmt.Sprintf("expectedAdmin %q does not match issuer", req.ExpectedAdmin),
 		})
@@ -296,9 +343,13 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// queryFactory queries P2's ACS for the active AllocationFactory and builds
-// the RegistryResponse with IncludeCreatedEventBlob so the caller can disclose
-// the factory contract to a Canton node that doesn't hold it in its own ACS.
+// queryFactory queries P2's ACS for the active AllocationFactory and the
+// InstrumentConfiguration referenced by it. AllocationFactory's
+// TransferFactory_Transfer choice requires the sender-side context entries
+// (instrument-configuration + empty sender-credentials list) and the
+// InstrumentConfiguration contract to be disclosed so a participant that
+// doesn't hold it in its own ACS (e.g. P1 when sender is on P2's-issuer-token)
+// can still fetch it during interpretation.
 func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 	authCtx := s.p2.AuthContext(ctx)
 
@@ -310,28 +361,57 @@ func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 		return nil, fmt.Errorf("ledger is empty")
 	}
 
-	tid := &lapiv2.Identifier{
+	factoryTID := &lapiv2.Identifier{
 		PackageId:  *registryAppPkgID,
 		ModuleName: "Utility.Registry.App.V0.Service.AllocationFactory",
 		EntityName: "AllocationFactory",
 	}
+	instrumentConfigTID := &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
+		EntityName: "InstrumentConfiguration",
+	}
 
-	contractID, blob, err := s.fetchContractFromACS(authCtx, end, tid)
+	factoryCID, factoryBlob, err := s.fetchContractFromACS(authCtx, end, factoryTID)
 	if err != nil {
 		return nil, fmt.Errorf("AllocationFactory: %w", err)
 	}
+	configCID, configBlob, err := s.fetchContractFromACS(authCtx, end, instrumentConfigTID)
+	if err != nil {
+		return nil, fmt.Errorf("InstrumentConfiguration: %w", err)
+	}
 
-	templateID := fmt.Sprintf("%s:%s:%s", tid.PackageId, tid.ModuleName, tid.EntityName)
+	_, domain, _ := s.readyState()
+	templateIDStr := func(id *lapiv2.Identifier) string {
+		return fmt.Sprintf("%s:%s:%s", id.PackageId, id.ModuleName, id.EntityName)
+	}
 	return &RegistryResponse{
-		FactoryID:    contractID,
+		FactoryID:    factoryCID,
 		TransferKind: "transfer",
-		ChoiceContext: nil,
-		DisclosedContracts: []DisclosedContract{{
-			ContractID:       contractID,
-			CreatedEventBlob: base64.StdEncoding.EncodeToString(blob),
-			TemplateID:       templateID,
-			SynchronizerID:   s.domain,
-		}},
+		ChoiceContext: map[string]any{
+			"values": map[string]any{
+				"utility.digitalasset.com/instrument-configuration": map[string]string{
+					"tag": "AV_ContractId", "value": configCID,
+				},
+				"utility.digitalasset.com/sender-credentials": map[string]any{
+					"tag": "AV_List", "value": []any{},
+				},
+			},
+		},
+		DisclosedContracts: []DisclosedContract{
+			{
+				ContractID:       factoryCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(factoryBlob),
+				TemplateID:       templateIDStr(factoryTID),
+				SynchronizerID:   domain,
+			},
+			{
+				ContractID:       configCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(configBlob),
+				TemplateID:       templateIDStr(instrumentConfigTID),
+				SynchronizerID:   domain,
+			},
+		},
 	}, nil
 }
 
@@ -351,6 +431,12 @@ func (s *server) handleAcceptContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	issuer, _, ready := s.readyState()
+	if !ready {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "registry still discovering USDCxIssuer party"})
+		return
+	}
+
 	// Path: /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
 	// After stripping the registered prefix "/api/token-standard/v0/registrars/" the remainder is:
 	// {registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
@@ -364,7 +450,7 @@ func (s *server) handleAcceptContext(w http.ResponseWriter, r *http.Request) {
 	}
 	registrar := parts[0]
 
-	if registrar != s.issuer {
+	if registrar != issuer {
 		writeJSON(w, http.StatusBadRequest, errorBody{
 			Error: fmt.Sprintf("registrar %q not managed by this registry", registrar),
 		})
@@ -433,6 +519,7 @@ func (s *server) queryAcceptContext(ctx context.Context) (*AcceptContextResponse
 		return fmt.Sprintf("%s:%s:%s", id.PackageId, id.ModuleName, id.EntityName)
 	}
 
+	_, domain, _ := s.readyState()
 	return &AcceptContextResponse{
 		ChoiceContextData: acceptChoiceContextData{
 			Values: map[string]any{
@@ -455,13 +542,13 @@ func (s *server) queryAcceptContext(ctx context.Context) (*AcceptContextResponse
 				ContractID:       transferRuleCID,
 				CreatedEventBlob: base64.StdEncoding.EncodeToString(transferRuleBlob),
 				TemplateID:       templateIDStr(transferRuleTID),
-				SynchronizerID:   s.domain,
+				SynchronizerID:   domain,
 			},
 			{
 				ContractID:       instrumentConfigCID,
 				CreatedEventBlob: base64.StdEncoding.EncodeToString(instrumentConfigBlob),
 				TemplateID:       templateIDStr(instrumentConfigTID),
-				SynchronizerID:   s.domain,
+				SynchronizerID:   domain,
 			},
 		},
 	}, nil
@@ -509,6 +596,27 @@ func (s *server) fetchContractFromACS(authCtx context.Context, end int64, tid *l
 }
 
 // ─── Discovery helpers ────────────────────────────────────────────────────────
+
+// waitForIssuer polls discoverIssuer until the USDCxIssuer party appears on P2
+// or the deadline is reached. Logs each retry so startup progress is visible.
+func waitForIssuer(ctx context.Context, p2HTTPURL string, timeout, interval time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		issuer, err := discoverIssuer(ctx, p2HTTPURL)
+		if err == nil {
+			return issuer, nil
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timed out after %s waiting for USDCxIssuer: %w", timeout, err)
+		}
+		log.Printf("    USDCxIssuer not ready yet, retrying in %s (%v)", interval, err)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
 
 // discoverIssuer lists parties on P2 and returns the first one with the
 // USDCxIssuer:: prefix.

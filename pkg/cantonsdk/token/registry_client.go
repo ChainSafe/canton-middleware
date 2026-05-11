@@ -106,7 +106,7 @@ func (rc *RegistryClient) GetTransferFactory(ctx context.Context, registryBaseUR
 
 // ConvertDisclosedContracts parses the registry's disclosed contracts JSON into proto messages.
 func ConvertDisclosedContracts(raw json.RawMessage, fallbackDomainID string) ([]*lapiv2.DisclosedContract, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil, nil
 	}
 	var contracts []registryDisclosedContract
@@ -167,10 +167,25 @@ func parseTemplateID(raw json.RawMessage) (*lapiv2.Identifier, error) {
 	return &lapiv2.Identifier{PackageId: obj.PackageID, ModuleName: obj.ModuleName, EntityName: obj.EntityName}, nil
 }
 
+// jsonNull is the literal JSON null token. Registry endpoints commonly send this
+// for absent choice contexts; both converters short-circuit on it.
+const jsonNull = "null"
+
 // ConvertChoiceContext parses the registry's choice context JSON into a map suitable for EncodeExtraArgs.
-// Returns nil for null or empty input (AllocationFactory returns null).
+// Returns nil for null or empty input. Used for the legacy TextMap-of-Text shape.
+// AllocationFactory-based registries return the richer AnyValue shape, which is parsed by
+// ConvertAnyValueChoiceContext instead.
 func ConvertChoiceContext(raw json.RawMessage) (map[string]string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
+		return nil, nil
+	}
+	// Treat the AnyValue shape (`{"values": {...}}`) as absent for the legacy
+	// converter — callers using AllocationFactory should branch to
+	// ConvertAnyValueChoiceContext when the JSON looks like an AnyValue map.
+	var peek struct {
+		Values json.RawMessage `json:"values"`
+	}
+	if err := json.Unmarshal(raw, &peek); err == nil && len(peek.Values) > 0 {
 		return nil, nil
 	}
 	var m map[string]string
@@ -178,6 +193,22 @@ func ConvertChoiceContext(raw json.RawMessage) (map[string]string, error) {
 		return nil, fmt.Errorf("parse choice context: %w", err)
 	}
 	return m, nil
+}
+
+// ConvertAnyValueChoiceContext parses an AnyValue-shaped registry choice context
+// (`{"values": {key: {tag, value}, ...}}`) into AcceptChoiceContext. Used when the
+// registry returns context entries for AllocationFactory's TransferFactory_Transfer
+// choice (instrument-configuration as AV_ContractId, sender-credentials as AV_List).
+// Returns an empty context when raw is null or doesn't carry the AnyValue shape.
+func ConvertAnyValueChoiceContext(raw json.RawMessage) (AcceptChoiceContext, error) {
+	if len(raw) == 0 || string(raw) == jsonNull {
+		return AcceptChoiceContext{}, nil
+	}
+	var ctx AcceptChoiceContext
+	if err := json.Unmarshal(raw, &ctx); err != nil {
+		return AcceptChoiceContext{}, fmt.Errorf("parse anyvalue choice context: %w", err)
+	}
+	return ctx, nil
 }
 
 // GetAcceptChoiceContext calls the registrar's accept choice-context endpoint for a pending

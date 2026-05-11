@@ -303,6 +303,23 @@ else
     sleep 10
     echo "    P2 vetting propagation wait complete"
 
+    # P2 reports HTTP-ready before its synchronizer connection is fully established.
+    # Allocating a party in that window returns PARTY_ALLOCATION_WITHOUT_CONNECTED_SYNCHRONIZER.
+    # Poll until P2 is connected, mirroring the P1 wait above.
+    echo ""
+    echo ">>> Waiting for participant2 to connect to synchronizer..."
+    attempt=0
+    while [ $attempt -lt $MAX_RETRIES ]; do
+        p2_sync_count=$(curl -s "${CANTON_P2_HTTP}/v2/state/connected-synchronizers" 2>/dev/null | jq '.connectedSynchronizers | length' 2>/dev/null || echo "0")
+        if [ "$p2_sync_count" -gt 0 ] 2>/dev/null; then
+            echo "    Participant2 connected to synchronizer!"
+            break
+        fi
+        echo -n "."
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+
     echo ""
     echo ">>> Allocating USDCxIssuer party on participant2..."
     USDCX_EXISTING=$(curl -s "${CANTON_P2_HTTP}/v2/parties" | jq -r '.partyDetails[].party' | grep "^USDCxIssuer::" | head -1 || true)
@@ -311,11 +328,24 @@ else
         echo "    USDCxIssuer already exists: $USDCX_EXISTING"
         USDCX_PARTY_ID="$USDCX_EXISTING"
     else
-        USDCX_PARTY_RESPONSE=$(curl -s -X POST "${CANTON_P2_HTTP}/v2/parties" \
-            -H 'Content-Type: application/json' \
-            -d '{"partyIdHint": "USDCxIssuer"}')
-        USDCX_PARTY_ID=$(echo "$USDCX_PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
-        echo "    Allocated: $USDCX_PARTY_ID"
+        # P2 occasionally returns an empty body for the first allocation request
+        # immediately after package vetting completes, even though /v2/parties
+        # GET succeeds. Retry up to 12 times (≈60s) before giving up. Without the
+        # retry, USDCx bootstrap silently skips and downstream consumers (registry,
+        # api-server, e2e tests) fail with confusing "USDCxIssuer not found" errors.
+        USDCX_PARTY_ID=""
+        for attempt in $(seq 1 12); do
+            USDCX_PARTY_RESPONSE=$(curl -s -X POST "${CANTON_P2_HTTP}/v2/parties" \
+                -H 'Content-Type: application/json' \
+                -d '{"partyIdHint": "USDCxIssuer"}')
+            USDCX_PARTY_ID=$(echo "$USDCX_PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
+            if [ -n "$USDCX_PARTY_ID" ]; then
+                echo "    Allocated: $USDCX_PARTY_ID"
+                break
+            fi
+            echo "    Attempt $attempt/12 failed (response: ${USDCX_PARTY_RESPONSE:-<empty>}), retrying in 5s..."
+            sleep 5
+        done
     fi
 
     if [ -z "$USDCX_PARTY_ID" ]; then
@@ -323,16 +353,29 @@ else
     else
         echo ""
         echo ">>> Running bootstrap-usdcx on participant2..."
-        /app/bootstrap-usdcx \
-            -p2           "$CANTON_P2_GRPC" \
-            -p2-audience  "$CANTON_P2_AUDIENCE" \
-            -issuer       "$USDCX_PARTY_ID" \
-            -domain       "$DOMAIN_ID" \
-            -token-url    "http://mock-oauth2:8088/oauth/token" \
-            -client-id    "$CANTON_AUTH_CLIENT_ID" \
-            -client-secret "$CANTON_AUTH_CLIENT_SECRET" || {
-            echo "    [WARN] bootstrap-usdcx may have failed or contracts already exist"
-        }
+        # Retry to absorb INVALID_PRESCRIBED_SYNCHRONIZER_ID errors that occur
+        # when P2's package vetting (e.g. CIP56) hasn't yet propagated to the
+        # synchronizer. Vetting is async after package upload + party allocation,
+        # and the time before the first command succeeds is non-deterministic.
+        usdcx_ok=0
+        for attempt in $(seq 1 10); do
+            if /app/bootstrap-usdcx \
+                -p2           "$CANTON_P2_GRPC" \
+                -p2-audience  "$CANTON_P2_AUDIENCE" \
+                -issuer       "$USDCX_PARTY_ID" \
+                -domain       "$DOMAIN_ID" \
+                -token-url    "http://mock-oauth2:8088/oauth/token" \
+                -client-id    "$CANTON_AUTH_CLIENT_ID" \
+                -client-secret "$CANTON_AUTH_CLIENT_SECRET"; then
+                usdcx_ok=1
+                break
+            fi
+            echo "    [WARN] bootstrap-usdcx attempt $attempt/10 failed, retrying in 10s..."
+            sleep 10
+        done
+        if [ "$usdcx_ok" -ne 1 ]; then
+            echo "    [WARN] bootstrap-usdcx exhausted retries — USDCx contracts may be missing"
+        fi
 
         # Substitute USDCx issuer party in api-server config
         if [ -f "$API_SERVER_CONFIG_FILE" ]; then
