@@ -367,6 +367,7 @@ func fingerprintMappingFromCreateEvent(event *lapiv2.CreatedEvent) *FingerprintM
 
 func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 	authCtx := c.ledger.AuthContext(ctx)
+
 	right := &adminv2.Right{
 		Kind: &adminv2.Right_CanActAs_{
 			CanActAs: &adminv2.Right_CanActAs{Party: partyID},
@@ -377,31 +378,14 @@ func (c *Client) GrantActAsParty(ctx context.Context, partyID string) error {
 		UserId: c.cfg.UserID,
 		Rights: []*adminv2.Right{right},
 	})
-	if err == nil || isAlreadyExistsError(err) {
-		return nil
-	}
-	// Canton's user record must exist before rights can be granted. Wildcard JWT
-	// auth lets the api-server submit commands without ever creating its own user,
-	// so the first grant after fresh devstack-up hits USER_NOT_FOUND. Create the
-	// user with the right inline so the second registration onwards finds it.
-	if isNotFoundError(err) {
-		_, createErr := c.ledger.UserAdmin().CreateUser(authCtx, &adminv2.CreateUserRequest{
-			User:   &adminv2.User{Id: c.cfg.UserID},
-			Rights: []*adminv2.Right{right},
-		})
-		if createErr == nil || isAlreadyExistsError(createErr) {
+	if err != nil {
+		if isAlreadyExistsError(err) { // TODO: need to verify this works
 			return nil
 		}
-		return fmt.Errorf("create user for grant: %w", createErr)
+		return fmt.Errorf("grant can act as: %w", err)
 	}
-	return fmt.Errorf("grant can act as: %w", err)
-}
 
-func isNotFoundError(err error) bool {
-	if s, ok := status.FromError(err); ok {
-		return s.Code() == codes.NotFound
-	}
-	return false
+	return nil
 }
 
 func isAlreadyExistsError(err error) bool {

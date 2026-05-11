@@ -187,15 +187,6 @@ func (s *registrationService) RegisterWeb3User(
 	}
 
 	cantonPartyID := partyResult.PartyID
-
-	// Grant the api-server's OAuth user the right to act as the new party so the
-	// custodial accept worker can later submit TransferInstruction_Accept on
-	// behalf of this user. Without this right, SubmitAndWait with ActAs=[partyID]
-	// fails with NO_SYNCHRONIZER_ON_WHICH_ALL_SUBMITTERS_CAN_SUBMIT.
-	if err = s.cantonClient.GrantActAsParty(ctx, cantonPartyID); err != nil {
-		return nil, fmt.Errorf("grant act-as right on user party: %w", err)
-	}
-
 	// Create fingerprint mapping on Canton
 	mapping, err := s.cantonClient.CreateFingerprintMapping(ctx, canton.CreateFingerprintMappingRequest{
 		UserParty:   cantonPartyID,
