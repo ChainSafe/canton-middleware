@@ -237,48 +237,40 @@ func (c *Canton2Shim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol s
 	return result, nil
 }
 
-// TransferToken finds a CIP56TransferFactory and a suitable CIP56Holding for
-// senderParty on P2, then exercises TransferFactory_Transfer to move amount of
-// tokenSymbol to recipientParty (which may be on a different participant).
+// TransferToken finds a TransferFactory and a suitable Holding for senderParty
+// on P2, then exercises TransferFactory_Transfer to move amount of tokenSymbol
+// to recipientParty (which may be on a different participant).
 //
-// Multiple e2e tests share the same USDCx issuer party, so concurrent TransferToken
-// calls can pick the same input Holding and lose the race with Canton's contract
-// lock manager (LOCAL_VERDICT_LOCKED_CONTRACTS). Retry a few times with a small
-// delay — the lock is held only for the duration of a single transfer and the
-// retry will pick a different Holding from GetHoldings.
+// Parallel e2e tests share the same USDCx issuer party and contend on its
+// Holding set. Canton may reject with LOCAL_VERDICT_LOCKED_CONTRACTS (another
+// transfer holds the lock right now) or LOCAL_VERDICT_INACTIVE_CONTRACTS (the
+// Holding we selected was archived between GetHoldings and submit). Both are
+// transient — refetch holdings on the next attempt and try again.
 func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error {
 	const maxAttempts = 5
-	const baseDelay = 100 * time.Millisecond
 	var lastErr error
 	for attempt := range maxAttempts {
 		err := c.tokenCli.TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
 		if err == nil {
 			return nil
 		}
-		lastErr = err
-		if !isContentionError(err) {
+		if !isHoldingContention(err) {
 			return err
 		}
+		lastErr = err
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(baseDelay * time.Duration(1<<attempt)):
+		case <-time.After(100 * time.Millisecond * time.Duration(1<<attempt)):
 		}
 	}
-	return fmt.Errorf("TransferToken: exhausted %d retries: %w", maxAttempts, lastErr)
+	return fmt.Errorf("TransferToken: %d attempts: %w", maxAttempts, lastErr)
 }
 
-// isContentionError reports whether err is a transient Canton concurrency
-// failure that should be retried — locked contracts (one of our own holdings
-// is held by a concurrent transfer) or generic Aborted status.
-func isContentionError(err error) bool {
-	if err == nil {
-		return false
-	}
+func isHoldingContention(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "LOCAL_VERDICT_LOCKED_CONTRACTS") ||
-		strings.Contains(msg, "CONTENTION") ||
-		strings.Contains(msg, "code = Aborted")
+		strings.Contains(msg, "LOCAL_VERDICT_INACTIVE_CONTRACTS")
 }
 
 // GetFingerprintMapping is not supported on Participant 2.

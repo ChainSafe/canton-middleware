@@ -216,12 +216,8 @@ func main() {
 	}
 	defer p2.Close()
 
-	// The bootstrap container has exited successfully by the time docker starts
-	// us (depends_on: service_completed_successfully), so the USDCxIssuer party
-	// and AllocationFactory are already on the synchronizer. A short retry loop
-	// absorbs any residual visibility delay across the canton HTTP API.
 	log.Println(">>> USDCx Registry: discovering USDCxIssuer party...")
-	issuer, err := waitForIssuer(ctx, *p2HTTP, 30*time.Second, 2*time.Second)
+	issuer, err := discoverIssuer(ctx, *p2HTTP)
 	if err != nil {
 		log.Fatalf("discover USDCxIssuer party: %v", err)
 	}
@@ -545,27 +541,6 @@ func (s *server) fetchContractFromACS(authCtx context.Context, end int64, tid *l
 }
 
 // ─── Discovery helpers ────────────────────────────────────────────────────────
-
-// waitForIssuer polls discoverIssuer until the USDCxIssuer party appears on P2
-// or the deadline is reached. Logs each retry so startup progress is visible.
-func waitForIssuer(ctx context.Context, p2HTTPURL string, timeout, interval time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		issuer, err := discoverIssuer(ctx, p2HTTPURL)
-		if err == nil {
-			return issuer, nil
-		}
-		if time.Now().After(deadline) {
-			return "", fmt.Errorf("timed out after %s waiting for USDCxIssuer: %w", timeout, err)
-		}
-		log.Printf("    USDCxIssuer not ready yet, retrying in %s (%v)", interval, err)
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(interval):
-		}
-	}
-}
 
 // discoverIssuer lists parties on P2 and returns the first one with the
 // USDCxIssuer:: prefix.

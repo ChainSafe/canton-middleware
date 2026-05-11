@@ -629,11 +629,11 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 // Shared between custodial (transferViaFactory) and non-custodial (PrepareTransfer) paths.
 // Returns an error only when AnyValueContext encoding fails (invalid AnyValue tags).
 func (c *Client) buildTransferCommand(req *transferFactoryRequest) (*lapiv2.Command, error) {
-	// Backdate requestedAt by 5s to avoid `Transfer requestedAt must be in the past`
-	// when the host clock is slightly ahead of the Canton ledger clock. The
-	// AllocationFactory_TransferInternal choice asserts requestedAt < ledger time
-	// (assertDeadlineExceeded), so a now() value that the ledger sees as future
-	// fails interpretation.
+	// Backdate requestedAt by a few seconds: the AllocationFactory choice asserts
+	// `requestedAt < ledger time`, and Canton's ledger time can lag wall-clock by
+	// up to ~mediator-reaction-timeout on busy stacks. A 5s skew is safely within
+	// defaultTransferValidity (1h) and avoids spurious "requestedAt must be in
+	// the past" rejections.
 	now := time.Now().UTC().Add(-5 * time.Second)
 
 	// For AllocationFactory tokens the choice context must be encoded as TextMap AnyValue.
