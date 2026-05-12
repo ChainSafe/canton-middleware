@@ -17,7 +17,7 @@ func init() {
 			return err
 		}
 		return mghelper.CreateModelIndexes(ctx, db, &indexerstore.HoldingDao{},
-			"owner,instrument_admin,instrument_id")
+			"owner", "instrument_admin", "instrument_id")
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping indexer_holdings table...")
 		return mghelper.DropTables(ctx, db, &indexerstore.HoldingDao{})

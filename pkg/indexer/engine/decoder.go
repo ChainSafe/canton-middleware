@@ -143,7 +143,12 @@ func NewOfferDecoder(
 		}
 	}
 	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
-		if ev.PackageID != packageID || ev.ModuleName != transferOfferModule || ev.TemplateName != transferOfferEntity {
+		// Match by module+entity only. The stream-level filter (buildTemplateFilters)
+		// already narrowed the wire to this template; comparing ev.PackageID to a
+		// config-supplied value breaks when the config uses a package-name reference
+		// (#name) — Canton accepts those in filters but events arrive carrying the
+		// resolved package hash, so equality fails. Mirrors the CIP56 decoder.
+		if ev.ModuleName != transferOfferModule || ev.TemplateName != transferOfferEntity {
 			return nil, false
 		}
 		offer := &indexer.PendingOffer{
@@ -190,7 +195,8 @@ func NewHoldingDecoder(
 		}
 	}
 	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.HoldingChange, bool) {
-		if ev.PackageID != packageID || ev.ModuleName != holdingModule || ev.TemplateName != holdingEntity {
+		// Match by module+entity only (see NewOfferDecoder comment).
+		if ev.ModuleName != holdingModule || ev.TemplateName != holdingEntity {
 			return nil, false
 		}
 		change := &indexer.HoldingChange{
