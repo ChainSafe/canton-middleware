@@ -44,6 +44,11 @@ canton:
     cip56_package_id: "#cip56-token"
     splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
     splice_holding_package_id: "#splice-api-token-holding-v1"
+    # Required so FindPendingInboundTransferInstructions can locate the
+    # Utility.Registry.App.V0.Model.Transfer.TransferOffer template. Without it,
+    # GET /api/v2/transfer/incoming returns "utility_registry_app_package_id not
+    # configured" and external-key acceptors can't see their pending offers.
+    utility_registry_app_package_id: "#utility-registry-app-v0"
     external_tokens:
       "${CANTON_USDCX_ISSUER_PARTY}":
         registry_url: "${CANTON_USDCX_REGISTRY_URL}"
@@ -102,6 +107,14 @@ logging:
   level: "debug"
   format: "console"
   output_path: "stdout"
+
+# Auto-accepts pending TransferOffer contracts for custodial users by polling
+# the indexer and exercising TransferInstruction_Accept on the api-server's
+# behalf. Required for the e2e USDCx cross-participant test where the receiver
+# is custodial and never explicitly calls the accept API.
+accept_worker:
+  indexer_url: "${INDEXER_URL}"
+  poll_interval: "5s"
 
 key_management:
   master_key_env: "CANTON_MASTER_KEY"
