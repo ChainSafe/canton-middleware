@@ -22,6 +22,13 @@ type Config struct {
 	// (Utility.Registry.App.V0.Model.Transfer.TransferOffer).
 	// Leave empty to disable TransferOffer tracking.
 	UtilityRegistryPackageID string `yaml:"utility_registry_package_id"`
+
+	// UtilityRegistryHoldingPackageID is the DAML package ID for the Utility Registry
+	// Holding template (Utility.Registry.Holding.V0.Holding). Required to track
+	// USDCx-style balances — without it the indexer never sees Holding contract
+	// create/archive events and balances for AllocationFactory-based instruments
+	// stay at 0. Leave empty to disable Holding tracking.
+	UtilityRegistryHoldingPackageID string `yaml:"utility_registry_holding_package_id"`
 }
 
 // FilterModeAndKeys converts the config into the domain FilterMode and instrument

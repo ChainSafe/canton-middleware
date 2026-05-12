@@ -212,6 +212,60 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 	return nil
 }
 
+// ─── holding methods ────────────────────────────────────────────────────────
+
+// InsertHolding records an active Utility.Registry.Holding contract.
+// Idempotent by ContractID — replayed CREATED events return no error.
+func (s *PGStore) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
+	dao := &HoldingDao{
+		ContractID:      h.ContractID,
+		Owner:           h.Owner,
+		InstrumentAdmin: h.InstrumentAdmin,
+		InstrumentID:    h.InstrumentID,
+		Amount:          h.Amount,
+		LedgerOffset:    h.LedgerOffset,
+	}
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert holding: %w", err)
+	}
+	return nil
+}
+
+// TakeHolding deletes the holding row matching contractID and returns its
+// owner/instrument/amount so the caller can apply the symmetric balance delta.
+// Returns ok=false when the row does not exist (replayed ARCHIVED event).
+func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer.HoldingChange, ok bool, err error) {
+	var dao HoldingDao
+	err = s.db.NewSelect().
+		Model(&dao).
+		Where("contract_id = ?", contractID).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return indexer.HoldingChange{}, false, nil
+		}
+		return indexer.HoldingChange{}, false, fmt.Errorf("select holding: %w", err)
+	}
+	if _, err := s.db.NewDelete().
+		Model((*HoldingDao)(nil)).
+		Where("contract_id = ?", contractID).
+		Exec(ctx); err != nil {
+		return indexer.HoldingChange{}, false, fmt.Errorf("delete holding: %w", err)
+	}
+	return indexer.HoldingChange{
+		ContractID:      dao.ContractID,
+		Owner:           dao.Owner,
+		InstrumentAdmin: dao.InstrumentAdmin,
+		InstrumentID:    dao.InstrumentID,
+		Amount:          dao.Amount,
+		LedgerOffset:    dao.LedgerOffset,
+	}, true, nil
+}
+
 // ─── pending offer methods ───────────────────────────────────────────────────
 
 // InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.

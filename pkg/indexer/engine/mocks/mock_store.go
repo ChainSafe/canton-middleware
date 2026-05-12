@@ -180,6 +180,100 @@ func (_c *Store_InsertEvent_Call) RunAndReturn(run func(context.Context, *indexe
 	return _c
 }
 
+// InsertHolding provides a mock function with given fields: ctx, h
+func (_m *Store) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
+	ret := _m.Called(ctx, h)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertHolding")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *indexer.HoldingChange) error); ok {
+		r0 = rf(ctx, h)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_InsertHolding_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertHolding'
+type Store_InsertHolding_Call struct {
+	*mock.Call
+}
+
+// InsertHolding is a helper method to define mock.On call
+//   - ctx context.Context
+//   - h *indexer.HoldingChange
+func (_e *Store_Expecter) InsertHolding(ctx interface{}, h interface{}) *Store_InsertHolding_Call {
+	return &Store_InsertHolding_Call{Call: _e.mock.On("InsertHolding", ctx, h)}
+}
+
+func (_c *Store_InsertHolding_Call) Run(run func(ctx context.Context, h *indexer.HoldingChange)) *Store_InsertHolding_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*indexer.HoldingChange))
+	})
+	return _c
+}
+
+func (_c *Store_InsertHolding_Call) Return(_a0 error) *Store_InsertHolding_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_InsertHolding_Call) RunAndReturn(run func(context.Context, *indexer.HoldingChange) error) *Store_InsertHolding_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// InsertPendingOffer provides a mock function with given fields: ctx, offer
+func (_m *Store) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	ret := _m.Called(ctx, offer)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertPendingOffer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *indexer.PendingOffer) error); ok {
+		r0 = rf(ctx, offer)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_InsertPendingOffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertPendingOffer'
+type Store_InsertPendingOffer_Call struct {
+	*mock.Call
+}
+
+// InsertPendingOffer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - offer *indexer.PendingOffer
+func (_e *Store_Expecter) InsertPendingOffer(ctx interface{}, offer interface{}) *Store_InsertPendingOffer_Call {
+	return &Store_InsertPendingOffer_Call{Call: _e.mock.On("InsertPendingOffer", ctx, offer)}
+}
+
+func (_c *Store_InsertPendingOffer_Call) Run(run func(ctx context.Context, offer *indexer.PendingOffer)) *Store_InsertPendingOffer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*indexer.PendingOffer))
+	})
+	return _c
+}
+
+func (_c *Store_InsertPendingOffer_Call) Return(_a0 error) *Store_InsertPendingOffer_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_InsertPendingOffer_Call) RunAndReturn(run func(context.Context, *indexer.PendingOffer) error) *Store_InsertPendingOffer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // LatestOffset provides a mock function with given fields: ctx
 func (_m *Store) LatestOffset(ctx context.Context) (int64, error) {
 	ret := _m.Called(ctx)
@@ -232,6 +326,53 @@ func (_c *Store_LatestOffset_Call) Return(_a0 int64, _a1 error) *Store_LatestOff
 }
 
 func (_c *Store_LatestOffset_Call) RunAndReturn(run func(context.Context) (int64, error)) *Store_LatestOffset_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// MarkOfferAccepted provides a mock function with given fields: ctx, contractID
+func (_m *Store) MarkOfferAccepted(ctx context.Context, contractID string) error {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkOfferAccepted")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_MarkOfferAccepted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkOfferAccepted'
+type Store_MarkOfferAccepted_Call struct {
+	*mock.Call
+}
+
+// MarkOfferAccepted is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *Store_Expecter) MarkOfferAccepted(ctx interface{}, contractID interface{}) *Store_MarkOfferAccepted_Call {
+	return &Store_MarkOfferAccepted_Call{Call: _e.mock.On("MarkOfferAccepted", ctx, contractID)}
+}
+
+func (_c *Store_MarkOfferAccepted_Call) Run(run func(ctx context.Context, contractID string)) *Store_MarkOfferAccepted_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_MarkOfferAccepted_Call) Return(_a0 error) *Store_MarkOfferAccepted_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_MarkOfferAccepted_Call) RunAndReturn(run func(context.Context, string) error) *Store_MarkOfferAccepted_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -330,6 +471,70 @@ func (_c *Store_SaveOffset_Call) RunAndReturn(run func(context.Context, int64) e
 	return _c
 }
 
+// TakeHolding provides a mock function with given fields: ctx, contractID
+func (_m *Store) TakeHolding(ctx context.Context, contractID string) (indexer.HoldingChange, bool, error) {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TakeHolding")
+	}
+
+	var r0 indexer.HoldingChange
+	var r1 bool
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (indexer.HoldingChange, bool, error)); ok {
+		return rf(ctx, contractID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) indexer.HoldingChange); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		r0 = ret.Get(0).(indexer.HoldingChange)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) bool); ok {
+		r1 = rf(ctx, contractID)
+	} else {
+		r1 = ret.Get(1).(bool)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string) error); ok {
+		r2 = rf(ctx, contractID)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// Store_TakeHolding_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TakeHolding'
+type Store_TakeHolding_Call struct {
+	*mock.Call
+}
+
+// TakeHolding is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *Store_Expecter) TakeHolding(ctx interface{}, contractID interface{}) *Store_TakeHolding_Call {
+	return &Store_TakeHolding_Call{Call: _e.mock.On("TakeHolding", ctx, contractID)}
+}
+
+func (_c *Store_TakeHolding_Call) Run(run func(ctx context.Context, contractID string)) *Store_TakeHolding_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_TakeHolding_Call) Return(h indexer.HoldingChange, ok bool, err error) *Store_TakeHolding_Call {
+	_c.Call.Return(h, ok, err)
+	return _c
+}
+
+func (_c *Store_TakeHolding_Call) RunAndReturn(run func(context.Context, string) (indexer.HoldingChange, bool, error)) *Store_TakeHolding_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpsertToken provides a mock function with given fields: ctx, token
 func (_m *Store) UpsertToken(ctx context.Context, token *indexer.Token) error {
 	ret := _m.Called(ctx, token)
@@ -373,100 +578,6 @@ func (_c *Store_UpsertToken_Call) Return(_a0 error) *Store_UpsertToken_Call {
 }
 
 func (_c *Store_UpsertToken_Call) RunAndReturn(run func(context.Context, *indexer.Token) error) *Store_UpsertToken_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// MarkOfferAccepted provides a mock function with given fields: ctx, contractID
-func (_m *Store) MarkOfferAccepted(ctx context.Context, contractID string) error {
-	ret := _m.Called(ctx, contractID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MarkOfferAccepted")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, contractID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_MarkOfferAccepted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkOfferAccepted'
-type Store_MarkOfferAccepted_Call struct {
-	*mock.Call
-}
-
-// MarkOfferAccepted is a helper method to define mock.On call
-//   - ctx context.Context
-//   - contractID string
-func (_e *Store_Expecter) MarkOfferAccepted(ctx any, contractID any) *Store_MarkOfferAccepted_Call {
-	return &Store_MarkOfferAccepted_Call{Call: _e.mock.On("MarkOfferAccepted", ctx, contractID)}
-}
-
-func (_c *Store_MarkOfferAccepted_Call) Run(run func(ctx context.Context, contractID string)) *Store_MarkOfferAccepted_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *Store_MarkOfferAccepted_Call) Return(_a0 error) *Store_MarkOfferAccepted_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_MarkOfferAccepted_Call) RunAndReturn(run func(context.Context, string) error) *Store_MarkOfferAccepted_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// InsertPendingOffer provides a mock function with given fields: ctx, offer
-func (_m *Store) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	ret := _m.Called(ctx, offer)
-
-	if len(ret) == 0 {
-		panic("no return value specified for InsertPendingOffer")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *indexer.PendingOffer) error); ok {
-		r0 = rf(ctx, offer)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_InsertPendingOffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertPendingOffer'
-type Store_InsertPendingOffer_Call struct {
-	*mock.Call
-}
-
-// InsertPendingOffer is a helper method to define mock.On call
-//   - ctx context.Context
-//   - offer *indexer.PendingOffer
-func (_e *Store_Expecter) InsertPendingOffer(ctx interface{}, offer interface{}) *Store_InsertPendingOffer_Call {
-	return &Store_InsertPendingOffer_Call{Call: _e.mock.On("InsertPendingOffer", ctx, offer)}
-}
-
-func (_c *Store_InsertPendingOffer_Call) Run(run func(ctx context.Context, offer *indexer.PendingOffer)) *Store_InsertPendingOffer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*indexer.PendingOffer))
-	})
-	return _c
-}
-
-func (_c *Store_InsertPendingOffer_Call) Return(_a0 error) *Store_InsertPendingOffer_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_InsertPendingOffer_Call) RunAndReturn(run func(context.Context, *indexer.PendingOffer) error) *Store_InsertPendingOffer_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -16,7 +16,7 @@ func init() {
 		if err := mghelper.CreateSchema(ctx, db, &indexerstore.PendingOfferDao{}); err != nil {
 			return err
 		}
-		return mghelper.CreateModelIndexes(ctx, db, &indexerstore.PendingOfferDao{}, "receiver_party_id,status")
+		return mghelper.CreateModelIndexes(ctx, db, &indexerstore.PendingOfferDao{}, "receiver_party_id", "status")
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("dropping indexer_pending_offers table...")
 		return mghelper.DropTables(ctx, db, &indexerstore.PendingOfferDao{})

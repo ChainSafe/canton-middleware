@@ -7,15 +7,32 @@ import (
 
 func decodeHolding(ce *lapiv2.CreatedEvent) *Holding {
 	fields := values.RecordToMap(ce.CreateArguments)
-	meta := values.DecodeMetadata(fields["meta"])
-	admin, id := values.DecodeInstrumentId(fields["instrumentId"])
+
+	// CIP56Holding shape: {issuer, owner, instrumentId{admin,id}, amount, meta, lock}.
+	// Utility.Registry.Holding.V0.Holding shape: {operator, provider, registrar, owner,
+	// instrument{source,id,scheme}, label, amount, lock} — no top-level meta/instrumentId.
+	// The Splice HoldingV1 view derives instrumentId.admin from registrar and
+	// instrumentId.id from instrument.id, which is what we mirror here.
+	var admin, id, issuer, symbol string
+	meta := map[string]string{}
+	if fields["instrumentId"] != nil {
+		admin, id = values.DecodeInstrumentId(fields["instrumentId"])
+		meta = values.DecodeMetadata(fields["meta"])
+		issuer = values.Party(fields["issuer"])
+		symbol = meta[values.MetaKeySymbol]
+	} else if fields["instrument"] != nil {
+		admin = values.NestedPartyField(fields["instrument"], "source")
+		id = values.NestedTextField(fields["instrument"], "id")
+		issuer = values.Party(fields["registrar"])
+		symbol = id
+	}
 
 	return &Holding{
 		ContractID:      ce.ContractId,
-		Issuer:          values.Party(fields["issuer"]),
+		Issuer:          issuer,
 		Owner:           values.Party(fields["owner"]),
 		Amount:          values.Numeric(fields["amount"]),
-		Symbol:          meta[values.MetaKeySymbol],
+		Symbol:          symbol,
 		InstrumentAdmin: admin,
 		InstrumentID:    id,
 		Locked:          !values.IsNone(fields["lock"]),

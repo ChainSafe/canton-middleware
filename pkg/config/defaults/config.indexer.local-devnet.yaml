@@ -31,8 +31,21 @@ canton_ledger:
     expiry_leeway: "60s"
 
 indexer:
-  cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+  # Package-name references (#<name>) so filters match across all deployed
+  # versions and work on real chains. Canton 3.x rejects raw package hashes
+  # in stream filters with INVALID_FIELD; package names are the canonical form.
+  cip56_package_id: "#cip56-token"
   filter_mode: "all"
+  # utility_registry_app_v0 — required to track TransferOffer contracts
+  # (Utility.Registry.App.V0.Model.Transfer.TransferOffer). Without this, the
+  # indexer skips TransferOffer events and the api-server's accept worker has
+  # nothing to poll, so cross-participant USDCx transfers never auto-accept.
+  utility_registry_package_id: "#utility-registry-app-v0"
+  # utility_registry_holding_v0 — required to update indexer_balances for
+  # AllocationFactory-based instruments (e.g. USDCx). The indexer tracks
+  # Holding contract creates/archives and applies the symmetric balance delta
+  # for each owner.
+  utility_registry_holding_package_id: "#utility-registry-holding-v0"
 
 logging:
   level: "debug"
