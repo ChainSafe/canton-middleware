@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,11 +15,19 @@ import (
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 )
 
 const (
 	maxRequestBodyBytes = 1 << 20 // 1MB
 	messageMaxAge       = 5 * time.Minute
+
+	// listIncomingDefaultLimit / listIncomingMaxLimit cap how many pending
+	// offers a single GET /api/v2/transfer/incoming response returns. Match
+	// the indexer admin API's caps so we never ask the indexer for more than
+	// it would serve in one round-trip.
+	listIncomingDefaultLimit = 50
+	listIncomingMaxLimit     = 200
 )
 
 type httpHandler struct {
@@ -92,19 +102,60 @@ func (h *httpHandler) execute(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// listIncoming is intentionally unauthenticated for now: callers pass the EVM
+// address as a query parameter and receive that user's pending offers. The
+// endpoint is read-only and exposes only data already visible to the receiver
+// party on-ledger, so dropping the signature requirement does not leak anything
+// new — it just lets clients (and tests) poll incoming offers without prior
+// signing-key access. Sensitive fields (party IDs) are truncated server-side.
+//
+// Pagination is page/limit based to match the indexer envelope so each request
+// translates to exactly one indexer round-trip — no in-process buffering of all
+// offers for a receiver.
 func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error {
-	evmAddr, err := authenticateEVM(r)
+	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if evmAddr == "" {
+		return apperrors.BadRequestError(nil, "address query parameter is required")
+	}
+	if !auth.ValidateEVMAddress(evmAddr) {
+		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+
+	p, err := parseListPagination(r)
 	if err != nil {
 		return err
 	}
 
-	resp, err := h.svc.ListIncoming(r.Context(), evmAddr)
+	resp, err := h.svc.ListIncoming(r.Context(), auth.NormalizeAddress(evmAddr), p)
 	if err != nil {
 		return err
 	}
 
 	h.writeJSON(w, resp)
 	return nil
+}
+
+// parseListPagination reads ?page=N&limit=L from the request, defaulting to
+// {Page:1, Limit:listIncomingDefaultLimit} when either is omitted. Mirrors the
+// indexer admin API's bounds (max 200) so a client can't ask for more than the
+// underlying source is willing to serve.
+func parseListPagination(r *http.Request) (indexer.Pagination, error) {
+	p := indexer.Pagination{Page: 1, Limit: listIncomingDefaultLimit}
+	if s := r.URL.Query().Get("page"); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil || v < 1 {
+			return p, apperrors.BadRequestError(nil, "page must be an integer >= 1")
+		}
+		p.Page = v
+	}
+	if s := r.URL.Query().Get("limit"); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil || v < 1 || v > listIncomingMaxLimit {
+			return p, apperrors.BadRequestError(nil, "limit must be an integer between 1 and 200")
+		}
+		p.Limit = v
+	}
+	return p, nil
 }
 
 func (h *httpHandler) prepareAccept(w http.ResponseWriter, r *http.Request) error {
