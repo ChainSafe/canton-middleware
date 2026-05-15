@@ -246,7 +246,9 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*In
 		return nil, apperrors.BadRequestError(nil, "incoming transfer API requires key_mode=external")
 	}
 
-	var items []IncomingTransfer
+	// Start with a non-nil empty slice so the JSON response marshals to `[]`
+	// even when there are no offers (callers iterate Items directly).
+	items := make([]IncomingTransfer, 0)
 	page := 1
 	for {
 		result, listErr := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, indexer.Pagination{
@@ -256,9 +258,6 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*In
 		if listErr != nil {
 			return nil, fmt.Errorf("list pending offers: %w", listErr)
 		}
-		if items == nil {
-			items = make([]IncomingTransfer, 0, result.Total)
-		}
 		for i := range result.Items {
 			o := &result.Items[i]
 			// The indexer keeps archived offers for audit; filter to PENDING here
@@ -266,10 +265,18 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*In
 			if o.Status != indexer.OfferStatusPending {
 				continue
 			}
+			// Party IDs are truncated server-side because this endpoint is
+			// unauthenticated. Surfacing the full fingerprint would let third
+			// parties enumerate counterparties (sender→receiver mapping) just
+			// by polling addresses; the truncated form keeps enough for the
+			// receiver to disambiguate offers while denying enumeration.
+			// ContractID and InstrumentAdmin stay intact: ContractID is needed
+			// by the accept flow, and InstrumentAdmin is public token-config
+			// data (`/tokens` already exposes it).
 			item := IncomingTransfer{
 				ContractID:      o.ContractID,
-				SenderPartyID:   o.SenderPartyID,
-				ReceiverPartyID: o.ReceiverPartyID,
+				SenderPartyID:   truncatePartyID(o.SenderPartyID),
+				ReceiverPartyID: truncatePartyID(o.ReceiverPartyID),
 				Amount:          o.Amount,
 				InstrumentAdmin: o.InstrumentAdmin,
 				InstrumentID:    o.InstrumentID,
@@ -288,6 +295,19 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*In
 		page++
 	}
 	return &IncomingTransfersList{Items: items, HasMore: false}, nil
+}
+
+// truncatePartyID returns the first and last few characters of a Canton party
+// ID with an ellipsis between them — e.g. `user_2dA…4680b7ec`. Used on
+// unauthenticated read endpoints so callers see enough to identify an offer
+// without being able to enumerate full party identifiers. Returns the input
+// unchanged when it is already short enough that truncation would not help.
+func truncatePartyID(partyID string) string {
+	const head, tail = 8, 8
+	if len(partyID) <= head+tail+1 {
+		return partyID
+	}
+	return partyID[:head] + "…" + partyID[len(partyID)-tail:]
 }
 
 // PrepareAccept builds a Canton transaction for accepting an inbound offer.

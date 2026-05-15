@@ -277,6 +277,12 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	offers := mocks.NewPendingOfferLister(t)
+	// Sender/receiver party IDs are intentionally long-form here so the test
+	// exercises the server-side truncation that ListIncoming applies.
+	const (
+		longSender   = "party::sender-aliceXXXXXXXXXXXXXXXXX"
+		longReceiver = "party::receiverXXXXXXXXXXXXXXXXXXXXX"
+	)
 	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.MatchedBy(func(p indexer.Pagination) bool {
 		return p.Page == 1 && p.Limit > 0
 	})).Return(&indexer.Page[indexer.PendingOffer]{
@@ -284,8 +290,8 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 			{
 				ContractID:      "cid-1",
 				Status:          indexer.OfferStatusPending,
-				SenderPartyID:   "party::sender-alice",
-				ReceiverPartyID: sender.CantonPartyID,
+				SenderPartyID:   longSender,
+				ReceiverPartyID: longReceiver,
 				Amount:          "10.0",
 				InstrumentAdmin: "admin::issuer",
 				InstrumentID:    "DEMO",
@@ -294,7 +300,7 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 				ContractID:      "cid-2",
 				Status:          indexer.OfferStatusPending,
 				SenderPartyID:   "party::sender-bob",
-				ReceiverPartyID: sender.CantonPartyID,
+				ReceiverPartyID: longReceiver,
 				Amount:          "5.5",
 				InstrumentAdmin: "admin::issuer",
 				InstrumentID:    "UNKNOWN",
@@ -303,8 +309,8 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 				// ACCEPTED rows are kept by the indexer for audit; the service must filter them out.
 				ContractID:      "cid-3",
 				Status:          indexer.OfferStatusAccepted,
-				SenderPartyID:   "party::sender-carol",
-				ReceiverPartyID: sender.CantonPartyID,
+				SenderPartyID:   longSender,
+				ReceiverPartyID: longReceiver,
 				Amount:          "1.0",
 				InstrumentAdmin: "admin::issuer",
 				InstrumentID:    "DEMO",
@@ -322,18 +328,52 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	require.Len(t, resp.Items, 2)
 	assert.False(t, resp.HasMore)
 
+	// Truncation: 8 head + "…" + 8 tail. Verify both the format (one ellipsis
+	// inside) and that the original full IDs do NOT leak into the response.
 	assert.Equal(t, "cid-1", resp.Items[0].ContractID)
-	assert.Equal(t, "party::sender-alice", resp.Items[0].SenderPartyID)
+	assert.NotEqual(t, longSender, resp.Items[0].SenderPartyID)
+	assert.NotEqual(t, longReceiver, resp.Items[0].ReceiverPartyID)
+	assert.Contains(t, resp.Items[0].SenderPartyID, "…")
+	assert.Equal(t, longSender[:8], resp.Items[0].SenderPartyID[:8])
+	assert.Equal(t, longSender[len(longSender)-8:], resp.Items[0].SenderPartyID[len(resp.Items[0].SenderPartyID)-8:])
 	assert.Equal(t, "10.0", resp.Items[0].Amount)
 	assert.Equal(t, "DEMO", resp.Items[0].InstrumentID)
 	assert.Equal(t, "DEMO", resp.Items[0].Symbol)
 	assert.Equal(t, 18, resp.Items[0].Decimals)
 	assert.Equal(t, "0x1111111111111111111111111111111111111111", resp.Items[0].ContractAddress)
 
-	// UNKNOWN instrument: token-metadata fields stay empty.
+	// UNKNOWN instrument: token-metadata fields stay empty. Short sender stays
+	// untouched because truncation only kicks in past ~17 characters.
 	assert.Equal(t, "cid-2", resp.Items[1].ContractID)
+	assert.Equal(t, "party::sender-bob", resp.Items[1].SenderPartyID)
 	assert.Empty(t, resp.Items[1].Symbol)
 	assert.Empty(t, resp.Items[1].ContractAddress)
+}
+
+func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
+	// Regression for the Gemini review: a nil items slice marshals to `null`
+	// instead of `[]`, which trips client list-iteration code. Make sure an
+	// indexer page with zero results still surfaces an initialized slice.
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewPendingOfferLister(t)
+	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.Anything).
+		Return(&indexer.Page[indexer.PendingOffer]{
+			Items: []indexer.PendingOffer{},
+			Total: 0,
+			Page:  1,
+			Limit: 200,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Items)
+	assert.Empty(t, resp.Items)
 }
 
 func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
