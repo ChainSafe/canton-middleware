@@ -33,6 +33,9 @@ import (
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"google.golang.org/grpc"
+	"crypto/tls"
+
+	expcreds "google.golang.org/grpc/experimental/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
@@ -83,8 +86,15 @@ func main() {
 	if !strings.Contains(target, "://") {
 		target = "dns:///" + target
 	}
-	conn, err := grpc.NewClient(target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var transportCreds grpc.DialOption
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
+		transportCreds = grpc.WithTransportCredentials(expcreds.NewTLSWithALPNDisabled(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}))
+	} else {
+		transportCreds = grpc.WithTransportCredentials(insecure.NewCredentials())
+	}
+	conn, err := grpc.NewClient(target, transportCreds)
 	if err != nil {
 		fatalf("Failed to connect: %v", err)
 	}
