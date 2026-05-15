@@ -13,11 +13,14 @@ import (
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
+	pkgtoken "github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
 //go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
 //go:generate mockery --name TransferCache --output mocks --outpkg mocks --filename mock_transfer_cache.go --with-expecter
+//go:generate mockery --name PendingOfferLister --output mocks --outpkg mocks --filename mock_pending_offer_lister.go --with-expecter
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 
 // UserStore is the narrow interface for looking up users.
@@ -31,13 +34,26 @@ type TransferCache interface {
 	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
 }
 
+// PendingOfferLister is the narrow slice of indexer/client.Client used by
+// ListIncoming. The transfer service treats the indexer as the source of truth
+// for pending TransferOffer state instead of querying Canton directly — the
+// indexer already maintains `indexer_pending_offers` with all the fields we
+// need (sender, amount, instrument), so going through it avoids duplicate
+// decode logic in cantonsdk/token.
+type PendingOfferLister interface {
+	GetPendingOffersForParty(
+		ctx context.Context, partyID string, p indexer.Pagination,
+	) (*indexer.Page[indexer.PendingOffer], error)
+}
+
 // Service is the interface for the non-custodial prepare/execute transfer flow.
 type Service interface {
 	Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error)
 	Execute(ctx context.Context, senderEVMAddr string, req *ExecuteRequest) (*ExecuteResponse, error)
 
-	// ListIncoming returns pending inbound TransferOffer contract IDs for the authenticated user.
-	ListIncoming(ctx context.Context, evmAddr string) (*ListIncomingResponse, error)
+	// ListIncoming returns pending inbound TransferOffer details for the user with the given EVM address.
+	// This call is unauthenticated — anyone can query any address's pending offers.
+	ListIncoming(ctx context.Context, evmAddr string) (*IncomingTransfersList, error)
 	// PrepareAccept builds a Canton transaction for accepting an inbound offer.
 	PrepareAccept(
 		ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
@@ -51,21 +67,60 @@ type TransferService struct {
 	cantonToken         token.Token
 	userStore           UserStore
 	cache               TransferCache
+	offerLister         PendingOfferLister
 	allowedTokenSymbols map[string]bool
+	tokensByInstrument  map[instrumentKey]instrumentMeta
+}
+
+// instrumentKey identifies a token by its on-ledger id. Admin is intentionally
+// not part of the key: token config carries only InstrumentID, and in practice
+// the local issuer is the sole admin per symbol, so id alone disambiguates.
+type instrumentKey struct{ id string }
+
+// instrumentMeta is the subset of token.ERC20Token surfaced in incoming-transfer responses.
+type instrumentMeta struct {
+	contractAddress string
+	name            string
+	symbol          string
+	decimals        int
 }
 
 // NewTransferService creates a new TransferService.
-// allowedSymbols defines the set of valid token symbols (e.g. "DEMO", "PROMPT").
-func NewTransferService(cantonToken token.Token, userStore UserStore, cache TransferCache, allowedSymbols []string) *TransferService {
-	allowed := make(map[string]bool, len(allowedSymbols))
-	for _, s := range allowedSymbols {
-		allowed[s] = true
+// tokenCfg supplies the list of allowed token symbols (used by Prepare) and the
+// instrument→EVM-contract mapping (used to enrich ListIncoming responses).
+// offerLister may be nil; when nil, ListIncoming returns an error explaining the
+// indexer dependency is missing.
+func NewTransferService(
+	cantonToken token.Token,
+	userStore UserStore,
+	cache TransferCache,
+	tokenCfg *pkgtoken.Config,
+	offerLister PendingOfferLister,
+) *TransferService {
+	allowed := map[string]bool{}
+	byInstrument := map[instrumentKey]instrumentMeta{}
+	if tokenCfg != nil {
+		for addr, tkn := range tokenCfg.SupportedTokens {
+			allowed[tkn.Symbol] = true
+			// We don't know the InstrumentAdmin from token config alone, so the lookup key
+			// uses only InstrumentID. The Canton ledger may report multiple admins for the
+			// same id; in that case the first one wins, which matches the practical case
+			// where the local issuer is the only admin for a given symbol.
+			byInstrument[instrumentKey{id: tkn.InstrumentID}] = instrumentMeta{
+				contractAddress: addr.Hex(),
+				name:            tkn.Name,
+				symbol:          tkn.Symbol,
+				decimals:        tkn.Decimals,
+			}
+		}
 	}
 	return &TransferService{
 		cantonToken:         cantonToken,
 		userStore:           userStore,
 		cache:               cache,
+		offerLister:         offerLister,
 		allowedTokenSymbols: allowed,
+		tokensByInstrument:  byInstrument,
 	}
 }
 
@@ -166,12 +221,24 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 	return &ExecuteResponse{Status: "completed"}, nil
 }
 
-// ListIncoming returns pending inbound TransferOffer contract IDs for the authenticated user.
-func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*ListIncomingResponse, error) {
+// indexerListPageSize is the page size used when paging through pending offers
+// from the indexer. It matches the indexer's MaxLimit so we typically need only
+// one round-trip per receiver.
+const indexerListPageSize = 200
+
+// ListIncoming returns pending inbound TransferOffer details for the user with the given EVM address.
+// Unauthenticated: callers do not need to prove ownership of evmAddr. Data comes
+// from the indexer's `indexer_pending_offers` table, which is already authoritative
+// for offer state — we avoid duplicating Canton-side decoding here.
+func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*IncomingTransfersList, error) {
+	if s.offerLister == nil {
+		return nil, apperrors.GeneralError(errors.New("incoming transfer API requires the indexer to be configured"))
+	}
+
 	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {
-			return nil, apperrors.UnAuthorizedError(err, "user not found")
+			return nil, apperrors.BadRequestError(err, "user not found")
 		}
 		return nil, fmt.Errorf("lookup user: %w", err)
 	}
@@ -179,16 +246,48 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*Li
 		return nil, apperrors.BadRequestError(nil, "incoming transfer API requires key_mode=external")
 	}
 
-	contractIDs, err := s.cantonToken.FindPendingInboundTransferInstructions(ctx, u.CantonPartyID)
-	if err != nil {
-		return nil, fmt.Errorf("find pending inbound transfers: %w", err)
+	var items []IncomingTransfer
+	page := 1
+	for {
+		result, listErr := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, indexer.Pagination{
+			Page:  page,
+			Limit: indexerListPageSize,
+		})
+		if listErr != nil {
+			return nil, fmt.Errorf("list pending offers: %w", listErr)
+		}
+		if items == nil {
+			items = make([]IncomingTransfer, 0, result.Total)
+		}
+		for i := range result.Items {
+			o := &result.Items[i]
+			// The indexer keeps archived offers for audit; filter to PENDING here
+			// so callers only see actionable items.
+			if o.Status != indexer.OfferStatusPending {
+				continue
+			}
+			item := IncomingTransfer{
+				ContractID:      o.ContractID,
+				SenderPartyID:   o.SenderPartyID,
+				ReceiverPartyID: o.ReceiverPartyID,
+				Amount:          o.Amount,
+				InstrumentAdmin: o.InstrumentAdmin,
+				InstrumentID:    o.InstrumentID,
+			}
+			if meta, ok := s.tokensByInstrument[instrumentKey{id: o.InstrumentID}]; ok {
+				item.Symbol = meta.symbol
+				item.Decimals = meta.decimals
+				item.Name = meta.name
+				item.ContractAddress = meta.contractAddress
+			}
+			items = append(items, item)
+		}
+		if int64(page*indexerListPageSize) >= result.Total {
+			break
+		}
+		page++
 	}
-
-	items := make([]IncomingTransfer, len(contractIDs))
-	for i, cid := range contractIDs {
-		items[i] = IncomingTransfer{ContractID: cid}
-	}
-	return &ListIncomingResponse{Items: items, Total: len(items)}, nil
+	return &IncomingTransfersList{Items: items, HasMore: false}, nil
 }
 
 // PrepareAccept builds a Canton transaction for accepting an inbound offer.

@@ -82,30 +82,6 @@ func (h *httpClient) get(ctx context.Context, path string, query url.Values, out
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// getAuth performs GET <endpoint><path> with EIP-191 auth headers and JSON-decodes
-// the response into out.
-func (h *httpClient) getAuth(ctx context.Context, path, sig, msg string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.endpoint+path, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Signature", sig)
-	req.Header.Set("X-Message", msg)
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("GET %s: %w", path, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= httpErrorStatusFloor {
-		raw, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return &HTTPError{Code: resp.StatusCode, Path: path, Body: fmt.Sprintf("(failed to read body: %v)", readErr)}
-		}
-		return &HTTPError{Code: resp.StatusCode, Path: path, Body: string(raw)}
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
 // post performs POST <endpoint><path> with a JSON-encoded body and decodes the
 // response into out. sig and msg are set as X-Signature / X-Message headers
 // when non-empty (required by the transfer endpoints). out may be nil.

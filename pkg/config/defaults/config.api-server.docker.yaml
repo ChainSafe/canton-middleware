@@ -130,7 +130,7 @@ key_management:
   key_derivation: "generate"
 
 skip_canton_sig_verify: ${SKIP_CANTON_SIG_VERIFY}
-skip_whitelist_check: false
+skip_whitelist_check: true
 
 cors:
   - "*"

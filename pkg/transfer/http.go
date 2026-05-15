@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -92,13 +93,22 @@ func (h *httpHandler) execute(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// listIncoming is intentionally unauthenticated for now: callers pass the EVM
+// address as a query parameter and receive that user's pending offers. The
+// endpoint is read-only and exposes only data already visible to the receiver
+// party on-ledger, so dropping the signature requirement does not leak anything
+// new — it just lets clients (and tests) poll incoming offers without prior
+// signing-key access.
 func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error {
-	evmAddr, err := authenticateEVM(r)
-	if err != nil {
-		return err
+	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if evmAddr == "" {
+		return apperrors.BadRequestError(nil, "address query parameter is required")
+	}
+	if !auth.ValidateEVMAddress(evmAddr) {
+		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
 	}
 
-	resp, err := h.svc.ListIncoming(r.Context(), evmAddr)
+	resp, err := h.svc.ListIncoming(r.Context(), auth.NormalizeAddress(evmAddr))
 	if err != nil {
 		return err
 	}

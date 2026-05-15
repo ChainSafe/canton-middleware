@@ -28,15 +28,29 @@ type ExecuteResponse struct {
 	Status string `json:"status"` // "completed"
 }
 
-// IncomingTransfer represents a single pending inbound transfer offer.
+// IncomingTransfer represents a single pending inbound transfer offer. Fields
+// downstream of the on-ledger TransferOffer are always populated; token-metadata
+// fields (Symbol, Decimals, ContractAddress, Name) are populated when the
+// instrument is in the api-server's supported_tokens config and omitted otherwise.
 type IncomingTransfer struct {
-	ContractID string `json:"contract_id"`
+	ContractID      string `json:"contract_id"`
+	SenderPartyID   string `json:"sender_party_id"`
+	ReceiverPartyID string `json:"receiver_party_id"`
+	Amount          string `json:"amount"`
+	InstrumentAdmin string `json:"instrument_admin"`
+	InstrumentID    string `json:"instrument_id"`
+	Symbol          string `json:"symbol,omitempty"`
+	Decimals        int    `json:"decimals,omitempty"`
+	Name            string `json:"name,omitempty"`
+	ContractAddress string `json:"contract_address,omitempty"`
 }
 
-// ListIncomingResponse is the HTTP response body for GET /transfer/incoming.
-type ListIncomingResponse struct {
-	Items []IncomingTransfer `json:"items"`
-	Total int                `json:"total"`
+// IncomingTransfersList is the HTTP response body for GET /api/v2/transfer/incoming.
+// Shape mirrors pkg/token.TokensPage so clients can reuse list-handling code.
+type IncomingTransfersList struct {
+	Items      []IncomingTransfer `json:"items"`
+	NextCursor string             `json:"next_cursor,omitempty"`
+	HasMore    bool               `json:"has_more"`
 }
 
 // PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.

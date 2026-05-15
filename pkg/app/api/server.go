@@ -208,12 +208,36 @@ func initServices(
 		go m.Start(ctx)
 	}
 
+	offerLister, err := buildPendingOfferLister(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build pending offer lister: %w", err)
+	}
+
 	return &services{
 		evmStore:     evmStore,
 		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
 		regSvc:       userservice.NewLog(registrationService, logger),
-		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token)), logger),
+		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, cfg.Token, offerLister), logger),
 	}, nil
+}
+
+// buildPendingOfferLister returns an indexer client wired to the same indexer
+// the rest of the api-server already talks to. It prefers the token_provider
+// indexer URL (always-on when token_provider.mode=indexer) and falls back to
+// the accept_worker indexer URL. Returns (nil, nil) when neither is configured
+// — ListIncoming will then surface a clear "indexer not configured" error
+// instead of silently 500ing.
+func buildPendingOfferLister(cfg *config.APIServer) (transfer.PendingOfferLister, error) {
+	url := ""
+	if cfg.TokenProvider != nil && cfg.TokenProvider.Mode == config.TokenProviderIndexer && cfg.TokenProvider.Indexer != nil {
+		url = cfg.TokenProvider.Indexer.URL
+	} else if cfg.AcceptWorker != nil {
+		url = cfg.AcceptWorker.IndexerURL
+	}
+	if url == "" {
+		return nil, nil
+	}
+	return indexerclient.New(url, nil)
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {
@@ -344,17 +368,4 @@ func (s *Server) setupRouter(
 	}
 
 	return r
-}
-
-// tokenSymbols extracts the unique symbol strings from the token config.
-func tokenSymbols(cfg *token.Config) []string {
-	seen := make(map[string]bool, len(cfg.SupportedTokens))
-	var symbols []string
-	for _, tkn := range cfg.SupportedTokens {
-		if !seen[tkn.Symbol] {
-			seen[tkn.Symbol] = true
-			symbols = append(symbols, tkn.Symbol)
-		}
-	}
-	return symbols
 }

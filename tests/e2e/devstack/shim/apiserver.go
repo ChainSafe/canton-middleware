@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -146,18 +147,15 @@ func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.Transfer
 	return &resp, nil
 }
 
-// ListIncomingTransfers sends GET /api/v2/transfer/incoming with EIP-191 auth headers.
+// ListIncomingTransfers sends GET /api/v2/transfer/incoming?address=<addr>. The
+// endpoint is unauthenticated; account is used only to derive the query parameter.
 func (a *APIServerShim) ListIncomingTransfers(
 	ctx context.Context,
 	account *stack.Account,
-) (*transfer.ListIncomingResponse, error) {
-	msg := fmt.Sprintf("list-incoming:%d", time.Now().Unix())
-	sig, err := util.SignEIP191(account.PrivateKey, msg)
-	if err != nil {
-		return nil, err
-	}
-	var resp transfer.ListIncomingResponse
-	if err := a.getAuth(ctx, "/api/v2/transfer/incoming", sig, msg, &resp); err != nil {
+) (*transfer.IncomingTransfersList, error) {
+	q := url.Values{"address": []string{account.Address.Hex()}}
+	var resp transfer.IncomingTransfersList
+	if err := a.get(ctx, "/api/v2/transfer/incoming", q, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

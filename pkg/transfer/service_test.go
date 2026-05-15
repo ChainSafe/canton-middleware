@@ -13,6 +13,7 @@ import (
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
@@ -37,11 +38,36 @@ func recipientUser() *user.User {
 }
 
 func newTestService(tok *mocks.Token, store *mocks.UserStore, cache *mocks.TransferCache) *TransferService {
+	return newTestServiceWithOffers(tok, store, cache, nil)
+}
+
+func newTestServiceWithOffers(
+	tok *mocks.Token,
+	store *mocks.UserStore,
+	cache *mocks.TransferCache,
+	offers *mocks.PendingOfferLister,
+) *TransferService {
+	// Assigning a typed nil *mocks.PendingOfferLister to the interface field would
+	// produce a non-nil interface value, hiding the "no indexer configured" branch.
+	// Use a real nil interface when no mock is supplied.
+	var offerLister PendingOfferLister
+	if offers != nil {
+		offerLister = offers
+	}
 	return &TransferService{
 		cantonToken:         tok,
 		userStore:           store,
 		cache:               cache,
+		offerLister:         offerLister,
 		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true},
+		tokensByInstrument: map[instrumentKey]instrumentMeta{
+			{id: "DEMO"}: {
+				contractAddress: "0x1111111111111111111111111111111111111111",
+				name:            "Demo Token",
+				symbol:          "DEMO",
+				decimals:        18,
+			},
+		},
 	}
 }
 
@@ -250,17 +276,64 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	tok := mocks.NewToken(t)
-	tok.EXPECT().FindPendingInboundTransferInstructions(ctx, sender.CantonPartyID).
-		Return([]string{"cid-1", "cid-2"}, nil).Once()
+	offers := mocks.NewPendingOfferLister(t)
+	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.MatchedBy(func(p indexer.Pagination) bool {
+		return p.Page == 1 && p.Limit > 0
+	})).Return(&indexer.Page[indexer.PendingOffer]{
+		Items: []indexer.PendingOffer{
+			{
+				ContractID:      "cid-1",
+				Status:          indexer.OfferStatusPending,
+				SenderPartyID:   "party::sender-alice",
+				ReceiverPartyID: sender.CantonPartyID,
+				Amount:          "10.0",
+				InstrumentAdmin: "admin::issuer",
+				InstrumentID:    "DEMO",
+			},
+			{
+				ContractID:      "cid-2",
+				Status:          indexer.OfferStatusPending,
+				SenderPartyID:   "party::sender-bob",
+				ReceiverPartyID: sender.CantonPartyID,
+				Amount:          "5.5",
+				InstrumentAdmin: "admin::issuer",
+				InstrumentID:    "UNKNOWN",
+			},
+			{
+				// ACCEPTED rows are kept by the indexer for audit; the service must filter them out.
+				ContractID:      "cid-3",
+				Status:          indexer.OfferStatusAccepted,
+				SenderPartyID:   "party::sender-carol",
+				ReceiverPartyID: sender.CantonPartyID,
+				Amount:          "1.0",
+				InstrumentAdmin: "admin::issuer",
+				InstrumentID:    "DEMO",
+			},
+		},
+		Total: 3,
+		Page:  1,
+		Limit: 200,
+	}, nil).Once()
 
-	svc := newTestService(tok, store, mocks.NewTransferCache(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
 
 	resp, err := svc.ListIncoming(ctx, sender.EVMAddress)
 	require.NoError(t, err)
-	assert.Equal(t, 2, resp.Total)
+	require.Len(t, resp.Items, 2)
+	assert.False(t, resp.HasMore)
+
 	assert.Equal(t, "cid-1", resp.Items[0].ContractID)
+	assert.Equal(t, "party::sender-alice", resp.Items[0].SenderPartyID)
+	assert.Equal(t, "10.0", resp.Items[0].Amount)
+	assert.Equal(t, "DEMO", resp.Items[0].InstrumentID)
+	assert.Equal(t, "DEMO", resp.Items[0].Symbol)
+	assert.Equal(t, 18, resp.Items[0].Decimals)
+	assert.Equal(t, "0x1111111111111111111111111111111111111111", resp.Items[0].ContractAddress)
+
+	// UNKNOWN instrument: token-metadata fields stay empty.
 	assert.Equal(t, "cid-2", resp.Items[1].ContractID)
+	assert.Empty(t, resp.Items[1].Symbol)
+	assert.Empty(t, resp.Items[1].ContractAddress)
 }
 
 func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
@@ -269,10 +342,17 @@ func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
 
 	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress)
-	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_ListIncoming_IndexerNotConfigured(t *testing.T) {
+	svc := newTestService(mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+
+	_, err := svc.ListIncoming(context.Background(), senderUser().EVMAddress)
+	assertServiceErrorCategory(t, err, apperrors.CategoryGeneralError)
 }
 
 func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
@@ -283,7 +363,7 @@ func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
 
 	_, err := svc.ListIncoming(ctx, sender.EVMAddress)
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)

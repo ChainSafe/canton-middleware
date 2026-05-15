@@ -117,7 +117,7 @@ func (ls *logService) Execute(
 }
 
 // ListIncoming wraps the service method with logging.
-func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *ListIncomingResponse, err error) {
+func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *IncomingTransfersList, err error) {
 	start := time.Now()
 	ls.logger.Info("ListIncoming started",
 		zap.String("service", transferServiceName),
@@ -137,7 +137,7 @@ func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *L
 			ls.logger.Info("ListIncoming completed",
 				zap.String("service", transferServiceName),
 				zap.String("method", "ListIncoming"),
-				zap.Int("total", resp.Total),
+				zap.Int("count", len(resp.Items)),
 				zap.Duration("duration", duration),
 			)
 		}
