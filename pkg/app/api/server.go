@@ -100,6 +100,15 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton")
 
+	// The indexer is now a hard dependency: the token provider (when in
+	// indexer mode), the accept worker, and the pending-offers list endpoint
+	// all read from it. Build the HTTP client once and share — separate
+	// instances would just open redundant idle connections to the same host.
+	indexerClient, err := buildIndexerClient(cfg)
+	if err != nil {
+		return err
+	}
+
 	recStore := reconcilerstore.NewStore(dbBun)
 	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
 	s.runInitialReconcile(ctx, rec, logger)
@@ -109,26 +118,21 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
-	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, cipher, logger)
+	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, indexerClient, cipher, logger)
 	if err != nil {
 		return err
 	}
 
 	if cfg.AcceptWorker != nil {
-		ic, icErr := indexerclient.New(cfg.AcceptWorker.IndexerURL, nil)
-		if icErr != nil {
-			return fmt.Errorf("create accept worker indexer client: %w", icErr)
-		}
 		worker := custodial.NewAcceptWorker(
 			cantonClient.Token,
 			userStore,
-			ic,
+			indexerClient,
 			cfg.AcceptWorker.PollInterval,
 			logger,
 		)
 		go worker.Run(ctx)
 		logger.Info("accept worker started",
-			zap.String("indexer_url", cfg.AcceptWorker.IndexerURL),
 			zap.Duration("poll_interval", cfg.AcceptWorker.PollInterval),
 		)
 	}
@@ -143,24 +147,45 @@ func (s *Server) Run() error {
 	return err
 }
 
+// buildIndexerClient creates the single indexer HTTP client used by every
+// part of the api-server that talks to the indexer. The URL is read from
+// token_provider.indexer.url, falling back to accept_worker.indexer_url, since
+// both are aliases for the same indexer service in every deployment we ship —
+// the dual configuration exists for historical reasons and is consolidated
+// here so the rest of the code never has to pick between them.
+//
+// An indexer is now required (the pending-offers endpoint backs onto it), so
+// startup fails fast if neither location is configured.
+func buildIndexerClient(cfg *config.APIServer) (*indexerclient.HTTP, error) {
+	url := ""
+	if cfg.TokenProvider != nil && cfg.TokenProvider.Indexer != nil {
+		url = cfg.TokenProvider.Indexer.URL
+	}
+	if url == "" && cfg.AcceptWorker != nil {
+		url = cfg.AcceptWorker.IndexerURL
+	}
+	if url == "" {
+		return nil, fmt.Errorf("indexer URL is required: set token_provider.indexer.url or accept_worker.indexer_url")
+	}
+	c, err := indexerclient.New(url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create indexer client (%s): %w", url, err)
+	}
+	return c, nil
+}
+
 // buildTokenProvider constructs the token data provider according to the
-// configured mode.  canton is the default; indexer reads from the indexer's
-// pre-materialized HTTP API instead of issuing live gRPC ACS scans.
-func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token) (token.Provider, error) {
-	switch cfg.TokenProvider.Mode {
-	case config.TokenProviderIndexer:
-		ic := cfg.TokenProvider.Indexer
-		if ic == nil {
-			return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
-		}
-		c, err := indexerclient.New(ic.URL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("create indexer client: %w", err)
-		}
-		return tokenprovider.NewIndexer(c, ic.Instruments), nil
-	default: // TokenProviderCanton
+// configured mode. canton is the default; indexer reads from the indexer's
+// pre-materialized HTTP API instead of issuing live gRPC ACS scans. The
+// indexer-mode branch reuses the shared client built by buildIndexerClient.
+func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token, indexerClient indexerclient.Client) (token.Provider, error) {
+	if cfg.TokenProvider.Mode != config.TokenProviderIndexer {
 		return tokenprovider.NewCanton(cantonToken), nil
 	}
+	if cfg.TokenProvider.Indexer == nil {
+		return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
+	}
+	return tokenprovider.NewIndexer(indexerClient, cfg.TokenProvider.Indexer.Instruments), nil
 }
 
 type services struct {
@@ -175,6 +200,7 @@ func initServices(
 	cfg *config.APIServer,
 	dbBun *bun.DB,
 	cantonClient *canton.Client,
+	indexerClient indexerclient.Client,
 	cipher keys.KeyCipher,
 	logger *zap.Logger,
 ) (*services, error) {
@@ -193,7 +219,7 @@ func initServices(
 		topologyCache,
 	)
 
-	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token, indexerClient)
 	if err != nil {
 		return nil, fmt.Errorf("build token provider: %w", err)
 	}
@@ -208,36 +234,13 @@ func initServices(
 		go m.Start(ctx)
 	}
 
-	offerLister, err := buildPendingOfferLister(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("build pending offer lister: %w", err)
-	}
-
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, cfg.Token, indexerClient)
 	return &services{
 		evmStore:     evmStore,
 		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
 		regSvc:       userservice.NewLog(registrationService, logger),
-		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, cfg.Token, offerLister), logger),
+		transferSvc:  transfer.NewLog(transferSvc, logger),
 	}, nil
-}
-
-// buildPendingOfferLister returns an indexer client wired to the same indexer
-// the rest of the api-server already talks to. It prefers the token_provider
-// indexer URL (always-on when token_provider.mode=indexer) and falls back to
-// the accept_worker indexer URL. Returns (nil, nil) when neither is configured
-// — ListIncoming will then surface a clear "indexer not configured" error
-// instead of silently 500ing.
-func buildPendingOfferLister(cfg *config.APIServer) (transfer.PendingOfferLister, error) {
-	url := ""
-	if cfg.TokenProvider != nil && cfg.TokenProvider.Mode == config.TokenProviderIndexer && cfg.TokenProvider.Indexer != nil {
-		url = cfg.TokenProvider.Indexer.URL
-	} else if cfg.AcceptWorker != nil {
-		url = cfg.AcceptWorker.IndexerURL
-	}
-	if url == "" {
-		return nil, nil
-	}
-	return indexerclient.New(url, nil)
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {

@@ -90,8 +90,8 @@ type instrumentMeta struct {
 // NewTransferService creates a new TransferService.
 // tokenCfg supplies the list of allowed token symbols (used by Prepare) and the
 // instrument→EVM-contract mapping (used to enrich ListIncoming responses).
-// offerLister may be nil; when nil, ListIncoming returns an error explaining the
-// indexer dependency is missing.
+// offerLister is required — the api-server now wires every service to the same
+// indexer client at startup, so ListIncoming relies on it being non-nil.
 func NewTransferService(
 	cantonToken token.Token,
 	userStore UserStore,
@@ -229,10 +229,6 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 // table (already filtered to status=PENDING at the SQL level), so a single
 // indexer call serves a single client page — no buffering, no re-aggregation.
 func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error) {
-	if s.offerLister == nil {
-		return nil, apperrors.GeneralError(errors.New("incoming transfer API requires the indexer to be configured"))
-	}
-
 	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {

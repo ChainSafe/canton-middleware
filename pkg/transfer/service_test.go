@@ -37,8 +37,12 @@ func recipientUser() *user.User {
 	}
 }
 
-func newTestService(tok *mocks.Token, store *mocks.UserStore, cache *mocks.TransferCache) *TransferService {
-	return newTestServiceWithOffers(tok, store, cache, nil)
+// newTestService builds a TransferService wired to a fresh PendingOfferLister
+// mock. The api-server now requires the indexer to be configured, so the
+// production constructor refuses to operate without an offer lister; tests
+// pass `t` so an unused mock fails cleanly if a test accidentally invokes it.
+func newTestService(t *testing.T, tok *mocks.Token, store *mocks.UserStore, cache *mocks.TransferCache) *TransferService {
+	return newTestServiceWithOffers(tok, store, cache, mocks.NewPendingOfferLister(t))
 }
 
 func newTestServiceWithOffers(
@@ -47,18 +51,11 @@ func newTestServiceWithOffers(
 	cache *mocks.TransferCache,
 	offers *mocks.PendingOfferLister,
 ) *TransferService {
-	// Assigning a typed nil *mocks.PendingOfferLister to the interface field would
-	// produce a non-nil interface value, hiding the "no indexer configured" branch.
-	// Use a real nil interface when no mock is supplied.
-	var offerLister PendingOfferLister
-	if offers != nil {
-		offerLister = offers
-	}
 	return &TransferService{
 		cantonToken:         tok,
 		userStore:           store,
 		cache:               cache,
-		offerLister:         offerLister,
+		offerLister:         offers,
 		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true},
 		tokensByInstrument: map[instrumentKey]instrumentMeta{
 			{id: "DEMO"}: {
@@ -106,7 +103,7 @@ func TestTransferService_Prepare_Success(t *testing.T) {
 	cache := mocks.NewTransferCache(t)
 	cache.EXPECT().Put(prepared).Return(nil).Once()
 
-	svc := newTestService(tok, store, cache)
+	svc := newTestService(t, tok, store, cache)
 	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
 		To:     recipient.EVMAddress,
 		Amount: "100.5",
@@ -127,7 +124,7 @@ func TestTransferService_Prepare_SenderNotFound(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").
 		Return(nil, user.ErrUserNotFound).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.Prepare(ctx, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &PrepareRequest{
 		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -145,7 +142,7 @@ func TestTransferService_Prepare_SenderNotExternal(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
 		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -156,7 +153,7 @@ func TestTransferService_Prepare_SenderNotExternal(t *testing.T) {
 }
 
 func TestTransferService_Prepare_UnsupportedToken(t *testing.T) {
-	svc := newTestService(mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
 
 	_, err := svc.Prepare(context.Background(), senderUser().EVMAddress, &PrepareRequest{
 		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -190,7 +187,7 @@ func TestTransferService_Execute_Success(t *testing.T) {
 		return req.PreparedTransfer == pt && req.SignedBy == sender.CantonPublicKeyFingerprint
 	})).Return(nil).Once()
 
-	svc := newTestService(tok, store, cache)
+	svc := newTestService(t, tok, store, cache)
 
 	resp, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
 		TransferID: "txn-456",
@@ -212,7 +209,7 @@ func TestTransferService_Execute_TransferNotFound(t *testing.T) {
 	cache := mocks.NewTransferCache(t)
 	cache.EXPECT().GetAndDelete("nonexistent").Return(nil, ErrTransferNotFound).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, cache)
+	svc := newTestService(t, mocks.NewToken(t), store, cache)
 
 	_, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
 		TransferID: "nonexistent",
@@ -232,7 +229,7 @@ func TestTransferService_Execute_TransferExpired(t *testing.T) {
 	cache := mocks.NewTransferCache(t)
 	cache.EXPECT().GetAndDelete("expired-txn").Return(nil, ErrTransferExpired).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, cache)
+	svc := newTestService(t, mocks.NewToken(t), store, cache)
 
 	_, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
 		TransferID: "expired-txn",
@@ -257,7 +254,7 @@ func TestTransferService_Execute_InvalidSignature_ReturnsForbidden(t *testing.T)
 	tok := mocks.NewToken(t)
 	tok.EXPECT().ExecuteTransfer(ctx, mock.Anything).Return(cantonErr).Once()
 
-	svc := newTestService(tok, store, cache)
+	svc := newTestService(t, tok, store, cache)
 
 	_, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
 		TransferID: "txn-sig-fail",
@@ -412,13 +409,6 @@ func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
-func TestTransferService_ListIncoming_IndexerNotConfigured(t *testing.T) {
-	svc := newTestService(mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
-
-	_, err := svc.ListIncoming(context.Background(), senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
-	assertServiceErrorCategory(t, err, apperrors.CategoryGeneralError)
-}
-
 func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
 	ctx := context.Background()
 	sender := senderUser()
@@ -458,7 +448,7 @@ func TestTransferService_PrepareAccept_Success(t *testing.T) {
 	cache := mocks.NewTransferCache(t)
 	cache.EXPECT().Put(pt).Return(nil).Once()
 
-	svc := newTestService(tok, store, cache)
+	svc := newTestService(t, tok, store, cache)
 
 	resp, err := svc.PrepareAccept(ctx, sender.EVMAddress, contractID, &PrepareAcceptRequest{
 		InstrumentAdmin: instrumentAdmin,
@@ -476,7 +466,7 @@ func TestTransferService_PrepareAccept_UserNotFound(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.PrepareAccept(ctx, senderUser().EVMAddress, "cid-1", &PrepareAcceptRequest{
 		InstrumentAdmin: "admin::zzz",
@@ -492,7 +482,7 @@ func TestTransferService_PrepareAccept_CustodialUserRejected(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	svc := newTestService(mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.PrepareAccept(ctx, sender.EVMAddress, "cid-1", &PrepareAcceptRequest{
 		InstrumentAdmin: "admin::zzz",
@@ -524,7 +514,7 @@ func TestTransferService_ExecuteAccept_DelegatesToExecute(t *testing.T) {
 		return req.PreparedTransfer == pt && req.SignedBy == sender.CantonPublicKeyFingerprint
 	})).Return(nil).Once()
 
-	svc := newTestService(tok, store, cache)
+	svc := newTestService(t, tok, store, cache)
 
 	resp, err := svc.ExecuteAccept(ctx, sender.EVMAddress, &ExecuteRequest{
 		TransferID: "accept-exec-1",
