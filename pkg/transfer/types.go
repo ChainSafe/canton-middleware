@@ -46,11 +46,17 @@ type IncomingTransfer struct {
 }
 
 // IncomingTransfersList is the HTTP response body for GET /api/v2/transfer/incoming.
-// Shape mirrors pkg/token.TokensPage so clients can reuse list-handling code.
+// Pagination is page/limit-based to match the indexer's underlying envelope
+// (`pkg/indexer.Page[T]`): callers ask for a specific page rather than carrying
+// an opaque cursor, since the indexer is keyed by ledger_offset and a stable
+// numeric offset is the natural cursor. HasMore is derived from page*limit < total
+// so clients can stop iterating without needing arithmetic.
 type IncomingTransfersList struct {
-	Items      []IncomingTransfer `json:"items"`
-	NextCursor string             `json:"next_cursor,omitempty"`
-	HasMore    bool               `json:"has_more"`
+	Items   []IncomingTransfer `json:"items"`
+	Total   int64              `json:"total"`
+	Page    int                `json:"page"`
+	Limit   int                `json:"limit"`
+	HasMore bool               `json:"has_more"`
 }
 
 // PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.

@@ -51,9 +51,11 @@ type Service interface {
 	Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error)
 	Execute(ctx context.Context, senderEVMAddr string, req *ExecuteRequest) (*ExecuteResponse, error)
 
-	// ListIncoming returns pending inbound TransferOffer details for the user with the given EVM address.
-	// This call is unauthenticated — anyone can query any address's pending offers.
-	ListIncoming(ctx context.Context, evmAddr string) (*IncomingTransfersList, error)
+	// ListIncoming returns one page of pending inbound TransferOffer details for the
+	// user with the given EVM address. This call is unauthenticated — anyone can
+	// query any address's pending offers; the response is intentionally minimized
+	// (party IDs truncated) to keep that from leaking counterparties.
+	ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error)
 	// PrepareAccept builds a Canton transaction for accepting an inbound offer.
 	PrepareAccept(
 		ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
@@ -221,16 +223,12 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 	return &ExecuteResponse{Status: "completed"}, nil
 }
 
-// indexerListPageSize is the page size used when paging through pending offers
-// from the indexer. It matches the indexer's MaxLimit so we typically need only
-// one round-trip per receiver.
-const indexerListPageSize = 200
-
-// ListIncoming returns pending inbound TransferOffer details for the user with the given EVM address.
-// Unauthenticated: callers do not need to prove ownership of evmAddr. Data comes
-// from the indexer's `indexer_pending_offers` table, which is already authoritative
-// for offer state — we avoid duplicating Canton-side decoding here.
-func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*IncomingTransfersList, error) {
+// ListIncoming returns one page of pending inbound TransferOffer details for the
+// user with the given EVM address. Unauthenticated: callers do not need to prove
+// ownership of evmAddr. Data comes from the indexer's `indexer_pending_offers`
+// table (already filtered to status=PENDING at the SQL level), so a single
+// indexer call serves a single client page — no buffering, no re-aggregation.
+func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error) {
 	if s.offerLister == nil {
 		return nil, apperrors.GeneralError(errors.New("incoming transfer API requires the indexer to be configured"))
 	}
@@ -246,55 +244,54 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string) (*In
 		return nil, apperrors.BadRequestError(nil, "incoming transfer API requires key_mode=external")
 	}
 
-	// Start with a non-nil empty slice so the JSON response marshals to `[]`
-	// even when there are no offers (callers iterate Items directly).
-	items := make([]IncomingTransfer, 0)
-	page := 1
-	for {
-		result, listErr := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, indexer.Pagination{
-			Page:  page,
-			Limit: indexerListPageSize,
-		})
-		if listErr != nil {
-			return nil, fmt.Errorf("list pending offers: %w", listErr)
-		}
-		for i := range result.Items {
-			o := &result.Items[i]
-			// The indexer keeps archived offers for audit; filter to PENDING here
-			// so callers only see actionable items.
-			if o.Status != indexer.OfferStatusPending {
-				continue
-			}
-			// Party IDs are truncated server-side because this endpoint is
-			// unauthenticated. Surfacing the full fingerprint would let third
-			// parties enumerate counterparties (sender→receiver mapping) just
-			// by polling addresses; the truncated form keeps enough for the
-			// receiver to disambiguate offers while denying enumeration.
-			// ContractID and InstrumentAdmin stay intact: ContractID is needed
-			// by the accept flow, and InstrumentAdmin is public token-config
-			// data (`/tokens` already exposes it).
-			item := IncomingTransfer{
-				ContractID:      o.ContractID,
-				SenderPartyID:   truncatePartyID(o.SenderPartyID),
-				ReceiverPartyID: truncatePartyID(o.ReceiverPartyID),
-				Amount:          o.Amount,
-				InstrumentAdmin: o.InstrumentAdmin,
-				InstrumentID:    o.InstrumentID,
-			}
-			if meta, ok := s.tokensByInstrument[instrumentKey{id: o.InstrumentID}]; ok {
-				item.Symbol = meta.symbol
-				item.Decimals = meta.decimals
-				item.Name = meta.name
-				item.ContractAddress = meta.contractAddress
-			}
-			items = append(items, item)
-		}
-		if int64(page*indexerListPageSize) >= result.Total {
-			break
-		}
-		page++
+	result, err := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, p)
+	if err != nil {
+		return nil, fmt.Errorf("list pending offers: %w", err)
 	}
-	return &IncomingTransfersList{Items: items, HasMore: false}, nil
+
+	// Start with a non-nil empty slice so the JSON response marshals to `[]`
+	// even when the page is empty (clients iterate Items directly).
+	items := make([]IncomingTransfer, 0, len(result.Items))
+	for i := range result.Items {
+		o := &result.Items[i]
+		// The indexer's pending-offers query already filters to PENDING at the
+		// SQL layer, so this is a defensive check in case the contract changes.
+		if o.Status != indexer.OfferStatusPending {
+			continue
+		}
+		// Party IDs are truncated server-side because this endpoint is
+		// unauthenticated. Surfacing the full fingerprint would let third
+		// parties enumerate counterparties (sender→receiver mapping) just
+		// by polling addresses; the truncated form keeps enough for the
+		// receiver to disambiguate offers while denying enumeration.
+		// ContractID and InstrumentAdmin stay intact: ContractID is needed
+		// by the accept flow, and InstrumentAdmin is public token-config
+		// data (`/tokens` already exposes it).
+		item := IncomingTransfer{
+			ContractID:      o.ContractID,
+			SenderPartyID:   truncatePartyID(o.SenderPartyID),
+			ReceiverPartyID: truncatePartyID(o.ReceiverPartyID),
+			Amount:          o.Amount,
+			InstrumentAdmin: o.InstrumentAdmin,
+			InstrumentID:    o.InstrumentID,
+		}
+		if meta, ok := s.tokensByInstrument[instrumentKey{id: o.InstrumentID}]; ok {
+			item.Symbol = meta.symbol
+			item.Decimals = meta.decimals
+			item.Name = meta.name
+			item.ContractAddress = meta.contractAddress
+		}
+		items = append(items, item)
+	}
+
+	hasMore := int64(p.Page*p.Limit) < result.Total
+	return &IncomingTransfersList{
+		Items:   items,
+		Total:   result.Total,
+		Page:    p.Page,
+		Limit:   p.Limit,
+		HasMore: hasMore,
+	}, nil
 }
 
 // truncatePartyID returns the first and last few characters of a Canton party

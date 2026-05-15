@@ -283,50 +283,43 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 		longSender   = "party::sender-aliceXXXXXXXXXXXXXXXXX"
 		longReceiver = "party::receiverXXXXXXXXXXXXXXXXXXXXX"
 	)
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.MatchedBy(func(p indexer.Pagination) bool {
-		return p.Page == 1 && p.Limit > 0
-	})).Return(&indexer.Page[indexer.PendingOffer]{
-		Items: []indexer.PendingOffer{
-			{
-				ContractID:      "cid-1",
-				Status:          indexer.OfferStatusPending,
-				SenderPartyID:   longSender,
-				ReceiverPartyID: longReceiver,
-				Amount:          "10.0",
-				InstrumentAdmin: "admin::issuer",
-				InstrumentID:    "DEMO",
+	reqPagination := indexer.Pagination{Page: 1, Limit: 50}
+	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, reqPagination).
+		Return(&indexer.Page[indexer.PendingOffer]{
+			Items: []indexer.PendingOffer{
+				{
+					ContractID:      "cid-1",
+					Status:          indexer.OfferStatusPending,
+					SenderPartyID:   longSender,
+					ReceiverPartyID: longReceiver,
+					Amount:          "10.0",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "DEMO",
+				},
+				{
+					ContractID:      "cid-2",
+					Status:          indexer.OfferStatusPending,
+					SenderPartyID:   "party::sender-bob",
+					ReceiverPartyID: longReceiver,
+					Amount:          "5.5",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "UNKNOWN",
+				},
 			},
-			{
-				ContractID:      "cid-2",
-				Status:          indexer.OfferStatusPending,
-				SenderPartyID:   "party::sender-bob",
-				ReceiverPartyID: longReceiver,
-				Amount:          "5.5",
-				InstrumentAdmin: "admin::issuer",
-				InstrumentID:    "UNKNOWN",
-			},
-			{
-				// ACCEPTED rows are kept by the indexer for audit; the service must filter them out.
-				ContractID:      "cid-3",
-				Status:          indexer.OfferStatusAccepted,
-				SenderPartyID:   longSender,
-				ReceiverPartyID: longReceiver,
-				Amount:          "1.0",
-				InstrumentAdmin: "admin::issuer",
-				InstrumentID:    "DEMO",
-			},
-		},
-		Total: 3,
-		Page:  1,
-		Limit: 200,
-	}, nil).Once()
+			Total: 2,
+			Page:  1,
+			Limit: 50,
+		}, nil).Once()
 
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
 
-	resp, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	resp, err := svc.ListIncoming(ctx, sender.EVMAddress, reqPagination)
 	require.NoError(t, err)
 	require.Len(t, resp.Items, 2)
 	assert.False(t, resp.HasMore)
+	assert.Equal(t, int64(2), resp.Total)
+	assert.Equal(t, 1, resp.Page)
+	assert.Equal(t, 50, resp.Limit)
 
 	// Truncation: 8 head + "…" + 8 tail. Verify both the format (one ellipsis
 	// inside) and that the original full IDs do NOT leak into the response.
@@ -350,6 +343,37 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	assert.Empty(t, resp.Items[1].ContractAddress)
 }
 
+func TestTransferService_ListIncoming_HasMore(t *testing.T) {
+	// Verify HasMore is computed correctly when the page does not cover the
+	// total: requesting page 1 with limit 2 from a total of 5 should set
+	// HasMore=true so clients know to keep paging.
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewPendingOfferLister(t)
+	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, indexer.Pagination{Page: 1, Limit: 2}).
+		Return(&indexer.Page[indexer.PendingOffer]{
+			Items: []indexer.PendingOffer{
+				{ContractID: "cid-1", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
+				{ContractID: "cid-2", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
+			},
+			Total: 5,
+			Page:  1,
+			Limit: 2,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListIncoming(ctx, sender.EVMAddress, indexer.Pagination{Page: 1, Limit: 2})
+	require.NoError(t, err)
+	assert.True(t, resp.HasMore)
+	assert.Equal(t, int64(5), resp.Total)
+	assert.Equal(t, 1, resp.Page)
+	assert.Equal(t, 2, resp.Limit)
+}
+
 func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
 	// Regression for the Gemini review: a nil items slice marshals to `null`
 	// instead of `[]`, which trips client list-iteration code. Make sure an
@@ -370,7 +394,7 @@ func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
 		}, nil).Once()
 
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
-	resp, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	resp, err := svc.ListIncoming(ctx, sender.EVMAddress, indexer.Pagination{Page: 1, Limit: 200})
 	require.NoError(t, err)
 	require.NotNil(t, resp.Items)
 	assert.Empty(t, resp.Items)
@@ -384,14 +408,14 @@ func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
 
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
 
-	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress)
+	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
 func TestTransferService_ListIncoming_IndexerNotConfigured(t *testing.T) {
 	svc := newTestService(mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
 
-	_, err := svc.ListIncoming(context.Background(), senderUser().EVMAddress)
+	_, err := svc.ListIncoming(context.Background(), senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryGeneralError)
 }
 
@@ -405,7 +429,7 @@ func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
 
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
 
-	_, err := svc.ListIncoming(ctx, sender.EVMAddress)
+	_, err := svc.ListIncoming(ctx, sender.EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
