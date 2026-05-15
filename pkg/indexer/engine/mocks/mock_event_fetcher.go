@@ -24,19 +24,19 @@ func (_m *EventFetcher) EXPECT() *EventFetcher_Expecter {
 }
 
 // Events provides a mock function with no fields
-func (_m *EventFetcher) Events() <-chan *streaming.Batch[any] {
+func (_m *EventFetcher) Events() <-chan *streaming.Batch[interface{}] {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Events")
 	}
 
-	var r0 <-chan *streaming.Batch[any]
-	if rf, ok := ret.Get(0).(func() <-chan *streaming.Batch[any]); ok {
+	var r0 <-chan *streaming.Batch[interface{}]
+	if rf, ok := ret.Get(0).(func() <-chan *streaming.Batch[interface{}]); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan *streaming.Batch[any])
+			r0 = ret.Get(0).(<-chan *streaming.Batch[interface{}])
 		}
 	}
 
@@ -60,12 +60,12 @@ func (_c *EventFetcher_Events_Call) Run(run func()) *EventFetcher_Events_Call {
 	return _c
 }
 
-func (_c *EventFetcher_Events_Call) Return(_a0 <-chan *streaming.Batch[any]) *EventFetcher_Events_Call {
+func (_c *EventFetcher_Events_Call) Return(_a0 <-chan *streaming.Batch[interface{}]) *EventFetcher_Events_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *EventFetcher_Events_Call) RunAndReturn(run func() <-chan *streaming.Batch[any]) *EventFetcher_Events_Call {
+func (_c *EventFetcher_Events_Call) RunAndReturn(run func() <-chan *streaming.Batch[interface{}]) *EventFetcher_Events_Call {
 	_c.Call.Return(run)
 	return _c
 }

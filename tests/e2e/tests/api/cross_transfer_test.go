@@ -10,80 +10,106 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 )
 
-// TestUSDCx_CrossParticipantTransfer_P2ToP1 verifies that when USDCxIssuer (P2)
-// transfers USDCx directly to a P1-registered party, the indexer and api-server
-// both reflect the receiver's balance — without any api-server bridge involvement.
-//
-// This replicates the exact scenario that triggered the negative-balance infinite
-// retry bug (issue #245): the self-mint on P2 is invisible to the P1 indexer
-// (no P1 stakeholders), but the subsequent transfer IS visible because the
-// receiver is a P1 party. The processor must skip the sender's deduction rather
-// than failing.
+// TestUSDCx_CrossParticipantTransfer_CustodialReceiver verifies that when
+// USDCxIssuer (P2) transfers USDCx to a custodial P1 user, the accept worker
+// automatically accepts the TransferOffer and the receiver's balance is credited
+// without any explicit API accept call.
 //
 // Prerequisites: devstack must be running with USDCx bootstrapped on P2
 // (docker-bootstrap.sh + bootstrap-usdcx.go run during docker compose up).
-func TestUSDCx_CrossParticipantTransfer_P2ToP1(t *testing.T) {
-	t.Skip("will fail until we fix usdcx transfer flow")
+func TestUSDCx_CrossParticipantTransfer_CustodialReceiver(t *testing.T) {
 	t.Parallel()
 
 	sys := presets.NewMultiParticipantStack(t)
 	ctx := context.Background()
 
-	// Register a P1 holder via api-server (external key mode) so the api-server
-	// balance lookup has a known canton_party_id → EVM address mapping.
-	regResp, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+	// Register User1 in custodial web3 mode; the accept worker handles acceptance
+	// automatically by polling the indexer and calling AcceptTransferInstruction.
+	regResp := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
-	// Self-mint 20 USDCx to the issuer party on P2 so there is a holding large
-	// enough to cover the 10 USDCx transfer below.
+	// Self-mint 20 USDCx to the P2 issuer party.
 	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "20"); err != nil {
 		t.Fatalf("mint USDCx to issuer: %v", err)
 	}
 
-	// Check the initial balance of the user - should be zero
-	b, err := sys.APIServer.ERC20Balance(ctx, sys.Tokens.USDCx.Address, sys.Accounts.User1.Address)
-	if err != nil {
-		t.Fatalf("get balance: %v", err)
-	}
-	if b.Sign() != 0 {
-		t.Fatalf("expected zero balance, got %s", b)
-	}
-
-	// Transfer 10 USDCx from P2 issuer to the P1 holder. The indexer will
-	// observe the TokenTransferEvent and credit the receiver's balance. The
-	// sender's deduction is silently skipped (cross-participant incomplete
-	// history — see issue #245 and processor.go ErrNegativeBalance handling).
+	// Cross-participant transfer: P2 issuer → User1's P1 party (10 USDCx).
+	// Creates a TransferOffer; the accept worker auto-accepts for custodial parties.
 	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "USDCx", "10"); err != nil {
 		t.Fatalf("transfer USDCx P2→P1: %v", err)
 	}
 
-	// Verify the receiver balance in the indexer.
-	sys.DSL.WaitForCantonBalance(ctx, t,
-		regResp.Party, sys.Manifest.USDCxInstrumentAdmin, sys.Manifest.USDCxInstrumentID, "10")
-
-	// Verify the receiver balance in the api-server's /eth JSON-RPC facade.
+	// The accept worker polls the indexer and auto-accepts the offer — just wait.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "10")
 }
 
-// TestUSDCx_InternalTransfer_P1HolderToP1Holder verifies that USDCx can be
-// transferred between two P1-registered parties using the api-server's
-// PrepareTransfer / ExecuteTransfer flow.
+// TestUSDCx_CrossParticipantTransfer_NonCustodialReceiver verifies that when
+// USDCxIssuer (P2) transfers USDCx to a non-custodial P1 user (registered with
+// an external signing key), the receiver explicitly accepts the inbound
+// TransferOffer via PrepareAccept/ExecuteAccept and the resulting Utility.Registry.Holding
+// is reflected in the api-server's balance lookup.
 //
-// Setup: seed User1 with USDCx via a cross-participant P2 issuer → P1 holder
-// transfer (the same mechanism exercised by TestUSDCx_CrossParticipantTransfer_P2ToP1).
-// Once User1 holds USDCx on P1, the api-server's transfer API is used to move
-// a portion to User2, exercising the same-participant P1 → P1 path through the
-// CIP56TransferFactory visible to both parties on the shared synchronizer.
-func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
-	t.Skip("will fail until we fix usdcx transfer flow")
+// This is the manual-accept counterpart of TestUSDCx_CrossParticipantTransfer_CustodialReceiver
+// (which uses the auto-accept worker) and exercises the indexer's Holding tracking
+// independently of the on-chain P1→P1 transfer step covered by the InternalTransfer test.
+func TestUSDCx_CrossParticipantTransfer_NonCustodialReceiver(t *testing.T) {
 	t.Parallel()
 
 	sys := presets.NewMultiParticipantStack(t)
 	ctx := context.Background()
 
-	// Register two P1 holders in external key mode so PrepareTransfer is available
-	// to them (custodial users cannot sign Canton transaction hashes).
+	// Register User1 with an external signing key so the test can sign the
+	// PrepareAccept transaction hash that completes the inbound transfer.
+	regResp, kp := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+
+	// Self-mint 15 USDCx to the P2 issuer so there is enough to fund the receiver.
+	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "15"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+
+	// Cross-participant transfer: P2 issuer → User1's P1 party (10 USDCx).
+	// Creates a TransferOffer that User1 must accept manually.
+	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "USDCx", "10"); err != nil {
+		t.Fatalf("transfer USDCx P2→P1: %v", err)
+	}
+
+	// User1 sees the inbound offer (indexer must surface it cross-participant).
+	cid := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
+
+	// Manually accept: prepare → sign → execute.
+	prep, err := sys.APIServer.PrepareAcceptTransfer(ctx, &sys.Accounts.User1, cid,
+		&transfer.PrepareAcceptRequest{InstrumentAdmin: sys.Manifest.USDCxInstrumentAdmin})
+	if err != nil {
+		t.Fatalf("prepare accept: %v", err)
+	}
+	sig, fp := signTransferHash(t, kp, prep.TransactionHash)
+	if _, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User1, cid,
+		&transfer.ExecuteRequest{TransferID: prep.TransferID, Signature: sig, SignedBy: fp}); err != nil {
+		t.Fatalf("execute accept: %v", err)
+	}
+
+	// Once accept lands, the indexer should observe the new Holding owned by
+	// User1 and the api-server's balance lookup should return 10 USDCx.
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "10")
+}
+
+// TestUSDCx_InternalTransfer_P1HolderToP1Holder verifies that USDCx can be
+// transferred between two non-custodial P1 holders using the api-server's
+// PrepareTransfer / ExecuteTransfer flow, and that each receiver explicitly
+// accepts their inbound TransferOffer via the incoming accept API.
+//
+// Setup: seed User1 with USDCx via a cross-participant P2 issuer → P1 holder
+// transfer. User1 accepts via the incoming accept API, then transfers 10 USDCx
+// to User2, who also accepts via the incoming accept API.
+func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+
+	// Register both P1 holders in external key mode so they can sign Canton
+	// transaction hashes for PrepareTransfer and PrepareAcceptTransfer.
 	regResp1, kp1 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
-	_, _ = sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
+	_, kp2 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	// Self-mint 20 USDCx to the P2 issuer so there is enough to fund User1.
 	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "20"); err != nil {
@@ -91,12 +117,26 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 	}
 
 	// Cross-participant transfer: P2 issuer → User1's P1 party (15 USDCx).
-	// This gives User1 a USDCx holding on P1 that the api-server can query.
+	// Creates a TransferOffer that User1 must accept via the incoming accept API.
 	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp1.Party, "USDCx", "15"); err != nil {
 		t.Fatalf("transfer USDCx P2→P1 (User1): %v", err)
 	}
 
-	// Wait for User1's balance to appear before preparing the P1→P1 transfer.
+	// User1 accepts the inbound offer via the api-server incoming accept flow.
+	cid1 := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
+	prepAccept1, err := sys.APIServer.PrepareAcceptTransfer(ctx, &sys.Accounts.User1, cid1,
+		&transfer.PrepareAcceptRequest{InstrumentAdmin: sys.Manifest.USDCxInstrumentAdmin})
+	if err != nil {
+		t.Fatalf("prepare accept (User1): %v", err)
+	}
+	sig1, fp1 := signTransferHash(t, kp1, prepAccept1.TransactionHash)
+	_, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User1, cid1,
+		&transfer.ExecuteRequest{TransferID: prepAccept1.TransferID, Signature: sig1, SignedBy: fp1})
+	if err != nil {
+		t.Fatalf("execute accept (User1): %v", err)
+	}
+
+	// Wait for User1's balance before preparing the same-participant transfer.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "15")
 
 	// Prepare a same-participant transfer of 10 USDCx from User1 to User2.
@@ -108,13 +148,11 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare USDCx P1→P1 transfer: %v", err)
 	}
-
-	sig, fingerprint := signTransferHash(t, kp1, prepResp.TransactionHash)
-
+	sig, fp := signTransferHash(t, kp1, prepResp.TransactionHash)
 	execResp, err := sys.APIServer.ExecuteTransfer(ctx, &sys.Accounts.User1, &transfer.ExecuteRequest{
 		TransferID: prepResp.TransferID,
 		Signature:  sig,
-		SignedBy:   fingerprint,
+		SignedBy:   fp,
 	})
 	if err != nil {
 		t.Fatalf("execute USDCx P1→P1 transfer: %v", err)
@@ -123,11 +161,21 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 		t.Fatalf("expected status 'completed', got %q", execResp.Status)
 	}
 
-	// Verify User2 received the tokens.
+	// User2 accepts the inbound offer via the api-server incoming accept flow.
+	cid2 := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User2)
+	prepAccept2, err := sys.APIServer.PrepareAcceptTransfer(ctx, &sys.Accounts.User2, cid2,
+		&transfer.PrepareAcceptRequest{InstrumentAdmin: sys.Manifest.USDCxInstrumentAdmin})
+	if err != nil {
+		t.Fatalf("prepare accept (User2): %v", err)
+	}
+	sig2, fp2 := signTransferHash(t, kp2, prepAccept2.TransactionHash)
+	_, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User2, cid2,
+		&transfer.ExecuteRequest{TransferID: prepAccept2.TransferID, Signature: sig2, SignedBy: fp2})
+	if err != nil {
+		t.Fatalf("execute accept (User2): %v", err)
+	}
+
+	// Verify final balances: User2 received 10, User1 retained 5.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User2.Address, "10")
-	// Verify User1's balance was deducted (15 - 10 = 5).
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
 }
-
-// TODO: add test for P1 external party → P2 issuer transfer, which requires
-// the Interactive Submission API to exercise choices as a secp256k1 party.

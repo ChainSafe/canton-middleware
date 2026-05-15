@@ -16,6 +16,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
 const (
@@ -50,6 +51,29 @@ func (d *DSL) WaitForRelayerReady(ctx context.Context, t *testing.T) {
 		}
 	}
 	t.Fatal("timeout waiting for relayer to be ready")
+}
+
+// WaitForIncomingTransferOffer polls the api-server's GET /api/v2/transfer/incoming
+// until at least one pending TransferOffer appears for account, then returns the
+// first contract ID. Fails the test after 60 seconds.
+func (d *DSL) WaitForIncomingTransferOffer(ctx context.Context, t *testing.T, account stack.Account) string {
+	t.Helper()
+	deadline := time.Now().Add(cantonBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		resp, err := d.apiServer.ListIncomingTransfers(ctx, &account)
+		if err == nil && len(resp.Items) > 0 {
+			return resp.Items[0].ContractID
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for incoming TransferOffer")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for incoming TransferOffer for %s", account.Address.Hex())
+	return ""
 }
 
 // WaitForCantonBalance polls the indexer until partyID holds at least

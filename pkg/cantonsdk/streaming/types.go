@@ -126,6 +126,36 @@ func (e *LedgerEvent) NestedPartyField(record, field string) string {
 	return values.NestedPartyField(e.fields[record], field)
 }
 
+// NestedNumericField accesses a Numeric sub-field inside a named DAML Record field.
+// Example: event.NestedNumericField("transfer", "amount")
+// Returns "0" when the outer field is absent, the inner field is missing, or
+// the inner field is not a Numeric.
+func (e *LedgerEvent) NestedNumericField(record, field string) string {
+	return values.Numeric(values.RecordField(e.fields[record])[field])
+}
+
+// DoublyNestedPartyField accesses a Party field two records deep.
+// Example: event.DoublyNestedPartyField("transfer", "instrumentId", "admin")
+// Returns "" when any of the path segments is absent or not a Record.
+func (e *LedgerEvent) DoublyNestedPartyField(outer, middle, field string) string {
+	mid := values.RecordField(e.fields[outer])
+	if mid == nil {
+		return ""
+	}
+	return values.NestedPartyField(mid[middle], field)
+}
+
+// DoublyNestedTextField accesses a Text field two records deep.
+// Example: event.DoublyNestedTextField("transfer", "instrumentId", "id")
+// Returns "" when any of the path segments is absent or not a Record.
+func (e *LedgerEvent) DoublyNestedTextField(outer, middle, field string) string {
+	mid := values.RecordField(e.fields[outer])
+	if mid == nil {
+		return ""
+	}
+	return values.NestedTextField(mid[middle], field)
+}
+
 // OptionalMetaLookup looks up a string key within an Optional Metadata field.
 // Metadata is encoded as Optional(Record{values: Map Text Text}).
 // Returns "" when the Optional is None, the key is absent, or the field is absent.

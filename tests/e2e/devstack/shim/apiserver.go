@@ -145,3 +145,62 @@ func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.Transfer
 	}
 	return &resp, nil
 }
+
+// ListIncomingTransfers sends GET /api/v2/transfer/incoming with EIP-191 auth headers.
+func (a *APIServerShim) ListIncomingTransfers(
+	ctx context.Context,
+	account *stack.Account,
+) (*transfer.ListIncomingResponse, error) {
+	msg := fmt.Sprintf("list-incoming:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.ListIncomingResponse
+	if err := a.getAuth(ctx, "/api/v2/transfer/incoming", sig, msg, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// PrepareAcceptTransfer sends POST /api/v2/transfer/incoming/{contractID}/prepare.
+func (a *APIServerShim) PrepareAcceptTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	contractID string,
+	req *transfer.PrepareAcceptRequest,
+) (*transfer.PrepareResponse, error) {
+	msg := fmt.Sprintf("prepare-accept:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.PrepareResponse
+	path := "/api/v2/transfer/incoming/" + contractID + "/prepare"
+	if err := a.post(ctx, path, sig, msg, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ExecuteAcceptTransfer sends POST /api/v2/transfer/incoming/{contractID}/execute.
+// contractID is embedded in req.TransferID for routing; the path uses the contractID
+// extracted from the prepare response but the body carries the transfer_id + signature.
+func (a *APIServerShim) ExecuteAcceptTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	contractID string,
+	req *transfer.ExecuteRequest,
+) (*transfer.ExecuteResponse, error) {
+	msg := fmt.Sprintf("execute-accept:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.ExecuteResponse
+	path := "/api/v2/transfer/incoming/" + contractID + "/execute"
+	if err := a.post(ctx, path, sig, msg, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

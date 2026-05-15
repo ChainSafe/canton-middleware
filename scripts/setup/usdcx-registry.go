@@ -296,9 +296,13 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// queryFactory queries P2's ACS for the active AllocationFactory and builds
-// the RegistryResponse with IncludeCreatedEventBlob so the caller can disclose
-// the factory contract to a Canton node that doesn't hold it in its own ACS.
+// queryFactory queries P2's ACS for the active AllocationFactory and the
+// InstrumentConfiguration referenced by it. AllocationFactory's
+// TransferFactory_Transfer choice requires the sender-side context entries
+// (instrument-configuration + empty sender-credentials list) and the
+// InstrumentConfiguration contract to be disclosed so a participant that
+// doesn't hold it in its own ACS (e.g. P1 when sender is on P2's-issuer-token)
+// can still fetch it during interpretation.
 func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 	authCtx := s.p2.AuthContext(ctx)
 
@@ -310,28 +314,56 @@ func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 		return nil, fmt.Errorf("ledger is empty")
 	}
 
-	tid := &lapiv2.Identifier{
+	factoryTID := &lapiv2.Identifier{
 		PackageId:  *registryAppPkgID,
 		ModuleName: "Utility.Registry.App.V0.Service.AllocationFactory",
 		EntityName: "AllocationFactory",
 	}
+	instrumentConfigTID := &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
+		EntityName: "InstrumentConfiguration",
+	}
 
-	contractID, blob, err := s.fetchContractFromACS(authCtx, end, tid)
+	factoryCID, factoryBlob, err := s.fetchContractFromACS(authCtx, end, factoryTID)
 	if err != nil {
 		return nil, fmt.Errorf("AllocationFactory: %w", err)
 	}
+	configCID, configBlob, err := s.fetchContractFromACS(authCtx, end, instrumentConfigTID)
+	if err != nil {
+		return nil, fmt.Errorf("InstrumentConfiguration: %w", err)
+	}
 
-	templateID := fmt.Sprintf("%s:%s:%s", tid.PackageId, tid.ModuleName, tid.EntityName)
+	templateIDStr := func(id *lapiv2.Identifier) string {
+		return fmt.Sprintf("%s:%s:%s", id.PackageId, id.ModuleName, id.EntityName)
+	}
 	return &RegistryResponse{
-		FactoryID:    contractID,
+		FactoryID:    factoryCID,
 		TransferKind: "transfer",
-		ChoiceContext: nil,
-		DisclosedContracts: []DisclosedContract{{
-			ContractID:       contractID,
-			CreatedEventBlob: base64.StdEncoding.EncodeToString(blob),
-			TemplateID:       templateID,
-			SynchronizerID:   s.domain,
-		}},
+		ChoiceContext: map[string]any{
+			"values": map[string]any{
+				"utility.digitalasset.com/instrument-configuration": map[string]string{
+					"tag": "AV_ContractId", "value": configCID,
+				},
+				"utility.digitalasset.com/sender-credentials": map[string]any{
+					"tag": "AV_List", "value": []any{},
+				},
+			},
+		},
+		DisclosedContracts: []DisclosedContract{
+			{
+				ContractID:       factoryCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(factoryBlob),
+				TemplateID:       templateIDStr(factoryTID),
+				SynchronizerID:   s.domain,
+			},
+			{
+				ContractID:       configCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(configBlob),
+				TemplateID:       templateIDStr(instrumentConfigTID),
+				SynchronizerID:   s.domain,
+			},
+		},
 	}, nil
 }
 

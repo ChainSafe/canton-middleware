@@ -89,6 +89,17 @@ type Store interface {
 	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
 	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
 	MarkOfferAccepted(ctx context.Context, contractID string) error
+
+	// InsertHolding records an active Utility.Registry.Holding contract so its amount
+	// and owner can be recovered when the contract is later archived (archive events
+	// carry only the contract ID). Idempotent on ContractID.
+	InsertHolding(ctx context.Context, h *indexer.HoldingChange) error
+
+	// TakeHolding deletes the row for contractID and returns the stored owner/
+	// instrument/amount needed to decrement the matching balance on archive.
+	// Returns ok=false on missing rows so replayed ARCHIVED events become no-ops
+	// instead of errors.
+	TakeHolding(ctx context.Context, contractID string) (h indexer.HoldingChange, ok bool, err error)
 }
 
 // Processor is the main run loop of the indexer. It wires the EventFetcher to the
@@ -198,6 +209,10 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 						return fmt.Errorf("insert pending offer %s: %w", item.ContractID, err)
 					}
 				}
+			case *indexer.HoldingChange:
+				if err := p.processHoldingChange(ctx, tx, item); err != nil {
+					return err
+				}
 			default:
 				p.logger.Error("processBatch: unrecognized item type, skipping",
 					zap.String("type", fmt.Sprintf("%T", raw)),
@@ -267,6 +282,51 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 			continue
 		}
 		return fmt.Errorf("apply balance delta: %w", err)
+	}
+	return nil
+}
+
+// processHoldingChange handles a Utility.Registry.Holding lifecycle event by
+// applying the matching balance delta:
+//   - CREATED: store the holding row + increment balance for owner by amount.
+//   - ARCHIVED: take (lookup + delete) the stored row + decrement balance by
+//     the stored amount. Missing rows are treated as already-processed and skipped.
+//
+// We deliberately do not advance total supply here — internal transfers (split/
+// lock/unlock) routinely archive one Holding and create another for the same total,
+// so attributing every create as a mint would inflate supply. Supply for Utility.
+// Registry instruments stays at 0 until we add explicit mint/burn-event tracking.
+func (p *Processor) processHoldingChange(ctx context.Context, tx Store, h *indexer.HoldingChange) error {
+	if h.IsArchived {
+		stored, ok, err := tx.TakeHolding(ctx, h.ContractID)
+		if err != nil {
+			return fmt.Errorf("take holding %s: %w", h.ContractID, err)
+		}
+		if !ok {
+			return nil
+		}
+		if err := tx.ApplyBalanceDelta(ctx, stored.Owner, stored.InstrumentAdmin, stored.InstrumentID, "-"+stored.Amount); err != nil {
+			if errors.Is(err, ErrNegativeBalance) {
+				p.logger.Warn("holding archive would underflow balance — mint history on another participant; skipping",
+					zap.String("contract_id", h.ContractID),
+					zap.String("party", stored.Owner),
+					zap.String("amount", stored.Amount),
+				)
+				return nil
+			}
+			return fmt.Errorf("apply holding archive delta: %w", err)
+		}
+		return nil
+	}
+	if h.Owner == "" || h.InstrumentID == "" || h.InstrumentAdmin == "" {
+		// Malformed CREATED event already logged by decoder; skip silently.
+		return nil
+	}
+	if err := tx.InsertHolding(ctx, h); err != nil {
+		return fmt.Errorf("insert holding %s: %w", h.ContractID, err)
+	}
+	if err := tx.ApplyBalanceDelta(ctx, h.Owner, h.InstrumentAdmin, h.InstrumentID, h.Amount); err != nil {
+		return fmt.Errorf("apply holding create delta: %w", err)
 	}
 	return nil
 }

@@ -172,6 +172,29 @@ type APIServer interface {
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
 	// discovery.
 	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
+
+	// ListIncomingTransfers returns pending inbound TransferOffer contract IDs
+	// for the authenticated user via GET /api/v2/transfer/incoming.
+	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.ListIncomingResponse, error)
+
+	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
+	// via POST /api/v2/transfer/incoming/{contractID}/prepare. Returns the
+	// transaction hash the receiver must sign.
+	PrepareAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.PrepareAcceptRequest,
+	) (*transfer.PrepareResponse, error)
+
+	// ExecuteAcceptTransfer completes a prepared accept with the receiver's
+	// DER-encoded Canton signature via POST /api/v2/transfer/incoming/{contractID}/execute.
+	ExecuteAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.ExecuteRequest,
+	) (*transfer.ExecuteResponse, error)
 }
 
 // Relayer is the interface for the canton-bridge relayer service.
