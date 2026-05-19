@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	registryPath         = "/registry/transfer-instruction/v1/transfer-factory"
+	registryPathFmt      = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/transfer-factory"
 	acceptContextPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/%s/choice-contexts/accept"
 )
 
@@ -33,19 +33,54 @@ func NewRegistryClient(httpClient *http.Client) *RegistryClient {
 }
 
 // RegistryRequest is the POST body for the Transfer Factory Registry API.
+// Shape matches the Splice token-standard spec as hosted by DA's utilities API
+// (e.g. api.utilities.digitalasset-dev.com): choice arguments are wrapped in
+// `choiceArguments`, with a sibling `excludeDebugFields` flag.
 type RegistryRequest struct {
+	ChoiceArguments    ChoiceArguments `json:"choiceArguments"`
+	ExcludeDebugFields bool            `json:"excludeDebugFields"`
+}
+
+// ChoiceArguments wraps the on-ledger TransferFactory_Transfer choice arguments
+// alongside the off-ledger extraArgs (context + meta) consumed by the registry.
+type ChoiceArguments struct {
 	ExpectedAdmin string                 `json:"expectedAdmin"`
 	Transfer      RegistryTransferDetail `json:"transfer"`
-	ExtraArgs     map[string]any         `json:"extraArgs,omitempty"`
+	ExtraArgs     ExtraArgs              `json:"extraArgs"`
+}
+
+// ExtraArgs carries the off-ledger context and meta AnyValue maps required
+// by the AllocationFactory's TransferFactory_Transfer choice.
+type ExtraArgs struct {
+	Context AnyValueMap `json:"context"`
+	Meta    AnyValueMap `json:"meta"`
+}
+
+// AnyValueMap models the `{"values": {...}}` AnyValue container that wraps
+// metadata and context maps in the Splice token-standard JSON.
+type AnyValueMap struct {
+	Values map[string]any `json:"values"`
 }
 
 // RegistryTransferDetail contains the transfer parameters for registry lookup.
+// `executeBefore` and `requestedAt` are RFC3339 timestamps; the registry uses
+// them to assert the transfer falls within the issuer's validity window.
 type RegistryTransferDetail struct {
-	Sender           string   `json:"sender"`
-	Receiver         string   `json:"receiver"`
-	Amount           string   `json:"amount"`
-	InstrumentID     string   `json:"instrumentId"`
-	InputHoldingCIDs []string `json:"inputHoldingCids"`
+	Sender           string        `json:"sender"`
+	Receiver         string        `json:"receiver"`
+	Amount           string        `json:"amount"`
+	InstrumentID     InstrumentRef `json:"instrumentId"`
+	InputHoldingCIDs []string      `json:"inputHoldingCids"`
+	Meta             AnyValueMap   `json:"meta"`
+	ExecuteBefore    string        `json:"executeBefore"`
+	RequestedAt      string        `json:"requestedAt"`
+}
+
+// InstrumentRef is the structured instrument identifier the registry expects:
+// the issuer admin party plus the instrument id within that issuer's namespace.
+type InstrumentRef struct {
+	Admin string `json:"admin"`
+	ID    string `json:"id"`
 }
 
 // RegistryResponse is the response from the Transfer Factory Registry API.
@@ -67,13 +102,17 @@ type registryDisclosedContract struct {
 }
 
 // GetTransferFactory calls the registry to discover the transfer factory for an external token.
-func (rc *RegistryClient) GetTransferFactory(ctx context.Context, registryBaseURL string, req *RegistryRequest) (*RegistryResponse, error) {
+// registrarParty is the issuer's party ID under whose namespace the registry is mounted
+// (DA's hosted multi-registrar API multiplexes registrars by URL path).
+func (rc *RegistryClient) GetTransferFactory(
+	ctx context.Context, registryBaseURL, registrarParty string, req *RegistryRequest,
+) (*RegistryResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal registry request: %w", err)
 	}
 
-	url := strings.TrimRight(registryBaseURL, "/") + registryPath
+	url := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(registryPathFmt, registrarParty)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create registry request: %w", err)

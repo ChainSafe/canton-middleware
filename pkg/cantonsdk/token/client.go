@@ -590,6 +590,13 @@ type transferFactoryRequest struct {
 	AnyValueContext    AcceptChoiceContext
 	DisclosedContracts []*lapiv2.DisclosedContract
 	IsExternal         bool
+	// RequestedAt / ExecuteBefore are computed once in resolveTransferFactory so
+	// the timestamps sent to the registry match the ones used in the on-ledger
+	// TransferFactory_Transfer choice arguments. The AllocationFactory choice
+	// asserts requestedAt < ledger-time < executeBefore, so they must be stable
+	// across the registry call and the choice exercise.
+	RequestedAt   time.Time
+	ExecuteBefore time.Time
 }
 
 func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
@@ -629,12 +636,17 @@ func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryReq
 // Shared between custodial (transferViaFactory) and non-custodial (PrepareTransfer) paths.
 // Returns an error only when AnyValueContext encoding fails (invalid AnyValue tags).
 func (c *Client) buildTransferCommand(req *transferFactoryRequest) (*lapiv2.Command, error) {
-	// Backdate requestedAt by a few seconds: the AllocationFactory choice asserts
-	// `requestedAt < ledger time`, and Canton's ledger time can lag wall-clock by
-	// up to ~mediator-reaction-timeout on busy stacks. A 5s skew is safely within
-	// defaultTransferValidity (1h) and avoids spurious "requestedAt must be in
-	// the past" rejections.
-	now := time.Now().UTC().Add(-5 * time.Second)
+	// requestedAt / executeBefore are populated by resolveTransferFactory so the
+	// registry call and the on-ledger choice see identical timestamps. Fall back
+	// to computing them here for callers that bypass resolveTransferFactory.
+	requestedAt := req.RequestedAt
+	executeBefore := req.ExecuteBefore
+	if requestedAt.IsZero() {
+		requestedAt = time.Now().UTC().Add(-5 * time.Second)
+	}
+	if executeBefore.IsZero() {
+		executeBefore = requestedAt.Add(defaultTransferValidity)
+	}
 
 	// For AllocationFactory tokens the choice context must be encoded as TextMap AnyValue.
 	// For CIP56TransferFactory tokens (empty context) the standard TextMap Text encoding is used.
@@ -677,8 +689,8 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) (*lapiv2.Comm
 							req.Amount,
 							req.InstrumentAdmin,
 							req.InstrumentID,
-							now,
-							now.Add(defaultTransferValidity),
+							requestedAt,
+							executeBefore,
 							req.InputHoldingCIDs,
 							extraArgsValue,
 						),
@@ -870,6 +882,12 @@ func (c *Client) queryFactoryContracts(ctx context.Context, filter *lapiv2.Cumul
 // For our tokens (InstrumentAdmin == IssuerParty): uses local ACS query.
 // For external tokens: calls the Transfer Factory Registry API.
 func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactoryRequest) error {
+	// Backdate requestedAt by a few seconds: the AllocationFactory choice asserts
+	// `requestedAt < ledger time`, and Canton's ledger time can lag wall-clock by
+	// up to ~mediator-reaction-timeout on busy stacks.
+	req.RequestedAt = time.Now().UTC().Add(-5 * time.Second)
+	req.ExecuteBefore = req.RequestedAt.Add(defaultTransferValidity)
+
 	if req.InstrumentAdmin == c.cfg.IssuerParty {
 		cid, err := c.getTransferFactoryCID(ctx)
 		if err != nil {
@@ -888,14 +906,23 @@ func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactor
 		return fmt.Errorf("unsupported external token issuer: %s", req.InstrumentAdmin)
 	}
 
-	regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, &RegistryRequest{
-		ExpectedAdmin: req.InstrumentAdmin,
-		Transfer: RegistryTransferDetail{
-			Sender:           req.FromPartyID,
-			Receiver:         req.ToPartyID,
-			Amount:           req.Amount,
-			InstrumentID:     req.InstrumentID,
-			InputHoldingCIDs: req.InputHoldingCIDs,
+	regResp, err := c.registryClient.GetTransferFactory(ctx, extCfg.RegistryURL, req.InstrumentAdmin, &RegistryRequest{
+		ChoiceArguments: ChoiceArguments{
+			ExpectedAdmin: req.InstrumentAdmin,
+			Transfer: RegistryTransferDetail{
+				Sender:           req.FromPartyID,
+				Receiver:         req.ToPartyID,
+				Amount:           req.Amount,
+				InstrumentID:     InstrumentRef{Admin: req.InstrumentAdmin, ID: req.InstrumentID},
+				InputHoldingCIDs: req.InputHoldingCIDs,
+				Meta:             AnyValueMap{Values: map[string]any{}},
+				RequestedAt:      req.RequestedAt.Format(time.RFC3339),
+				ExecuteBefore:    req.ExecuteBefore.Format(time.RFC3339),
+			},
+			ExtraArgs: ExtraArgs{
+				Context: AnyValueMap{Values: map[string]any{}},
+				Meta:    AnyValueMap{Values: map[string]any{}},
+			},
 		},
 	})
 	if err != nil {

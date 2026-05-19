@@ -10,10 +10,14 @@
 // are required.
 //
 // Sender-side endpoint:
-//   POST /registry/transfer-instruction/v1/transfer-factory
+//   POST /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/transfer-factory
 //
 //   Request body (RegistryRequest):
-//     { "expectedAdmin": "<party>", "transfer": { "sender": "...", ... } }
+//     { "choiceArguments": { "expectedAdmin": "<party>",
+//                            "transfer": { "sender": "...",
+//                                          "instrumentId": {"admin":"...","id":"USDCx"}, ... },
+//                            "extraArgs": {"context":{"values":{}},"meta":{"values":{}}} },
+//       "excludeDebugFields": false }
 //
 //   Response body (RegistryResponse):
 //     { "factoryId": "...", "transferKind": "transfer",
@@ -77,18 +81,49 @@ var (
 // These must match the JSON shapes in pkg/cantonsdk/token/registry_client.go.
 
 // RegistryRequest is the POST body sent by RegistryClient.GetTransferFactory.
+// Mirrors the Splice token-standard shape DA's hosted registry expects: the
+// on-ledger choice arguments live under `choiceArguments`.
 type RegistryRequest struct {
+	ChoiceArguments    ChoiceArguments `json:"choiceArguments"`
+	ExcludeDebugFields bool            `json:"excludeDebugFields"`
+}
+
+// ChoiceArguments wraps the TransferFactory_Transfer arguments plus the
+// off-ledger extraArgs the registry uses to build the choice context.
+type ChoiceArguments struct {
 	ExpectedAdmin string         `json:"expectedAdmin"`
 	Transfer      TransferDetail `json:"transfer"`
+	ExtraArgs     ExtraArgs      `json:"extraArgs"`
+}
+
+// ExtraArgs is the off-ledger context/meta envelope. Both maps are empty for
+// the local devstack — the registry derives the real context from P2's ACS.
+type ExtraArgs struct {
+	Context AnyValueMap `json:"context"`
+	Meta    AnyValueMap `json:"meta"`
+}
+
+// AnyValueMap models the Splice `{"values":{...}}` AnyValue container.
+type AnyValueMap struct {
+	Values map[string]any `json:"values"`
 }
 
 // TransferDetail carries the transfer parameters sent by the caller.
 type TransferDetail struct {
-	Sender           string   `json:"sender"`
-	Receiver         string   `json:"receiver"`
-	Amount           string   `json:"amount"`
-	InstrumentID     string   `json:"instrumentId"`
-	InputHoldingCIDs []string `json:"inputHoldingCids"`
+	Sender           string        `json:"sender"`
+	Receiver         string        `json:"receiver"`
+	Amount           string        `json:"amount"`
+	InstrumentID     InstrumentRef `json:"instrumentId"`
+	InputHoldingCIDs []string      `json:"inputHoldingCids"`
+	Meta             AnyValueMap   `json:"meta"`
+	ExecuteBefore    string        `json:"executeBefore"`
+	RequestedAt      string        `json:"requestedAt"`
+}
+
+// InstrumentRef is the structured instrument identifier {admin, id}.
+type InstrumentRef struct {
+	Admin string `json:"admin"`
+	ID    string `json:"id"`
 }
 
 // RegistryResponse is the response body parsed by RegistryClient.GetTransferFactory.
@@ -239,9 +274,9 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/registry/transfer-instruction/v1/transfer-factory", srv.handleTransferFactory)
-	// Receiver-side accept context endpoint — matches DA's registrar URL pattern.
-	mux.HandleFunc("/api/token-standard/v0/registrars/", srv.handleAcceptContext)
+	// Both registry endpoints are mounted per-registrar under the same prefix,
+	// matching DA's hosted registry URL scheme. Dispatch by suffix below.
+	mux.HandleFunc("/api/token-standard/v0/registrars/", srv.routeRegistrar)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
@@ -254,9 +289,45 @@ func main() {
 	}
 }
 
+// ─── Router ──────────────────────────────────────────────────────────────────
+
+// routeRegistrar dispatches requests under /api/token-standard/v0/registrars/
+// to the sender-side or receiver-side handler based on the URL suffix, after
+// validating that the registrar in the path matches our discovered issuer.
+func (s *server) routeRegistrar(w http.ResponseWriter, r *http.Request) {
+	// Strip the registered prefix; remainder is:
+	//   {registrar}/registry/transfer-instruction/v1/transfer-factory
+	//   {registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
+	remainder := strings.TrimPrefix(r.URL.Path, "/api/token-standard/v0/registrars/")
+	parts := strings.SplitN(remainder, "/", 8)
+	if len(parts) < 5 || parts[1] != "registry" || parts[2] != "transfer-instruction" || parts[3] != "v1" {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	}
+	registrar := parts[0]
+	if registrar != s.issuer {
+		writeJSON(w, http.StatusBadRequest, errorBody{
+			Error: fmt.Sprintf("registrar %q not managed by this registry", registrar),
+		})
+		return
+	}
+
+	switch {
+	case len(parts) == 5 && parts[4] == "transfer-factory":
+		s.handleTransferFactory(w, r)
+	case len(parts) == 7 && parts[5] == "choice-contexts" && parts[6] == "accept":
+		s.handleAcceptContext(w, r)
+	default:
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+	}
+}
+
 // ─── Sender-side handler ──────────────────────────────────────────────────────
 
-// handleTransferFactory implements POST /registry/transfer-instruction/v1/transfer-factory.
+// handleTransferFactory implements POST
+// /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/transfer-factory.
+// Registrar match is enforced by routeRegistrar; this handler only validates
+// the choiceArguments.expectedAdmin matches.
 func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, errorBody{Error: "method not allowed"})
@@ -270,9 +341,9 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ExpectedAdmin != s.issuer {
+	if req.ChoiceArguments.ExpectedAdmin != s.issuer {
 		writeJSON(w, http.StatusBadRequest, errorBody{
-			Error: fmt.Sprintf("expectedAdmin %q does not match issuer", req.ExpectedAdmin),
+			Error: fmt.Sprintf("expectedAdmin %q does not match issuer", req.ChoiceArguments.ExpectedAdmin),
 		})
 		return
 	}
@@ -375,31 +446,12 @@ func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 //
 // Returns the choiceContextData (TransferRule + InstrumentConfiguration contract IDs as
 // AV_ContractId AnyValues) and their createdEventBlobs as disclosedContracts.
-// The {cid} path parameter is accepted but not used — context is instrument-level,
-// not per-offer, for the local devstack with a single instrument.
+// Path validation and registrar match are handled by routeRegistrar.
+// The {cid} path parameter is ignored — context is instrument-level, not
+// per-offer, for the local devstack with a single instrument.
 func (s *server) handleAcceptContext(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, errorBody{Error: "method not allowed"})
-		return
-	}
-
-	// Path: /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
-	// After stripping the registered prefix "/api/token-standard/v0/registrars/" the remainder is:
-	// {registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
-	remainder := strings.TrimPrefix(r.URL.Path, "/api/token-standard/v0/registrars/")
-	parts := strings.SplitN(remainder, "/", 8)
-	// parts[0]=registrar, [1]=registry, [2]=transfer-instruction, [3]=v1, [4]=cid,
-	// [5]=choice-contexts, [6]=accept
-	if len(parts) < 7 || parts[1] != "registry" || parts[5] != "choice-contexts" || parts[6] != "accept" {
-		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
-		return
-	}
-	registrar := parts[0]
-
-	if registrar != s.issuer {
-		writeJSON(w, http.StatusBadRequest, errorBody{
-			Error: fmt.Sprintf("registrar %q not managed by this registry", registrar),
-		})
 		return
 	}
 
