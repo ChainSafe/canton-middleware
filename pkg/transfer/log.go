@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 )
 
 const (
@@ -117,12 +119,14 @@ func (ls *logService) Execute(
 }
 
 // ListIncoming wraps the service method with logging.
-func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *ListIncomingResponse, err error) {
+func (ls *logService) ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (resp *IncomingTransfersList, err error) {
 	start := time.Now()
 	ls.logger.Info("ListIncoming started",
 		zap.String("service", transferServiceName),
 		zap.String("method", "ListIncoming"),
 		zap.String("evm_addr", evmAddr),
+		zap.Int("page", p.Page),
+		zap.Int("limit", p.Limit),
 	)
 	defer func() {
 		duration := time.Since(start)
@@ -137,12 +141,14 @@ func (ls *logService) ListIncoming(ctx context.Context, evmAddr string) (resp *L
 			ls.logger.Info("ListIncoming completed",
 				zap.String("service", transferServiceName),
 				zap.String("method", "ListIncoming"),
-				zap.Int("total", resp.Total),
+				zap.Int("count", len(resp.Items)),
+				zap.Int64("total", resp.Total),
+				zap.Bool("has_more", resp.HasMore),
 				zap.Duration("duration", duration),
 			)
 		}
 	}()
-	return ls.svc.ListIncoming(ctx, evmAddr)
+	return ls.svc.ListIncoming(ctx, evmAddr, p)
 }
 
 // PrepareAccept wraps the service method with logging.

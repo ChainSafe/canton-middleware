@@ -173,9 +173,10 @@ type APIServer interface {
 	// discovery.
 	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
 
-	// ListIncomingTransfers returns pending inbound TransferOffer contract IDs
-	// for the authenticated user via GET /api/v2/transfer/incoming.
-	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.ListIncomingResponse, error)
+	// ListIncomingTransfers returns pending inbound TransferOffer details for the
+	// given account via GET /api/v2/transfer/incoming?address=…. The endpoint is
+	// unauthenticated; account is used only to derive the query parameter.
+	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.IncomingTransfersList, error)
 
 	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
 	// via POST /api/v2/transfer/incoming/{contractID}/prepare. Returns the
