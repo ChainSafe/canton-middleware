@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
@@ -83,11 +84,30 @@ type InstrumentRef struct {
 	ID    string `json:"id"`
 }
 
-// RegistryResponse is the response from the Transfer Factory Registry API.
+// RegistryResponse is the registry response as consumed by the SDK.
+// `ChoiceContext` holds the AnyValue map (i.e. `choiceContext.choiceContextData`
+// from the wire shape) and `DisclosedContracts` holds the array — both lifted
+// out of the wire envelope by GetTransferFactory so the downstream converters
+// (ConvertAnyValueChoiceContext / ConvertDisclosedContracts) can consume them
+// directly.
 type RegistryResponse struct {
 	FactoryID          string          `json:"factoryId"`
 	TransferKind       string          `json:"transferKind"`
 	ChoiceContext      json.RawMessage `json:"choiceContext"`
+	DisclosedContracts json.RawMessage `json:"disclosedContracts"`
+}
+
+// registryWireResponse mirrors DA's hosted token-standard registry response,
+// where the AnyValue choice context and the disclosed contracts are both
+// nested inside `choiceContext` (matching the receiver-side AcceptContextResponse).
+type registryWireResponse struct {
+	FactoryID     string          `json:"factoryId"`
+	TransferKind  string          `json:"transferKind"`
+	ChoiceContext json.RawMessage `json:"choiceContext"`
+}
+
+type registryWireChoiceContext struct {
+	ChoiceContextData  json.RawMessage `json:"choiceContextData"`
 	DisclosedContracts json.RawMessage `json:"disclosedContracts"`
 }
 
@@ -112,8 +132,8 @@ func (rc *RegistryClient) GetTransferFactory(
 		return nil, fmt.Errorf("marshal registry request: %w", err)
 	}
 
-	url := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(registryPathFmt, registrarParty)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	reqURL := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(registryPathFmt, url.PathEscape(registrarParty))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create registry request: %w", err)
 	}
@@ -135,12 +155,28 @@ func (rc *RegistryClient) GetTransferFactory(
 		return nil, fmt.Errorf("registry returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var result RegistryResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
+	var wire registryWireResponse
+	if err := json.Unmarshal(respBody, &wire); err != nil {
 		return nil, fmt.Errorf("parse registry response: %w", err)
 	}
 
-	return &result, nil
+	// DA's hosted registry wraps `choiceContextData` and `disclosedContracts`
+	// inside `choiceContext` — lift them out so callers see the legacy flat
+	// shape the SDK's converters already understand. A null/absent
+	// choiceContext leaves both fields empty, which the converters short-circuit.
+	var inner registryWireChoiceContext
+	if len(wire.ChoiceContext) > 0 && string(wire.ChoiceContext) != jsonNull {
+		if err := json.Unmarshal(wire.ChoiceContext, &inner); err != nil {
+			return nil, fmt.Errorf("parse choiceContext wrapper: %w", err)
+		}
+	}
+
+	return &RegistryResponse{
+		FactoryID:          wire.FactoryID,
+		TransferKind:       wire.TransferKind,
+		ChoiceContext:      inner.ChoiceContextData,
+		DisclosedContracts: inner.DisclosedContracts,
+	}, nil
 }
 
 // ConvertDisclosedContracts parses the registry's disclosed contracts JSON into proto messages.

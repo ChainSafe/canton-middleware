@@ -126,12 +126,20 @@ type InstrumentRef struct {
 	ID    string `json:"id"`
 }
 
-// RegistryResponse is the response body parsed by RegistryClient.GetTransferFactory.
+// RegistryResponse is the wire response, matching DA's hosted token-standard
+// registry shape: the AnyValue choice context and the disclosed contracts are
+// both nested inside `choiceContext` (the same envelope used by the
+// receiver-side AcceptContextResponse).
 type RegistryResponse struct {
-	FactoryID          string              `json:"factoryId"`
-	TransferKind       string              `json:"transferKind"`
-	ChoiceContext      any                 `json:"choiceContext"`
-	DisclosedContracts []DisclosedContract `json:"disclosedContracts"`
+	FactoryID     string              `json:"factoryId"`
+	TransferKind  string              `json:"transferKind"`
+	ChoiceContext registryChoiceCtxResp `json:"choiceContext"`
+}
+
+// registryChoiceCtxResp is the nested envelope returned inside `choiceContext`.
+type registryChoiceCtxResp struct {
+	ChoiceContextData  acceptChoiceContextData `json:"choiceContextData"`
+	DisclosedContracts []DisclosedContract     `json:"disclosedContracts"`
 }
 
 // DisclosedContract matches the registryDisclosedContract shape in registry_client.go.
@@ -411,28 +419,30 @@ func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 	return &RegistryResponse{
 		FactoryID:    factoryCID,
 		TransferKind: "transfer",
-		ChoiceContext: map[string]any{
-			"values": map[string]any{
-				"utility.digitalasset.com/instrument-configuration": map[string]string{
-					"tag": "AV_ContractId", "value": configCID,
-				},
-				"utility.digitalasset.com/sender-credentials": map[string]any{
-					"tag": "AV_List", "value": []any{},
+		ChoiceContext: registryChoiceCtxResp{
+			ChoiceContextData: acceptChoiceContextData{
+				Values: map[string]any{
+					"utility.digitalasset.com/instrument-configuration": map[string]string{
+						"tag": "AV_ContractId", "value": configCID,
+					},
+					"utility.digitalasset.com/sender-credentials": map[string]any{
+						"tag": "AV_List", "value": []any{},
+					},
 				},
 			},
-		},
-		DisclosedContracts: []DisclosedContract{
-			{
-				ContractID:       factoryCID,
-				CreatedEventBlob: base64.StdEncoding.EncodeToString(factoryBlob),
-				TemplateID:       templateIDStr(factoryTID),
-				SynchronizerID:   s.domain,
-			},
-			{
-				ContractID:       configCID,
-				CreatedEventBlob: base64.StdEncoding.EncodeToString(configBlob),
-				TemplateID:       templateIDStr(instrumentConfigTID),
-				SynchronizerID:   s.domain,
+			DisclosedContracts: []DisclosedContract{
+				{
+					ContractID:       factoryCID,
+					CreatedEventBlob: base64.StdEncoding.EncodeToString(factoryBlob),
+					TemplateID:       templateIDStr(factoryTID),
+					SynchronizerID:   s.domain,
+				},
+				{
+					ContractID:       configCID,
+					CreatedEventBlob: base64.StdEncoding.EncodeToString(configBlob),
+					TemplateID:       templateIDStr(instrumentConfigTID),
+					SynchronizerID:   s.domain,
+				},
 			},
 		},
 	}, nil
