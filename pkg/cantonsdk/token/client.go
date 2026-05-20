@@ -595,6 +595,8 @@ type transferFactoryRequest struct {
 	// TransferFactory_Transfer choice arguments. The AllocationFactory choice
 	// asserts requestedAt < ledger-time < executeBefore, so they must be stable
 	// across the registry call and the choice exercise.
+	// Note: registry sees second-precision and ledger sees nanosecond 
+	// where both representations are derived from the same time.Time.
 	RequestedAt   time.Time
 	ExecuteBefore time.Time
 }
