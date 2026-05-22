@@ -111,3 +111,56 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+  open-devnet-pr:
+    name: Open devnet deploy PR
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Compute version
+        id: version
+        env:
+          REF: ${{ github.ref_name }}
+          INPUT: ${{ github.event.inputs.tag }}
+        run: |
+          VERSION="${INPUT:-$REF}"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Invalid version: $VERSION"; exit 1; }
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout infra-kubernetes
+        uses: actions/checkout@v4
+        with:
+          repository: ChainSafe/infra-kubernetes
+          token: ${{ secrets.INFRA_GH_TOKEN }}
+          ref: main
+
+      - name: Update canton-middleware-api image tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          yq e '.["canton-middleware-api"].image.tag = env(VERSION)' -i \
+            definitions/canton/validator-dev1/canton-middleware-api-values.yml
+
+      - name: Open PR
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="chore/bump-canton-middleware-api-${VERSION}"
+          git checkout -b "$BRANCH"
+          git add definitions/canton/validator-dev1/canton-middleware-api-values.yml
+          # skip if nothing changed (re-run for same tag)
+          git diff --cached --quiet && echo "No changes, skipping PR" && exit 0
+          git commit -m "chore: bump canton-middleware-api to ${VERSION} on devnet"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --repo ChainSafe/infra-kubernetes \
+            --title "chore: bump canton-middleware-api to ${VERSION} on devnet" \
+            --body "Automated PR: bump \`canton-middleware-api\` image tag to \`${VERSION}\` on \`validator-dev1\`." \
+            --base main \
+            --head "$BRANCH" \
+          || { echo "PR already exists for this branch, skipping"; exit 0; }
+          gh pr merge --auto --squash --repo ChainSafe/infra-kubernetes "$BRANCH"
