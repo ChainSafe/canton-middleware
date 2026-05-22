@@ -155,7 +155,7 @@ jobs:
           # skip if nothing changed (re-run for same tag)
           git diff --cached --quiet && echo "No changes, skipping PR" && exit 0
           git commit -m "chore: bump canton-middleware-api to ${VERSION} on devnet"
-          git push --force-with-lease origin "$BRANCH"
+          git push -u origin "$BRANCH"
           gh pr create \
             --repo ChainSafe/infra-kubernetes \
             --title "chore: bump canton-middleware-api to ${VERSION} on devnet" \
