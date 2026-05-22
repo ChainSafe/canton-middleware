@@ -162,4 +162,5 @@ jobs:
             --body "Automated PR: bump \`canton-middleware-api\` image tag to \`${VERSION}\` on \`validator-dev1\`." \
             --base main \
             --head "$BRANCH" \
-          || echo "PR already exists for this branch"
+          || { echo "PR already exists for this branch, skipping"; exit 0; }
+          gh pr merge --auto --squash --repo ChainSafe/infra-kubernetes "$BRANCH"
