@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -72,37 +71,55 @@ type pendingBlock struct {
 func (b *pendingBlock) Number() uint64 { return b.blockNumber }
 func (b *pendingBlock) Hash() []byte   { return b.blockHash }
 
-// ClaimMempoolEntries atomically marks up to maxTxsPerBlock completed mempool
-// entries as mined and returns them, using a single UPDATE … RETURNING within
-// the block's transaction. The limit caps block size to prevent excessively
-// large blocks after traffic spikes or Canton downtime.
+// ClaimMempoolEntries atomically claims up to maxTxsPerBlock terminal mempool
+// entries (status = completed or failed) and flips them to mined within the
+// block's transaction. The limit caps block size to prevent excessively large
+// blocks after traffic spikes or Canton downtime.
+//
+// The claim is performed as SELECT … FOR UPDATE followed by an UPDATE by ID so
+// the returned entries retain their *pre-mined* status (completed vs failed).
+// The miner relies on that distinction to synthesize EVM tx status=1 (success)
+// vs status=0 (failure) and to skip the Transfer event log for failures.
+//
 // Because the transaction already holds the evm_state row lock, concurrent
 // miners are serialized: by the time a second miner acquires the lock, the
 // first miner's commit has already flipped these rows to mined.
 func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock int) ([]ethrpc.MempoolEntry, error) {
 	var daos []MempoolEntryDao
-	if _, err := b.tx.NewUpdate().
-		Model((*MempoolEntryDao)(nil)).
-		Set("status = ?", string(ethrpc.MempoolMined)).
-		Set("updated_at = current_timestamp").
-		Where("id IN (SELECT id FROM mempool WHERE status = ? ORDER BY id LIMIT ?)",
-			string(ethrpc.MempoolCompleted), maxTxsPerBlock).
-		Returning("*").
-		Exec(ctx, &daos); err != nil {
-		return nil, fmt.Errorf("claim mempool entries: %w", err)
+	if err := b.tx.NewSelect().
+		Model(&daos).
+		Where("status IN (?)", bun.List([]string{
+			string(ethrpc.MempoolCompleted),
+			string(ethrpc.MempoolFailed),
+		})).
+		OrderExpr("id ASC").
+		Limit(maxTxsPerBlock).
+		For("UPDATE").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("select claimable mempool entries: %w", err)
 	}
 	if len(daos) == 0 {
 		return nil, nil
 	}
 
-	// RETURNING does not guarantee row order; sort by insertion ID so the
-	// miner assigns deterministic, monotonic txIndex values.
-	sort.Slice(daos, func(i, j int) bool { return daos[i].ID < daos[j].ID })
+	ids := make([]int64, len(daos))
+	for i := range daos {
+		ids[i] = daos[i].ID
+	}
+	if _, err := b.tx.NewUpdate().
+		Model((*MempoolEntryDao)(nil)).
+		Set("status = ?", string(ethrpc.MempoolMined)).
+		Set("updated_at = current_timestamp").
+		Where("id IN (?)", bun.List(ids)).
+		Exec(ctx); err != nil {
+		return nil, fmt.Errorf("mark mempool entries mined: %w", err)
+	}
 
 	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
 	for i := range daos {
 		dao := &daos[i]
-		entries = append(entries, ethrpc.MempoolEntry{
+		entry := ethrpc.MempoolEntry{
+			ID:               dao.ID,
 			TxHash:           dao.TxHash,
 			FromAddress:      dao.FromAddress,
 			ContractAddress:  dao.ContractAddress,
@@ -110,8 +127,12 @@ func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock i
 			Nonce:            dao.Nonce,
 			Input:            dao.Input,
 			AmountData:       dao.AmountData,
-			Status:           ethrpc.MempoolMined,
-		})
+			Status:           ethrpc.MempoolStatus(dao.Status),
+		}
+		if dao.ErrorMessage != nil {
+			entry.ErrorMessage = *dao.ErrorMessage
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }
@@ -329,23 +350,28 @@ func (s *PGStore) FailMempoolEntry(ctx context.Context, txHash []byte, errMsg st
 	return nil
 }
 
-// GetMempoolEntriesByStatus returns all mempool entries with the given status,
-// ordered by insertion ID.
-func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus) ([]ethrpc.MempoolEntry, error) {
+// GetMempoolEntriesByStatus returns mempool entries with the given status,
+// ordered by insertion ID. limit caps how many rows are returned (limit <= 0
+// means no limit). The submitter passes its batch size so a backlog after
+// Canton downtime never loads the entire pending queue into memory.
+func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus, limit int) ([]ethrpc.MempoolEntry, error) {
 	var daos []MempoolEntryDao
-	err := s.db.NewSelect().
+	query := s.db.NewSelect().
 		Model(&daos).
 		Where("status = ?", string(status)).
-		OrderExpr("id ASC").
-		Scan(ctx)
-	if err != nil {
+		OrderExpr("id ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if err := query.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("get mempool entries by status %q: %w", status, err)
 	}
 
 	entries := make([]ethrpc.MempoolEntry, 0, len(daos))
 	for i := range daos {
 		dao := &daos[i]
-		entries = append(entries, ethrpc.MempoolEntry{
+		entry := ethrpc.MempoolEntry{
+			ID:               dao.ID,
 			TxHash:           dao.TxHash,
 			FromAddress:      dao.FromAddress,
 			ContractAddress:  dao.ContractAddress,
@@ -354,7 +380,11 @@ func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.M
 			Input:            dao.Input,
 			AmountData:       dao.AmountData,
 			Status:           status,
-		})
+		}
+		if dao.ErrorMessage != nil {
+			entry.ErrorMessage = *dao.ErrorMessage
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
 }

@@ -97,6 +97,103 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 	require.NoError(t, m.mine(context.Background()))
 }
 
+func TestMine_FailedEntry_MinesAsStatus0_NoTransferLog(t *testing.T) {
+	entry := sampleEntry(0x09,
+		"0xaaaa000000000000000000000000000000000099",
+		"0xcccc000000000000000000000000000000000099",
+		"0xdddd000000000000000000000000000000000099",
+		0, 7,
+	)
+	entry.Status = ethrpc.MempoolFailed
+	entry.ErrorMessage = "canton transfer failed: insufficient balance"
+
+	block := setupBlock(t, 6)
+	block.EXPECT().AddEvmTransaction(mock.Anything, mock.MatchedBy(func(tx *ethrpc.EvmTransaction) bool {
+		return tx.Status == 0 && tx.ErrorMessage == entry.ErrorMessage && tx.BlockNumber == 6
+	})).Return(nil).Once()
+	// No AddEvmLog expectation — failed entries must skip the Transfer event.
+	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
+
+	store := mocks.NewStore(t)
+	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
+
+	m := newTestMiner(store)
+	require.NoError(t, m.mine(context.Background()))
+	block.AssertNotCalled(t, "AddEvmLog", mock.Anything, mock.Anything)
+}
+
+// TestMine_LogIndexContiguousAcrossFailures ensures that when failed transactions
+// emit zero logs, the surviving Transfer logs still get block-relative contiguous
+// LogIndex values (0, 1, 2…) — matching Ethereum's expected log indexing.
+// Pattern: success, fail, success → logs should land at LogIndex 0 and 1, not 0 and 2.
+func TestMine_LogIndexContiguousAcrossFailures(t *testing.T) {
+	ok1 := sampleEntry(0x20, "0xaaaa000000000000000000000000000000000020",
+		"0xcccc000000000000000000000000000000000001",
+		"0xdddd000000000000000000000000000000000020", 0, 100)
+	ok1.Status = ethrpc.MempoolCompleted
+
+	fail := sampleEntry(0x21, "0xaaaa000000000000000000000000000000000021",
+		"0xcccc000000000000000000000000000000000001",
+		"0xdddd000000000000000000000000000000000021", 1, 200)
+	fail.Status = ethrpc.MempoolFailed
+
+	ok2 := sampleEntry(0x22, "0xaaaa000000000000000000000000000000000022",
+		"0xcccc000000000000000000000000000000000001",
+		"0xdddd000000000000000000000000000000000022", 2, 300)
+	ok2.Status = ethrpc.MempoolCompleted
+
+	block := setupBlock(t, 9)
+	block.EXPECT().AddEvmTransaction(mock.Anything, mock.Anything).Return(nil).Times(3)
+	// Exactly two Transfer logs (only the two successes); LogIndex must be 0, 1.
+	block.EXPECT().AddEvmLog(mock.Anything, mock.MatchedBy(func(log *ethrpc.EvmLog) bool {
+		return log.LogIndex == 0 && log.TxIndex == 0
+	})).Return(nil).Once()
+	block.EXPECT().AddEvmLog(mock.Anything, mock.MatchedBy(func(log *ethrpc.EvmLog) bool {
+		return log.LogIndex == 1 && log.TxIndex == 2
+	})).Return(nil).Once()
+	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).
+		Return([]ethrpc.MempoolEntry{ok1, fail, ok2}, nil)
+
+	store := mocks.NewStore(t)
+	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
+
+	m := newTestMiner(store)
+	require.NoError(t, m.mine(context.Background()))
+}
+
+func TestMine_MixedCompletedAndFailed(t *testing.T) {
+	completed := sampleEntry(0x10, "0xaaaa000000000000000000000000000000000010",
+		"0xcccc000000000000000000000000000000000001",
+		"0xdddd000000000000000000000000000000000010", 0, 100)
+	completed.Status = ethrpc.MempoolCompleted
+
+	failed := sampleEntry(0x11, "0xaaaa000000000000000000000000000000000011",
+		"0xcccc000000000000000000000000000000000001",
+		"0xdddd000000000000000000000000000000000011", 1, 200)
+	failed.Status = ethrpc.MempoolFailed
+	failed.ErrorMessage = "sender not found"
+
+	block := setupBlock(t, 8)
+	block.EXPECT().AddEvmTransaction(mock.Anything, mock.MatchedBy(func(tx *ethrpc.EvmTransaction) bool {
+		return tx.TxIndex == 0 && tx.Status == 1 && tx.ErrorMessage == ""
+	})).Return(nil).Once()
+	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once() // only for the success
+	block.EXPECT().AddEvmTransaction(mock.Anything, mock.MatchedBy(func(tx *ethrpc.EvmTransaction) bool {
+		return tx.TxIndex == 1 && tx.Status == 0 && tx.ErrorMessage == failed.ErrorMessage
+	})).Return(nil).Once()
+	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
+	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).
+		Return([]ethrpc.MempoolEntry{completed, failed}, nil)
+
+	store := mocks.NewStore(t)
+	store.EXPECT().NewBlock(mock.Anything, testChainID).Return(block, nil)
+
+	m := newTestMiner(store)
+	require.NoError(t, m.mine(context.Background()))
+}
+
 func TestMine_MultipleEntries_CorrectTxIndexAndHashes(t *testing.T) {
 	entries := []ethrpc.MempoolEntry{
 		sampleEntry(0x01, "0xaaaa000000000000000000000000000000000001",
@@ -244,12 +341,14 @@ func TestBuildTransferLog_CorrectTopicsAndData(t *testing.T) {
 	block.EXPECT().Number().Return(uint64(7)).Maybe()
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 
-	log := buildTransferLog(entry, block, 3, 0)
+	log := buildTransferLog(entry, block, 3, 1, 0)
 
 	assert.Equal(t, uint64(7), log.BlockNumber)
 	assert.Equal(t, blockHash, log.BlockHash)
 	assert.Equal(t, uint(3), log.TxIndex)
-	assert.Equal(t, uint(3), log.LogIndex)
+	// LogIndex is block-relative and must NOT equal TxIndex when prior txs
+	// failed (and produced no log).
+	assert.Equal(t, uint(1), log.LogIndex)
 	assert.False(t, log.Removed)
 
 	// Address = contract address.
@@ -288,7 +387,7 @@ func TestBuildTransferLog_LargeAmount(t *testing.T) {
 	block.EXPECT().Number().Return(uint64(1)).Maybe()
 	block.EXPECT().Hash().Return(blockHash).Maybe()
 
-	log := buildTransferLog(entry, block, 0, 0)
+	log := buildTransferLog(entry, block, 0, 0, 0)
 
 	got := new(big.Int).SetBytes(log.Data)
 	assert.Equal(t, 0, got.Cmp(amount), "round-trip amount mismatch: got %s, want %s", got, amount)

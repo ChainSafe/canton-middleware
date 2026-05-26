@@ -5,14 +5,18 @@ package dsl
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"testing"
 	"time"
 
+	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
@@ -27,6 +31,11 @@ const (
 	indexerEventTimeout    = 60 * time.Second
 	ethBalanceTimeout      = 120 * time.Second
 	eventPageSize          = 50
+	// apiTxReceiptTimeout bounds the wait for an async sendRawTransaction
+	// to reach a terminal state. Canton commits typically land in 5-15s; the
+	// submitter ticks every 500ms; the miner ticks every 2s. 90s gives ample
+	// headroom while still catching genuinely stuck submissions.
+	apiTxReceiptTimeout = 90 * time.Second
 )
 
 // WaitForRelayerReady polls until the relayer reports ready or the 60s timeout
@@ -340,6 +349,84 @@ func AmountLT(amount, min string) bool {
 
 // amountGTE is the internal alias used by DSL polling helpers.
 func amountGTE(amount, min string) bool { return AmountGTE(amount, min) }
+
+// WaitForAPITxReceipt polls the api-server's /eth JSON-RPC facade until the
+// transaction at txHash reaches a terminal state, then asserts success.
+//
+// This helper exists because the api-server's eth_sendRawTransaction is
+// asynchronous: the call returns the tx hash immediately after recording the
+// pending intent, and the submitter worker subsequently drives the Canton
+// transfer to completion (or failure). Standard Ethereum-tooling flow applies:
+// submit, then poll eth_getTransactionReceipt.
+//
+// Behavior:
+//   - receipt with Status=1 → returns the receipt.
+//   - receipt with Status=0 → t.Fatalf, including the RevertReason from the
+//     receipt (we set this from the Canton error message in the miner).
+//   - no receipt yet → keeps polling until apiTxReceiptTimeout.
+//
+// Use this in any e2e test that submits a signed EVM transaction through
+// `sys.APIServer.RPC().SendTransaction(...)` and needs to assert it actually
+// landed on Canton — relying on WaitForAPIBalance alone hides failure
+// reasons (it just times out without telling you why).
+func (d *DSL) WaitForAPITxReceipt(ctx context.Context, t *testing.T, txHash common.Hash) *gethtypes.Receipt {
+	t.Helper()
+	if d.apiServer == nil {
+		t.Fatal("WaitForAPITxReceipt not available: APIServer shim not initialized")
+		return nil
+	}
+	rpc := d.apiServer.RPC()
+	deadline := time.Now().Add(apiTxReceiptTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for time.Now().Before(deadline) {
+		receipt, err := rpc.TransactionReceipt(ctx, txHash)
+		switch {
+		case err == nil && receipt != nil:
+			if receipt.Status == gethtypes.ReceiptStatusSuccessful {
+				return receipt
+			}
+			// Try to surface the Canton failure cause. ethclient's standard
+			// Receipt type drops unknown fields, so we re-query via the raw
+			// RPC client to pick up the non-standard revertReason field.
+			t.Fatalf("WaitForAPITxReceipt: tx %s reverted (status=0)%s",
+				txHash.Hex(), formatRevertReason(ctx, d.apiServer.RPC(), txHash))
+			return nil
+		case err != nil && !errors.Is(err, ethereum.NotFound):
+			// Genuine RPC failure, not just "tx not yet visible". Surface it
+			// instead of looping silently until the timeout.
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for API tx receipt")
+			return nil
+		case <-ticker.C:
+		}
+	}
+	if lastErr != nil {
+		t.Fatalf("WaitForAPITxReceipt: timed out for tx %s: last RPC error: %v", txHash.Hex(), lastErr)
+	}
+	t.Fatalf("WaitForAPITxReceipt: timed out waiting for tx %s receipt", txHash.Hex())
+	return nil
+}
+
+// formatRevertReason fetches the receipt as a raw JSON map to pull out the
+// non-standard revertReason field surfaced by our api-server for status=0
+// receipts. Best-effort: returns "" if anything goes wrong so we never mask
+// the underlying Status=0 assertion failure.
+func formatRevertReason(ctx context.Context, client *ethclient.Client, txHash common.Hash) string {
+	var raw map[string]any
+	if err := client.Client().CallContext(ctx, &raw, "eth_getTransactionReceipt", txHash); err != nil {
+		return ""
+	}
+	if reason, ok := raw["revertReason"].(string); ok && reason != "" {
+		return ": " + reason
+	}
+	return ""
+}
 
 // WaitForEthBalance polls the Anvil ERC-20 balance of ownerAddr for tokenAddr
 // until it is >= minWei, or the 120s timeout is reached. minWei is expressed in

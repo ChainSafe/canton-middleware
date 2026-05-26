@@ -86,9 +86,15 @@ func (m *Miner) mine(ctx context.Context) error {
 	}
 
 	blockTimestamp := uint64(time.Now().Unix()) //nolint:gosec // time.Now() is always positive
+	// logIndex is block-relative and contiguous across all logs in the block —
+	// it must not skip when a failed tx emits zero logs. Track it separately
+	// from txIndex so go-ethereum tooling that relies on contiguous indices
+	// (e.g. for ordering or de-dup) behaves correctly.
+	logIndex := uint(0)
 	for i := range entries {
 		e := &entries[i]
 		txIndex := uint(i) //nolint:gosec // i is bounded by len(entries) which fits in uint
+		succeeded := e.Status == ethrpc.MempoolCompleted
 
 		evmTx := &ethrpc.EvmTransaction{
 			TxHash:      e.TxHash,
@@ -97,19 +103,28 @@ func (m *Miner) mine(ctx context.Context) error {
 			Nonce:       e.Nonce,
 			Input:       e.Input,
 			ValueWei:    "0",
-			Status:      1,
+			Status:      txStatus(succeeded),
 			BlockNumber: block.Number(),
 			BlockHash:   block.Hash(),
 			TxIndex:     txIndex,
 			GasUsed:     m.gasLimit,
 		}
+		if !succeeded {
+			evmTx.ErrorMessage = e.ErrorMessage
+		}
 		if err = block.AddEvmTransaction(ctx, evmTx); err != nil {
 			return err
 		}
 
-		if err = block.AddEvmLog(ctx, buildTransferLog(e, block, txIndex, blockTimestamp)); err != nil {
+		// Failed transfers never executed on Canton, so they have no Transfer log.
+		// Mining the EVM tx with status=0 surfaces the failure via getTransactionReceipt.
+		if !succeeded {
+			continue
+		}
+		if err = block.AddEvmLog(ctx, buildTransferLog(e, block, txIndex, logIndex, blockTimestamp)); err != nil {
 			return err
 		}
+		logIndex++
 	}
 
 	if err = block.Finalize(ctx); err != nil {
@@ -123,9 +138,22 @@ func (m *Miner) mine(ctx context.Context) error {
 	return nil
 }
 
+// txStatus maps the entry outcome to the EVM-standard transaction receipt
+// status (0x1 success, 0x0 failure) so MetaMask and other wallets render
+// failed transfers correctly.
+func txStatus(succeeded bool) uint8 {
+	if succeeded {
+		return 1
+	}
+	return 0
+}
+
 // buildTransferLog constructs the synthetic ERC-20 Transfer event log for a
 // completed mempool entry. blockTimestamp is Unix seconds captured once per block.
-func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex uint, blockTimestamp uint64) *ethrpc.EvmLog {
+// txIndex is the tx position in the block; logIndex is the *log* position in the
+// block (block-relative, contiguous across all logs — the two diverge whenever
+// a failed tx contributes a status=0 receipt with no logs).
+func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex, logIndex uint, blockTimestamp uint64) *ethrpc.EvmLog {
 	fromAddr := common.HexToAddress(e.FromAddress)
 	toAddr := common.HexToAddress(e.RecipientAddress)
 	fromTopic := common.BytesToHash(common.LeftPadBytes(fromAddr.Bytes(), evmWordSize))
@@ -135,7 +163,7 @@ func buildTransferLog(e *ethrpc.MempoolEntry, block ethrpc.PendingBlock, txIndex
 
 	return &ethrpc.EvmLog{
 		TxHash:         e.TxHash,
-		LogIndex:       txIndex,
+		LogIndex:       logIndex,
 		Address:        contractAddr.Bytes(),
 		Topics:         [][]byte{transferEventTopic.Bytes(), fromTopic.Bytes(), toTopic.Bytes()},
 		Data:           amountData,
