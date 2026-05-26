@@ -140,6 +140,13 @@ type RPCReceipt struct {
 	Status            hexutil.Uint64  `json:"status"`
 	EffectiveGasPrice hexutil.Uint64  `json:"effectiveGasPrice"`
 	Type              hexutil.Uint64  `json:"type"`
+	// RevertReason is a non-standard, optional, human-readable failure cause
+	// surfaced for status=0 receipts. Real EVM nodes don't include this — the
+	// reason is encoded in revert data — but our Canton-backed receipts have
+	// no on-chain revert data to encode, so we expose the Canton error message
+	// directly. Standard Ethereum clients ignore unknown fields; tools that
+	// care (Loop wallet, our own scripts) can render the cause to the user.
+	RevertReason string `json:"revertReason,omitempty"`
 }
 
 // RPCTransaction represents a transaction in JSON-RPC format
@@ -202,8 +209,8 @@ const (
 	MempoolMined     MempoolStatus = "mined"     // Included in a synthetic EVM block
 )
 
-// MempoolEntry is the intent log record written by SendRawTransaction
-// and consumed by the miner goroutine.
+// MempoolEntry is the intent log record written by SendRawTransaction,
+// processed by the submitter, and consumed by the miner.
 type MempoolEntry struct {
 	ID               int64
 	TxHash           []byte // EVM transaction hash
@@ -213,8 +220,12 @@ type MempoolEntry struct {
 	Nonce            uint64
 	Input            []byte // raw EVM calldata
 	AmountData       []byte // big.Int.Bytes() of the transfer amount; used in Transfer log
-	Status           MempoolStatus
-	ErrorMessage     string
+	// Status is the lifecycle state observed when this record was loaded. For
+	// entries returned by ClaimMempoolEntries it reflects the value the entry
+	// held immediately before being sealed (completed or failed), so the miner
+	// can synthesize the correct EVM transaction status (1 vs 0).
+	Status       MempoolStatus
+	ErrorMessage string // populated for failed entries; surfaced via the receipt
 }
 
 // SyncStatus represents the syncing status response

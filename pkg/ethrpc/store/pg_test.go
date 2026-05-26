@@ -517,7 +517,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 
 	// All three start as pending.
-	pending, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolPending)
+	pending, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolPending, 0)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(pending) failed: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("FailMempoolEntry(entry3) failed: %v", err)
 	}
 
-	pending, err = store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolPending)
+	pending, err = store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolPending, 0)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(pending after updates) failed: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected only entry2 pending, got %d entries", len(pending))
 	}
 
-	failed, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolFailed)
+	failed, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolFailed, 0)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(failed) failed: %v", err)
 	}
@@ -549,8 +549,10 @@ func TestPGStore_Mempool(t *testing.T) {
 		t.Fatalf("expected only entry3 failed, got %d entries", len(failed))
 	}
 
-	// ClaimMempoolEntries: entry1 is completed; claiming it must atomically mark it mined
-	// and return it. The block transaction commits via Finalize.
+	// ClaimMempoolEntries: entry1 is completed and entry3 is failed; both must be
+	// claimed in a single block so failures land in the EVM tx table alongside
+	// successes (status=0 vs status=1 receipts). The returned entries must
+	// retain their pre-mined status so the miner can branch on it.
 	block, err := store.NewBlock(ctx, testChainID)
 	if err != nil {
 		t.Fatalf("NewBlock for ClaimMempoolEntries failed: %v", err)
@@ -559,19 +561,29 @@ func TestPGStore_Mempool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimMempoolEntries failed: %v", err)
 	}
-	if len(claimed) != 1 || !bytes.Equal(claimed[0].TxHash, entry1.TxHash) {
-		t.Fatalf("ClaimMempoolEntries: expected entry1, got %d entries", len(claimed))
+	if len(claimed) != 2 {
+		t.Fatalf("ClaimMempoolEntries: expected 2 entries (entry1 completed + entry3 failed), got %d", len(claimed))
+	}
+	claimedByHash := map[string]*ethrpc.MempoolEntry{}
+	for i := range claimed {
+		claimedByHash[string(claimed[i].TxHash)] = &claimed[i]
+	}
+	if e := claimedByHash[string(entry1.TxHash)]; e == nil || e.Status != ethrpc.MempoolCompleted {
+		t.Fatalf("entry1 must be returned with status=completed, got %+v", e)
+	}
+	if e := claimedByHash[string(entry3.TxHash)]; e == nil || e.Status != ethrpc.MempoolFailed || e.ErrorMessage == "" {
+		t.Fatalf("entry3 must be returned with status=failed and error message, got %+v", e)
 	}
 	if err = block.Finalize(ctx); err != nil {
 		t.Fatalf("Finalize after ClaimMempoolEntries failed: %v", err)
 	}
 
-	mined, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolMined)
+	mined, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolMined, 0)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(mined) failed: %v", err)
 	}
-	if len(mined) != 1 || !bytes.Equal(mined[0].TxHash, entry1.TxHash) {
-		t.Fatalf("expected entry1 mined after Finalize, got %d mined entries", len(mined))
+	if len(mined) != 2 {
+		t.Fatalf("expected 2 mined entries after Finalize, got %d", len(mined))
 	}
 
 	// ClaimMempoolEntries inside an aborted block must NOT persist the status change.
@@ -590,7 +602,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 
 	// entry2 must still be completed — the claim was rolled back with the block.
-	stillCompleted, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted)
+	stillCompleted, err := store.GetMempoolEntriesByStatus(ctx, ethrpc.MempoolCompleted, 0)
 	if err != nil {
 		t.Fatalf("GetMempoolEntriesByStatus(completed after abort) failed: %v", err)
 	}

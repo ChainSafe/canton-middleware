@@ -18,6 +18,7 @@ import (
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
+	ethrpcsubmitter "github.com/chainsafe/canton-middleware/pkg/ethrpc/submitter"
 	indexerclient "github.com/chainsafe/canton-middleware/pkg/indexer/client"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
@@ -229,15 +230,33 @@ func initServices(
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
 	go transferCache.Start(ctx)
 
+	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
+
 	if cfg.EthRPC.Enabled {
 		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
 		go m.Start(ctx)
+
+		// Async submitter: drives pending mempool entries → completed/failed by
+		// calling Canton. SendRawTransaction returns the tx hash immediately
+		// after the pending insert; this worker is what actually moves money.
+		// Runs SubmitterConcurrency transfers in parallel; each Canton call is
+		// bounded by a package-level timeout so a hung gRPC call can't drain
+		// the pool.
+		sub := ethrpcsubmitter.New(
+			evmStore,
+			tokenService,
+			cfg.EthRPC.SubmitterInterval,
+			cfg.EthRPC.SubmitterBatchSize,
+			cfg.EthRPC.SubmitterConcurrency,
+			logger,
+		)
+		go sub.Start(ctx)
 	}
 
 	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, transferCache, cfg.Token, indexerClient)
 	return &services{
 		evmStore:     evmStore,
-		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
+		tokenService: tokenService,
 		regSvc:       userservice.NewLog(registrationService, logger),
 		transferSvc:  transfer.NewLog(transferSvc, logger),
 	}, nil
