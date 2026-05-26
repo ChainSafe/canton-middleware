@@ -34,6 +34,14 @@ const (
 	// indefinitely. Deliberately not configurable — the value should be a
 	// property of the Canton SLO, not per-deployment tuning.
 	cantonCallTimeout = 60 * time.Second
+
+	// dbWriteTimeout bounds the mempool-status update that follows a Canton
+	// call. It's a fresh deadline derived from the drain ctx (not the Canton
+	// ctx) so a Canton call that just barely beats its 60s budget still has
+	// room to record the outcome — otherwise a permanent failure could leave
+	// the entry pending and the submitter would retry against a Canton that
+	// already rejected (or, worse, already accepted) the transfer.
+	dbWriteTimeout = 10 * time.Second
 )
 
 // Store is the narrow data-access interface the submitter needs.
@@ -170,16 +178,14 @@ func (s *Submitter) drain(ctx context.Context) error {
 // timeouts — leave the entry pending for retry on the next tick. Canton's
 // command-id idempotency makes the retry safe.
 //
-// Each invocation runs under a per-entry timed context (cantonCallTimeout) so
-// a single hung gRPC call cannot park a worker slot indefinitely. The same
-// timed ctx is used for the mempool update too — if Canton commits at second
-// 59.9 and the update can't complete before second 60, the entry simply stays
-// pending and gets reconciled on the next tick (the Canton commit itself is
-// preserved by Canton's idempotency contract).
+// The Canton call runs under its own cantonCallTimeout deadline so a hung gRPC
+// call can't park a worker slot indefinitely. The follow-up mempool-status
+// write is intentionally derived from parent (not from the Canton ctx) with
+// its own dbWriteTimeout — otherwise a Canton call that nearly exhausts its
+// 60s budget would leave no time for the DB update, the row would stay
+// pending, and a permanent failure would loop forever against a Canton that
+// already rejected it.
 func (s *Submitter) process(parent context.Context, entry *ethrpc.MempoolEntry) {
-	ctx, cancel := context.WithTimeout(parent, cantonCallTimeout)
-	defer cancel()
-
 	contractAddr := common.HexToAddress(entry.ContractAddress)
 	fromAddr := common.HexToAddress(entry.FromAddress)
 	toAddr := common.HexToAddress(entry.RecipientAddress)
@@ -191,23 +197,20 @@ func (s *Submitter) process(parent context.Context, entry *ethrpc.MempoolEntry) 
 		// Contract whitelist is validated synchronously in SendRawTransaction,
 		// so reaching here means config drifted under us. Mark failed so the
 		// client sees the error via the receipt rather than polling forever.
-		s.failEntry(ctx, entry, fmt.Errorf("contract not supported: %w", err))
+		s.failEntry(parent, entry, fmt.Errorf("contract not supported: %w", err))
 		return
 	}
 
-	transferErr := erc20.TransferFrom(ctx, txHash.Hex(), fromAddr, toAddr, *amount)
+	cantonCtx, cancel := context.WithTimeout(parent, cantonCallTimeout)
+	defer cancel()
+	transferErr := erc20.TransferFrom(cantonCtx, txHash.Hex(), fromAddr, toAddr, *amount)
 	if transferErr == nil {
-		if completeErr := s.store.CompleteMempoolEntry(ctx, entry.TxHash); completeErr != nil {
-			s.logger.Error("ethrpc submitter: complete mempool entry failed",
-				zap.String("tx", txHash.Hex()),
-				zap.Error(completeErr),
-			)
-		}
+		s.completeEntry(parent, entry, txHash)
 		return
 	}
 
 	if isPermanentError(transferErr) {
-		s.failEntry(ctx, entry, transferErr)
+		s.failEntry(parent, entry, transferErr)
 		return
 	}
 	// Transient (network error, gRPC unavailable, ctx deadline exceeded):
@@ -218,11 +221,28 @@ func (s *Submitter) process(parent context.Context, entry *ethrpc.MempoolEntry) 
 	)
 }
 
-func (s *Submitter) failEntry(ctx context.Context, entry *ethrpc.MempoolEntry, cause error) {
-	if updateErr := s.store.FailMempoolEntry(ctx, entry.TxHash, cause.Error()); updateErr != nil {
+// completeEntry writes the pending → completed transition under its own short
+// deadline derived from parent (see dbWriteTimeout doc).
+func (s *Submitter) completeEntry(parent context.Context, entry *ethrpc.MempoolEntry, txHash common.Hash) {
+	ctx, cancel := context.WithTimeout(parent, dbWriteTimeout)
+	defer cancel()
+	if err := s.store.CompleteMempoolEntry(ctx, entry.TxHash); err != nil {
+		s.logger.Error("ethrpc submitter: complete mempool entry failed",
+			zap.String("tx", txHash.Hex()),
+			zap.Error(err),
+		)
+	}
+}
+
+// failEntry writes the pending → failed transition under its own short
+// deadline derived from parent (see dbWriteTimeout doc).
+func (s *Submitter) failEntry(parent context.Context, entry *ethrpc.MempoolEntry, cause error) {
+	ctx, cancel := context.WithTimeout(parent, dbWriteTimeout)
+	defer cancel()
+	if err := s.store.FailMempoolEntry(ctx, entry.TxHash, cause.Error()); err != nil {
 		s.logger.Error("ethrpc submitter: fail mempool entry update failed",
 			zap.String("tx", common.BytesToHash(entry.TxHash).Hex()),
-			zap.Error(updateErr),
+			zap.Error(err),
 		)
 	}
 }

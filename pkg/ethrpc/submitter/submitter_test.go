@@ -410,6 +410,80 @@ func TestProcess_CantonContextDone_LeavesPending(t *testing.T) {
 	store.AssertNotCalled(t, "FailMempoolEntry", mock.Anything, mock.Anything, mock.Anything)
 }
 
+// TestProcess_DBWriteUsesFreshContext_OnSuccess proves the mempool status
+// update is *not* tied to the Canton-scoped ctx — otherwise a Canton call
+// that nearly exhausts its 60s budget would leave no room to write the
+// outcome, and a permanently-failing entry would loop forever. We assert
+// CompleteMempoolEntry lands with a non-expired ctx whose deadline matches
+// dbWriteTimeout (within tolerance), even when TransferFrom has just observed
+// its own ctx fire.
+func TestProcess_DBWriteUsesFreshContext_OnSuccess(t *testing.T) {
+	entry := samplePendingEntry(0x07, 1)
+
+	// Capture the Canton ctx so we can confirm the DB ctx is a different one.
+	var cantonCtx context.Context
+	erc20 := mocks.NewERC20(t)
+	erc20.EXPECT().
+		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ string, _, _ common.Address, _ big.Int) error {
+			cantonCtx = ctx
+			return nil
+		})
+
+	tokenSvc := mocks.NewTokenService(t)
+	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
+
+	store := mocks.NewStore(t)
+	store.EXPECT().
+		CompleteMempoolEntry(mock.MatchedBy(func(ctx context.Context) bool {
+			if ctx == cantonCtx { // must be a freshly-derived ctx, not the Canton one
+				return false
+			}
+			if err := ctx.Err(); err != nil {
+				return false
+			}
+			deadline, ok := ctx.Deadline()
+			// dbWriteTimeout = 10s; allow a generous lower bound so test
+			// timing jitter doesn't flake the assertion.
+			return ok && time.Until(deadline) > 5*time.Second
+		}), entry.TxHash).
+		Return(nil)
+
+	s := New(store, tokenSvc, time.Second, 0, 1, zap.NewNop())
+	s.process(context.Background(), &entry)
+}
+
+// TestFailEntry_UsesFreshContext mirrors the success path: a permanent error
+// must record `failed` under its own dbWriteTimeout-bounded ctx, not the
+// Canton ctx. This is the bug Gemini flagged: if FailMempoolEntry inherits
+// an expired Canton ctx, the entry stays pending and the submitter retries
+// the permanently-failing transaction forever.
+func TestFailEntry_UsesFreshContext(t *testing.T) {
+	entry := samplePendingEntry(0x08, 1)
+
+	erc20 := mocks.NewERC20(t)
+	erc20.EXPECT().
+		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(apperr.BadRequestError(errors.New("nope"), "permanent"))
+
+	tokenSvc := mocks.NewTokenService(t)
+	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
+
+	store := mocks.NewStore(t)
+	store.EXPECT().
+		FailMempoolEntry(mock.MatchedBy(func(ctx context.Context) bool {
+			if err := ctx.Err(); err != nil {
+				return false
+			}
+			deadline, ok := ctx.Deadline()
+			return ok && time.Until(deadline) > 5*time.Second
+		}), entry.TxHash, mock.AnythingOfType("string")).
+		Return(nil)
+
+	s := New(store, tokenSvc, time.Second, 0, 1, zap.NewNop())
+	s.process(context.Background(), &entry)
+}
+
 // ─── isPermanentError ────────────────────────────────────────────────────────
 
 func TestIsPermanentError(t *testing.T) {
