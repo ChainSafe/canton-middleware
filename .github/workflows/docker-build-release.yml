@@ -142,25 +142,66 @@ jobs:
           yq e '.["canton-middleware-api"].image.tag = env(VERSION)' -i \
             definitions/canton/validator-dev1/canton-middleware-api-values.yml
 
-      - name: Open PR
+      - name: Create signed commit and open PR
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
+          FILE_PATH: definitions/canton/validator-dev1/canton-middleware-api-values.yml
+          REPO: ChainSafe/infra-kubernetes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           BRANCH="chore/bump-canton-middleware-api-${VERSION}"
-          git checkout -b "$BRANCH"
-          git add definitions/canton/validator-dev1/canton-middleware-api-values.yml
-          # skip if nothing changed (re-run for same tag)
-          git diff --cached --quiet && echo "No changes, skipping PR" && exit 0
-          git commit -m "chore: bump canton-middleware-api to ${VERSION} on devnet"
-          git push -u origin "$BRANCH"
+          COMMIT_MSG="chore: bump canton-middleware-api to ${VERSION} on devnet"
+
+          # Get current HEAD SHA of main
+          HEAD_SHA=$(gh api repos/${REPO}/git/ref/heads/main --jq '.object.sha')
+
+          # Create branch pointing at main HEAD (no-op if already exists)
+          gh api repos/${REPO}/git/refs \
+            --method POST \
+            --field ref="refs/heads/${BRANCH}" \
+            --field sha="${HEAD_SHA}" > /dev/null 2>&1 || true
+
+          # Get current branch HEAD SHA
+          BRANCH_SHA=$(gh api repos/${REPO}/git/ref/heads/${BRANCH} --jq '.object.sha')
+
+          # Skip if branch already has this version (idempotent re-run)
+          BRANCH_TAG=$(gh api "repos/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}" \
+            -H "Accept: application/vnd.github.raw" 2>/dev/null \
+            | yq e '.["canton-middleware-api"].image.tag' - 2>/dev/null || echo "")
+          if [ "$BRANCH_TAG" = "$VERSION" ]; then
+            echo "Branch already has tag ${VERSION}, ensuring auto-merge"
+            gh pr merge --auto --squash --repo "${REPO}" "${BRANCH}" 2>/dev/null || true
+            exit 0
+          fi
+
+          # Base64-encode the updated file (no line wrapping, Linux base64)
+          FILE_CONTENTS=$(base64 -w0 "${FILE_PATH}")
+
+          # Create signed commit via GitHub GraphQL API
+          gh api graphql -f query='
+            mutation($repo: String!, $branch: String!, $oid: GitObjectID!, $msg: String!, $path: String!, $contents: Base64String!) {
+              createCommitOnBranch(input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch }
+                message: { headline: $msg }
+                fileChanges: { additions: [{ path: $path, contents: $contents }] }
+                expectedHeadOid: $oid
+              }) {
+                commit { url }
+              }
+            }' \
+            -f repo="${REPO}" \
+            -f branch="${BRANCH}" \
+            -f oid="${BRANCH_SHA}" \
+            -f msg="${COMMIT_MSG}" \
+            -f path="${FILE_PATH}" \
+            -f contents="${FILE_CONTENTS}"
+
+          # Open PR and enable auto-merge
           gh pr create \
-            --repo ChainSafe/infra-kubernetes \
-            --title "chore: bump canton-middleware-api to ${VERSION} on devnet" \
+            --repo "${REPO}" \
+            --title "${COMMIT_MSG}" \
             --body "Automated PR: bump \`canton-middleware-api\` image tag to \`${VERSION}\` on \`validator-dev1\`." \
             --base main \
-            --head "$BRANCH" \
+            --head "${BRANCH}" \
           || { echo "PR already exists for this branch, skipping"; exit 0; }
-          gh pr merge --auto --squash --repo ChainSafe/infra-kubernetes "$BRANCH"
+          gh pr merge --auto --squash --repo "${REPO}" "${BRANCH}"
