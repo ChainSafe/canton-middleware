@@ -32,7 +32,10 @@ should_skip() {
   return 1
 }
 
-# Prepend a header line to the top of the file.
+# Prepend a header line to the top of the file. Preserves the target's
+# file mode, since `mv tmp file` adopts the source mktemp's mode (typically
+# 0600 normalized to 100644 in git) and would silently strip the executable
+# bit on shell scripts.
 prepend_top() {
   local file="$1"
   local header="$2"
@@ -42,10 +45,12 @@ prepend_top() {
     printf '%s\n\n' "$header"
     cat "$file"
   } >"$tmp"
-  mv "$tmp" "$file"
+  cat "$tmp" >"$file"
+  rm -f "$tmp"
 }
 
-# Insert a header line immediately after the shebang on line 1.
+# Insert a header line immediately after the shebang on line 1. Same
+# mode-preservation reasoning as prepend_top.
 insert_after_shebang() {
   local file="$1"
   local header="$2"
@@ -56,7 +61,8 @@ insert_after_shebang() {
     printf '%s\n' "$header"
     tail -n +2 "$file"
   } >"$tmp"
-  mv "$tmp" "$file"
+  cat "$tmp" >"$file"
+  rm -f "$tmp"
 }
 
 # Process Go files.
