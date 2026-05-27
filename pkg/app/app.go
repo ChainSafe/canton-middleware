@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package app defines common runtime contracts shared by different
 // executable entrypoints (e.g., API server, relayer, migration runner).
 //

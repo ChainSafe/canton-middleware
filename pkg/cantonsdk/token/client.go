@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package token implements CIP-56 token operations such as mint, burn, transfer,
 // and balance queries.
 package token

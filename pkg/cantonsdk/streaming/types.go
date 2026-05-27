@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package streaming provides a reusable, generic Canton ledger streaming client.
 //
 // It wraps UpdateService.GetUpdates with automatic reconnection, exponential backoff,

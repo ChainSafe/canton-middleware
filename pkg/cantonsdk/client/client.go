@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package client provides the high-level Canton SDK client.
 //
 // It exposes a unified interface for interacting with a Canton ledger,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package registry implements the Splice Registry API for external wallet integration.
 //
 // It exposes contract discovery endpoints that allow wallets like Canton Loop

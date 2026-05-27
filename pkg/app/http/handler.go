@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package http provides HTTP utilities including chi-compatible error handling
 package http
 

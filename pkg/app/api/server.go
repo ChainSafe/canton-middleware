@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package api implements app.Runner for the API server process.
 package api
 

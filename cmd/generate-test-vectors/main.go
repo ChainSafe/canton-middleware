@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Command generate-test-vectors produces deterministic crypto test vectors
 // for cross-validation with the canton-snap TypeScript implementation.
 //

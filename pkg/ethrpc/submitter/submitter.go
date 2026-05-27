@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package submitter drains pending mempool entries by submitting the
 // corresponding ERC-20 transfer to Canton. It is the asynchronous counterpart
 // to ethrpc.service.SendRawTransaction: that handler records intent and
