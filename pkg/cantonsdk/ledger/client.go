@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ledger implements the low-level Canton Ledger API client.
 //
 // It manages gRPC connectivity, TLS configuration, OAuth2 authentication,

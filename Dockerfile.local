@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Multi-stage build for relayer + bootstrap tools
 # Using full golang image (not alpine) for toolchain auto-download support
 FROM golang:1.23 AS builder

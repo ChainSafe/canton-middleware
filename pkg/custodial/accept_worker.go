@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package custodial implements background automation for custodial Canton parties.
 package custodial
 

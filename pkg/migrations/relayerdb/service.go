@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package relayerdb holds all the migrations for the relayer database
 package relayerdb
 

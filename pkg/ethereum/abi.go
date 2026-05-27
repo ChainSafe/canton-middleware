@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package ethereum
 
 // ERC20ABI is the standard ERC20 token interface ABI.

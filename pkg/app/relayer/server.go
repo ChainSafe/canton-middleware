@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package relayer implements app.Runner for the relayer process.
 package relayer
 

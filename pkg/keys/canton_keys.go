@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package keys provides Canton key generation and encryption for custodial key management.
 // This package is used to generate Canton keypairs for users and encrypt them for secure storage.
 // Uses secp256k1 (same curve as Ethereum) for compatibility with user wallets.

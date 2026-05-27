@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package indexer implements the runner for the indexer process.
 //
 // The indexer has two concurrent responsibilities:

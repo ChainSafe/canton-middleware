@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package client provides an HTTP client for the indexer's admin API.
 package client
 
