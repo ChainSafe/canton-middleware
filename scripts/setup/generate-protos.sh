@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Script to generate Go protobuf stubs for Canton Ledger API
 # Updated for Canton 3.4.8 which uses v2 API only
 

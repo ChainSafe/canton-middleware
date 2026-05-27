@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package apidb holds all the migrations for the API database
 package apidb
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package identity
 
 import "go.uber.org/zap"

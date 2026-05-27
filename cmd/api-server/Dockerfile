@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 # Build stage
 # Using full golang image (not alpine) for toolchain auto-download support
 FROM golang:1.24 AS builder

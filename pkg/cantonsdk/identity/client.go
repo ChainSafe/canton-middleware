@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package identity implements Canton identity operations such as party management
 // and fingerprint-to-party mapping.
 package identity

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package errors contains helper functions and types to work with errors
 package errors
 

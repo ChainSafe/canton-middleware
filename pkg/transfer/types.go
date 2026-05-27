@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package transfer implements the non-custodial prepare/execute transfer API.
 package transfer
 
