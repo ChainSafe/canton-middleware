@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Query Canton Holdings Script
 #
 # This script queries CIP56Holding contracts from Canton via the Go verification tool,

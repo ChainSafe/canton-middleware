@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # init-multiple-dbs.sh - Initialize multiple PostgreSQL databases
 # This script is executed by postgres docker-entrypoint-initdb.d
 
