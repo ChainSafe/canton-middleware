@@ -23,9 +23,12 @@ const (
 	DemoTokenVirtualAddr = "0xDE30000000000000000000000000000000000001"
 
 	// USDCxTokenVirtualAddr is the well-known virtual EVM address mapped to the
-	// USDCx external token in the api-server configuration.
-	// #nosec G101 -- public deterministic EVM contract address, not a credential.
-	USDCxTokenVirtualAddr = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+	// USDCx external token in the api-server configuration. Synthetic (no real
+	// on-chain meaning) so MetaMask's anti-phishing check — which compares
+	// imported token addresses against its known-mainnet-tokens registry — does
+	// not flag USDCx imports as a possible spoof of real-mainnet USDC.
+	// #nosec G101 -- synthetic placeholder EVM address, not a credential.
+	USDCxTokenVirtualAddr = "0xC1A0000000000000000000000000000000000001"
 )
 
 // CantonHolding is a minimal view of a CIP56Holding contract used by E2E tests.
