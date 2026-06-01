@@ -22,6 +22,7 @@ const (
 	OpInsertMempoolEntry      StoreOperation = "insert_mempool_entry"
 	OpCompleteMempoolEntry    StoreOperation = "complete_mempool_entry"
 	OpFailMempoolEntry        StoreOperation = "fail_mempool_entry"
+	OpGetMempoolEntries       StoreOperation = "get_mempool_entries_by_status"
 
 	// PendingBlock operations.
 	OpClaimMempoolEntries StoreOperation = "claim_mempool_entries"

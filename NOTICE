@@ -1,0 +1,117 @@
+Canton Middleware
+Copyright 2026 ChainSafe Systems, Inc.
+
+This product includes software developed by ChainSafe Systems, Inc.
+(https://chainsafe.io).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+================================================================================
+Third-Party Software
+================================================================================
+
+This product bundles or depends on third-party software with the following
+licenses. The full text of each license is reproduced in the source
+distribution of each dependency.
+
+--------------------------------------------------------------------------------
+go-ethereum (github.com/ethereum/go-ethereum)
+Copyright The go-ethereum Authors.
+License: LGPL-3.0-or-later (library code) and GPL-3.0-or-later (binaries),
+with some packages dual-licensed under Apache-2.0 and BSD-3-Clause.
+Only Apache-2.0 / BSD-3-Clause licensed packages are consumed by this project
+as Go library imports.
+
+--------------------------------------------------------------------------------
+go-chi/chi (github.com/go-chi/chi)
+Copyright (c) 2015-present Peter Kieltyka (https://github.com/pkieltyka),
+Google Inc.
+License: MIT
+
+--------------------------------------------------------------------------------
+uptrace/bun (github.com/uptrace/bun)
+Copyright (c) 2021 Uptrace.dev
+License: BSD-2-Clause
+
+--------------------------------------------------------------------------------
+shopspring/decimal (github.com/shopspring/decimal)
+Copyright (c) 2015 Spring, Inc.
+License: MIT
+
+--------------------------------------------------------------------------------
+go.uber.org/zap
+Copyright (c) 2016-2017 Uber Technologies, Inc.
+License: MIT
+
+--------------------------------------------------------------------------------
+golang-jwt/jwt (github.com/golang-jwt/jwt)
+Copyright (c) 2012 Dave Grijalva, 2021 golang-jwt maintainers.
+License: MIT
+
+--------------------------------------------------------------------------------
+go-playground/validator (github.com/go-playground/validator)
+Copyright (c) 2015 Dean Karn.
+License: MIT
+
+--------------------------------------------------------------------------------
+google/uuid (github.com/google/uuid)
+Copyright (c) 2009,2014 Google Inc.
+License: BSD-3-Clause
+
+--------------------------------------------------------------------------------
+lib/pq (github.com/lib/pq)
+Copyright (c) 2011-2013, 'pq' Contributors.
+License: MIT
+
+--------------------------------------------------------------------------------
+prometheus/client_golang (github.com/prometheus/client_golang)
+Copyright Prometheus Authors.
+License: Apache-2.0
+
+--------------------------------------------------------------------------------
+stretchr/testify (github.com/stretchr/testify)
+Copyright (c) 2012-2020 Mat Ryer, Tyler Bunnell and contributors.
+License: MIT
+
+--------------------------------------------------------------------------------
+testcontainers-go (github.com/testcontainers/testcontainers-go)
+Copyright (c) 2017-present Atomic Jar Inc.
+License: MIT
+
+--------------------------------------------------------------------------------
+creasty/defaults (github.com/creasty/defaults)
+Copyright (c) 2017 Yuki Iwanaga.
+License: MIT
+
+--------------------------------------------------------------------------------
+golang.org/x/* (crypto, sync, net, sys, text, exp)
+Copyright (c) 2009 The Go Authors.
+License: BSD-3-Clause
+
+--------------------------------------------------------------------------------
+google.golang.org/grpc, google.golang.org/protobuf,
+google.golang.org/genproto
+Copyright Google Inc.
+License: Apache-2.0 / BSD-3-Clause
+
+--------------------------------------------------------------------------------
+gopkg.in/yaml.v3
+Copyright (c) 2006-2010 Kirill Simonov,
+Copyright (c) 2006-2011 Kirill Simonov,
+Copyright (c) 2011-2019 Canonical Ltd.
+License: Apache-2.0 / MIT
+
+--------------------------------------------------------------------------------
+
+For the complete list of transitive dependencies and their licenses, see
+go.mod and the upstream repositories of each dependency.

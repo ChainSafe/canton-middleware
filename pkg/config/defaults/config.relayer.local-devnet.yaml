@@ -2,8 +2,8 @@
 server:
   host: "0.0.0.0"
   port: 8080
-  read_timeout: "15s"
-  write_timeout: "15s"
+  read_timeout: "60s"
+  write_timeout: "60s"
   idle_timeout: "60s"
   shutdown_timeout: "30s"
 
@@ -48,16 +48,20 @@ canton:
       token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
       expiry_leeway: "60s"
 
+  # Package-name references (#<name>) so filters match across all deployed
+  # versions and work on real chains. Canton 3.x rejects raw package hashes
+  # in stream filters with INVALID_FIELD; package names are the canonical form.
   identity:
-    # v2.0.0 packages (uploaded 2026-03-05)
-    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+    package_id: "#common"
 
   token:
-    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
-    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+    cip56_package_id: "#cip56-token"
+    splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
+    splice_holding_package_id: "#splice-api-token-holding-v1"
 
   bridge:
-    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    package_id: "#bridge-wayfinder"
+    core_package_id: "#bridge-core"
     module: "Wayfinder.Bridge"
 
 bridge:

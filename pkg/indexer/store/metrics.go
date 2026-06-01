@@ -51,21 +51,27 @@ type StoreOperation string
 
 const (
 	// Write-path operations (processor / engine.Store).
-	OpLatestOffset      StoreOperation = "latest_offset"
-	OpInsertEvent       StoreOperation = "insert_event"
-	OpSaveOffset        StoreOperation = "save_offset"
-	OpUpsertToken       StoreOperation = "upsert_token"
-	OpApplyBalanceDelta StoreOperation = "apply_balance_delta"
-	OpApplySupplyDelta  StoreOperation = "apply_supply_delta"
+	OpLatestOffset       StoreOperation = "latest_offset"
+	OpInsertEvent        StoreOperation = "insert_event"
+	OpSaveOffset         StoreOperation = "save_offset"
+	OpUpsertToken        StoreOperation = "upsert_token"
+	OpApplyBalanceDelta  StoreOperation = "apply_balance_delta"
+	OpApplySupplyDelta   StoreOperation = "apply_supply_delta"
+	OpInsertPendingOffer StoreOperation = "insert_pending_offer"
+	OpMarkOfferAccepted  StoreOperation = "mark_offer_accepted"
+	OpInsertHolding      StoreOperation = "insert_holding"
+	OpTakeHolding        StoreOperation = "take_holding"
 
 	// Read-path operations (HTTP API / service.Store).
-	OpGetToken             StoreOperation = "get_token"
-	OpListTokens           StoreOperation = "list_tokens"
-	OpGetBalance           StoreOperation = "get_balance"
-	OpListBalancesForParty StoreOperation = "list_balances_for_party"
-	OpListBalancesForToken StoreOperation = "list_balances_for_token"
-	OpGetEvent             StoreOperation = "get_event"
-	OpListEvents           StoreOperation = "list_events"
+	OpGetToken                StoreOperation = "get_token"
+	OpListTokens              StoreOperation = "list_tokens"
+	OpGetBalance              StoreOperation = "get_balance"
+	OpListBalancesForParty    StoreOperation = "list_balances_for_party"
+	OpListBalancesForToken    StoreOperation = "list_balances_for_token"
+	OpGetEvent                StoreOperation = "get_event"
+	OpListEvents              StoreOperation = "list_events"
+	OpListPendingOffersForPty StoreOperation = "list_pending_offers_for_party"
+	OpListAllPendingOffers    StoreOperation = "list_all_pending_offers"
 )
 
 // ── Helper methods ───────────────────────────────────────────────────────────

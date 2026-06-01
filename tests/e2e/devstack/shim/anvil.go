@@ -18,6 +18,7 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
@@ -116,7 +117,7 @@ func (a *AnvilShim) ApproveAndDeposit(ctx context.Context, account *stack.Accoun
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("approve: %w", err)
 	}
-	if waitErr := waitForTx(ctx, a.rpc, approveTx.Hash(), txWaitTimeout); waitErr != nil {
+	if waitErr := waitForTx(ctx, a.rpc, approveTx.Hash()); waitErr != nil {
 		return common.Hash{}, fmt.Errorf("wait approve tx: %w", waitErr)
 	}
 
@@ -129,11 +130,66 @@ func (a *AnvilShim) ApproveAndDeposit(ctx context.Context, account *stack.Accoun
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("depositToCanton: %w", err)
 	}
-	if waitErr := waitForTx(ctx, a.rpc, depositTx.Hash(), txWaitTimeout); waitErr != nil {
+	if waitErr := waitForTx(ctx, a.rpc, depositTx.Hash()); waitErr != nil {
 		return common.Hash{}, fmt.Errorf("wait deposit tx: %w", waitErr)
 	}
 
 	return depositTx.Hash(), nil
+}
+
+// FundWithETH sends amount wei of ETH from the from account to to. Used in
+// tests to seed derived accounts (which are not pre-funded by Anvil) with gas.
+func (a *AnvilShim) FundWithETH(ctx context.Context, from *stack.Account, to common.Address, amount *big.Int) error {
+	key, err := parseKey(from.PrivateKey)
+	if err != nil {
+		return err
+	}
+	nonce, err := a.rpc.PendingNonceAt(ctx, crypto.PubkeyToAddress(key.PublicKey))
+	if err != nil {
+		return fmt.Errorf("pending nonce: %w", err)
+	}
+	gasPrice, err := a.rpc.SuggestGasPrice(ctx)
+	if err != nil {
+		return fmt.Errorf("suggest gas price: %w", err)
+	}
+	tx := gethtypes.NewTx(&gethtypes.LegacyTx{
+		Nonce:    nonce,
+		To:       &to,
+		Value:    amount,
+		Gas:      21000,
+		GasPrice: gasPrice,
+	})
+	signer := gethtypes.LatestSignerForChainID(a.chainID)
+	signed, err := gethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		return fmt.Errorf("sign eth transfer: %w", err)
+	}
+	if err := a.rpc.SendTransaction(ctx, signed); err != nil {
+		return fmt.Errorf("send eth transfer: %w", err)
+	}
+	return waitForTx(ctx, a.rpc, signed.Hash())
+}
+
+// TransferERC20 transfers amount of the ERC-20 token at tokenAddr from from
+// to to. Used in tests to seed derived accounts with token balances.
+func (a *AnvilShim) TransferERC20(ctx context.Context, from *stack.Account, to, tokenAddr common.Address, amount *big.Int) error {
+	key, err := parseKey(from.PrivateKey)
+	if err != nil {
+		return err
+	}
+	token, err := contracts.NewPromptToken(tokenAddr, a.rpc)
+	if err != nil {
+		return fmt.Errorf("bind erc20: %w", err)
+	}
+	transactOpts, err := newTransactor(ctx, a.rpc, key, a.chainID)
+	if err != nil {
+		return err
+	}
+	tx, err := token.Transfer(transactOpts, to, amount)
+	if err != nil {
+		return fmt.Errorf("erc20 transfer: %w", err)
+	}
+	return waitForTx(ctx, a.rpc, tx.Hash())
 }
 
 // newTransactor creates a TransactOpts with current nonce and suggested gas price.
@@ -159,8 +215,8 @@ func newTransactor(ctx context.Context, client *ethclient.Client, key *ecdsa.Pri
 // waitForTx polls until the transaction is mined or the timeout is reached.
 // It returns immediately on any RPC error other than ethereum.NotFound (tx not
 // yet visible) to avoid masking genuine node failures.
-func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func waitForTx(ctx context.Context, client *ethclient.Client, hash common.Hash) error {
+	ctx, cancel := context.WithTimeout(ctx, txWaitTimeout)
 	defer cancel()
 	for {
 		receipt, err := client.TransactionReceipt(ctx, hash)

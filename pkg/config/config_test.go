@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 import (
@@ -409,7 +411,9 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("CANTON_IDENTITY_PACKAGE_ID", "identity-package-id")
 	t.Setenv("CANTON_CIP56_PACKAGE_ID", "cip56-package-id")
 	t.Setenv("CANTON_SPLICE_TRANSFER_PACKAGE_ID", "splice-transfer-package-id")
+	t.Setenv("CANTON_SPLICE_HOLDING_PACKAGE_ID", "splice-holding-package-id")
 	t.Setenv("CANTON_BRIDGE_PACKAGE_ID", "bridge-package-id")
+	t.Setenv("CANTON_BRIDGE_CORE_PACKAGE_ID", "bridge-core-package-id")
 	t.Setenv("ETHEREUM_RPC_URL", "https://eth.example")
 	t.Setenv("ETHEREUM_WS_URL", "wss://eth.example/ws")
 	t.Setenv("ETHEREUM_CHAIN_ID", "1")
@@ -418,4 +422,7 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("ETHEREUM_RELAYER_PRIVATE_KEY", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	t.Setenv("SEPOLIA_RPC_URL", "https://sepolia.example")
 	t.Setenv("SEPOLIA_WS_URL", "wss://sepolia.example/ws")
+	t.Setenv("INDEXER_URL", "http://indexer:8082")
+	t.Setenv("CANTON_USDCX_ISSUER_PARTY", "usdcx-issuer::1220test")
+	t.Setenv("CANTON_USDCX_REGISTRY_URL", "http://usdcx-registry:8090")
 }

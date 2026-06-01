@@ -16,6 +16,7 @@ type Store interface {
 	UserExists(ctx context.Context, evmAddress string) (bool, error)
 	DeleteUser(ctx context.Context, evmAddress string) error
 	ListUsers(ctx context.Context) ([]*user.User, error)
+	ListCustodialUsers(ctx context.Context) ([]*user.User, error)
 	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 	AddToWhitelist(ctx context.Context, evmAddress, note string) error
 	GetUserKeyByCantonPartyID(ctx context.Context, decryptor KeyDecryptor, partyID string) ([]byte, error)

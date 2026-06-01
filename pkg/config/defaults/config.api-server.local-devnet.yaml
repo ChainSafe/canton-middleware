@@ -2,8 +2,8 @@
 server:
   host: "0.0.0.0"
   port: 8081
-  read_timeout: "15s"
-  write_timeout: "15s"
+  read_timeout: "60s"
+  write_timeout: "60s"
   idle_timeout: "60s"
   shutdown_timeout: "30s"
 
@@ -34,17 +34,38 @@ canton:
       token_url: "https://dev-2j3m40ajwym1zzaq.eu.auth0.com/oauth/token"
       expiry_leeway: "60s"
 
+  # Package-name references (#<name>) so filters match across all deployed
+  # versions and work on real chains. Canton 3.x rejects raw package hashes
+  # in stream filters with INVALID_FIELD; package names are the canonical form.
   identity:
-    # v2.0.0 packages (uploaded 2026-03-05)
-    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+    package_id: "#common"
 
   token:
-    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
-    splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
+    cip56_package_id: "#cip56-token"
+    splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
+    splice_holding_package_id: "#splice-api-token-holding-v1"
+    # Required so FindPendingInboundTransferInstructions can locate the
+    # Utility.Registry.App.V0.Model.Transfer.TransferOffer template. Without it,
+    # GET /api/v2/transfer/incoming returns "utility_registry_app_package_id not
+    # configured" and external-key acceptors can't see their pending offers.
+    utility_registry_app_package_id: "#utility-registry-app-v0"
+    external_tokens:
+      "${CANTON_USDCX_ISSUER_PARTY}":
+        registry_url: "${CANTON_USDCX_REGISTRY_URL}"
 
   bridge:
-    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    package_id: "#bridge-wayfinder"
+    core_package_id: "#bridge-core"
     module: "Wayfinder.Bridge"
+
+token_provider:
+  mode: indexer
+  indexer:
+    url: "${INDEXER_URL}"
+    instruments:
+      PROMPT: "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+      DEMO:   "daml-autopilot::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c"
+      USDCx:  "${CANTON_USDCX_ISSUER_PARTY}"
 
 token:
   supported_tokens:
@@ -52,10 +73,17 @@ token:
       name: "PROMPT"
       symbol: "PROMPT"
       decimals: 18
+      instrument_id: "PROMPT"
     "0xDE30000000000000000000000000000000000001":
       name: "Demo Token"
       symbol: "DEMO"
       decimals: 18
+      instrument_id: "DEMO"
+    "0xC1A0000000000000000000000000000000000001":
+      name: "USD Coin"
+      symbol: "USDCx"
+      decimals: 6
+      instrument_id: "USDCx"
   native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
@@ -65,7 +93,7 @@ eth_rpc:
   gas_price_wei: "1000000000"
   gas_limit: 21000
   native_balance_wei: "1000000000000000000000"
-  request_timeout: "30s"
+  request_timeout: "60s"
 
 jwks:
   url: ""
@@ -91,6 +119,19 @@ logging:
   format: "console"
   output_path: "stdout"
 
+# Auto-accepts pending TransferOffer contracts for custodial users by polling
+# the indexer and exercising TransferInstruction_Accept on the api-server's
+# behalf. Required for the e2e USDCx cross-participant test where the receiver
+# is custodial and never explicitly calls the accept API.
+accept_worker:
+  indexer_url: "${INDEXER_URL}"
+  poll_interval: "5s"
+
 key_management:
   master_key_env: "CANTON_MASTER_KEY"
   key_derivation: "generate"
+
+skip_whitelist_check: true
+
+cors:
+  - "*"

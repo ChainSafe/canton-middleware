@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 # Docker Bootstrap Script
 # =============================================================================
@@ -219,7 +220,8 @@ if [ -f "$API_SERVER_CONFIG_FILE" ]; then
     echo ">>> Updating API server config file..."
     sed -i "s|domain_id: \".*\"|domain_id: \"$DOMAIN_ID\"|" "$API_SERVER_CONFIG_FILE"
     sed -i "s|issuer_party: \".*\"|issuer_party: \"$PARTY_ID\"|" "$API_SERVER_CONFIG_FILE"
-    echo "    API server config updated with issuer_party and domain_id"
+    sed -i "s|\${CANTON_ISSUER_PARTY}|$PARTY_ID|g" "$API_SERVER_CONFIG_FILE"
+    echo "    API server config updated with issuer_party, domain_id, and instrument admins"
 fi
 
 # =============================================================================
@@ -266,6 +268,108 @@ echo ">>> Running register-user..."
 }
 
 # =============================================================================
+# Bootstrap USDCx on participant2
+# =============================================================================
+# USDCxIssuer lives on participant2 (the "external" node). The middleware
+# (participant1) sees all USDCx events via FiltersForAnyParty on the indexer.
+CANTON_P2_HTTP="${CANTON_P2_HTTP:-http://canton:5023}"
+CANTON_P2_GRPC="${CANTON_P2_GRPC:-canton:5021}"
+CANTON_P2_AUDIENCE="${CANTON_P2_AUDIENCE:-http://canton:5021}"
+CANTON_AUTH_CLIENT_ID="${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+CANTON_AUTH_CLIENT_SECRET="${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+
+echo ""
+echo ">>> Waiting for participant2 HTTP API..."
+attempt=0
+while [ $attempt -lt $MAX_RETRIES ]; do
+    if curl -s "${CANTON_P2_HTTP}/v2/version" >/dev/null 2>&1; then
+        echo "    Participant2 HTTP API is ready!"
+        break
+    fi
+    echo -n "."
+    sleep 2
+    attempt=$((attempt + 1))
+done
+
+if [ $attempt -ge $MAX_RETRIES ]; then
+    echo ""
+    echo "[WARN] Participant2 HTTP API not ready — skipping USDCx bootstrap"
+else
+    # The docker-compose canton healthcheck ensures P2 has >= 30 packages uploaded,
+    # but package vetting (the topology transaction that authorises packages for use
+    # in contracts) propagates asynchronously on the synchronizer. Wait for it here,
+    # mirroring the equivalent sleep done for P1 above.
+    echo ""
+    echo ">>> Waiting for P2 package vetting to propagate..."
+    sleep 10
+    echo "    P2 vetting propagation wait complete"
+
+    echo ""
+    echo ">>> Allocating USDCxIssuer party on participant2..."
+    USDCX_EXISTING=$(curl -s "${CANTON_P2_HTTP}/v2/parties" | jq -r '.partyDetails[].party' | grep "^USDCxIssuer::" | head -1 || true)
+
+    if [ -n "$USDCX_EXISTING" ]; then
+        echo "    USDCxIssuer already exists: $USDCX_EXISTING"
+        USDCX_PARTY_ID="$USDCX_EXISTING"
+    else
+        # P2 occasionally returns an empty body for the first allocation request
+        # immediately after package vetting completes, even though /v2/parties
+        # GET succeeds. Retry up to 12 times (≈60s) before giving up. Without the
+        # retry, USDCx bootstrap silently skips and downstream consumers (registry,
+        # api-server, e2e tests) fail with confusing "USDCxIssuer not found" errors.
+        USDCX_PARTY_ID=""
+        for attempt in $(seq 1 12); do
+            USDCX_PARTY_RESPONSE=$(curl -s -X POST "${CANTON_P2_HTTP}/v2/parties" \
+                -H 'Content-Type: application/json' \
+                -d '{"partyIdHint": "USDCxIssuer"}')
+            USDCX_PARTY_ID=$(echo "$USDCX_PARTY_RESPONSE" | jq -r '.partyDetails.party // empty')
+            if [ -n "$USDCX_PARTY_ID" ]; then
+                echo "    Allocated: $USDCX_PARTY_ID"
+                break
+            fi
+            echo "    Attempt $attempt/12 failed (response: ${USDCX_PARTY_RESPONSE:-<empty>}), retrying in 5s..."
+            sleep 5
+        done
+    fi
+
+    if [ -z "$USDCX_PARTY_ID" ]; then
+        echo "[WARN] Failed to allocate USDCxIssuer — skipping USDCx bootstrap"
+    else
+        echo ""
+        echo ">>> Running bootstrap-usdcx on participant2..."
+        # Retry to absorb INVALID_PRESCRIBED_SYNCHRONIZER_ID errors that occur
+        # when P2's package vetting (e.g. CIP56) hasn't yet propagated to the
+        # synchronizer. Vetting is async after package upload + party allocation,
+        # and the time before the first command succeeds is non-deterministic.
+        usdcx_ok=0
+        for attempt in $(seq 1 10); do
+            if /app/bootstrap-usdcx \
+                -p2           "$CANTON_P2_GRPC" \
+                -p2-audience  "$CANTON_P2_AUDIENCE" \
+                -issuer       "$USDCX_PARTY_ID" \
+                -domain       "$DOMAIN_ID" \
+                -token-url    "http://mock-oauth2:8088/oauth/token" \
+                -client-id    "$CANTON_AUTH_CLIENT_ID" \
+                -client-secret "$CANTON_AUTH_CLIENT_SECRET"; then
+                usdcx_ok=1
+                break
+            fi
+            echo "    [WARN] bootstrap-usdcx attempt $attempt/10 failed, retrying in 10s..."
+            sleep 10
+        done
+        if [ "$usdcx_ok" -ne 1 ]; then
+            echo "    [WARN] bootstrap-usdcx exhausted retries — USDCx contracts may be missing"
+        fi
+
+        # Substitute USDCx issuer party in api-server config
+        if [ -f "$API_SERVER_CONFIG_FILE" ]; then
+            sed -i "s|\${CANTON_USDCX_ISSUER_PARTY}|$USDCX_PARTY_ID|g" "$API_SERVER_CONFIG_FILE"
+            echo "    API server config updated with CANTON_USDCX_ISSUER_PARTY=$USDCX_PARTY_ID"
+        fi
+    fi
+fi
+
+# =============================================================================
 # Write E2E deploy manifest
 # =============================================================================
 E2E_MANIFEST_FILE="${E2E_MANIFEST_FILE:-/tmp/e2e-deploy.json}"
@@ -279,7 +383,9 @@ cat > "$E2E_MANIFEST_FILE" <<JSON
   "prompt_instrument_admin": "${PARTY_ID}",
   "prompt_instrument_id":    "PROMPT",
   "demo_instrument_admin":   "${PARTY_ID}",
-  "demo_instrument_id":      "DEMO"
+  "demo_instrument_id":      "DEMO",
+  "usdcx_instrument_admin":  "${USDCX_PARTY_ID}",
+  "usdcx_instrument_id":     "USDCx"
 }
 JSON
 echo ">>> Deploy manifest written to $E2E_MANIFEST_FILE"
@@ -291,8 +397,9 @@ echo ""
 echo "========================================================================"
 echo "BOOTSTRAP COMPLETE"
 echo "========================================================================"
-echo "Party ID:  $PARTY_ID"
-echo "Domain ID: $DOMAIN_ID"
+echo "Party ID:       $PARTY_ID"
+echo "Domain ID:      $DOMAIN_ID"
+echo "USDCx Party ID: ${USDCX_PARTY_ID:-<not bootstrapped>}"
 echo ""
 echo "The relayer can now be started."
 echo "========================================================================"

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package service_test
 
 import (
@@ -231,20 +233,18 @@ func TestService_SendRawTransaction(t *testing.T) {
 	recipient := common.HexToAddress("0x3000000000000000000000000000000000000003")
 	amount := big.NewInt(42_000_000_000_000_000)
 
-	t.Run("success inserts mempool entry and returns hash", func(t *testing.T) {
+	t.Run("returns hash immediately after inserting pending mempool entry", func(t *testing.T) {
 		payload, expectedHash := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
-		mockERC20 := mocks.NewERC20(t)
-		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, recipient, mock.Anything).
-			Return(nil)
-
 		store := mocks.NewStore(t)
-		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything).Return(nil)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.MatchedBy(func(entry *ethrpc.MempoolEntry) bool {
+			return entry != nil && entry.RecipientAddress == recipient.Hex() && entry.ContractAddress == tokenAddr.Hex()
+		})).Return(nil)
 
+		// ERC20() is called only as a whitelist check; the actual TransferFrom
+		// happens asynchronously in the submitter, not here.
 		mockTokenSvc := mocks.NewTokenService(t)
-		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
+		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mocks.NewERC20(t), nil)
 
 		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
 		got, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
@@ -252,41 +252,24 @@ func TestService_SendRawTransaction(t *testing.T) {
 		assert.Equal(t, expectedHash, got)
 	})
 
-	t.Run("unsupported contract returns BadRequestError", func(t *testing.T) {
+	t.Run("unsupported contract returns BadRequestError without touching mempool", func(t *testing.T) {
 		unsupportedAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
 		payload, _ := buildSignedTransferTx(t, chainID, unsupportedAddr, recipient, amount)
 
 		mockTokenSvc := mocks.NewTokenService(t)
 		mockTokenSvc.EXPECT().ERC20(unsupportedAddr).Return(nil, errors.New("token not supported"))
 
-		svc := newSvc(t, defaultCfg(), nil, mockTokenSvc)
-		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
-		require.Error(t, err)
-		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
-	})
-
-	t.Run("TransferFrom categorized error updates mempool and is passed through", func(t *testing.T) {
-		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
-
-		mockERC20 := mocks.NewERC20(t)
-		mockERC20.EXPECT().
-			TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			Return(apperr.BadRequestError(errors.New("user not found"), "failed to get sender"))
-
+		// Store mock with no expectations — must not be called when whitelist rejects.
 		store := mocks.NewStore(t)
-		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
-		store.EXPECT().FailMempoolEntry(mock.Anything, mock.Anything, mock.AnythingOfType("string")).Return(nil)
-
-		mockTokenSvc := mocks.NewTokenService(t)
-		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
 
 		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
 		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
+		store.AssertNotCalled(t, "InsertMempoolEntry", mock.Anything, mock.Anything)
 	})
 
-	t.Run("InsertMempoolEntry error propagates", func(t *testing.T) {
+	t.Run("InsertMempoolEntry error propagates as DependencyFailure", func(t *testing.T) {
 		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
 
 		mockTokenSvc := mocks.NewTokenService(t)
@@ -299,6 +282,27 @@ func TestService_SendRawTransaction(t *testing.T) {
 		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
+	})
+
+	t.Run("does not call Canton TransferFrom synchronously", func(t *testing.T) {
+		// Regression guard: the whole point of the async path is that
+		// SendRawTransaction must never wait on Canton. If ERC20.TransferFrom
+		// ever gets wired back in here, this test will fail because the mock
+		// is left bare with no expectations.
+		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
+
+		mockERC20 := mocks.NewERC20(t)
+		// No TransferFrom expectation — calling it would fail the mock.
+
+		mockTokenSvc := mocks.NewTokenService(t)
+		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mockERC20, nil)
+
+		store := mocks.NewStore(t)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
+
+		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
+		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
+		require.NoError(t, err)
 	})
 }
 
@@ -348,6 +352,36 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 		got, err := svc.GetTransactionReceipt(context.Background(), txHash)
 		require.NoError(t, err)
 		assert.Nil(t, got)
+	})
+
+	t.Run("failed mined entry returns status=0 receipt with revert reason", func(t *testing.T) {
+		// After the async refactor, failed mempool entries get mined as status=0
+		// EVM transactions with ErrorMessage set. The receipt must surface both
+		// the failure status and the human-readable cause so wallets can show
+		// it to the user instead of polling forever.
+		failedRow := &ethrpc.EvmTransaction{
+			TxHash:       txHash.Bytes(),
+			FromAddress:  from.Hex(),
+			ToAddress:    to.Hex(),
+			Nonce:        4,
+			Status:       0,
+			BlockNumber:  43,
+			BlockHash:    blockHashBytes,
+			TxIndex:      0,
+			GasUsed:      21000,
+			ErrorMessage: "canton transfer failed: insufficient balance",
+		}
+
+		store := mocks.NewStore(t)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(failedRow, nil)
+		store.EXPECT().GetEvmLogsByTxHash(mock.Anything, txHash.Bytes()).Return(nil, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetTransactionReceipt(context.Background(), txHash)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, hexutil.Uint64(0), got.Status)
+		assert.Equal(t, failedRow.ErrorMessage, got.RevertReason)
 	})
 
 	t.Run("store error propagates", func(t *testing.T) {

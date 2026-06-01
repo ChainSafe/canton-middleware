@@ -49,6 +49,7 @@ const (
 	OpUserExists             StoreOperation = "user_exists"
 	OpDeleteUser             StoreOperation = "delete_user"
 	OpListUsers              StoreOperation = "list_users"
+	OpListCustodialUsers     StoreOperation = "list_custodial_users"
 	OpIsWhitelisted          StoreOperation = "is_whitelisted"
 	OpAddToWhitelist         StoreOperation = "add_to_whitelist"
 	OpGetKeyByCantonPartyID  StoreOperation = "get_key_by_canton_party_id"

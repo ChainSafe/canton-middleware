@@ -15,6 +15,8 @@ import (
 // contract_id. This exercises the Splice Registry API endpoint used by Canton
 // Loop wallet to discover the active TransferFactory contract.
 func TestTransferFactory_ReturnsContractID(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -31,6 +33,8 @@ func TestTransferFactory_ReturnsContractID(t *testing.T) {
 // /registry/transfer-instruction/v1/transfer-factory returns HTTP 405. The
 // handler only accepts POST per the Splice Registry API spec.
 func TestTransferFactory_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 

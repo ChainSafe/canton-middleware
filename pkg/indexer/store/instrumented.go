@@ -123,6 +123,50 @@ func (s *instrumentedWriteStore) ApplySupplyDelta(ctx context.Context, instrumen
 	return err
 }
 
+func (s *instrumentedWriteStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertPendingOffer))
+	defer timer.ObserveDuration()
+
+	err := s.inner.InsertPendingOffer(ctx, offer)
+	if err != nil {
+		s.metrics.IncErrors(OpInsertPendingOffer)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpMarkOfferAccepted))
+	defer timer.ObserveDuration()
+
+	err := s.inner.MarkOfferAccepted(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpMarkOfferAccepted)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertHolding))
+	defer timer.ObserveDuration()
+
+	err := s.inner.InsertHolding(ctx, h)
+	if err != nil {
+		s.metrics.IncErrors(OpInsertHolding)
+	}
+	return err
+}
+
+func (s *instrumentedWriteStore) TakeHolding(ctx context.Context, contractID string) (indexer.HoldingChange, bool, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpTakeHolding))
+	defer timer.ObserveDuration()
+
+	h, ok, err := s.inner.TakeHolding(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpTakeHolding)
+	}
+	return h, ok, err
+}
+
 func (s *InstrumentedStore) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertEvent))
 	defer timer.ObserveDuration()
@@ -176,6 +220,50 @@ func (s *InstrumentedStore) ApplySupplyDelta(ctx context.Context, instrumentAdmi
 		s.metrics.IncErrors(OpApplySupplyDelta)
 	}
 	return err
+}
+
+func (s *InstrumentedStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertPendingOffer))
+	defer timer.ObserveDuration()
+
+	err := s.inner.InsertPendingOffer(ctx, offer)
+	if err != nil {
+		s.metrics.IncErrors(OpInsertPendingOffer)
+	}
+	return err
+}
+
+func (s *InstrumentedStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpMarkOfferAccepted))
+	defer timer.ObserveDuration()
+
+	err := s.inner.MarkOfferAccepted(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpMarkOfferAccepted)
+	}
+	return err
+}
+
+func (s *InstrumentedStore) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertHolding))
+	defer timer.ObserveDuration()
+
+	err := s.inner.InsertHolding(ctx, h)
+	if err != nil {
+		s.metrics.IncErrors(OpInsertHolding)
+	}
+	return err
+}
+
+func (s *InstrumentedStore) TakeHolding(ctx context.Context, contractID string) (indexer.HoldingChange, bool, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpTakeHolding))
+	defer timer.ObserveDuration()
+
+	h, ok, err := s.inner.TakeHolding(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpTakeHolding)
+	}
+	return h, ok, err
 }
 
 // ── service.Store (read path) ────────────────────────────────────────────────
@@ -261,4 +349,30 @@ func (s *InstrumentedStore) ListEvents(
 		s.metrics.IncErrors(OpListEvents)
 	}
 	return events, total, err
+}
+
+func (s *InstrumentedStore) ListPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingOffersForPty))
+	defer timer.ObserveDuration()
+
+	offers, total, err := s.inner.ListPendingOffersForParty(ctx, partyID, p)
+	if err != nil {
+		s.metrics.IncErrors(OpListPendingOffersForPty)
+	}
+	return offers, total, err
+}
+
+func (s *InstrumentedStore) ListAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListAllPendingOffers))
+	defer timer.ObserveDuration()
+
+	offers, total, err := s.inner.ListAllPendingOffers(ctx, p)
+	if err != nil {
+		s.metrics.IncErrors(OpListAllPendingOffers)
+	}
+	return offers, total, err
 }

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package client provides an HTTP client for the indexer's admin API.
 package client
 
@@ -5,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,6 +49,10 @@ type Client interface {
 		f indexer.EventFilter,
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
+
+	// Pending inbound transfers
+	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -186,6 +193,30 @@ func (c *HTTP) ListPartyEvents(
 	return &page, nil
 }
 
+// GetPendingOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/pending-offers.
+func (c *HTTP) GetPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	u := c.partyBase(partyID) + "/pending-offers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.PendingOffer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("pending offers for party %s: %w", partyID, err)
+	}
+	return &page, nil
+}
+
+// GetAllPendingOffers calls GET /indexer/v1/admin/pending-offers.
+func (c *HTTP) GetAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) (*indexer.Page[indexer.PendingOffer], error) {
+	u := c.baseURL + "/indexer/v1/admin/pending-offers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.PendingOffer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("get all pending offers: %w", err)
+	}
+	return &page, nil
+}
+
 func (c *HTTP) tokenBase(admin, id string) string {
 	return fmt.Sprintf("%s/indexer/v1/admin/tokens/%s/%s",
 		c.baseURL, url.PathEscape(admin), url.PathEscape(id))
@@ -220,16 +251,21 @@ func (c *HTTP) getJSON(ctx context.Context, rawURL string, dest any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Best-effort decode of the indexer's JSON error envelope.
-		// If the body is not JSON (e.g. an HTML gateway error page), errMsg
-		// stays empty and the status code alone is returned to the caller.
-		var errMsg string
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("indexer HTTP %d: failed to read error body: %w", resp.StatusCode, err)
+		}
+
 		var body struct {
 			Error string `json:"error"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&body); err == nil {
+		// Default to the full body as the error message.
+		errMsg := strings.TrimSpace(string(bodyBytes))
+		// If we can parse the JSON error envelope, use that instead.
+		if err := json.Unmarshal(bodyBytes, &body); err == nil && body.Error != "" {
 			errMsg = body.Error
 		}
+
 		if resp.StatusCode == http.StatusNotFound {
 			return apperrors.ResourceNotFoundError(nil, errMsg)
 		}

@@ -197,3 +197,16 @@ func (s *InstrumentedStore) FailMempoolEntry(ctx context.Context, txHash []byte,
 	}
 	return err
 }
+
+func (s *InstrumentedStore) GetMempoolEntriesByStatus(
+	ctx context.Context, status ethrpc.MempoolStatus, limit int,
+) ([]ethrpc.MempoolEntry, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetMempoolEntries))
+	defer timer.ObserveDuration()
+
+	entries, err := s.inner.GetMempoolEntriesByStatus(ctx, status, limit)
+	if err != nil {
+		s.metrics.IncErrors(OpGetMempoolEntries)
+	}
+	return entries, err
+}

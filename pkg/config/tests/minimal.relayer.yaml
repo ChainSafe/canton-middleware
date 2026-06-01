@@ -30,6 +30,7 @@ canton:
   token:
     cip56_package_id: "cip56-package"
     splice_transfer_package_id: "splice-package"
+    splice_holding_package_id: "test-splice-holding-pkg-id"
 
 bridge:
   max_transfer_amount: "1000"

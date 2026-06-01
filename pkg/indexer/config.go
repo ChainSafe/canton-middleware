@@ -1,16 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package indexer
 
 // Config holds stream-specific settings for the indexer process.
 // It lives in the indexer domain package so that app-level config
 // (pkg/config) can embed it without creating a god-config pattern.
 type Config struct {
-	// Party is the Canton party used to subscribe to the ledger update stream.
-	// The party must have read visibility into TokenTransferEvent contracts.
-	// Not validated at config load time so that the migration binary (which does
-	// not need the party) can load the same config file without a bootstrap-written
-	// value being present. The server validates this at startup in Run().
-	Party string `yaml:"party"`
-
 	// CIP56PackageID is the DAML package ID containing CIP56.Events.TokenTransferEvent.
 	// Setting this pins the indexer to a specific package version; leave empty to
 	// match the template across all package versions.
@@ -24,6 +19,18 @@ type Config struct {
 	// Instruments is the whitelist of CIP-56 instruments to index.
 	// Only consulted when FilterMode is "whitelist".
 	Instruments []InstrumentKey `yaml:"instruments"`
+
+	// UtilityRegistryPackageID is the DAML package ID for the Utility Registry app
+	// (Utility.Registry.App.V0.Model.Transfer.TransferOffer).
+	// Leave empty to disable TransferOffer tracking.
+	UtilityRegistryPackageID string `yaml:"utility_registry_package_id"`
+
+	// UtilityRegistryHoldingPackageID is the DAML package ID for the Utility Registry
+	// Holding template (Utility.Registry.Holding.V0.Holding). Required to track
+	// USDCx-style balances — without it the indexer never sees Holding contract
+	// create/archive events and balances for AllocationFactory-based instruments
+	// stay at 0. Leave empty to disable Holding tracking.
+	UtilityRegistryHoldingPackageID string `yaml:"utility_registry_holding_package_id"`
 }
 
 // FilterModeAndKeys converts the config into the domain FilterMode and instrument

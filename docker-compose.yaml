@@ -43,6 +43,7 @@ services:
   deployer:
     image: ghcr.io/foundry-rs/foundry
     container_name: deployer
+    user: root
     depends_on:
       anvil:
         condition: service_healthy
@@ -54,7 +55,7 @@ services:
       DEPLOYER_PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
       RELAYER_ADDRESS: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
       ETH_RPC_URL: "http://anvil:8545"
-    entrypoint: /bin/sh -c "forge clean; while ! cast block-number --rpc-url http://anvil:8545 > /dev/null 2>&1; do sleep 1; done; forge script script/Deployer.s.sol --rpc-url http://anvil:8545 --broadcast"
+    entrypoint: /bin/sh -c "forge clean || true; while ! cast block-number --rpc-url http://anvil:8545 > /dev/null 2>&1; do sleep 1; done; forge script script/Deployer.s.sol --rpc-url http://anvil:8545 --broadcast"
     networks:
       - bridge-network
 
@@ -85,13 +86,21 @@ services:
       - "--bootstrap=/canton/deploy-dars.canton"
     volumes:
       - ./contracts/canton-erc20:/canton/contracts
+      - ./deployments/usdcx-dars:/canton/usdcx-dars
       - ./deployments/canton-config/simple-topology.conf:/canton/simple-topology.conf
       - ./deployments/canton-config/deploy-dars.canton:/canton/deploy-dars.canton
     healthcheck:
-      test: "grpcurl --plaintext localhost:5011 com.digitalasset.canton.health.admin.v0.StatusService.Status | jq -e '.success | select(.active)'"
+      test:
+        - CMD-SHELL
+        - >-
+          grpcurl --plaintext localhost:5011
+          com.digitalasset.canton.health.admin.v0.StatusService.Status
+          | jq -e '.success | select(.active)'
+          && curl -sf http://localhost:5023/v2/packages
+          | jq -e '(.packageIds | length) >= 30'
       interval: 10s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 30
       start_period: 60s
     depends_on:
       postgres:
@@ -220,6 +229,54 @@ services:
       - bridge-network
 
   # ===========================================================================
+  # USDCx Transfer Factory Registry (devstack only)
+  # In production this is run by the USDCx issuer (e.g., Circle).
+  # Here it wraps participant2's CIP56TransferFactory for P1 api-server.
+  # ===========================================================================
+  usdcx-registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      target: usdcx-registry
+    container_name: usdcx-registry
+    ports:
+      - "8090:8090"
+    environment:
+      CANTON_AUTH_CLIENT_ID: "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+    command:
+      - "-p2"
+      - "canton:5021"
+      - "-p2-http"
+      - "http://canton:5023"
+      - "-p2-audience"
+      - "http://canton:5021"
+      - "-token-url"
+      - "http://mock-oauth2:8088/oauth/token"
+      - "-client-id"
+      - "${CANTON_AUTH_CLIENT_ID:-local-test-client}"
+      - "-client-secret"
+      - "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
+      - "-port"
+      - "8090"
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      canton:
+        condition: service_healthy
+      mock-oauth2:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - bridge-network
+
+  # ===========================================================================
   # ERC-20 API Server
   # ===========================================================================
   api-server:
@@ -250,6 +307,8 @@ services:
       canton:
         condition: service_healthy
       mock-oauth2:
+        condition: service_healthy
+      usdcx-registry:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

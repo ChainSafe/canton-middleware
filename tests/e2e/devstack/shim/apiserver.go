@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -141,6 +142,62 @@ func (a *APIServerShim) ERC20Balance(ctx context.Context, tokenAddr, ownerAddr c
 func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error) {
 	var resp registry.TransferFactoryResponse
 	if err := a.post(ctx, "/registry/transfer-instruction/v1/transfer-factory", "", "", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListIncomingTransfers sends GET /api/v2/transfer/incoming?address=<addr>. The
+// endpoint is unauthenticated; account is used only to derive the query parameter.
+func (a *APIServerShim) ListIncomingTransfers(
+	ctx context.Context,
+	account *stack.Account,
+) (*transfer.IncomingTransfersList, error) {
+	q := url.Values{"address": []string{account.Address.Hex()}}
+	var resp transfer.IncomingTransfersList
+	if err := a.get(ctx, "/api/v2/transfer/incoming", q, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// PrepareAcceptTransfer sends POST /api/v2/transfer/incoming/{contractID}/prepare.
+func (a *APIServerShim) PrepareAcceptTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	contractID string,
+	req *transfer.PrepareAcceptRequest,
+) (*transfer.PrepareResponse, error) {
+	msg := fmt.Sprintf("prepare-accept:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.PrepareResponse
+	path := "/api/v2/transfer/incoming/" + contractID + "/prepare"
+	if err := a.post(ctx, path, sig, msg, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ExecuteAcceptTransfer sends POST /api/v2/transfer/incoming/{contractID}/execute.
+// contractID is embedded in req.TransferID for routing; the path uses the contractID
+// extracted from the prepare response but the body carries the transfer_id + signature.
+func (a *APIServerShim) ExecuteAcceptTransfer(
+	ctx context.Context,
+	account *stack.Account,
+	contractID string,
+	req *transfer.ExecuteRequest,
+) (*transfer.ExecuteResponse, error) {
+	msg := fmt.Sprintf("execute-accept:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.ExecuteResponse
+	path := "/api/v2/transfer/incoming/" + contractID + "/execute"
+	if err := a.post(ctx, path, sig, msg, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

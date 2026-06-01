@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package indexer implements the runner for the indexer process.
 //
 // The indexer has two concurrent responsibilities:
@@ -59,10 +61,6 @@ func (s *Server) Run() error {
 	}
 	cfg := s.cfg
 
-	if cfg.Indexer.Party == "" {
-		return fmt.Errorf("indexer.party is required")
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -96,17 +94,38 @@ func (s *Server) Run() error {
 	logger.Info("Canton ledger connection established", zap.String("rpc_url", cfg.CantonLedger.RPCURL))
 
 	// ── Streaming client ──────────────────────────────────────────────────────
-	// One streaming.Client per indexer party. It wraps GetUpdates with automatic
-	// reconnection and OAuth2 token refresh (mirrors bridge/client.go pattern).
+	// One streaming.Client for the indexer in wildcard mode (FiltersForAnyParty).
+	// Wraps GetUpdates with automatic reconnection and OAuth2 token refresh
+	// (mirrors bridge/client.go pattern). Requires the Canton auth token to
+	// carry CanReadAsAnyParty rights.
 
-	streamClient := streaming.New(ledgerClient, cfg.Indexer.Party, streaming.WithLogger(logger))
+	streamClient, err := streaming.New(ledgerClient, streaming.WithLogger(logger))
+	if err != nil {
+		return fmt.Errorf("create streaming client: %w", err)
+	}
 
-	// ── Template identifier ───────────────────────────────────────────────────
+	// ── Template identifiers ──────────────────────────────────────────────────
 
-	templateID := streaming.TemplateID{
+	transferEventTemplateID := streaming.TemplateID{
 		PackageID:  cfg.Indexer.CIP56PackageID,
 		ModuleName: "CIP56.Events",
 		EntityName: "TokenTransferEvent",
+	}
+
+	templateIDs := []streaming.TemplateID{transferEventTemplateID}
+	if cfg.Indexer.UtilityRegistryPackageID != "" {
+		templateIDs = append(templateIDs, streaming.TemplateID{
+			PackageID:  cfg.Indexer.UtilityRegistryPackageID,
+			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
+			EntityName: "TransferOffer",
+		})
+	}
+	if cfg.Indexer.UtilityRegistryHoldingPackageID != "" {
+		templateIDs = append(templateIDs, streaming.TemplateID{
+			PackageID:  cfg.Indexer.UtilityRegistryHoldingPackageID,
+			ModuleName: "Utility.Registry.Holding.V0.Holding",
+			EntityName: "Holding",
+		})
 	}
 
 	// ── Metrics — registered once, injected into processor and store ──────────
@@ -119,8 +138,11 @@ func (s *Server) Run() error {
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
 	filterMode, instruments := cfg.Indexer.FilterModeAndKeys()
-	decode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
-	fetcher := engine.NewFetcher(streamClient, templateID, decode, logger)
+	transferDecode := engine.NewTokenTransferDecoder(filterMode, instruments, logger)
+	offerDecode := engine.NewOfferDecoder(cfg.Indexer.UtilityRegistryPackageID, logger)
+	holdingDecode := engine.NewHoldingDecoder(cfg.Indexer.UtilityRegistryHoldingPackageID, logger)
+	decode := engine.NewMultiDecoder(transferDecode, offerDecode, holdingDecode)
+	fetcher := engine.NewFetcher(streamClient, templateIDs, decode, logger)
 	rawStore := indexerstore.NewStore(db)
 	store := indexerstore.NewInstrumentedStore(rawStore, storeMetrics)
 	processor := engine.NewProcessor(fetcher, store, engineMetrics, logger)
@@ -135,7 +157,7 @@ func (s *Server) Run() error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		logger.Info("Indexer processor starting", zap.String("party", cfg.Indexer.Party))
+		logger.Info("Indexer processor starting")
 		return processor.Run(gctx)
 	})
 

@@ -100,6 +100,17 @@ func (s *InstrumentedStore) ListUsers(ctx context.Context) ([]*user.User, error)
 	return users, err
 }
 
+func (s *InstrumentedStore) ListCustodialUsers(ctx context.Context) ([]*user.User, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListCustodialUsers))
+	defer timer.ObserveDuration()
+
+	users, err := s.inner.ListCustodialUsers(ctx)
+	if err != nil {
+		s.metrics.IncErrors(OpListCustodialUsers)
+	}
+	return users, err
+}
+
 func (s *InstrumentedStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpIsWhitelisted))
 	defer timer.ObserveDuration()

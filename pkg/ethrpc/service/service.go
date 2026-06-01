@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import (
@@ -31,10 +33,11 @@ type Store interface {
 	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error)
 	GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error)
 
-	// Mempool intent log — written by SendRawTransaction, consumed by the miner.
+	// InsertMempoolEntry records a new transfer intent with status=pending.
+	// SendRawTransaction returns immediately after this insert; the submitter
+	// worker drives pending → completed/failed asynchronously, and the miner
+	// then seals the entry into a synthetic EVM block.
 	InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolEntry) error
-	CompleteMempoolEntry(ctx context.Context, txHash []byte) error
-	FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error
 }
 
 // TokenService is the narrow token-service interface consumed by the EthRPC service.
@@ -185,12 +188,21 @@ func (*ethService) Syncing(_ context.Context) bool {
 	return false
 }
 
+// SendRawTransaction validates an EVM-encoded ERC-20 transfer, records the
+// intent in the mempool as pending, and returns the tx hash immediately. The
+// Canton transfer is executed asynchronously by the submitter worker, which
+// transitions the entry to completed or failed. The miner then seals the entry
+// into a synthetic EVM block, at which point eth_getTransactionReceipt yields a
+// terminal status=0x1 (success) or status=0x0 (failure) receipt.
+//
+// This matches standard Ethereum semantics where the node accepts a signed
+// transaction synchronously and clients poll the receipt — avoiding 5-15s+ HTTP
+// stalls under Canton load that previously broke MetaMask compatibility.
 func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error) {
 	var tx types.Transaction
 	if err := tx.UnmarshalBinary(data); err != nil {
 		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction encoding")
 	}
-	tx.To()
 
 	signer := types.LatestSignerForChainID(s.chainID)
 	from, err := types.Sender(signer, &tx)
@@ -215,14 +227,13 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction data")
 	}
 
-	erc20, err := s.tokenService.ERC20(*contractAddress)
-	if err != nil {
+	// Reject unsupported contracts synchronously so wallets surface the error
+	// before they ever start polling for a receipt that will never arrive.
+	if _, err = s.tokenService.ERC20(*contractAddress); err != nil {
 		return common.Hash{}, apperr.BadRequestError(err, fmt.Sprintf("contract not supported: %s", contractAddress.Hex()))
 	}
 
 	txHash := tx.Hash()
-
-	// Record intent in mempool before executing the Canton transfer.
 	entry := &ethrpc.MempoolEntry{
 		TxHash:           txHash.Bytes(),
 		FromAddress:      from.Hex(),
@@ -235,25 +246,6 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	if err = s.store.InsertMempoolEntry(ctx, entry); err != nil {
 		return common.Hash{}, apperr.DependencyError(err, "insert mempool entry")
 	}
-
-	// Execute the Canton transfer.
-	transferErr := erc20.TransferFrom(ctx, txHash.Hex(), from, toAddr, *amount)
-
-	// Update mempool status regardless of transfer outcome.
-	if transferErr != nil {
-		if updateErr := s.store.FailMempoolEntry(ctx, txHash.Bytes(), transferErr.Error()); updateErr != nil {
-			// Non-fatal: the miner's reconciler will handle stuck pending entries.
-			_ = updateErr
-		}
-		// Pass categorized errors through so callers receive the correct
-		// JSON-RPC error code (e.g. -32602 for "sender not found").
-		return common.Hash{}, transferErr
-	}
-	if updateErr := s.store.CompleteMempoolEntry(ctx, txHash.Bytes()); updateErr != nil {
-		// Non-fatal: the miner's reconciler will handle stuck pending entries.
-		_ = updateErr
-	}
-
 	return txHash, nil
 }
 
@@ -306,14 +298,15 @@ func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 	logs := make([]*types.Log, 0)
 	for _, dbLog := range dbLogs {
 		log := &types.Log{
-			Address:     common.BytesToAddress(dbLog.Address),
-			Data:        dbLog.Data,
-			BlockNumber: dbLog.BlockNumber,
-			TxHash:      hash,
-			TxIndex:     dbLog.TxIndex,
-			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       dbLog.LogIndex,
-			Removed:     dbLog.Removed,
+			Address:        common.BytesToAddress(dbLog.Address),
+			Data:           dbLog.Data,
+			BlockNumber:    dbLog.BlockNumber,
+			BlockTimestamp: dbLog.BlockTimestamp,
+			TxHash:         hash,
+			TxIndex:        dbLog.TxIndex,
+			BlockHash:      common.BytesToHash(dbLog.BlockHash),
+			Index:          dbLog.LogIndex,
+			Removed:        dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
 			log.Topics = append(log.Topics, common.BytesToHash(topic))
@@ -337,6 +330,9 @@ func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 		Status:            hexutil.Uint64(row.Status),
 		EffectiveGasPrice: hexutil.Uint64(defaultGasPriceWeiUint64),
 		Type:              hexutil.Uint64(2),
+		// RevertReason is omitted when empty (omitempty), so successful
+		// receipts keep the standard JSON shape.
+		RevertReason: row.ErrorMessage,
 	}, nil
 }
 
@@ -506,14 +502,15 @@ func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*
 	var logs []*types.Log
 	for _, dbLog := range dbLogs {
 		log := &types.Log{
-			Address:     common.BytesToAddress(dbLog.Address),
-			Data:        dbLog.Data,
-			BlockNumber: dbLog.BlockNumber,
-			TxHash:      common.BytesToHash(dbLog.TxHash),
-			TxIndex:     dbLog.TxIndex,
-			BlockHash:   common.BytesToHash(dbLog.BlockHash),
-			Index:       dbLog.LogIndex,
-			Removed:     dbLog.Removed,
+			Address:        common.BytesToAddress(dbLog.Address),
+			Data:           dbLog.Data,
+			BlockNumber:    dbLog.BlockNumber,
+			BlockTimestamp: dbLog.BlockTimestamp,
+			TxHash:         common.BytesToHash(dbLog.TxHash),
+			TxIndex:        dbLog.TxIndex,
+			BlockHash:      common.BytesToHash(dbLog.BlockHash),
+			Index:          dbLog.LogIndex,
+			Removed:        dbLog.Removed,
 		}
 		for _, topic := range dbLog.Topics {
 			log.Topics = append(log.Topics, common.BytesToHash(topic))

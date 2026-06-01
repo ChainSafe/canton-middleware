@@ -1,8 +1,8 @@
 server:
   host: "0.0.0.0"
   port: 8081
-  read_timeout: "15s"
-  write_timeout: "15s"
+  read_timeout: "60s"
+  write_timeout: "60s"
   idle_timeout: "60s"
   shutdown_timeout: "30s"
 
@@ -39,17 +39,34 @@ canton:
   token:
     cip56_package_id: "${CANTON_CIP56_PACKAGE_ID}"
     splice_transfer_package_id: "${CANTON_SPLICE_TRANSFER_PACKAGE_ID}"
+    splice_holding_package_id: "${CANTON_SPLICE_HOLDING_PACKAGE_ID}"
 
   bridge:
     package_id: "${CANTON_BRIDGE_PACKAGE_ID}"
+    core_package_id: "${CANTON_BRIDGE_CORE_PACKAGE_ID}"
     module: "Wayfinder.Bridge"
 
 token:
   supported_tokens:
+    # Display-only synthetic addresses for MetaMask. The api-server's
+    # eth_call balanceOf facade keys balances by these addresses. They must
+    # NOT collide with well-known mainnet token contracts (e.g. real USDC,
+    # USDT, etc.) or MetaMask flags imports as suspected phishing.
+    "0x9907000000000000000000000000000000000001":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+      instrument_id: "PROMPT"
     "0xDE30000000000000000000000000000000000001":
       name: "Demo Token"
       symbol: "DEMO"
       decimals: 18
+      instrument_id: "DEMO"
+    "0xC1A0000000000000000000000000000000000001":
+      name: "USD Coin"
+      symbol: "USDCx"
+      decimals: 6
+      instrument_id: "USDCx"
   native_balance_wei: "1000000000000000000000"
 
 eth_rpc:
@@ -58,7 +75,7 @@ eth_rpc:
   gas_price_wei: "1000000000"
   gas_limit: 21000
   native_balance_wei: "1000000000000000000000"
-  request_timeout: "30s"
+  request_timeout: "60s"
 
 jwks:
   url: ""
@@ -89,3 +106,6 @@ key_management:
   key_derivation: "generate"
 
 skip_canton_sig_verify: false
+
+cors:
+  - "${CORS_ALLOWED_ORIGINS}"

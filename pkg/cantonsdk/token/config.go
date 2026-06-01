@@ -1,6 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package token
 
 import "errors"
+
+// ExternalTokenConfig holds the registry endpoint for an external token issuer.
+// Key in the map is the InstrumentAdmin party ID (e.g., Circle's Bridge-Operator).
+type ExternalTokenConfig struct {
+	RegistryURL string `yaml:"registry_url" validate:"required"`
+}
 
 // Config contains the configuration required to initialize the token client.
 type Config struct {
@@ -8,8 +16,20 @@ type Config struct {
 	IssuerParty string `yaml:"issuer_party"`
 	UserID      string `yaml:"user_id"`
 
-	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
-	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
+	CIP56PackageID              string `yaml:"cip56_package_id" validate:"required"`
+	SpliceTransferPackageID     string `yaml:"splice_transfer_package_id" validate:"required"`
+	SpliceHoldingPackageID      string `yaml:"splice_holding_package_id" validate:"required"`
+	UtilityRegistryAppPackageID string `yaml:"utility_registry_app_package_id"`
+	// UtilityRegistryPackageID is the utility_registry_v0 package ID.
+	// Required when using AllocationFactory-based tokens (e.g., USDCx on P2) so that
+	// InstrumentConfiguration and TransferRule can be looked up and provided as context
+	// for the TransferFactory_Transfer choice.
+	UtilityRegistryPackageID string `yaml:"utility_registry_package_id"`
+
+	// ExternalTokens maps InstrumentAdmin party IDs to their registry configuration.
+	// Tokens whose InstrumentAdmin matches IssuerParty use local ACS-based factory discovery.
+	// Tokens whose InstrumentAdmin is in this map use the external registry API.
+	ExternalTokens map[string]ExternalTokenConfig `yaml:"external_tokens"`
 }
 
 func (c *Config) validate() error {
@@ -30,6 +50,9 @@ func (c *Config) validate() error {
 	}
 	if c.SpliceTransferPackageID == "" {
 		return errors.New("splice_transfer_package_id is required")
+	}
+	if c.SpliceHoldingPackageID == "" {
+		return errors.New("splice_holding_package_id is required")
 	}
 	return nil
 }

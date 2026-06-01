@@ -355,6 +355,63 @@ func (_c *CantonBridge_IsDepositProcessed_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// ProcessWithdrawal provides a mock function with given fields: ctx, withdrawalRequestCID
+func (_m *CantonBridge) ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error) {
+	ret := _m.Called(ctx, withdrawalRequestCID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ProcessWithdrawal")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
+		return rf(ctx, withdrawalRequestCID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = rf(ctx, withdrawalRequestCID)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, withdrawalRequestCID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CantonBridge_ProcessWithdrawal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ProcessWithdrawal'
+type CantonBridge_ProcessWithdrawal_Call struct {
+	*mock.Call
+}
+
+// ProcessWithdrawal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - withdrawalRequestCID string
+func (_e *CantonBridge_Expecter) ProcessWithdrawal(ctx interface{}, withdrawalRequestCID interface{}) *CantonBridge_ProcessWithdrawal_Call {
+	return &CantonBridge_ProcessWithdrawal_Call{Call: _e.mock.On("ProcessWithdrawal", ctx, withdrawalRequestCID)}
+}
+
+func (_c *CantonBridge_ProcessWithdrawal_Call) Run(run func(ctx context.Context, withdrawalRequestCID string)) *CantonBridge_ProcessWithdrawal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *CantonBridge_ProcessWithdrawal_Call) Return(_a0 string, _a1 error) *CantonBridge_ProcessWithdrawal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CantonBridge_ProcessWithdrawal_Call) RunAndReturn(run func(context.Context, string) (string, error)) *CantonBridge_ProcessWithdrawal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ProcessDepositAndMint provides a mock function with given fields: ctx, req
 func (_m *CantonBridge) ProcessDepositAndMint(ctx context.Context, req bridge.ProcessDepositRequest) (*bridge.ProcessedDeposit, error) {
 	ret := _m.Called(ctx, req)

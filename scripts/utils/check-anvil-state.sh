@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # Quick diagnostic script to check Anvil state
 
 echo "=== Checking Anvil State ==="

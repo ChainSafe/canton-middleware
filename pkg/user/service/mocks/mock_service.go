@@ -23,6 +23,67 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
+// GetUser provides a mock function with given fields: ctx, evmAddress, msg, sig
+func (_m *Service) GetUser(ctx context.Context, evmAddress string, msg string, sig string) (*user.User, error) {
+	ret := _m.Called(ctx, evmAddress, msg, sig)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUser")
+	}
+
+	var r0 *user.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*user.User, error)); ok {
+		return rf(ctx, evmAddress, msg, sig)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *user.User); ok {
+		r0 = rf(ctx, evmAddress, msg, sig)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*user.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, evmAddress, msg, sig)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUser'
+type Service_GetUser_Call struct {
+	*mock.Call
+}
+
+// GetUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - evmAddress string
+//   - msg string
+//   - sig string
+func (_e *Service_Expecter) GetUser(ctx interface{}, evmAddress interface{}, msg interface{}, sig interface{}) *Service_GetUser_Call {
+	return &Service_GetUser_Call{Call: _e.mock.On("GetUser", ctx, evmAddress, msg, sig)}
+}
+
+func (_c *Service_GetUser_Call) Run(run func(ctx context.Context, evmAddress string, msg string, sig string)) *Service_GetUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetUser_Call) Return(_a0 *user.User, _a1 error) *Service_GetUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetUser_Call) RunAndReturn(run func(context.Context, string, string, string) (*user.User, error)) *Service_GetUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PrepareExternalRegistration provides a mock function with given fields: ctx, req
 func (_m *Service) PrepareExternalRegistration(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error) {
 	ret := _m.Called(ctx, req)

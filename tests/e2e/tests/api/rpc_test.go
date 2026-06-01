@@ -22,6 +22,8 @@ import (
 
 // TestRPC_ChainID verifies that eth_chainId returns a non-zero chain ID.
 func TestRPC_ChainID(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -36,6 +38,8 @@ func TestRPC_ChainID(t *testing.T) {
 
 // TestRPC_BlockNumber verifies that eth_blockNumber returns without error.
 func TestRPC_BlockNumber(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -47,6 +51,8 @@ func TestRPC_BlockNumber(t *testing.T) {
 
 // TestRPC_GasPrice verifies that eth_gasPrice returns a non-nil value.
 func TestRPC_GasPrice(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -62,6 +68,8 @@ func TestRPC_GasPrice(t *testing.T) {
 // TestRPC_MaxPriorityFeePerGas verifies that eth_maxPriorityFeePerGas returns
 // a non-nil value.
 func TestRPC_MaxPriorityFeePerGas(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -77,6 +85,8 @@ func TestRPC_MaxPriorityFeePerGas(t *testing.T) {
 // TestRPC_EstimateGas verifies that eth_estimateGas returns a non-zero estimate
 // for a simple ETH transfer to a well-known address.
 func TestRPC_EstimateGas(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -96,6 +106,8 @@ func TestRPC_EstimateGas(t *testing.T) {
 // TestRPC_GetBalance verifies that eth_getBalance returns for a known address
 // without error.
 func TestRPC_GetBalance(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -111,6 +123,8 @@ func TestRPC_GetBalance(t *testing.T) {
 // TestRPC_GetTransactionCount verifies that eth_getTransactionCount returns
 // the nonce for a known address without error.
 func TestRPC_GetTransactionCount(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -123,6 +137,8 @@ func TestRPC_GetTransactionCount(t *testing.T) {
 // TestRPC_GetCode verifies that eth_getCode returns the bytecode for the
 // deployed PROMPT token contract (must be non-empty).
 func TestRPC_GetCode(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -139,6 +155,8 @@ func TestRPC_GetCode(t *testing.T) {
 // TestRPC_Syncing verifies that eth_syncing returns without error. The local
 // Anvil devnet is always synced so the result should be false.
 func TestRPC_Syncing(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -156,6 +174,8 @@ func TestRPC_Syncing(t *testing.T) {
 // go-ethereum to send "latest" as the block tag, which the api-server's
 // eth_getLogs handler rejects (it expects a hex uint64, not a block tag string).
 func TestRPC_GetLogs(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -227,6 +247,8 @@ func TestRPC_GetBlockByHash(t *testing.T) {
 // TestRPC_Call_TotalSupply verifies that eth_call with totalSupply() returns
 // 32 bytes (uint256) for the PROMPT token contract.
 func TestRPC_Call_TotalSupply(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -247,6 +269,8 @@ func TestRPC_Call_TotalSupply(t *testing.T) {
 // TestRPC_Call_Decimals verifies that eth_call with decimals() returns 32
 // bytes encoding uint8 for the PROMPT token.
 func TestRPC_Call_Decimals(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -267,6 +291,8 @@ func TestRPC_Call_Decimals(t *testing.T) {
 // TestRPC_Call_Symbol verifies that eth_call with symbol() returns a non-empty
 // ABI-encoded string for the PROMPT token.
 func TestRPC_Call_Symbol(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -287,6 +313,8 @@ func TestRPC_Call_Symbol(t *testing.T) {
 // TestRPC_Call_Name verifies that eth_call with name() returns a non-empty
 // ABI-encoded string for the PROMPT token.
 func TestRPC_Call_Name(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -307,6 +335,8 @@ func TestRPC_Call_Name(t *testing.T) {
 // TestRPC_Call_BalanceOf_PROMPT verifies that eth_call with balanceOf() for a
 // fresh address returns a 32-byte zero value for the PROMPT token.
 func TestRPC_Call_BalanceOf_PROMPT(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -333,6 +363,8 @@ func TestRPC_Call_BalanceOf_PROMPT(t *testing.T) {
 // TestRPC_Call_BalanceOf_DEMO verifies that eth_call with balanceOf() on the
 // DEMO virtual EVM address returns a 32-byte zero value for a fresh address.
 func TestRPC_Call_BalanceOf_DEMO(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -362,6 +394,8 @@ func TestRPC_Call_BalanceOf_DEMO(t *testing.T) {
 // TestRPC_NetVersion verifies that net_version returns a non-empty chain ID
 // string.
 func TestRPC_NetVersion(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -376,6 +410,8 @@ func TestRPC_NetVersion(t *testing.T) {
 
 // TestRPC_NetListening verifies that net_listening returns true.
 func TestRPC_NetListening(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -390,6 +426,8 @@ func TestRPC_NetListening(t *testing.T) {
 
 // TestRPC_NetPeerCount verifies that net_peerCount returns without error.
 func TestRPC_NetPeerCount(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -406,6 +444,8 @@ func TestRPC_NetPeerCount(t *testing.T) {
 // TestRPC_Web3ClientVersion verifies that web3_clientVersion returns a
 // non-empty version string.
 func TestRPC_Web3ClientVersion(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
@@ -421,6 +461,8 @@ func TestRPC_Web3ClientVersion(t *testing.T) {
 // TestRPC_Web3Sha3 verifies that web3_sha3("0x") returns the keccak256 of
 // empty bytes — a well-known value used as a correctness check.
 func TestRPC_Web3Sha3(t *testing.T) {
+	t.Parallel()
+
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 

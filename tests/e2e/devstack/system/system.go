@@ -37,18 +37,23 @@ var defaultAccounts = &Accounts{
 type Tokens struct {
 	DEMO   stack.Token
 	PROMPT stack.Token
+	USDCx  stack.Token
 }
 
 // NewTokens builds the well-known token descriptors from a resolved manifest.
 func NewTokens(manifest *stack.ServiceManifest) *Tokens {
 	return &Tokens{
 		DEMO: stack.Token{
-			ERC20Token: token.ERC20Token{Symbol: "DEMO", Decimals: 18},
+			ERC20Token: token.ERC20Token{Symbol: "DEMO", Decimals: 18, InstrumentID: "DEMO"},
 			Address:    common.HexToAddress(manifest.DemoTokenAddr),
 		},
 		PROMPT: stack.Token{
-			ERC20Token: token.ERC20Token{Symbol: "PROMPT", Decimals: 18},
+			ERC20Token: token.ERC20Token{Symbol: "PROMPT", Decimals: 18, InstrumentID: "PROMPT"},
 			Address:    common.HexToAddress(manifest.PromptTokenAddr),
+		},
+		USDCx: stack.Token{
+			ERC20Token: token.ERC20Token{Symbol: "USDCx", Decimals: 6, InstrumentID: manifest.USDCxInstrumentID},
+			Address:    common.HexToAddress(stack.USDCxTokenVirtualAddr),
 		},
 	}
 }
@@ -193,12 +198,15 @@ func New(ctx context.Context, manifest *stack.ServiceManifest) (*System, error) 
 // Subset views
 // ---------------------------------------------------------------------------
 
-// IndexerSystem is a minimal view for indexer-focused tests. It only
-// initializes the Canton and Indexer shims — no Postgres connection, no Anvil.
+// IndexerSystem is a minimal view for indexer-focused tests. It initializes
+// Canton and Indexer shims and wires a DSL with those two shims so that
+// WaitForCantonBalance, WaitForPartyEvent*, and WaitForHolderCount are
+// available. No Anvil, Postgres, APIServer, or Relayer shims are initialized.
 type IndexerSystem struct {
 	Manifest *stack.ServiceManifest
 	Canton   stack.Canton
 	Indexer  stack.Indexer
+	DSL      *dsl.DSL
 
 	closeFunc func()
 }
@@ -217,23 +225,26 @@ func NewIndexerSystem(manifest *stack.ServiceManifest) (*IndexerSystem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("canton shim: %w", err)
 	}
+	indexerShim := shim.NewIndexer(manifest)
 	return &IndexerSystem{
 		Manifest:  manifest,
 		Canton:    cantonShim,
-		Indexer:   shim.NewIndexer(manifest),
+		Indexer:   indexerShim,
+		DSL:       dsl.New(nil, cantonShim, nil, indexerShim, nil, nil),
 		closeFunc: cantonShim.Close,
 	}, nil
 }
 
 // APISystem is a minimal view for api-server focused tests. It initializes
-// Anvil, Canton, APIServer, and Postgres shims together with the DSL and
-// pre-funded accounts.
+// Anvil, Canton, APIServer, Postgres, and Indexer shims together with the DSL
+// and pre-funded accounts. The Relayer shim is intentionally omitted.
 type APISystem struct {
 	Manifest  *stack.ServiceManifest
 	Anvil     stack.Anvil
 	Canton    stack.Canton
 	APIServer stack.APIServer
 	Postgres  stack.APIDatabase
+	Indexer   stack.Indexer
 	DSL       *dsl.DSL
 	Accounts  *Accounts
 	Tokens    *Tokens
@@ -264,13 +275,78 @@ func NewAPISystem(ctx context.Context, manifest *stack.ServiceManifest) (*APISys
 		Canton:    core.canton,
 		APIServer: core.apiServer,
 		Postgres:  core.postgres,
+		Indexer:   shim.NewIndexer(manifest),
 		Accounts:  defaultAccounts,
 		Tokens:    NewTokens(manifest),
 		closeFunc: core.close,
 	}
-	// Relayer and Indexer are not part of the API stack; nil is passed
-	// deliberately. DSL methods that require them call t.Fatal with a clear
-	// message rather than panicking.
-	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, nil, sys.Postgres, sys.Anvil)
+	// Relayer is not part of the API stack; nil is passed deliberately. DSL
+	// methods that require it call t.Fatal with a clear message.
+	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
+	return sys, nil
+}
+
+// ---------------------------------------------------------------------------
+// MultiParticipantSystem — API stack with a second Canton participant
+// ---------------------------------------------------------------------------
+
+// MultiParticipantSystem extends APISystem with a Canton2 shim that connects
+// to Participant 2. Use this for tests that require both participants — for
+// example, cross-participant token transfers where the issuer lives on P2 and
+// the holder lives on P1.
+type MultiParticipantSystem struct {
+	Manifest  *stack.ServiceManifest
+	Anvil     stack.Anvil
+	Canton    stack.Canton // P1 — middleware participant
+	Canton2   stack.Canton // P2 — USDCx issuer participant
+	APIServer stack.APIServer
+	Postgres  stack.APIDatabase
+	Indexer   stack.Indexer
+	DSL       *dsl.DSL
+	Accounts  *Accounts
+	Tokens    *Tokens
+
+	closeFunc func() error
+}
+
+// Close releases all resources held by the MultiParticipantSystem.
+func (s *MultiParticipantSystem) Close() error {
+	if s.closeFunc != nil {
+		return s.closeFunc()
+	}
+	return nil
+}
+
+// NewMultiParticipantSystem constructs a MultiParticipantSystem from a resolved
+// manifest. It initializes the full API stack (P1) and adds a Canton2 shim for
+// Participant 2. Returns an error if any shim fails to connect.
+func NewMultiParticipantSystem(ctx context.Context, manifest *stack.ServiceManifest) (*MultiParticipantSystem, error) {
+	core, err := initCoreShims(ctx, manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	canton2Shim, err := shim.NewCanton2(manifest)
+	if err != nil {
+		_ = core.close()
+		return nil, fmt.Errorf("canton2 shim: %w", err)
+	}
+
+	sys := &MultiParticipantSystem{
+		Manifest:  manifest,
+		Anvil:     core.anvil,
+		Canton:    core.canton,
+		Canton2:   canton2Shim,
+		APIServer: core.apiServer,
+		Postgres:  core.postgres,
+		Indexer:   shim.NewIndexer(manifest),
+		Accounts:  defaultAccounts,
+		Tokens:    NewTokens(manifest),
+		closeFunc: func() error {
+			canton2Shim.Close()
+			return core.close()
+		},
+	}
+	sys.DSL = dsl.New(sys.APIServer, sys.Canton, nil, sys.Indexer, sys.Postgres, sys.Anvil)
 	return sys, nil
 }

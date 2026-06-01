@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package transfer implements the non-custodial prepare/execute transfer API.
 package transfer
 
@@ -26,4 +28,40 @@ type ExecuteRequest struct {
 // ExecuteResponse is the HTTP response body for a completed transfer.
 type ExecuteResponse struct {
 	Status string `json:"status"` // "completed"
+}
+
+// IncomingTransfer represents a single pending inbound transfer offer. Fields
+// downstream of the on-ledger TransferOffer are always populated; token-metadata
+// fields (Symbol, Decimals, ContractAddress, Name) are populated when the
+// instrument is in the api-server's supported_tokens config and omitted otherwise.
+type IncomingTransfer struct {
+	ContractID      string `json:"contract_id"`
+	SenderPartyID   string `json:"sender_party_id"`
+	ReceiverPartyID string `json:"receiver_party_id"`
+	Amount          string `json:"amount"`
+	InstrumentAdmin string `json:"instrument_admin"`
+	InstrumentID    string `json:"instrument_id"`
+	Symbol          string `json:"symbol,omitempty"`
+	Decimals        int    `json:"decimals,omitempty"`
+	Name            string `json:"name,omitempty"`
+	ContractAddress string `json:"contract_address,omitempty"`
+}
+
+// IncomingTransfersList is the HTTP response body for GET /api/v2/transfer/incoming.
+// Pagination is page/limit-based to match the indexer's underlying envelope
+// (`pkg/indexer.Page[T]`): callers ask for a specific page rather than carrying
+// an opaque cursor, since the indexer is keyed by ledger_offset and a stable
+// numeric offset is the natural cursor. HasMore is derived from page*limit < total
+// so clients can stop iterating without needing arithmetic.
+type IncomingTransfersList struct {
+	Items   []IncomingTransfer `json:"items"`
+	Total   int64              `json:"total"`
+	Page    int                `json:"page"`
+	Limit   int                `json:"limit"`
+	HasMore bool               `json:"has_more"`
+}
+
+// PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.
+type PrepareAcceptRequest struct {
+	InstrumentAdmin string `json:"instrument_admin"` // Canton party ID of the instrument admin
 }

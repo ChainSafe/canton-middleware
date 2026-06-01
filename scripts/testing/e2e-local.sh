@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 # Canton-Ethereum Bridge Local E2E Test (Bash + Cast version - Refactored)
 # =============================================================================

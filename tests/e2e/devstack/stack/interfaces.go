@@ -39,6 +39,15 @@ type Anvil interface {
 	// ApproveAndDeposit approves the bridge contract to spend amount, then
 	// submits the deposit transaction. Returns the transaction hash.
 	ApproveAndDeposit(ctx context.Context, account *Account, amount *big.Int) (common.Hash, error)
+
+	// FundWithETH transfers amount of ETH (in wei) from the from account to the
+	// to address. Used in tests to seed derived accounts with gas money.
+	FundWithETH(ctx context.Context, from *Account, to common.Address, amount *big.Int) error
+
+	// TransferERC20 transfers amount of the ERC-20 token at tokenAddr from the
+	// from account to the to address. Used in tests to seed derived accounts with
+	// token balances before a bridge deposit.
+	TransferERC20(ctx context.Context, from *Account, to, tokenAddr common.Address, amount *big.Int) error
 }
 
 // Canton is the interface for the Canton ledger node.
@@ -84,6 +93,21 @@ type Canton interface {
 	// mappingCID is from GetFingerprintMapping; holdingCID is from GetHoldings;
 	// evmDest is the recipient's EVM address (checksummed hex).
 	InitiateWithdrawal(ctx context.Context, mappingCID, holdingCID, amount, evmDest string) (string, error)
+
+	// ProcessWithdrawal exercises the ProcessWithdrawal choice on a
+	// WithdrawalRequest contract. This burns the user's Canton tokens and
+	// creates a WithdrawalEvent that the relayer streams to release tokens on EVM.
+	// Returns the WithdrawalEvent contract ID.
+	ProcessWithdrawal(ctx context.Context, withdrawalRequestCID string) (string, error)
+
+	// TransferToken finds a CIP56TransferFactory and a suitable CIP56Holding
+	// for senderParty, then exercises TransferFactory_Transfer to move amount
+	// of tokenSymbol to recipientParty. This is a Canton-native operation —
+	// no EVM bridge involvement.
+	//
+	// Implementations that do not support direct token transfer (e.g. the P1
+	// shim when no CIP56TransferFactory exists for the token) return an error.
+	TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error
 }
 
 // APIServer is the interface for the canton-middleware api-server.
@@ -148,6 +172,30 @@ type APIServer interface {
 	// and returns the base64-encoded CreatedEventBlob used for Splice contract
 	// discovery.
 	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
+
+	// ListIncomingTransfers returns pending inbound TransferOffer details for the
+	// given account via GET /api/v2/transfer/incoming?address=…. The endpoint is
+	// unauthenticated; account is used only to derive the query parameter.
+	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.IncomingTransfersList, error)
+
+	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
+	// via POST /api/v2/transfer/incoming/{contractID}/prepare. Returns the
+	// transaction hash the receiver must sign.
+	PrepareAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.PrepareAcceptRequest,
+	) (*transfer.PrepareResponse, error)
+
+	// ExecuteAcceptTransfer completes a prepared accept with the receiver's
+	// DER-encoded Canton signature via POST /api/v2/transfer/incoming/{contractID}/execute.
+	ExecuteAcceptTransfer(
+		ctx context.Context,
+		account *Account,
+		contractID string,
+		req *transfer.ExecuteRequest,
+	) (*transfer.ExecuteResponse, error)
 }
 
 // Relayer is the interface for the canton-bridge relayer service.
@@ -246,4 +294,10 @@ type APIDatabase interface {
 	// WhitelistAddress inserts evmAddress into the whitelist table, granting
 	// it permission to register with the api-server.
 	WhitelistAddress(ctx context.Context, evmAddress string) error
+
+	// GetUser returns the RegisterResponse for the user with the given EVM
+	// address by reading directly from the users table. Used by the DSL to
+	// recover registration data when the api-server returns HTTP 409 (already
+	// registered).
+	GetUser(ctx context.Context, evmAddress string) (*user.RegisterResponse, error)
 }

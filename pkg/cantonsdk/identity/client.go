@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package identity implements Canton identity operations such as party management
 // and fingerprint-to-party mapping.
 package identity
@@ -47,6 +49,12 @@ type Identity interface {
 	// AllocateExternalPartyWithSignature completes external party allocation using
 	// a client-provided DER signature of the topology multi-hash.
 	AllocateExternalPartyWithSignature(ctx context.Context, topology *ExternalPartyTopology, derSignature []byte) (*Party, error)
+
+	// PackageID returns the DAML package ID this client uses for identity templates
+	// (e.g. Common.FingerprintAuth). Callers that need to query identity templates
+	// using a ledger client directly (rather than through this client) can use this
+	// to construct the correct template identifier.
+	PackageID() string
 }
 
 // Client implements the Identity interface.
@@ -388,6 +396,11 @@ func isAlreadyExistsError(err error) bool {
 	}
 
 	return false
+}
+
+// PackageID returns the DAML package ID used by this client for identity templates.
+func (c *Client) PackageID() string {
+	return c.cfg.PackageID
 }
 
 func normalizeFingerprint(fingerprint string) string {

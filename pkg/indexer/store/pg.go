@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package store
 
 import (
@@ -169,8 +171,8 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 	newAmount := oldAmount.Add(d)
 	if newAmount.IsNegative() {
 		return fmt.Errorf(
-			"negative balance for party %s on %s/%s: current=%s delta=%s",
-			partyID, instrumentAdmin, instrumentID, oldAmount.String(), delta,
+			"%w for party %s on %s/%s: current=%s delta=%s",
+			engine.ErrNegativeBalance, partyID, instrumentAdmin, instrumentID, oldAmount.String(), delta,
 		)
 	}
 
@@ -210,6 +212,144 @@ func (s *PGStore) ApplyBalanceDelta(ctx context.Context, partyID, instrumentAdmi
 		}
 	}
 	return nil
+}
+
+// ─── holding methods ────────────────────────────────────────────────────────
+
+// InsertHolding records an active Utility.Registry.Holding contract.
+// Idempotent by ContractID — replayed CREATED events return no error.
+func (s *PGStore) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
+	dao := &HoldingDao{
+		ContractID:      h.ContractID,
+		Owner:           h.Owner,
+		InstrumentAdmin: h.InstrumentAdmin,
+		InstrumentID:    h.InstrumentID,
+		Amount:          h.Amount,
+		LedgerOffset:    h.LedgerOffset,
+	}
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert holding: %w", err)
+	}
+	return nil
+}
+
+// TakeHolding deletes the holding row matching contractID and returns its
+// owner/instrument/amount so the caller can apply the symmetric balance delta.
+// Returns ok=false when the row does not exist (replayed ARCHIVED event).
+func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer.HoldingChange, ok bool, err error) {
+	var dao HoldingDao
+	err = s.db.NewSelect().
+		Model(&dao).
+		Where("contract_id = ?", contractID).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return indexer.HoldingChange{}, false, nil
+		}
+		return indexer.HoldingChange{}, false, fmt.Errorf("select holding: %w", err)
+	}
+	if _, err := s.db.NewDelete().
+		Model((*HoldingDao)(nil)).
+		Where("contract_id = ?", contractID).
+		Exec(ctx); err != nil {
+		return indexer.HoldingChange{}, false, fmt.Errorf("delete holding: %w", err)
+	}
+	return indexer.HoldingChange{
+		ContractID:      dao.ContractID,
+		Owner:           dao.Owner,
+		InstrumentAdmin: dao.InstrumentAdmin,
+		InstrumentID:    dao.InstrumentID,
+		Amount:          dao.Amount,
+		LedgerOffset:    dao.LedgerOffset,
+	}, true, nil
+}
+
+// ─── pending offer methods ───────────────────────────────────────────────────
+
+// InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.
+func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
+	dao := toPendingOfferDao(offer)
+	dao.Status = string(indexer.OfferStatusPending)
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("insert pending offer: %w", err)
+	}
+	return nil
+}
+
+// MarkOfferAccepted sets a TransferOffer's status to ACCEPTED. No-op when not found.
+func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+	_, err := s.db.NewUpdate().
+		Model((*PendingOfferDao)(nil)).
+		Set("status = ?", string(indexer.OfferStatusAccepted)).
+		Where("contract_id = ?", contractID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("mark offer accepted: %w", err)
+	}
+	return nil
+}
+
+// ListPendingOffersForParty returns PENDING offers where receiver = partyID,
+// ordered by ledger_offset ASC, with pagination.
+func (s *PGStore) ListPendingOffersForParty(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	var daos []PendingOfferDao
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("receiver_party_id = ?", partyID).
+			Where("status = ?", string(indexer.OfferStatusPending)).
+			OrderExpr("ledger_offset ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list pending offers: %w", err)
+	}
+	offers := make([]indexer.PendingOffer, len(daos))
+	for i := range daos {
+		offers[i] = fromPendingOfferDao(&daos[i])
+	}
+	return offers, int64(total), nil
+}
+
+// ListAllPendingOffers returns all PENDING offers across all parties,
+// ordered by ledger_offset ASC, with pagination.
+func (s *PGStore) ListAllPendingOffers(
+	ctx context.Context, p indexer.Pagination,
+) ([]indexer.PendingOffer, int64, error) {
+	var daos []PendingOfferDao
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&daos).
+			Where("status = ?", string(indexer.OfferStatusPending)).
+			OrderExpr("ledger_offset ASC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list all pending offers: %w", err)
+	}
+	offers := make([]indexer.PendingOffer, len(daos))
+	for i := range daos {
+		offers[i] = fromPendingOfferDao(&daos[i])
+	}
+	return offers, int64(total), nil
 }
 
 // ─── service.Store read-path methods ─────────────────────────────────────────

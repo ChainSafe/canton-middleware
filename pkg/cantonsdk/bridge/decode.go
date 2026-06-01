@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package bridge
 
 import (
@@ -16,7 +18,7 @@ func decodeWithdrawalEvent(ce *lapiv2.CreatedEvent, txID string) *WithdrawalEven
 		TransactionID:  txID,
 		Issuer:         values.Party(fields["issuer"]),
 		UserParty:      values.Party(fields["userParty"]),
-		EvmDestination: values.Text(fields["evmDestination"]),
+		EvmDestination: values.NewtypeText(fields["evmDestination"]),
 		Amount:         values.Numeric(fields["amount"]),
 		Fingerprint:    values.Text(fields["fingerprint"]),
 		Status:         decodeWithdrawalStatusV2(fields["status"]),

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package userstore
 
 import (
@@ -39,7 +41,7 @@ func (s *pgStore) CreateUser(ctx context.Context, usr *user.User) error {
 
 func (s *pgStore) getUserBy(ctx context.Context, column string, value string) (*user.User, error) {
 	dao := new(UserDao)
-	query := s.db.NewSelect().Model(dao).Where(column+" = ?", value)
+	query := s.db.NewSelect().Model(dao).Where("? = ?", bun.Ident(column), value)
 
 	err := query.Scan(ctx)
 	if err != nil {
@@ -91,6 +93,21 @@ func (s *pgStore) ListUsers(ctx context.Context) ([]*user.User, error) {
 	err := s.db.NewSelect().Model(&daos).Scan(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+	users := make([]*user.User, len(daos))
+	for i := range daos {
+		users[i] = toUser(&daos[i])
+	}
+	return users, nil
+}
+
+func (s *pgStore) ListCustodialUsers(ctx context.Context) ([]*user.User, error) {
+	var daos []UserDao
+	err := s.db.NewSelect().Model(&daos).
+		Where("key_mode = ?", user.KeyModeCustodial).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list custodial users: %w", err)
 	}
 	users := make([]*user.User, len(daos))
 	for i := range daos {

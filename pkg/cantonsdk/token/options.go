@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package token
 
 import "go.uber.org/zap"
 
 type settings struct {
-	logger      *zap.Logger
-	keyResolver KeyResolver
+	logger         *zap.Logger
+	keyResolver    KeyResolver
+	registryClient *RegistryClient
 }
 
 // Option configures the token client.
@@ -19,6 +22,12 @@ func WithLogger(l *zap.Logger) Option {
 // Required for transfers involving external parties (Interactive Submission).
 func WithKeyResolver(kr KeyResolver) Option {
 	return func(s *settings) { s.keyResolver = kr }
+}
+
+// WithRegistryClient sets the HTTP client for external Transfer Factory Registry API calls.
+// Required for transferring tokens issued by external parties (e.g., USDCx).
+func WithRegistryClient(rc *RegistryClient) Option {
+	return func(s *settings) { s.registryClient = rc }
 }
 
 func applyOptions(opts []Option) settings {

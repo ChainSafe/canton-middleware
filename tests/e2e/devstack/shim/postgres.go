@@ -5,11 +5,13 @@ package shim
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	_ "github.com/lib/pq"
 
+	"github.com/chainsafe/canton-middleware/pkg/user"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
@@ -55,4 +57,25 @@ func (p *PostgresShim) WhitelistAddress(ctx context.Context, evmAddress string) 
 		return fmt.Errorf("whitelist %s: %w", evmAddress, err)
 	}
 	return nil
+}
+
+// GetUser reads the canton_party, fingerprint, and key_mode for evmAddress
+// from the users table. Returns an error if the user does not exist.
+func (p *PostgresShim) GetUser(ctx context.Context, evmAddress string) (*user.RegisterResponse, error) {
+	row := p.db.QueryRowContext(ctx,
+		`SELECT canton_party, fingerprint, key_mode FROM users WHERE evm_address = $1`,
+		evmAddress,
+	)
+	var party, fingerprint, keyMode string
+	if err := row.Scan(&party, &fingerprint, &keyMode); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user %s not found in users table", evmAddress)
+		}
+		return nil, fmt.Errorf("get user %s: %w", evmAddress, err)
+	}
+	return &user.RegisterResponse{
+		Party:       party,
+		Fingerprint: fingerprint,
+		KeyMode:     keyMode,
+	}, nil
 }
