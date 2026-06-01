@@ -28,6 +28,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/indexer/engine"
 	indexerservice "github.com/chainsafe/canton-middleware/pkg/indexer/service"
 	indexerstore "github.com/chainsafe/canton-middleware/pkg/indexer/store"
@@ -106,27 +107,7 @@ func (s *Server) Run() error {
 
 	// ── Template identifiers ──────────────────────────────────────────────────
 
-	transferEventTemplateID := streaming.TemplateID{
-		PackageID:  cfg.Indexer.CIP56PackageID,
-		ModuleName: "CIP56.Events",
-		EntityName: "TokenTransferEvent",
-	}
-
-	templateIDs := []streaming.TemplateID{transferEventTemplateID}
-	if cfg.Indexer.UtilityRegistryPackageID != "" {
-		templateIDs = append(templateIDs, streaming.TemplateID{
-			PackageID:  cfg.Indexer.UtilityRegistryPackageID,
-			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
-			EntityName: "TransferOffer",
-		})
-	}
-	if cfg.Indexer.UtilityRegistryHoldingPackageID != "" {
-		templateIDs = append(templateIDs, streaming.TemplateID{
-			PackageID:  cfg.Indexer.UtilityRegistryHoldingPackageID,
-			ModuleName: "Utility.Registry.Holding.V0.Holding",
-			EntityName: "Holding",
-		})
-	}
+	templateIDs := indexerTemplateIDs(cfg.Indexer)
 
 	// ── Metrics — registered once, injected into processor and store ──────────
 
@@ -197,6 +178,32 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	}
 
 	return g.Wait()
+}
+
+// indexerTemplateIDs builds the streaming template-ID list the fetcher subscribes
+// to. CIP-56 TokenTransferEvent is always included; Utility.Registry TransferOffer
+// and Holding are appended when their package IDs are configured.
+func indexerTemplateIDs(cfg *indexer.Config) []streaming.TemplateID {
+	ids := []streaming.TemplateID{{
+		PackageID:  cfg.CIP56PackageID,
+		ModuleName: "CIP56.Events",
+		EntityName: "TokenTransferEvent",
+	}}
+	if cfg.UtilityRegistryPackageID != "" {
+		ids = append(ids, streaming.TemplateID{
+			PackageID:  cfg.UtilityRegistryPackageID,
+			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
+			EntityName: "TransferOffer",
+		})
+	}
+	if cfg.UtilityRegistryHoldingPackageID != "" {
+		ids = append(ids, streaming.TemplateID{
+			PackageID:  cfg.UtilityRegistryHoldingPackageID,
+			ModuleName: "Utility.Registry.Holding.V0.Holding",
+			EntityName: "Holding",
+		})
+	}
+	return ids
 }
 
 // newRouter builds the chi router with standard middleware, a /health endpoint,

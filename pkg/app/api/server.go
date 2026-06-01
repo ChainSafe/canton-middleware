@@ -373,25 +373,6 @@ func (s *Server) startPeriodicReconcile(
 	return func() { reconciler.Stop() }
 }
 
-func (s *Server) startEthRPCMinerIfEnabled(
-	ctx context.Context,
-	evmStore *ethrpcstore.InstrumentedStore,
-	reg sharedmetrics.NamespacedRegisterer,
-	logger *zap.Logger,
-) {
-	if !s.cfg.EthRPC.Enabled {
-		return
-	}
-	m := ethrpcminer.New(
-		evmStore,
-		s.cfg.EthRPC.ChainID, s.cfg.EthRPC.GasLimit,
-		s.cfg.EthRPC.MinerMaxTxsPerBlock, s.cfg.EthRPC.MinerInterval,
-		ethrpcminer.NewMetrics(reg),
-		logger,
-	)
-	go m.Start(ctx)
-}
-
 // serveAll runs the main HTTP server and, when monitoring is enabled,
 // the metrics server. Both share an errgroup context: if either server
 // fails the other is canceled and the first error is returned.

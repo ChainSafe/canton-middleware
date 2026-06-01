@@ -11,17 +11,17 @@ import (
 type ClientOperation string
 
 const (
-	OpGetToken             ClientOperation = "get_token"
-	OpListTokens           ClientOperation = "list_tokens"
-	OpTotalSupply          ClientOperation = "total_supply"
-	OpGetBalance           ClientOperation = "get_balance"
-	OpListBalancesForParty ClientOperation = "list_balances_for_party"
-	OpListBalancesForToken ClientOperation = "list_balances_for_token"
-	OpGetEvent             ClientOperation = "get_event"
-	OpListTokenEvents       ClientOperation = "list_token_events"
-	OpListPartyEvents       ClientOperation = "list_party_events"
+	OpGetToken               ClientOperation = "get_token"
+	OpListTokens             ClientOperation = "list_tokens"
+	OpTotalSupply            ClientOperation = "total_supply"
+	OpGetBalance             ClientOperation = "get_balance"
+	OpListBalancesForParty   ClientOperation = "list_balances_for_party"
+	OpListBalancesForToken   ClientOperation = "list_balances_for_token"
+	OpGetEvent               ClientOperation = "get_event"
+	OpListTokenEvents        ClientOperation = "list_token_events"
+	OpListPartyEvents        ClientOperation = "list_party_events"
 	OpGetPendingOffersForPty ClientOperation = "get_pending_offers_for_party"
-	OpGetAllPendingOffers   ClientOperation = "get_all_pending_offers"
+	OpGetAllPendingOffers    ClientOperation = "get_all_pending_offers"
 )
 
 // Metrics holds Prometheus collectors for the indexer HTTP client.
