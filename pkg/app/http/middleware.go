@@ -18,6 +18,9 @@ import (
 // Route patterns (e.g. /v1/tokens/{id}) are used as the endpoint label rather
 // than raw paths to avoid unbounded cardinality.
 func RequestMetricsMiddleware(m *HTTPMetrics) func(http.Handler) http.Handler {
+	if m == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
