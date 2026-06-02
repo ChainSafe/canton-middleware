@@ -243,7 +243,7 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 	p.metrics.LastOffset.Set(float64(batch.Offset))
 	var lastEffectiveTime time.Time
 	for _, raw := range batch.Items {
-		if e, ok := raw.(*indexer.ParsedEvent); ok {
+		if e, ok := raw.(*indexer.ParsedEvent); ok && e != nil {
 			p.metrics.IncEventsProcessed(e.EventType)
 			if e.EffectiveTime.After(lastEffectiveTime) {
 				lastEffectiveTime = e.EffectiveTime
