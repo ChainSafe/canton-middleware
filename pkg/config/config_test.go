@@ -214,7 +214,7 @@ func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
 	if cfg.Ethereum.LookbackBlocks != 1000 {
 		t.Fatalf("ethereum.lookback_blocks default mismatch: got %d", cfg.Ethereum.LookbackBlocks)
 	}
-	if cfg.Ethereum.MaxBlockRange != 5000 {
+	if cfg.Ethereum.MaxBlockRange != 100 {
 		t.Fatalf("ethereum.max_block_range default mismatch: got %d", cfg.Ethereum.MaxBlockRange)
 	}
 

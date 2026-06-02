@@ -25,7 +25,7 @@ ethereum:
   polling_interval: "5s"
   start_block: 0
   lookback_blocks: 1000
-  max_block_range: 5000
+  max_block_range: 100
 
 canton:
   domain_id: "${CANTON_DOMAIN_ID}"  # Auto-detected by bootstrap

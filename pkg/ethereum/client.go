@@ -163,11 +163,10 @@ func (c *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
 
 // WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility).
 //
-// Each tick is split into chunks of at most config.MaxBlockRange blocks so that
-// requests stay under the provider's per-call block-range cap. If a chunk fails,
-// the poller advances currentBlock only up to the last successful chunk and
-// retries the failing range on the next tick — preventing an oversized range
-// from permanently stalling progress.
+// Each tick's [currentBlock+1, latestBlock] range is walked in slices of at most
+// config.MaxBlockRange blocks so requests stay under the provider's per-call cap.
+// On a slice failure, currentBlock advances only through the last successful
+// slice and the failing range is retried on the next tick.
 func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*DepositEvent) error) error {
 	c.logger.Info("Starting deposit event poller",
 		zap.Uint64("from_block", fromBlock),
@@ -195,79 +194,50 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 				continue
 			}
 
-			for _, chunk := range chunkRange(currentBlock+1, latestBlock, c.config.MaxBlockRange) {
-				if err := c.scanDepositChunk(ctx, chunk.start, chunk.end, handler); err != nil {
-					c.logger.Warn("Failed to scan deposit chunk; will retry next tick",
-						zap.Error(err),
-						zap.Uint64("from", chunk.start),
-						zap.Uint64("to", chunk.end))
+			for from := currentBlock + 1; from <= latestBlock; {
+				to := min(from+c.config.MaxBlockRange-1, latestBlock)
+
+				opts := &bind.FilterOpts{Start: from, End: &to, Context: ctx}
+				iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
+				if err != nil {
+					c.logger.Warn("Failed to filter deposit events; will retry next tick",
+						zap.Error(err), zap.Uint64("from", from), zap.Uint64("to", to))
 					break
 				}
-				currentBlock = chunk.end
+
+				for iter.Next() {
+					event := iter.Event
+					depositEvent := &DepositEvent{
+						Token:           event.Token,
+						Sender:          event.Sender,
+						CantonRecipient: event.CantonRecipient,
+						Amount:          event.Amount,
+						Nonce:           event.Nonce,
+						BlockNumber:     event.Raw.BlockNumber,
+						TxHash:          event.Raw.TxHash,
+						LogIndex:        event.Raw.Index,
+					}
+
+					if err := handler(depositEvent); err != nil {
+						c.logger.Error("Failed to handle deposit event",
+							zap.Error(err),
+							zap.String("tx_hash", event.Raw.TxHash.Hex()))
+					}
+				}
+
+				if err := iter.Error(); err != nil {
+					c.logger.Warn("Iterator error", zap.Error(err))
+					iter.Close()
+					break
+				}
+				iter.Close()
+
+				currentBlock = to
 				c.setLastScannedBlock(currentBlock)
+				from = to + 1
 			}
 		}
 	}
-}
-
-// scanDepositChunk filters DepositToCanton events for an inclusive [from,to] range.
-func (c *Client) scanDepositChunk(ctx context.Context, from, to uint64, handler func(*DepositEvent) error) error {
-	opts := &bind.FilterOpts{
-		Start:   from,
-		End:     &to,
-		Context: ctx,
-	}
-
-	iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("filter deposit events [%d,%d]: %w", from, to, err)
-	}
-	defer iter.Close()
-
-	for iter.Next() {
-		event := iter.Event
-		depositEvent := &DepositEvent{
-			Token:           event.Token,
-			Sender:          event.Sender,
-			CantonRecipient: event.CantonRecipient,
-			Amount:          event.Amount,
-			Nonce:           event.Nonce,
-			BlockNumber:     event.Raw.BlockNumber,
-			TxHash:          event.Raw.TxHash,
-			LogIndex:        event.Raw.Index,
-		}
-
-		if err := handler(depositEvent); err != nil {
-			c.logger.Error("Failed to handle deposit event",
-				zap.Error(err),
-				zap.String("tx_hash", event.Raw.TxHash.Hex()))
-		}
-	}
-
-	if err := iter.Error(); err != nil {
-		return fmt.Errorf("deposit iterator [%d,%d]: %w", from, to, err)
-	}
-	return nil
-}
-
-type blockRange struct{ start, end uint64 }
-
-// chunkRange splits [start,end] inclusive into contiguous chunks of at most maxRange blocks each.
-// Returns nil if start > end or maxRange == 0.
-func chunkRange(start, end, maxRange uint64) []blockRange {
-	if start > end || maxRange == 0 {
-		return nil
-	}
-	chunks := make([]blockRange, 0, (end-start)/maxRange+1)
-	for s := start; s <= end; {
-		e := min(s+maxRange-1, end)
-		chunks = append(chunks, blockRange{start: s, end: e})
-		if e == ^uint64(0) {
-			break
-		}
-		s = e + 1
-	}
-	return chunks
 }
 
 // WithdrawFromCanton submits a withdrawal transaction
