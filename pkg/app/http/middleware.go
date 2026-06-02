@@ -28,7 +28,7 @@ func RequestMetricsMiddleware(m *HTTPMetrics) func(http.Handler) http.Handler {
 			defer func() {
 				m.ActiveConnections.Dec()
 				endpoint := ChiRoutePattern(r)
-				statusCode := fmt.Sprintf("%d", ww.Status())
+				statusCode := strconv.Itoa(ww.Status())
 				elapsed := time.Since(start).Seconds()
 
 				m.IncRequestsTotal(r.Method, endpoint, statusCode)
