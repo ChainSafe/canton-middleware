@@ -18,4 +18,5 @@ type Config struct {
 	PollingInterval    time.Duration `yaml:"polling_interval" validate:"required,gt=0"`
 	StartBlock         int64         `yaml:"start_block" default:"0"`
 	LookbackBlocks     int64         `yaml:"lookback_blocks" default:"1000"`
+	MaxBlockRange      uint64        `yaml:"max_block_range" default:"5000" validate:"required,gt=0"`
 }

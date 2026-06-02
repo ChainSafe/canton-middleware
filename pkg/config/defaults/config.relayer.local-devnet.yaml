@@ -26,6 +26,7 @@ ethereum:
   polling_interval: "5s"
   start_block: 0
   lookback_blocks: 200
+  max_block_range: 5000
 
 canton:
   domain_id: "global-domain::1220be58c29e65de40bf273be1dc2b266d43a9a002ea5b18955aeef7aac881bb471a"
