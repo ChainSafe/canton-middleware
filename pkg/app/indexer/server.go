@@ -164,10 +164,9 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	})
 
 	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
-		if s.cfg.Monitoring.Server == nil {
-			return fmt.Errorf("monitoring is enabled but server config is nil")
-		}
-
+		// Monitoring.Server is enforced non-nil at config load time
+		// (`validate:"required_if=Enabled true"`), so no runtime check here —
+		// failing late would leak the main HTTP goroutine started above.
 		r := chi.NewRouter()
 		r.Use(middleware.Recoverer)
 		r.Handle("/metrics", promhttp.Handler())

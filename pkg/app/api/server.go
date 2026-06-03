@@ -119,7 +119,7 @@ func (s *Server) Run() error {
 	// indexer mode), the accept worker, and the pending-offers list endpoint
 	// all read from it. Build the HTTP client once and share — separate
 	// instances would just open redundant idle connections to the same host.
-	indexerClient, err := buildIndexerClient(cfg)
+	indexerClient, err := buildIndexerClient(cfg, reg)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (s *Server) Run() error {
 	// Keep this defer as a safety net.
 	defer stopReconcile()
 
-	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, indexerClient, cipher, reg, logger)
+	svcs, err := initServices(ctx, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
 	if err != nil {
 		return err
 	}
@@ -170,8 +170,9 @@ func (s *Server) Run() error {
 // here so the rest of the code never has to pick between them.
 //
 // An indexer is now required (the pending-offers endpoint backs onto it), so
-// startup fails fast if neither location is configured.
-func buildIndexerClient(cfg *config.APIServer) (*indexerclient.HTTP, error) {
+// startup fails fast if neither location is configured. The returned client is
+// wrapped with metrics so all outbound indexer calls are observed.
+func buildIndexerClient(cfg *config.APIServer, reg sharedmetrics.NamespacedRegisterer) (indexerclient.Client, error) {
 	url := ""
 	if cfg.TokenProvider != nil && cfg.TokenProvider.Indexer != nil {
 		url = cfg.TokenProvider.Indexer.URL
@@ -186,7 +187,7 @@ func buildIndexerClient(cfg *config.APIServer) (*indexerclient.HTTP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create indexer client (%s): %w", url, err)
 	}
-	return c, nil
+	return indexerclient.NewInstrumentedClient(c, indexerclient.NewMetrics(reg)), nil
 }
 
 // buildTokenProvider constructs the token data provider according to the
@@ -214,14 +215,13 @@ func initServices(
 	ctx context.Context,
 	cfg *config.APIServer,
 	dbBun *bun.DB,
+	userStore userstore.Store,
 	cantonClient *canton.Client,
 	indexerClient indexerclient.Client,
 	cipher keys.KeyCipher,
 	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*services, error) {
-	userStore := userstore.NewStore(dbBun)
-
 	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
 	go topologyCache.Start(ctx)
 
@@ -384,10 +384,6 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	})
 
 	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
-		if s.cfg.Monitoring.Server == nil {
-			return fmt.Errorf("monitoring is enabled but server config is nil")
-		}
-
 		r := chi.NewRouter()
 		r.Use(middleware.Recoverer)
 		r.Handle("/metrics", promhttp.Handler())
