@@ -77,6 +77,7 @@ type APIServer struct {
 	EthRPC              *ethrpc.Config                `yaml:"eth_rpc" validate:"required"`
 	JWKS                *JWKS                         `yaml:"jwks" default:"-"`          // nil by default (feature disabled)
 	AcceptWorker        *custodial.AcceptWorkerConfig `yaml:"accept_worker" default:"-"` // nil disables the worker
+	Monitoring          *Monitoring                   `yaml:"monitoring" validate:"required"`
 	Logging             *log.Config                   `yaml:"logging" validate:"required"`
 	Reconciliation      *reconciler.Config            `yaml:"reconciliation" validate:"required"`
 	KeyManagement       *KeyManagement                `yaml:"key_management" validate:"required"`
@@ -155,6 +156,7 @@ type IndexerServer struct {
 	// Bridge sub-clients are not required.
 	CantonLedger *ledger.Config  `yaml:"canton_ledger" validate:"required"`
 	Indexer      *indexer.Config `yaml:"indexer" validate:"required"`
+	Monitoring   *Monitoring     `yaml:"monitoring" validate:"required"`
 	Logging      *log.Config     `yaml:"logging" validate:"required"`
 }
 

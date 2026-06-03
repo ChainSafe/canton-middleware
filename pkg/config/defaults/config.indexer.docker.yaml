@@ -53,6 +53,17 @@ indexer:
   # for each owner.
   utility_registry_holding_package_id: "#utility-registry-holding-v0"
 
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9092
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"
+
 logging:
   level: "debug"
   format: "json"
