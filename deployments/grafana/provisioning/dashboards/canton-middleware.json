@@ -899,6 +899,475 @@
       }
     },
     {
+      "id": 37,
+      "type": "timeseries",
+      "title": "EthRPC Submitter \u2014 Throughput by Outcome & Backlog",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(api_server_ethrpc_submitter_entries_processed_total[5m])) by (outcome)",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "api_server_ethrpc_submitter_pending_backlog",
+          "legendFormat": "backlog",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(api_server_ethrpc_submitter_entries_fetched_bucket[5m])) by (le))",
+          "legendFormat": "fetched p95",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 0,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "backlog"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "B",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fetched p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "B",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "EthRPC Submitter \u2014 Canton Call Latency & Errors",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.50, sum(rate(api_server_ethrpc_submitter_canton_transfer_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(api_server_ethrpc_submitter_canton_transfer_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.99, sum(rate(api_server_ethrpc_submitter_canton_transfer_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(api_server_ethrpc_submitter_canton_transfer_errors_total[5m])) by (category)",
+          "legendFormat": "err / {{category}}",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^err / .*/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "EthRPC Submitter \u2014 Drain Cycle Health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.50, sum(rate(api_server_ethrpc_submitter_drain_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "drain p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(api_server_ethrpc_submitter_drain_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "drain p95",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(api_server_ethrpc_submitter_worker_pool_blocked_total[5m])",
+          "legendFormat": "pool blocked/s",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pool blocked/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "EthRPC Submitter \u2014 Drain Rate & Failures",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(api_server_ethrpc_submitter_drain_duration_seconds_count[1m])",
+          "legendFormat": "drain rate",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(api_server_ethrpc_submitter_db_write_errors_total[5m])) by (kind)",
+          "legendFormat": "db_write / {{kind}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(api_server_ethrpc_submitter_drain_errors_total[5m])",
+          "legendFormat": "drain errors/s",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^db_write / .*/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "drain errors/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ops"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 15,
       "type": "timeseries",
       "title": "EthRPC DB Query Duration",
@@ -908,7 +1377,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 46,
         "w": 12,
         "h": 8
       },
@@ -963,7 +1432,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 30,
+        "y": 46,
         "w": 12,
         "h": 8
       },
@@ -1024,7 +1493,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 54,
         "w": 24,
         "h": 1
       },
@@ -1040,7 +1509,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -1095,7 +1564,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 39,
+        "y": 55,
         "w": 12,
         "h": 8
       },
@@ -1154,7 +1623,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 63,
         "w": 6,
         "h": 8
       },
@@ -1223,7 +1692,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 47,
+        "y": 63,
         "w": 6,
         "h": 8
       },
@@ -1283,7 +1752,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 47,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -1339,7 +1808,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -1394,7 +1863,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 55,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -1479,7 +1948,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 79,
         "w": 24,
         "h": 1
       },
@@ -1495,7 +1964,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 80,
         "w": 12,
         "h": 8
       },
@@ -1554,7 +2023,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 64,
+        "y": 80,
         "w": 12,
         "h": 8
       },
@@ -1618,7 +2087,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 72,
+        "y": 88,
         "w": 12,
         "h": 8
       },
@@ -1672,7 +2141,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 72,
+        "y": 88,
         "w": 8,
         "h": 8
       },
@@ -1727,7 +2196,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 72,
+        "y": 88,
         "w": 4,
         "h": 8
       },
@@ -1805,7 +2274,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 80,
+        "y": 96,
         "w": 12,
         "h": 8
       },
@@ -1886,7 +2355,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 80,
+        "y": 96,
         "w": 12,
         "h": 8
       },
@@ -1945,7 +2414,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 88,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2009,7 +2478,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 88,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2064,7 +2533,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 96,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -2119,7 +2588,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 96,
+        "y": 112,
         "w": 12,
         "h": 8
       },

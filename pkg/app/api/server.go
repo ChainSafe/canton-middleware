@@ -273,6 +273,7 @@ func initServices(
 			cfg.EthRPC.SubmitterInterval,
 			cfg.EthRPC.SubmitterBatchSize,
 			cfg.EthRPC.SubmitterConcurrency,
+			ethrpcsubmitter.NewMetrics(reg),
 			logger,
 		)
 		go sub.Start(ctx)

@@ -44,7 +44,7 @@ func samplePendingEntry(txHash byte, amount int64) ethrpc.MempoolEntry {
 func newTestSubmitter(store Store, tokenSvc TokenService) *Submitter {
 	// Concurrency 1 keeps tests deterministic for assertions that depend on
 	// ordering; tests that exercise the worker pool override New directly.
-	return New(store, tokenSvc, 10*time.Millisecond, 0, 1, zap.NewNop())
+	return New(store, tokenSvc, 10*time.Millisecond, 0, 1, NewNopMetrics(), zap.NewNop())
 }
 
 // ─── drain() ─────────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ func TestDrain_BatchSizePushedToStore(t *testing.T) {
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(mock.Anything).Return(erc20, nil).Times(2)
 
-	s := New(store, tokenSvc, time.Second, batchSize, 1, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, batchSize, 1, NewNopMetrics(), zap.NewNop())
 	require.NoError(t, s.drain(context.Background()))
 }
 
@@ -234,7 +234,7 @@ func TestStart_StopsOnContextCancel(t *testing.T) {
 
 	tokenSvc := mocks.NewTokenService(t)
 
-	s := New(store, tokenSvc, 5*time.Millisecond, 0, 1, zap.NewNop())
+	s := New(store, tokenSvc, 5*time.Millisecond, 0, 1, NewNopMetrics(), zap.NewNop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -290,7 +290,7 @@ func TestDrain_RunsEntriesConcurrently(t *testing.T) {
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(mock.Anything).Return(erc20, nil).Times(concurrency)
 
-	s := New(store, tokenSvc, time.Second, 0, concurrency, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, 0, concurrency, NewNopMetrics(), zap.NewNop())
 
 	drained := make(chan error, 1)
 	go func() { drained <- s.drain(context.Background()) }()
@@ -354,7 +354,7 @@ func TestDrain_RespectsConcurrencyCap(t *testing.T) {
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(mock.Anything).Return(erc20, nil).Times(batch)
 
-	s := New(store, tokenSvc, time.Second, 0, concurrency, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, 0, concurrency, NewNopMetrics(), zap.NewNop())
 	require.NoError(t, s.drain(context.Background()))
 
 	require.LessOrEqual(t, int(atomic.LoadInt32(&peak)), concurrency,
@@ -364,10 +364,10 @@ func TestDrain_RespectsConcurrencyCap(t *testing.T) {
 // New() must coerce a non-positive concurrency to the package default rather
 // than silently disabling the pool — a zero-buffered semaphore would deadlock.
 func TestNew_NonPositiveConcurrencyDefaults(t *testing.T) {
-	s := New(nil, nil, time.Second, 0, 0, zap.NewNop())
+	s := New(nil, nil, time.Second, 0, 0, NewNopMetrics(), zap.NewNop())
 	require.Equal(t, defaultConcurrency, s.concurrency)
 
-	s = New(nil, nil, time.Second, 0, -5, zap.NewNop())
+	s = New(nil, nil, time.Second, 0, -5, NewNopMetrics(), zap.NewNop())
 	require.Equal(t, defaultConcurrency, s.concurrency)
 }
 
@@ -404,7 +404,7 @@ func TestProcess_CantonContextDone_LeavesPending(t *testing.T) {
 		cancel()
 	}()
 
-	s := New(store, tokenSvc, time.Second, 0, 1, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, 0, 1, NewNopMetrics(), zap.NewNop())
 	s.process(ctx, &entry)
 
 	// Cancellation/timeout is transient → no Complete/Fail call.
@@ -451,7 +451,7 @@ func TestProcess_DBWriteUsesFreshContext_OnSuccess(t *testing.T) {
 		}), entry.TxHash).
 		Return(nil)
 
-	s := New(store, tokenSvc, time.Second, 0, 1, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, 0, 1, NewNopMetrics(), zap.NewNop())
 	s.process(context.Background(), &entry)
 }
 
@@ -482,7 +482,7 @@ func TestFailEntry_UsesFreshContext(t *testing.T) {
 		}), entry.TxHash, mock.AnythingOfType("string")).
 		Return(nil)
 
-	s := New(store, tokenSvc, time.Second, 0, 1, zap.NewNop())
+	s := New(store, tokenSvc, time.Second, 0, 1, NewNopMetrics(), zap.NewNop())
 	s.process(context.Background(), &entry)
 }
 
