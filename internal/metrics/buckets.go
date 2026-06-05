@@ -25,6 +25,3 @@ var (
 	// DefaultDurationBuckets is the standard prometheus default buckets.
 	DefaultDurationBuckets = prometheus.DefBuckets
 )
-
-// Namespace is the common top-level namespace for all canton middleware metrics.
-const Namespace = "canton"

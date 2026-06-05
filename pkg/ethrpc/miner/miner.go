@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
@@ -40,17 +41,19 @@ type Miner struct {
 	gasLimit       uint64
 	maxTxsPerBlock int
 	interval       time.Duration
+	metrics        *Metrics
 	logger         *zap.Logger
 }
 
 // New creates a new Miner.
-func New(store Store, chainID, gasLimit uint64, maxTxsPerBlock int, interval time.Duration, logger *zap.Logger) *Miner {
+func New(store Store, chainID, gasLimit uint64, maxTxsPerBlock int, interval time.Duration, metrics *Metrics, logger *zap.Logger) *Miner {
 	return &Miner{
 		store:          store,
 		chainID:        chainID,
 		gasLimit:       gasLimit,
 		maxTxsPerBlock: maxTxsPerBlock,
 		interval:       interval,
+		metrics:        metrics,
 		logger:         logger,
 	}
 }
@@ -72,7 +75,15 @@ func (m *Miner) Start(ctx context.Context) {
 	}
 }
 
-func (m *Miner) mine(ctx context.Context) error {
+func (m *Miner) mine(ctx context.Context) (err error) {
+	timer := prometheus.NewTimer(m.metrics.MineDuration)
+	defer timer.ObserveDuration()
+	defer func() {
+		if err != nil {
+			m.metrics.ErrorsTotal.Inc()
+		}
+	}()
+
 	block, err := m.store.NewBlock(ctx, m.chainID)
 	if err != nil {
 		return err
@@ -133,6 +144,9 @@ func (m *Miner) mine(ctx context.Context) error {
 		return err
 	}
 
+	m.metrics.BlocksMined.Inc()
+	m.metrics.TransactionsMined.Add(float64(len(entries)))
+	m.metrics.LatestBlock.Set(float64(block.Number()))
 	m.logger.Info("ethrpc miner: mined block",
 		zap.Uint64("number", block.Number()),
 		zap.Int("txs", len(entries)),

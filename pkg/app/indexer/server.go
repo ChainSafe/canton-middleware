@@ -23,10 +23,12 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/streaming"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/indexer/engine"
 	indexerservice "github.com/chainsafe/canton-middleware/pkg/indexer/service"
 	indexerstore "github.com/chainsafe/canton-middleware/pkg/indexer/store"
@@ -35,6 +37,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -103,27 +107,14 @@ func (s *Server) Run() error {
 
 	// ── Template identifiers ──────────────────────────────────────────────────
 
-	transferEventTemplateID := streaming.TemplateID{
-		PackageID:  cfg.Indexer.CIP56PackageID,
-		ModuleName: "CIP56.Events",
-		EntityName: "TokenTransferEvent",
-	}
+	templateIDs := indexerTemplateIDs(cfg.Indexer)
 
-	templateIDs := []streaming.TemplateID{transferEventTemplateID}
-	if cfg.Indexer.UtilityRegistryPackageID != "" {
-		templateIDs = append(templateIDs, streaming.TemplateID{
-			PackageID:  cfg.Indexer.UtilityRegistryPackageID,
-			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
-			EntityName: "TransferOffer",
-		})
-	}
-	if cfg.Indexer.UtilityRegistryHoldingPackageID != "" {
-		templateIDs = append(templateIDs, streaming.TemplateID{
-			PackageID:  cfg.Indexer.UtilityRegistryHoldingPackageID,
-			ModuleName: "Utility.Registry.Holding.V0.Holding",
-			EntityName: "Holding",
-		})
-	}
+	// ── Metrics — registered once, injected into processor and store ──────────
+
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "indexer_server")
+	engineMetrics := engine.NewMetrics(reg)
+	storeMetrics := indexerstore.NewStoreMetrics(reg)
+	httpMetrics := apphttp.NewHTTPMetrics(reg)
 
 	// ── Decoder / Fetcher / Processor (write path) ────────────────────────────
 
@@ -133,13 +124,14 @@ func (s *Server) Run() error {
 	holdingDecode := engine.NewHoldingDecoder(cfg.Indexer.UtilityRegistryHoldingPackageID, logger)
 	decode := engine.NewMultiDecoder(transferDecode, offerDecode, holdingDecode)
 	fetcher := engine.NewFetcher(streamClient, templateIDs, decode, logger)
-	store := indexerstore.NewStore(db)
-	processor := engine.NewProcessor(fetcher, store, logger)
+	rawStore := indexerstore.NewStore(db)
+	store := indexerstore.NewInstrumentedStore(rawStore, storeMetrics)
+	processor := engine.NewProcessor(fetcher, store, engineMetrics, logger)
 
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := newRouter(svc, logger)
+	router := newRouter(svc, httpMetrics, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -151,14 +143,66 @@ func (s *Server) Run() error {
 	})
 
 	g.Go(func() error {
-		logger.Info("Indexer HTTP server starting",
-			zap.String("host", cfg.Server.Host),
-			zap.Int("port", cfg.Server.Port),
-		)
-		return apphttp.ServeAndWait(gctx, router, logger, cfg.Server)
+		return s.serveAll(gctx, router, logger)
 	})
 
 	return g.Wait()
+}
+
+// serveAll runs the indexer HTTP server and, when monitoring is enabled,
+// the metrics server. Both share an errgroup context: if either server
+// fails the other is canceled and the first error is returned.
+func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
+	g, gCtx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		logger.Info("Indexer HTTP server starting",
+			zap.String("host", s.cfg.Server.Host),
+			zap.Int("port", s.cfg.Server.Port),
+		)
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
+
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		// Monitoring.Server is enforced non-nil at config load time
+		// (`validate:"required_if=Enabled true"`), so no runtime check here —
+		// failing late would leak the main HTTP goroutine started above.
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
+	}
+
+	return g.Wait()
+}
+
+// indexerTemplateIDs builds the streaming template-ID list the fetcher subscribes
+// to. CIP-56 TokenTransferEvent is always included; Utility.Registry TransferOffer
+// and Holding are appended when their package IDs are configured.
+func indexerTemplateIDs(cfg *indexer.Config) []streaming.TemplateID {
+	ids := []streaming.TemplateID{{
+		PackageID:  cfg.CIP56PackageID,
+		ModuleName: "CIP56.Events",
+		EntityName: "TokenTransferEvent",
+	}}
+	if cfg.UtilityRegistryPackageID != "" {
+		ids = append(ids, streaming.TemplateID{
+			PackageID:  cfg.UtilityRegistryPackageID,
+			ModuleName: "Utility.Registry.App.V0.Model.Transfer",
+			EntityName: "TransferOffer",
+		})
+	}
+	if cfg.UtilityRegistryHoldingPackageID != "" {
+		ids = append(ids, streaming.TemplateID{
+			PackageID:  cfg.UtilityRegistryHoldingPackageID,
+			ModuleName: "Utility.Registry.Holding.V0.Holding",
+			EntityName: "Holding",
+		})
+	}
+	return ids
 }
 
 // newRouter builds the chi router with standard middleware, a /health endpoint,
@@ -169,12 +213,13 @@ func (s *Server) Run() error {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func newRouter(svc indexerservice.Service, logger *zap.Logger) http.Handler {
+func newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultMiddlewareTimeout))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

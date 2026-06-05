@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -68,10 +69,11 @@ func (s *Server) Run() error {
 	defer func() { _ = db.Close() }()
 	logger.Info("Database connection established")
 
-	// Metrics — registered once, injected into engine and store layers.
-	reg := prometheus.DefaultRegisterer
+	// Metrics — registered once, injected into engine, store, and HTTP layers.
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "relayer")
 	engineMetrics := relayerengine.NewMetrics(reg)
 	storeMetrics := relayerstore.NewStoreMetrics(reg)
+	httpMetrics := apphttp.NewHTTPMetrics(reg)
 
 	pgStore := relayerstore.NewStore(db)
 	store := relayerstore.NewInstrumentedStore(pgStore, storeMetrics)
@@ -82,7 +84,7 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = cantonClient.Close() }()
 
-	ethClient, err := ethereum.NewClient(cfg.Ethereum, logger)
+	ethClient, err := ethereum.NewClient(cfg.Ethereum, ethereum.NewMetrics(reg), logger)
 	if err != nil {
 		return fmt.Errorf("initialize ethereum client: %w", err)
 	}
@@ -95,7 +97,7 @@ func (s *Server) Run() error {
 	}
 	defer engine.Stop()
 
-	router := s.newRouter(store, engine, logger)
+	router := s.newRouter(store, engine, httpMetrics, logger)
 
 	return s.serveAll(ctx, router, logger)
 }
@@ -111,10 +113,9 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	})
 
 	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
-		if s.cfg.Monitoring.Server == nil {
-			return fmt.Errorf("monitoring is enabled but server config is nil")
-		}
-
+		// Monitoring.Server is enforced non-nil at config load time
+		// (`validate:"required_if=Enabled true"`), so no runtime check here —
+		// failing late would leak the main HTTP goroutine started above.
 		r := chi.NewRouter()
 		r.Use(middleware.Recoverer)
 		r.Handle("/metrics", promhttp.Handler())
@@ -127,13 +128,15 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	return g.Wait()
 }
 
-func (*Server) newRouter(store relayersvc.Store, engine *relayerengine.Engine, logger *zap.Logger) http.Handler {
+func (*Server) newRouter(
+	store relayersvc.Store, engine *relayerengine.Engine, metrics *apphttp.HTTPMetrics, logger *zap.Logger,
+) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(defaultHTTPMiddlewareTimeout))
-	r.Use(middleware.Logger)
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

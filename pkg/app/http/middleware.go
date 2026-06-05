@@ -2,7 +2,57 @@
 
 package http
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
+)
+
+// RequestMetricsMiddleware returns a chi-compatible middleware that records
+// HTTP request metrics: total count (by method/route/status), duration, and
+// active connection gauge.
+//
+// Route patterns (e.g. /v1/tokens/{id}) are used as the endpoint label rather
+// than raw paths to avoid unbounded cardinality.
+func RequestMetricsMiddleware(m *HTTPMetrics) func(http.Handler) http.Handler {
+	if m == nil {
+		return func(next http.Handler) http.Handler { return next }
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			m.ActiveConnections.Inc()
+
+			ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
+
+			defer func() {
+				m.ActiveConnections.Dec()
+				endpoint := ChiRoutePattern(r)
+				statusCode := strconv.Itoa(ww.Status())
+				elapsed := time.Since(start).Seconds()
+
+				m.IncRequestsTotal(r.Method, endpoint, statusCode)
+				m.ObserveRequestDuration(r.Method, endpoint).Observe(elapsed)
+			}()
+
+			next.ServeHTTP(ww, r)
+		})
+	}
+}
+
+// ChiRoutePattern extracts the matched chi route pattern from the request
+// context, e.g. "/v1/tokens/{id}" rather than the raw path.
+// Falls back to "unknown" for unmatched routes (404s).
+func ChiRoutePattern(r *http.Request) string {
+	rctx := chi.RouteContext(r.Context())
+	if rctx != nil && rctx.RoutePattern() != "" {
+		return rctx.RoutePattern()
+	}
+	return "unknown"
+}
 
 // CORSMiddleware returns a CORS middleware restricted to the given origins.
 // If origins contains "*", all origins are permitted.
