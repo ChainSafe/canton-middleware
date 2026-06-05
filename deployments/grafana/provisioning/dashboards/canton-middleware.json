@@ -1377,7 +1377,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 54,
         "w": 12,
         "h": 8
       },
@@ -1432,7 +1432,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 46,
+        "y": 54,
         "w": 12,
         "h": 8
       },
@@ -1487,13 +1487,338 @@
       }
     },
     {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Custodial Accept Worker \u2014 Cycle Cadence & Latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(api_server_custodial_accept_worker_runs_total[5m])",
+          "legendFormat": "runs/s",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(api_server_custodial_accept_worker_errors_total[5m])) by (phase)",
+          "legendFormat": "err / {{phase}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(api_server_custodial_accept_worker_run_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "cycle p95",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "histogram_quantile(0.95, sum(rate(api_server_custodial_accept_worker_offer_accept_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "accept p95",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^err / .*/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cycle p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "accept p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "Custodial Accept Worker \u2014 Offer Pipeline & Queue",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 46,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(api_server_custodial_accept_worker_offers_accepted_total[5m])) by (result)",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "rate(api_server_custodial_accept_worker_offers_fetched_total[5m])",
+          "legendFormat": "fetched/s",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "api_server_custodial_accept_worker_pending_offers",
+          "legendFormat": "pending offers",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "api_server_custodial_accept_worker_custodial_users",
+          "legendFormat": "custodial users",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 0,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fetched/s"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "B",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pending offers"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "C",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "custodial users"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "C",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 17,
       "type": "row",
       "title": "Indexer Server",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 62,
         "w": 24,
         "h": 1
       },
@@ -1509,7 +1834,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -1564,7 +1889,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 55,
+        "y": 63,
         "w": 12,
         "h": 8
       },
@@ -1623,7 +1948,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 71,
         "w": 6,
         "h": 8
       },
@@ -1692,7 +2017,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 63,
+        "y": 71,
         "w": 6,
         "h": 8
       },
@@ -1752,7 +2077,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 63,
+        "y": 71,
         "w": 12,
         "h": 8
       },
@@ -1808,7 +2133,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 71,
+        "y": 79,
         "w": 12,
         "h": 8
       },
@@ -1863,7 +2188,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 71,
+        "y": 79,
         "w": 12,
         "h": 8
       },
@@ -1948,7 +2273,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 79,
+        "y": 87,
         "w": 24,
         "h": 1
       },
@@ -1964,7 +2289,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 80,
+        "y": 88,
         "w": 12,
         "h": 8
       },
@@ -2023,7 +2348,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 80,
+        "y": 88,
         "w": 12,
         "h": 8
       },
@@ -2087,7 +2412,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 88,
+        "y": 96,
         "w": 12,
         "h": 8
       },
@@ -2141,7 +2466,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 88,
+        "y": 96,
         "w": 8,
         "h": 8
       },
@@ -2196,7 +2521,7 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 88,
+        "y": 96,
         "w": 4,
         "h": 8
       },
@@ -2274,7 +2599,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 96,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2355,7 +2680,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 96,
+        "y": 104,
         "w": 12,
         "h": 8
       },
@@ -2414,7 +2739,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 104,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -2478,7 +2803,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 104,
+        "y": 112,
         "w": 12,
         "h": 8
       },
@@ -2533,7 +2858,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 112,
+        "y": 120,
         "w": 12,
         "h": 8
       },
@@ -2588,7 +2913,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 112,
+        "y": 120,
         "w": 12,
         "h": 8
       },
@@ -2652,7 +2977,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 120,
+        "y": 128,
         "w": 12,
         "h": 8
       },
@@ -2740,7 +3065,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 120,
+        "y": 128,
         "w": 12,
         "h": 8
       },
@@ -2869,7 +3194,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 128,
+        "y": 136,
         "w": 24,
         "h": 8
       },

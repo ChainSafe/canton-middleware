@@ -144,6 +144,7 @@ func (s *Server) Run() error {
 			userStore,
 			indexerClient,
 			cfg.AcceptWorker.PollInterval,
+			custodial.NewMetrics(reg),
 			logger,
 		)
 		go worker.Run(ctx)

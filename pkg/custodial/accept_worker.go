@@ -41,15 +41,21 @@ type AcceptWorker struct {
 	userLister   UserLister
 	indexer      indexerclient.Client
 	pollInterval time.Duration
+	metrics      *Metrics
 	logger       *zap.Logger
 }
 
 // NewAcceptWorker creates a new AcceptWorker.
+//
+// metrics receives Prometheus observations for cycle duration, per-phase
+// errors, and per-offer accept outcomes. Pass NewNopMetrics() in tests where
+// metric values aren't asserted.
 func NewAcceptWorker(
 	cantonToken cantontkn.Token,
 	userLister UserLister,
 	indexerClient indexerclient.Client,
 	pollInterval time.Duration,
+	metrics *Metrics,
 	logger *zap.Logger,
 ) *AcceptWorker {
 	return &AcceptWorker{
@@ -57,6 +63,7 @@ func NewAcceptWorker(
 		userLister:   userLister,
 		indexer:      indexerClient,
 		pollInterval: pollInterval,
+		metrics:      metrics,
 		logger:       logger,
 	}
 }
@@ -79,12 +86,22 @@ func (w *AcceptWorker) Run(ctx context.Context) {
 }
 
 func (w *AcceptWorker) acceptPending(ctx context.Context) {
+	w.metrics.RunsTotal.Inc()
+	start := time.Now()
+	defer func() {
+		w.metrics.RunDuration.Observe(time.Since(start).Seconds())
+	}()
+
 	users, err := w.userLister.ListCustodialUsers(ctx)
 	if err != nil {
+		w.metrics.ErrorsTotal.WithLabelValues("list_users").Inc()
 		w.logger.Warn("accept worker: failed to list custodial users", zap.Error(err))
 		return
 	}
+	w.metrics.CustodialUsers.Set(float64(len(users)))
 	if len(users) == 0 {
+		// Vacuously successful — there's nothing to accept, but the loop is alive.
+		w.metrics.LastSuccessfulRunTimestamp.SetToCurrentTime()
 		return
 	}
 
@@ -100,18 +117,31 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 			Limit: acceptWorkerPageLimit,
 		})
 		if err != nil {
+			w.metrics.ErrorsTotal.WithLabelValues("fetch_offers").Inc()
 			w.logger.Warn("accept worker: failed to fetch pending offers", zap.Error(err))
 			return
 		}
+
+		// Update queue-depth gauge once per cycle (on the first successful page).
+		// result.Total is the indexer-wide pending count, identical across pages
+		// of the same cycle — so writing it every page is redundant but harmless.
+		if page == 1 {
+			w.metrics.PendingOffers.Set(float64(result.Total))
+		}
+		w.metrics.OffersFetchedTotal.Add(float64(len(result.Items)))
 
 		for i := range result.Items {
 			offer := result.Items[i]
 			if !custodialParties[offer.ReceiverPartyID] {
 				continue
 			}
-			if err := w.cantonToken.AcceptTransferInstruction(
+			acceptStart := time.Now()
+			err := w.cantonToken.AcceptTransferInstruction(
 				ctx, offer.ReceiverPartyID, offer.ContractID, offer.InstrumentAdmin,
-			); err != nil {
+			)
+			w.metrics.OfferAcceptDuration.Observe(time.Since(acceptStart).Seconds())
+			if err != nil {
+				w.metrics.OffersAcceptedTotal.WithLabelValues("error").Inc()
 				w.logger.Warn("accept worker: failed to accept offer",
 					zap.String("party_id", offer.ReceiverPartyID),
 					zap.String("contract_id", offer.ContractID),
@@ -119,6 +149,7 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 				)
 				continue
 			}
+			w.metrics.OffersAcceptedTotal.WithLabelValues("success").Inc()
 			w.logger.Info("accept worker: accepted transfer offer",
 				zap.String("party_id", offer.ReceiverPartyID),
 				zap.String("contract_id", offer.ContractID),
@@ -128,6 +159,11 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 		}
 
 		if int64(page*acceptWorkerPageLimit) >= result.Total {
+			// Reached the end of the pending-offers stream — cycle completed
+			// without an unrecoverable error. Per-offer failures don't count
+			// against the cycle's success: those are tracked in
+			// OffersAcceptedTotal{result="error"}.
+			w.metrics.LastSuccessfulRunTimestamp.SetToCurrentTime()
 			return
 		}
 		page++
