@@ -84,7 +84,7 @@ func (s *Server) Run() error {
 	}
 	defer func() { _ = cantonClient.Close() }()
 
-	ethClient, err := ethereum.NewClient(cfg.Ethereum, logger)
+	ethClient, err := ethereum.NewClient(cfg.Ethereum, ethereum.NewMetrics(reg), logger)
 	if err != nil {
 		return fmt.Errorf("initialize ethereum client: %w", err)
 	}
