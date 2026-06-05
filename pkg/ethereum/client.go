@@ -222,6 +222,8 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 						c.logger.Error("Failed to handle deposit event",
 							zap.Error(err),
 							zap.String("tx_hash", event.Raw.TxHash.Hex()))
+						iter.Close()
+						return fmt.Errorf("failed to handle deposit event %s: %w", event.Raw.TxHash.Hex(), err)
 					}
 				}
 
