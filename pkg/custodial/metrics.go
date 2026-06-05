@@ -90,7 +90,7 @@ func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 		ErrorsTotal: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,
 			Name: "errors_total",
-			Help: "AcceptPending cycles that aborted early, labelled by phase (list_users, fetch_offers)",
+			Help: "AcceptPending cycles that aborted early, labeled by phase (list_users, fetch_offers)",
 		}, []string{"phase"}),
 
 		CustodialUsers: f.NewGauge(prometheus.GaugeOpts{
@@ -114,7 +114,7 @@ func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 		OffersAcceptedTotal: f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: ns, Subsystem: sub,
 			Name: "offers_accepted_total",
-			Help: "Per-offer AcceptTransferInstruction outcomes (success / error). Offers for non-custodial receivers are skipped without incrementing.",
+			Help: "Per-offer AcceptTransferInstruction outcomes; non-custodial receivers are skipped silently.",
 		}, []string{"result"}),
 
 		OfferAcceptDuration: f.NewHistogram(prometheus.HistogramOpts{
