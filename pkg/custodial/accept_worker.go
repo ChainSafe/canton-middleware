@@ -58,6 +58,9 @@ func NewAcceptWorker(
 	metrics *Metrics,
 	logger *zap.Logger,
 ) *AcceptWorker {
+	if metrics == nil {
+		metrics = NewNopMetrics()
+	}
 	return &AcceptWorker{
 		cantonToken:  cantonToken,
 		userLister:   userLister,
