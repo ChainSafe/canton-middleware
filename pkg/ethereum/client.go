@@ -62,6 +62,9 @@ func (c *Client) observeRPC(method string, start time.Time, err error) {
 // for the deposit-event poll loop. Pass NewNopMetrics() in tests where metric
 // values aren't asserted.
 func NewClient(cfg *Config, metrics *Metrics, logger *zap.Logger) (*Client, error) {
+	if metrics == nil {
+		metrics = NewNopMetrics()
+	}
 	// Connect to Ethereum RPC
 	client, err := ethclient.Dial(cfg.RPCURL)
 	if err != nil {
