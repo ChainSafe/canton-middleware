@@ -155,7 +155,7 @@ func TestAcceptWorker_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		worker.Run(ctx)
+		_ = worker.Run(ctx)
 		close(done)
 	}()
 

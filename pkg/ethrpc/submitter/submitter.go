@@ -114,14 +114,14 @@ func New(
 }
 
 // Start runs the submitter loop until ctx is canceled.
-func (s *Submitter) Start(ctx context.Context) {
+func (s *Submitter) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
 			if err := s.drain(ctx); err != nil {
 				s.logger.Error("ethrpc submitter: drain failed", zap.Error(err))

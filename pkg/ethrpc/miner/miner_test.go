@@ -413,7 +413,7 @@ func TestStart_StopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		m.Start(ctx)
+		_ = m.Start(ctx)
 		close(done)
 	}()
 
