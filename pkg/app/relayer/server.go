@@ -128,7 +128,7 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 	return g.Wait()
 }
 
-func (*Server) newRouter(
+func (s *Server) newRouter(
 	store relayersvc.Store, engine *relayerengine.Engine, metrics *apphttp.HTTPMetrics, logger *zap.Logger,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -138,7 +138,7 @@ func (*Server) newRouter(
 	r.Use(middleware.Timeout(defaultHTTPMiddlewareTimeout))
 	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get(s.cfg.Monitoring.HealthCheckURL, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})

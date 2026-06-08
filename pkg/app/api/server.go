@@ -363,7 +363,7 @@ func (s *Server) setupRouter(
 	r.Use(apphttp.CORSMiddleware(s.cfg.CORSOrigins))
 
 	// Health check
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get(s.cfg.Monitoring.HealthCheckURL, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
