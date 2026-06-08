@@ -122,7 +122,14 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	svcs, err := initServices(ctx, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
+	// All long-lived goroutines — background workers and HTTP servers — run
+	// under a single errgroup tied to gCtx. A signal (ctx) or any server error
+	// cancels gCtx, unwinding every goroutine; g.Wait() then blocks until they
+	// have all drained, so the deferred cantonClient/dbBun closes below never
+	// race with in-flight worker calls.
+	g, gCtx := errgroup.WithContext(ctx)
+
+	svcs, err := initServices(gCtx, g, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
 	if err != nil {
 		return err
 	}
@@ -136,7 +143,7 @@ func (s *Server) Run() error {
 			custodial.NewMetrics(reg),
 			logger,
 		)
-		go worker.Run(ctx)
+		g.Go(func() error { return worker.Run(gCtx) })
 		logger.Info("accept worker started",
 			zap.Duration("poll_interval", cfg.AcceptWorker.PollInterval),
 		)
@@ -144,7 +151,9 @@ func (s *Server) Run() error {
 
 	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
 
-	return s.serveAll(ctx, router, logger)
+	s.registerServers(g, gCtx, router, logger)
+
+	return g.Wait()
 }
 
 // buildIndexerClient creates the single indexer HTTP client used by every
@@ -197,7 +206,8 @@ type services struct {
 }
 
 func initServices(
-	ctx context.Context,
+	gCtx context.Context,
+	g *errgroup.Group,
 	cfg *config.APIServer,
 	dbBun *bun.DB,
 	userStore userstore.Store,
@@ -208,7 +218,7 @@ func initServices(
 	logger *zap.Logger,
 ) (*services, error) {
 	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
-	go topologyCache.Start(ctx)
+	g.Go(func() error { return topologyCache.Start(gCtx) })
 
 	registrationService := userservice.NewService(
 		userStore,
@@ -231,7 +241,7 @@ func initServices(
 	)
 
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
-	go transferCache.Start(ctx)
+	g.Go(func() error { return transferCache.Start(gCtx) })
 	instrumentedCache := transfer.NewInstrumentedCache(transferCache, transfer.NewCacheMetrics(reg))
 
 	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
@@ -244,7 +254,7 @@ func initServices(
 			ethrpcminer.NewMetrics(reg),
 			logger,
 		)
-		go m.Start(ctx)
+		g.Go(func() error { return m.Start(gCtx) })
 
 		// Async submitter: drives pending mempool entries → completed/failed by
 		// calling Canton. SendRawTransaction returns the tx hash immediately
@@ -261,7 +271,7 @@ func initServices(
 			ethrpcsubmitter.NewMetrics(reg),
 			logger,
 		)
-		go sub.Start(ctx)
+		g.Go(func() error { return sub.Start(gCtx) })
 	}
 
 	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient)
@@ -320,12 +330,11 @@ func (s *Server) openCantonClient(
 	return client, nil
 }
 
-// serveAll runs the main HTTP server and, when monitoring is enabled,
-// the metrics server. Both share an errgroup context: if either server
-// fails the other is canceled and the first error is returned.
-func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
-	g, gCtx := errgroup.WithContext(ctx)
-
+// registerServers adds the main HTTP server and, when monitoring is enabled,
+// the metrics server to the shared errgroup. They run on gCtx alongside the
+// background workers, so a failure in either server cancels gCtx and unwinds
+// everything; the caller's g.Wait() surfaces the first error.
+func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router http.Handler, logger *zap.Logger) {
 	g.Go(func() error {
 		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
 	})
@@ -339,8 +348,6 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
 		})
 	}
-
-	return g.Wait()
 }
 
 func (s *Server) setupRouter(

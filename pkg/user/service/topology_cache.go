@@ -75,14 +75,14 @@ func (c *TopologyCache) GetAndDelete(token string) (*user.PendingTopology, error
 }
 
 // Start runs a background goroutine that periodically removes expired entries.
-func (c *TopologyCache) Start(ctx context.Context) {
+func (c *TopologyCache) Start(ctx context.Context) error {
 	ticker := time.NewTicker(topologyCleanupInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
 			c.cleanup()
 		}

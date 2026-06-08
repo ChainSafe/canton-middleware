@@ -72,7 +72,7 @@ func NewAcceptWorker(
 }
 
 // Run starts the accept worker loop. It blocks until ctx is canceled.
-func (w *AcceptWorker) Run(ctx context.Context) {
+func (w *AcceptWorker) Run(ctx context.Context) error {
 	w.logger.Info("accept worker started", zap.Duration("poll_interval", w.pollInterval))
 	ticker := time.NewTicker(w.pollInterval)
 	defer ticker.Stop()
@@ -81,7 +81,7 @@ func (w *AcceptWorker) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			w.logger.Info("accept worker stopped")
-			return
+			return nil
 		case <-ticker.C:
 			w.acceptPending(ctx)
 		}

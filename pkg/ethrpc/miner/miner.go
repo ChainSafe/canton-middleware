@@ -59,14 +59,14 @@ func New(store Store, chainID, gasLimit uint64, maxTxsPerBlock int, interval tim
 }
 
 // Start runs the mining loop until ctx is canceled.
-func (m *Miner) Start(ctx context.Context) {
+func (m *Miner) Start(ctx context.Context) error {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
 			if err := m.mine(ctx); err != nil {
 				m.logger.Error("ethrpc miner: mine failed", zap.Error(err))

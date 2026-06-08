@@ -99,15 +99,15 @@ func (s *Server) Run() error {
 
 	router := s.newRouter(store, engine, httpMetrics, logger)
 
-	return s.serveAll(ctx, router, logger)
+	g, gCtx := errgroup.WithContext(ctx)
+	s.registerServers(g, gCtx, router, logger)
+	return g.Wait()
 }
 
-// serveAll runs the main HTTP server and, when monitoring is enabled,
-// the metrics server. Both share an errgroup context: if either server
-// fails the other is canceled and the first error is returned.
-func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
-	g, gCtx := errgroup.WithContext(ctx)
-
+// registerServers adds the main HTTP server and, when monitoring is enabled,
+// the metrics server to the shared errgroup. If either server fails it cancels
+// gCtx and the caller's g.Wait() surfaces the first error.
+func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router http.Handler, logger *zap.Logger) {
 	g.Go(func() error {
 		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
 	})
@@ -124,8 +124,6 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
 		})
 	}
-
-	return g.Wait()
 }
 
 func (s *Server) newRouter(

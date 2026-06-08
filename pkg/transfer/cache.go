@@ -72,14 +72,14 @@ func (c *PreparedTransferCache) GetAndDelete(transferID string) (*token.Prepared
 
 // Start runs a background goroutine that periodically removes expired entries.
 // It stops when the context is canceled.
-func (c *PreparedTransferCache) Start(ctx context.Context) {
+func (c *PreparedTransferCache) Start(ctx context.Context) error {
 	ticker := time.NewTicker(defaultCleanupInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
 			c.cleanup()
 		}
