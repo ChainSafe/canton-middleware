@@ -131,6 +131,12 @@ func (s *Server) Run() error {
 
 	svcs, err := initServices(gCtx, g, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
 	if err != nil {
+		// initServices may have already started workers on g (the caches, and on
+		// later failures the miner/submitter). Cancel the group's context and wait
+		// for them to exit before returning — otherwise they outlive the deferred
+		// dbBun/cantonClient closes below and leak.
+		stop()
+		_ = g.Wait()
 		return err
 	}
 
