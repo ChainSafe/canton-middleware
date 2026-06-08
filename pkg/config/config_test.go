@@ -214,6 +214,9 @@ func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
 	if cfg.Ethereum.LookbackBlocks != 1000 {
 		t.Fatalf("ethereum.lookback_blocks default mismatch: got %d", cfg.Ethereum.LookbackBlocks)
 	}
+	if cfg.Ethereum.MaxBlockRange != 100 {
+		t.Fatalf("ethereum.max_block_range default mismatch: got %d", cfg.Ethereum.MaxBlockRange)
+	}
 
 	if cfg.Canton.Ledger.MaxMessageSize != 52428800 {
 		t.Fatalf("max_inbound_message_size default mismatch: got %d", cfg.Canton.Ledger.MaxMessageSize)

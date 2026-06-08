@@ -199,9 +199,45 @@ func (c *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
 	return n, nil
 }
 
-// WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility)
+// blockRange is an inclusive [start, end] span of block numbers.
+type blockRange struct {
+	start uint64
+	end   uint64
+}
+
+// chunkRange splits the inclusive range [start, end] into consecutive slices of
+// at most maxRange blocks each. It returns nil for an empty range (start > end)
+// or a zero maxRange. The subtraction-based bound (end-s >= maxRange) avoids the
+// uint64 overflow that s+maxRange-1 would hit for very large maxRange values.
+func chunkRange(start, end, maxRange uint64) []blockRange {
+	if start > end || maxRange == 0 {
+		return nil
+	}
+	chunks := make([]blockRange, 0, (end-start)/maxRange+1)
+	for s := start; s <= end; {
+		e := end
+		if end-s >= maxRange {
+			e = s + maxRange - 1
+		}
+		chunks = append(chunks, blockRange{start: s, end: e})
+		if e == ^uint64(0) { // next start (e+1) would wrap to 0
+			break
+		}
+		s = e + 1
+	}
+	return chunks
+}
+
+// WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility).
+//
+// Each tick's [currentBlock+1, latestBlock] range is walked in slices of at most
+// config.MaxBlockRange blocks so requests stay under the provider's per-call cap.
+// On a slice failure, currentBlock advances only through the last successful
+// slice and the failing range is retried on the next tick.
 func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*DepositEvent) error) error {
-	c.logger.Info("Starting deposit event poller", zap.Uint64("from_block", fromBlock))
+	c.logger.Info("Starting deposit event poller",
+		zap.Uint64("from_block", fromBlock),
+		zap.Uint64("max_block_range", c.config.MaxBlockRange))
 
 	currentBlock := fromBlock
 	c.setLastScannedBlock(currentBlock)
