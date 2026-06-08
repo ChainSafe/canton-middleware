@@ -148,12 +148,6 @@ func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
 	if cfg.Logging.OutputPath != "stdout" {
 		t.Fatalf("logging.output_path default mismatch: got %q", cfg.Logging.OutputPath)
 	}
-	if cfg.Reconciliation.InitialTimeout != 2*time.Minute {
-		t.Fatalf("reconciliation.initial_timeout default mismatch: got %s", cfg.Reconciliation.InitialTimeout)
-	}
-	if cfg.Reconciliation.Interval != 5*time.Minute {
-		t.Fatalf("reconciliation.interval default mismatch: got %s", cfg.Reconciliation.Interval)
-	}
 
 	if cfg.KeyManagement.MasterKeyEnv != "CANTON_MASTER_KEY" {
 		t.Fatalf("key_management.master_key_env default mismatch: got %q", cfg.KeyManagement.MasterKeyEnv)

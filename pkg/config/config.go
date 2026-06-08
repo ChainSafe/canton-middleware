@@ -18,7 +18,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	pgdb "github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/chainsafe/canton-middleware/pkg/reconciler"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 
@@ -79,7 +78,6 @@ type APIServer struct {
 	AcceptWorker        *custodial.AcceptWorkerConfig `yaml:"accept_worker" default:"-"` // nil disables the worker
 	Monitoring          *Monitoring                   `yaml:"monitoring" validate:"required"`
 	Logging             *log.Config                   `yaml:"logging" validate:"required"`
-	Reconciliation      *reconciler.Config            `yaml:"reconciliation" validate:"required"`
 	KeyManagement       *KeyManagement                `yaml:"key_management" validate:"required"`
 	SkipCantonSigVerify bool                          `yaml:"skip_canton_sig_verify" default:"false"`
 	SkipWhitelistCheck  bool                          `yaml:"skip_whitelist_check" default:"false"`

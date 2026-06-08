@@ -99,10 +99,6 @@ jwks:
   url: ""
   issuer: ""
 
-reconciliation:
-  initial_timeout: "2m"
-  interval: "1m"
-
 monitoring:
   enabled: true
   server:
