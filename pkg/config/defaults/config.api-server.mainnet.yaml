@@ -97,10 +97,6 @@ logging:
   format: "json"
   output_path: "stdout"
 
-reconciliation:
-  initial_timeout: "2m"
-  interval: "1m"
-
 key_management:
   master_key_env: "CANTON_MASTER_KEY"
   key_derivation: "generate"

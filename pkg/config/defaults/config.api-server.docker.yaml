@@ -123,11 +123,6 @@ logging:
   format: "json"
   output_path: "stdout"
 
-# Reconciliation settings
-reconciliation:
-  initial_timeout: "2m"
-  interval: "10s"  # Faster reconciliation for testing
-
 # Auto-accepts pending TransferOffer contracts for custodial users by polling
 # the indexer and exercising TransferInstruction_Accept on the api-server's
 # behalf. Required for the e2e USDCx cross-participant test where the receiver

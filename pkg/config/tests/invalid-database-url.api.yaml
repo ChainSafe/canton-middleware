@@ -44,5 +44,4 @@ logging:
   level: "info"
   format: "json"
 
-reconciliation: {}
 key_management: {}

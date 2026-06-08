@@ -26,8 +26,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/chainsafe/canton-middleware/pkg/reconciler"
-	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
@@ -124,15 +122,6 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	recStore := reconcilerstore.NewStore(dbBun)
-	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
-	s.runInitialReconcile(ctx, rec, logger)
-
-	stopReconcile := s.startPeriodicReconcile(rec, logger)
-	// We will call stopReconcile explicitly after ServeAndWait returns for deterministic shutdown order.
-	// Keep this defer as a safety net.
-	defer stopReconcile()
-
 	svcs, err := initServices(ctx, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
 	if err != nil {
 		return err
@@ -155,12 +144,7 @@ func (s *Server) Run() error {
 
 	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
 
-	err = s.serveAll(ctx, router, logger)
-
-	// Stop background work before deferred DB/client closes kick in.
-	stopReconcile()
-
-	return err
+	return s.serveAll(ctx, router, logger)
 }
 
 // buildIndexerClient creates the single indexer HTTP client used by every
@@ -334,45 +318,6 @@ func (s *Server) openCantonClient(
 		return nil, fmt.Errorf("create canton client: %w", err)
 	}
 	return client, nil
-}
-
-func (s *Server) runInitialReconcile(
-	ctx context.Context,
-	reconciler *reconciler.Reconciler,
-	logger *zap.Logger,
-) {
-	if s.cfg.Reconciliation.InitialTimeout <= 0 {
-		return
-	}
-
-	logger.Info("Running initial balance reconciliation",
-		zap.Duration("timeout", s.cfg.Reconciliation.InitialTimeout),
-	)
-
-	startupCtx, cancel := context.WithTimeout(ctx, s.cfg.Reconciliation.InitialTimeout)
-	defer cancel()
-
-	if err := reconciler.ReconcileAll(startupCtx); err != nil {
-		logger.Warn("Initial reconciliation failed (will retry periodically)", zap.Error(err))
-		return
-	}
-
-	logger.Info("Initial balance reconciliation completed")
-}
-
-func (s *Server) startPeriodicReconcile(
-	reconciler *reconciler.Reconciler,
-	logger *zap.Logger,
-) func() {
-	if s.cfg.Reconciliation.Interval <= 0 {
-		return func() {}
-	}
-
-	logger.Info("Starting periodic reconciliation", zap.Duration("interval", s.cfg.Reconciliation.Interval))
-	reconciler.StartPeriodicReconciliation(s.cfg.Reconciliation.Interval)
-
-	// Return stopper for deterministic shutdown ordering.
-	return func() { reconciler.Stop() }
 }
 
 // serveAll runs the main HTTP server and, when monitoring is enabled,
