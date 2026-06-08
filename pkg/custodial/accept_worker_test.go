@@ -58,7 +58,7 @@ func TestAcceptWorker_NoCustodialUsers(t *testing.T) {
 	// DB returns no custodial users — worker exits early, no indexer call
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{}, nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -76,7 +76,7 @@ func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-1", testInstrumentAdmin).
 		Return(nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -103,7 +103,7 @@ func TestAcceptWorker_SkipsOffersForUnregisteredParties(t *testing.T) {
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-custodial", testInstrumentAdmin).
 		Return(nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -126,7 +126,7 @@ func TestAcceptWorker_LogsAndContinuesOnAcceptError(t *testing.T) {
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).
 		Return(nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -139,7 +139,7 @@ func TestAcceptWorker_LogsAndContinuesOnIndexerError(t *testing.T) {
 	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).
 		Return(nil, errors.New("indexer unavailable"))
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -150,7 +150,7 @@ func TestAcceptWorker_StopsOnContextCancel(t *testing.T) {
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Maybe().Return([]*user.User{}, nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, 50*time.Millisecond, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, 50*time.Millisecond, NewNopMetrics(), zap.NewNop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -187,7 +187,7 @@ func TestAcceptWorker_PaginatesAllOffers(t *testing.T) {
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).Return(nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).Return(nil)
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	worker.acceptPending(context.Background())
 }
 
@@ -198,6 +198,6 @@ func TestAcceptWorker_ListCustodialUsersError(t *testing.T) {
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return(nil, errors.New("db down"))
 
-	worker := NewAcceptWorker(tok, lister, ic, time.Hour, zap.NewNop())
+	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
 	require.NotPanics(t, func() { worker.acceptPending(context.Background()) })
 }

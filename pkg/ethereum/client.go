@@ -252,11 +252,10 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 		case <-ticker.C:
 			// Wrap the tick body in a closure so a single deferred observation
 			// records the cycle duration regardless of which branch the tick
-			// takes. The closure returns a non-nil error only when the handler
-			// fails; that halts the poller so the failing range is retried from
-			// the persisted offset on restart. Other early exits return nil and
-			// the outer for-select advances to the next tick.
-			if err := func() error {
+			// takes. `continue` inside the for-loop is replaced by `return` to
+			// exit the closure; the outer for-select then advances to the next
+			// tick.
+			func() {
 				pollStart := time.Now()
 				defer func() {
 					c.metrics.EventPollDuration.Observe(time.Since(pollStart).Seconds())
@@ -267,71 +266,62 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 				if err != nil {
 					c.metrics.EventPollFailuresTotal.WithLabelValues("get_latest_block").Inc()
 					c.logger.Warn("Failed to get latest block", zap.Error(err))
-					return nil
+					return
 				}
 
 				if latestBlock <= currentBlock {
 					// Still record that we've checked up to this point
 					c.setLastScannedBlock(latestBlock)
-					return nil
+					return
 				}
 
-				// Walk the range in slices of at most MaxBlockRange blocks so
-				// requests stay under the provider's per-call cap. On a slice
-				// failure, currentBlock advances only through the last
-				// successful slice and the failing range is retried next tick.
-				for _, slice := range chunkRange(currentBlock+1, latestBlock, c.config.MaxBlockRange) {
-					to := slice.end
-					opts := &bind.FilterOpts{Start: slice.start, End: &to, Context: ctx}
-
-					filterStart := time.Now()
-					iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
-					c.observeRPC("filter_deposit_events", filterStart, err)
-					if err != nil {
-						c.metrics.EventPollFailuresTotal.WithLabelValues("filter_events").Inc()
-						c.logger.Warn("Failed to filter deposit events; will retry next tick",
-							zap.Error(err), zap.Uint64("from", slice.start), zap.Uint64("to", slice.end))
-						break
-					}
-
-					for iter.Next() {
-						c.metrics.EventsFetchedTotal.Inc()
-						event := iter.Event
-						depositEvent := &DepositEvent{
-							Token:           event.Token,
-							Sender:          event.Sender,
-							CantonRecipient: event.CantonRecipient,
-							Amount:          event.Amount,
-							Nonce:           event.Nonce,
-							BlockNumber:     event.Raw.BlockNumber,
-							TxHash:          event.Raw.TxHash,
-							LogIndex:        event.Raw.Index,
-						}
-
-						if err := handler(depositEvent); err != nil {
-							c.logger.Error("Failed to handle deposit event",
-								zap.Error(err),
-								zap.String("tx_hash", event.Raw.TxHash.Hex()))
-							iter.Close()
-							return fmt.Errorf("failed to handle deposit event %s: %w", event.Raw.TxHash.Hex(), err)
-						}
-					}
-
-					if err := iter.Error(); err != nil {
-						c.metrics.EventPollFailuresTotal.WithLabelValues("iterator").Inc()
-						c.logger.Warn("Iterator error", zap.Error(err))
-						iter.Close()
-						break
-					}
-					iter.Close()
-
-					currentBlock = slice.end
-					c.setLastScannedBlock(currentBlock)
+				// Query for events from currentBlock+1 to latestBlock
+				opts := &bind.FilterOpts{
+					Start:   currentBlock + 1,
+					End:     &latestBlock,
+					Context: ctx,
 				}
-				return nil
-			}(); err != nil {
-				return err
-			}
+
+				filterStart := time.Now()
+				iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
+				c.observeRPC("filter_deposit_events", filterStart, err)
+				if err != nil {
+					c.metrics.EventPollFailuresTotal.WithLabelValues("filter_events").Inc()
+					c.logger.Warn("Failed to filter deposit events", zap.Error(err))
+					return
+				}
+
+				for iter.Next() {
+					c.metrics.EventsFetchedTotal.Inc()
+					event := iter.Event
+					depositEvent := &DepositEvent{
+						Token:           event.Token,
+						Sender:          event.Sender,
+						CantonRecipient: event.CantonRecipient,
+						Amount:          event.Amount,
+						Nonce:           event.Nonce,
+						BlockNumber:     event.Raw.BlockNumber,
+						TxHash:          event.Raw.TxHash,
+						LogIndex:        event.Raw.Index,
+					}
+
+					if err := handler(depositEvent); err != nil {
+						c.logger.Error("Failed to handle deposit event",
+							zap.Error(err),
+							zap.String("tx_hash", event.Raw.TxHash.Hex()))
+					}
+				}
+
+				if err := iter.Error(); err != nil {
+					c.metrics.EventPollFailuresTotal.WithLabelValues("iterator").Inc()
+					c.logger.Warn("Iterator error", zap.Error(err))
+				}
+				iter.Close()
+
+				// Update scan progress even if there were no events
+				currentBlock = latestBlock
+				c.setLastScannedBlock(currentBlock)
+			}()
 		}
 	}
 }
