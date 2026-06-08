@@ -133,28 +133,29 @@ func (s *Server) Run() error {
 	svc := indexerservice.NewService(store, logger)
 	router := s.newRouter(svc, httpMetrics, logger)
 
-	// ── Run both halves concurrently ──────────────────────────────────────────
+	// ── Run processor and HTTP servers under one errgroup ─────────────────────
+	// The write-path processor and the read-path HTTP server(s) all share gCtx:
+	// an OS signal or a fatal error in any of them cancels gCtx and unwinds the
+	// rest. g.Wait() blocks until every goroutine has drained, so the deferred
+	// ledger/db closes below never race with the still-running processor.
 
-	g, gctx := errgroup.WithContext(ctx)
+	g, gCtx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		logger.Info("Indexer processor starting")
-		return processor.Run(gctx)
+		return processor.Run(gCtx)
 	})
 
-	g.Go(func() error {
-		return s.serveAll(gctx, router, logger)
-	})
+	s.registerServers(g, gCtx, router, logger)
 
 	return g.Wait()
 }
 
-// serveAll runs the indexer HTTP server and, when monitoring is enabled,
-// the metrics server. Both share an errgroup context: if either server
-// fails the other is canceled and the first error is returned.
-func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.Logger) error {
-	g, gCtx := errgroup.WithContext(ctx)
-
+// registerServers adds the indexer HTTP server and, when monitoring is enabled,
+// the metrics server to the shared errgroup. They run on gCtx alongside the
+// processor, so a failure in any of them cancels gCtx and unwinds the rest;
+// the caller's g.Wait() surfaces the first error.
+func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router http.Handler, logger *zap.Logger) {
 	g.Go(func() error {
 		logger.Info("Indexer HTTP server starting",
 			zap.String("host", s.cfg.Server.Host),
@@ -175,8 +176,6 @@ func (s *Server) serveAll(ctx context.Context, router http.Handler, logger *zap.
 			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
 		})
 	}
-
-	return g.Wait()
 }
 
 // indexerTemplateIDs builds the streaming template-ID list the fetcher subscribes
