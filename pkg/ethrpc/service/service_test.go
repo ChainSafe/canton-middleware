@@ -24,11 +24,8 @@ import (
 // defaultCfg returns a minimal EthRPCConfig suitable for unit tests.
 func defaultCfg() *ethrpc.Config {
 	return &ethrpc.Config{
-		ChainID:          31337,
-		GasPriceWei:      "1000000000",
-		GasLimit:         21000,
-		RequestTimeout:   30 * time.Second,
-		NativeBalanceWei: "1000000000000000000000",
+		ChainID:        31337,
+		RequestTimeout: 30 * time.Second,
 	}
 }
 
@@ -73,46 +70,44 @@ func TestService_BlockNumber(t *testing.T) {
 
 // ─── GasPrice ─────────────────────────────────────────────────────────────────
 
+// Gas is fixed at 0 in code (not configurable). See TestService_ZeroGas for the
+// MetaMask-compatibility rationale.
 func TestService_GasPrice(t *testing.T) {
-	t.Run("valid config returns configured price", func(t *testing.T) {
-		svc := newSvc(t, defaultCfg(), nil, nil)
-
-		got, err := svc.GasPrice(context.Background())
-		require.NoError(t, err)
-		assert.Equal(t, big.NewInt(1_000_000_000), got.ToInt())
-	})
-
-	t.Run("non-numeric wei string returns error", func(t *testing.T) {
-		cfg := defaultCfg()
-		cfg.GasPriceWei = "not-a-number"
-		svc := newSvc(t, cfg, nil, nil)
-
-		_, err := svc.GasPrice(context.Background())
-		require.Error(t, err)
-		assert.True(t, apperr.Is(err, apperr.CategoryGeneralError))
-	})
+	got, err := newSvc(t, defaultCfg(), nil, nil).GasPrice(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, big.NewInt(0), got.ToInt())
 }
 
 // ─── MaxPriorityFeePerGas ─────────────────────────────────────────────────────
 
 func TestService_MaxPriorityFeePerGas(t *testing.T) {
-	svc := newSvc(t, defaultCfg(), nil, nil)
-
-	got, err := svc.MaxPriorityFeePerGas(context.Background())
+	got, err := newSvc(t, defaultCfg(), nil, nil).MaxPriorityFeePerGas(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, big.NewInt(1_000_000_000), got.ToInt())
+	assert.Equal(t, big.NewInt(0), got.ToInt())
+}
+
+// ─── Zero gas (MetaMask compatibility) ────────────────────────────────────────
+
+// TestService_ZeroGas locks in the MetaMask-compatibility contract: gas is fixed
+// at 0 across every fee surface a wallet reads, so a zero native balance
+// satisfies MetaMask's `balance >= value + gas*price` pre-flight check for the
+// zero-value ERC-20 transfers this facade accepts. A non-zero gas price would
+// make MetaMask reject transfers with "insufficient funds for gas".
+func TestService_ZeroGas(t *testing.T) {
+	blockNum := hexutil.Uint64(42)
+	got, err := newSvc(t, defaultCfg(), nil, nil).
+		GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{BlockNumber: &blockNum}, false)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, big.NewInt(0), got.BaseFeePerGas.ToInt())
 }
 
 // ─── EstimateGas ──────────────────────────────────────────────────────────────
 
 func TestService_EstimateGas(t *testing.T) {
-	cfg := defaultCfg()
-	cfg.GasLimit = 50_000
-	svc := newSvc(t, cfg, nil, nil)
-
-	got, err := svc.EstimateGas(context.Background(), nil)
+	got, err := newSvc(t, defaultCfg(), nil, nil).EstimateGas(context.Background(), nil)
 	require.NoError(t, err)
-	assert.Equal(t, hexutil.Uint64(50_000), got)
+	assert.Equal(t, hexutil.Uint64(service.DefaultGasLimit), got)
 }
 
 // ─── GetBalance ───────────────────────────────────────────────────────────────

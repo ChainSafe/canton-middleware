@@ -239,7 +239,7 @@ func initServices(
 	if cfg.EthRPC.Enabled {
 		m := ethrpcminer.New(
 			evmStore,
-			cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit,
+			cfg.EthRPC.ChainID, ethrpc.DefaultGasLimit,
 			cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval,
 			ethrpcminer.NewMetrics(reg),
 			logger,

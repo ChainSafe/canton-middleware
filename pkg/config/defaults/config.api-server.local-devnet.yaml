@@ -84,15 +84,11 @@ token:
       symbol: "USDCx"
       decimals: 6
       instrument_id: "USDCx"
-  native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
 eth_rpc:
   enabled: true
   chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton local
-  gas_price_wei: "1000000000"
-  gas_limit: 21000
-  native_balance_wei: "1000000000000000000000"
   request_timeout: "60s"
 
 jwks:

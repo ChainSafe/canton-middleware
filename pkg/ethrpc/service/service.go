@@ -83,13 +83,14 @@ type ethService struct {
 }
 
 const (
-	decimalStringBase         = 10
-	defaultGasPriceWeiInt64   = int64(1_000_000_000)
-	defaultGasPriceWeiUint64  = uint64(1_000_000_000)
 	functionSelectorSize      = 4
-	topicSizeBytes            = 32
 	confirmationBufferBlocks  = uint64(12)
 	syntheticBlockTimeSeconds = uint64(12)
+	// DefaultGasLimit is the cosmetic gas limit the facade reports (eth_estimateGas,
+	// block gasLimit, tx gas, synthetic block gasUsed). The facade executes
+	// transfers on Canton rather than an EVM, so gas is never metered — and the
+	// gas price is fixed at 0 — making this value purely informational for wallets.
+	DefaultGasLimit = 21_000
 )
 
 // NewService creates a new ethService.
@@ -140,21 +141,24 @@ func (s *ethService) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
 	return hexutil.Uint64(max(baseBlock, timeBasedBlocks)), nil
 }
 
-func (s *ethService) GasPrice(_ context.Context) (*hexutil.Big, error) {
-	gasPrice := new(big.Int)
-	if _, ok := gasPrice.SetString(s.cfg.GasPriceWei, decimalStringBase); !ok {
-		return nil, apperr.GeneralError(fmt.Errorf("invalid gas price wei: %q", s.cfg.GasPriceWei))
-	}
-
-	return (*hexutil.Big)(gasPrice), nil
+// GasPrice always reports 0, and so do maxPriorityFeePerGas, block
+// baseFeePerGas, and receipt effectiveGasPrice. The facade never charges gas,
+// and MetaMask's client-side pre-flight check is
+// `balance >= value + gasLimit*gasPrice`. Since eth_getBalance reports a zero
+// native balance and this facade only accepts zero-value ERC-20 transfers, the
+// check collapses to `0 >= 0` only while gas is 0 — any non-zero gas price would
+// make MetaMask reject transfers with "insufficient funds for gas". Gas is
+// therefore fixed at 0 in code rather than exposed as config.
+func (*ethService) GasPrice(_ context.Context) (*hexutil.Big, error) {
+	return (*hexutil.Big)(big.NewInt(0)), nil
 }
 
 func (*ethService) MaxPriorityFeePerGas(_ context.Context) (*hexutil.Big, error) {
-	return (*hexutil.Big)(big.NewInt(defaultGasPriceWeiInt64)), nil
+	return (*hexutil.Big)(big.NewInt(0)), nil
 }
 
-func (s *ethService) EstimateGas(_ context.Context, _ *ethrpc.CallArgs) (hexutil.Uint64, error) {
-	return hexutil.Uint64(s.cfg.GasLimit), nil
+func (*ethService) EstimateGas(_ context.Context, _ *ethrpc.CallArgs) (hexutil.Uint64, error) {
+	return hexutil.Uint64(DefaultGasLimit), nil
 }
 
 func (s *ethService) GetBalance(ctx context.Context, address common.Address) (*hexutil.Big, error) {
@@ -328,7 +332,7 @@ func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 		Logs:              logs,
 		LogsBloom:         bloom,
 		Status:            hexutil.Uint64(row.Status),
-		EffectiveGasPrice: hexutil.Uint64(defaultGasPriceWeiUint64),
+		EffectiveGasPrice: hexutil.Uint64(0),
 		Type:              hexutil.Uint64(2),
 		// RevertReason is omitted when empty (omitempty), so successful
 		// receipts keep the standard JSON shape.
@@ -350,7 +354,7 @@ func (s *ethService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 	blockHash := common.BytesToHash(row.BlockHash)
 	blockNum := hexutil.Uint64(row.BlockNumber)
 	txIndex := hexutil.Uint(row.TxIndex)
-	gasPrice := big.NewInt(defaultGasPriceWeiInt64)
+	gasPrice := big.NewInt(0)
 
 	return &ethrpc.RPCTransaction{
 		Hash:             hash,
@@ -362,7 +366,7 @@ func (s *ethService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 		To:               &to,
 		Value:            (*hexutil.Big)(big.NewInt(0)),
 		GasPrice:         (*hexutil.Big)(gasPrice),
-		Gas:              hexutil.Uint64(s.cfg.GasLimit),
+		Gas:              hexutil.Uint64(DefaultGasLimit),
 		Input:            row.Input,
 		Type:             hexutil.Uint64(2),
 		ChainID:          (*hexutil.Big)(new(big.Int).Set(s.chainID)),
@@ -557,12 +561,12 @@ func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNum
 		TotalDifficulty:  (*hexutil.Big)(big.NewInt(0)),
 		ExtraData:        []byte{},
 		Size:             hexutil.Uint64(0),
-		GasLimit:         hexutil.Uint64(s.cfg.GasLimit),
+		GasLimit:         hexutil.Uint64(DefaultGasLimit),
 		GasUsed:          hexutil.Uint64(0),
 		Timestamp:        hexutil.Uint64(blockNum * syntheticBlockTimeSeconds),
 		Transactions:     []any{},
 		Uncles:           []common.Hash{},
-		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(defaultGasPriceWeiInt64)),
+		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(0)),
 	}, nil
 }
 

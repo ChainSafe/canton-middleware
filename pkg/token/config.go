@@ -18,15 +18,13 @@ type ERC20Token struct {
 
 // Config holds token metadata indexed by contract address.
 type Config struct {
-	SupportedTokens  map[common.Address]ERC20Token `yaml:"supported_tokens" validate:"required,min=1"`
-	NativeBalanceWei string                        `yaml:"native_balance_wei" default:"1000000000000000000000"`
+	SupportedTokens map[common.Address]ERC20Token `yaml:"supported_tokens" validate:"required,min=1"`
 }
 
 // NewConfig creates a token Config.
-func NewConfig(nativeBalanceWei string) *Config {
+func NewConfig() *Config {
 	return &Config{
-		NativeBalanceWei: nativeBalanceWei,
-		SupportedTokens:  make(map[common.Address]ERC20Token),
+		SupportedTokens: make(map[common.Address]ERC20Token),
 	}
 }
 

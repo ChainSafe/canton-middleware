@@ -125,21 +125,8 @@ func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
 		t.Fatalf("auth.expiry_leeway default mismatch: got %s", cfg.Canton.Ledger.Auth.ExpiryLeeway)
 	}
 
-	if cfg.Token.NativeBalanceWei != "1000000000000000000000" {
-		t.Fatalf("token.native_balance_wei default mismatch: got %q", cfg.Token.NativeBalanceWei)
-	}
-
 	if cfg.EthRPC.Enabled {
 		t.Fatal("eth_rpc.enabled default mismatch: expected false")
-	}
-	if cfg.EthRPC.GasPriceWei != "1000000000" {
-		t.Fatalf("eth_rpc.gas_price_wei default mismatch: got %q", cfg.EthRPC.GasPriceWei)
-	}
-	if cfg.EthRPC.GasLimit != 21000 {
-		t.Fatalf("eth_rpc.gas_limit default mismatch: got %d", cfg.EthRPC.GasLimit)
-	}
-	if cfg.EthRPC.NativeBalanceWei != "1000000000000000000000" {
-		t.Fatalf("eth_rpc.native_balance_wei default mismatch: got %q", cfg.EthRPC.NativeBalanceWei)
 	}
 	if cfg.EthRPC.RequestTimeout != 30*time.Second {
 		t.Fatalf("eth_rpc.request_timeout default mismatch: got %s", cfg.EthRPC.RequestTimeout)
