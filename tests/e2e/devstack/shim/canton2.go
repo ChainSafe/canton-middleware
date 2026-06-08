@@ -7,14 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
+	lapiv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2"
 	adminv2 "github.com/chainsafe/canton-middleware/pkg/cantonsdk/lapi/v2/admin"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
+	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
@@ -41,6 +44,8 @@ type Canton2Shim struct {
 	client       *http.Client
 	ledgerClient ledger.Ledger
 	tokenCli     token.Token
+	domainID     string
+	issuerParty  string
 }
 
 // NewCanton2 returns a Canton2Shim wired to the Participant 2 endpoints in the
@@ -74,12 +79,13 @@ func NewCanton2(manifest *stack.ServiceManifest) (*Canton2Shim, error) {
 	}
 
 	tk, err := token.New(&token.Config{
-		DomainID:                manifest.CantonDomainID,
-		IssuerParty:             manifest.USDCxInstrumentAdmin,
-		UserID:                  cantonUserID,
-		CIP56PackageID:          cip56PackageID,
-		SpliceTransferPackageID: spliceTransferPackageID,
-		SpliceHoldingPackageID:  spliceHoldingPackageID,
+		DomainID:                 manifest.CantonDomainID,
+		IssuerParty:              manifest.USDCxInstrumentAdmin,
+		UserID:                   cantonUserID,
+		CIP56PackageID:           cip56PackageID,
+		SpliceTransferPackageID:  spliceTransferPackageID,
+		SpliceHoldingPackageID:   spliceHoldingPackageID,
+		UtilityRegistryPackageID: utilityRegistryPackageID,
 	}, l, id)
 	if err != nil {
 		_ = l.Close()
@@ -92,6 +98,8 @@ func NewCanton2(manifest *stack.ServiceManifest) (*Canton2Shim, error) {
 		client:       &http.Client{Timeout: 10 * time.Second},
 		ledgerClient: l,
 		tokenCli:     tk,
+		domainID:     manifest.CantonDomainID,
+		issuerParty:  manifest.USDCxInstrumentAdmin,
 	}, nil
 }
 
@@ -135,14 +143,72 @@ func (c *Canton2Shim) AllocateParty(ctx context.Context, hint string) (string, e
 	return resp.PartyDetails.Party, nil
 }
 
-// MintToken mints amount of tokenSymbol to recipientParty via IssuerMint on P2.
+// MintToken creates a Utility.Registry.Holding.V0.Holding owned by recipientParty
+// for amount of tokenSymbol on P2. Required for AllocationFactory-based transfers
+// (e.g., USDCx) which fetch input holdings as Utility.Registry.Holding rather than
+// CIP56Holding.
+//
+// Only self-mint (recipientParty == issuer) is supported because the Holding
+// template signatories are {registrar, owner}; for cross-party mints the recipient
+// would also have to authorize, which the devstack issuer cannot do unilaterally.
+// In practice, tests seed the issuer with a balance via self-mint and then use
+// TransferToken to deliver tokens to other parties through the offer/accept flow.
 func (c *Canton2Shim) MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error {
-	_, err := c.tokenCli.Mint(ctx, &token.MintRequest{
-		RecipientParty: recipientParty,
-		Amount:         amount,
-		TokenSymbol:    tokenSymbol,
+	if recipientParty != c.issuerParty {
+		return fmt.Errorf("MintToken on P2 only supports self-mint to issuer (got recipient %q, issuer %q)",
+			recipientParty, c.issuerParty)
+	}
+
+	cmd := &lapiv2.Command{
+		Command: &lapiv2.Command_Create{Create: &lapiv2.CreateCommand{
+			TemplateId: &lapiv2.Identifier{
+				PackageId:  utilityRegistryHoldingPackageID,
+				ModuleName: "Utility.Registry.Holding.V0.Holding",
+				EntityName: "Holding",
+			},
+			CreateArguments: &lapiv2.Record{Fields: []*lapiv2.RecordField{
+				{Label: "operator", Value: values.PartyValue(c.issuerParty)},
+				{Label: "provider", Value: values.PartyValue(c.issuerParty)},
+				{Label: "registrar", Value: values.PartyValue(c.issuerParty)},
+				{Label: "owner", Value: values.PartyValue(recipientParty)},
+				{Label: "instrument", Value: encodeRegistrarInstrumentID(c.issuerParty, tokenSymbol)},
+				{Label: "label", Value: values.TextValue("")},
+				{Label: "amount", Value: values.NumericValue(amount)},
+				{Label: "lock", Value: values.None()},
+			}},
+		}},
+	}
+
+	authCtx := c.ledgerClient.AuthContext(ctx)
+	_, err := c.ledgerClient.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: c.domainID,
+			CommandId:      "p2-mint-" + uuid.NewString(),
+			UserId:         cantonUserID,
+			ActAs:          []string{c.issuerParty},
+			Commands:       []*lapiv2.Command{cmd},
+		},
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("create Utility.Registry.Holding for %s: %w", tokenSymbol, err)
+	}
+	return nil
+}
+
+// encodeRegistrarInstrumentID builds a Utility.Registry.Holding.V0.Types.InstrumentIdentifier
+// with the registrar-internal scheme. The Holding template's `ensure` clause requires
+// `instrument == toInstrumentIdentifier registrar (InstrumentId{admin=registrar, id=tokenSymbol})`
+// which produces this exact shape — any deviation rejects the create.
+func encodeRegistrarInstrumentID(registrar, id string) *lapiv2.Value {
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{Fields: []*lapiv2.RecordField{
+				{Label: "source", Value: values.PartyValue(registrar)},
+				{Label: "id", Value: values.TextValue(id)},
+				{Label: "scheme", Value: values.TextValue("RegistrarInternalScheme")},
+			}},
+		},
+	}
 }
 
 // GetCantonBalance returns the total balance of tokenSymbol held by partyID.
@@ -171,11 +237,40 @@ func (c *Canton2Shim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol s
 	return result, nil
 }
 
-// TransferToken finds a CIP56TransferFactory and a suitable CIP56Holding for
-// senderParty on P2, then exercises TransferFactory_Transfer to move amount of
-// tokenSymbol to recipientParty (which may be on a different participant).
+// TransferToken finds a TransferFactory and a suitable Holding for senderParty
+// on P2, then exercises TransferFactory_Transfer to move amount of tokenSymbol
+// to recipientParty (which may be on a different participant).
+//
+// Parallel e2e tests share the same USDCx issuer party and contend on its
+// Holding set. Canton may reject with LOCAL_VERDICT_LOCKED_CONTRACTS (another
+// transfer holds the lock right now) or LOCAL_VERDICT_INACTIVE_CONTRACTS (the
+// Holding we selected was archived between GetHoldings and submit). Both are
+// transient — refetch holdings on the next attempt and try again.
 func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error {
-	return c.tokenCli.TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := range maxAttempts {
+		err := c.tokenCli.TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
+		if err == nil {
+			return nil
+		}
+		if !isHoldingContention(err) {
+			return err
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond * time.Duration(1<<attempt)):
+		}
+	}
+	return fmt.Errorf("TransferToken: %d attempts: %w", maxAttempts, lastErr)
+}
+
+func isHoldingContention(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "LOCAL_VERDICT_LOCKED_CONTRACTS") ||
+		strings.Contains(msg, "LOCAL_VERDICT_INACTIVE_CONTRACTS")
 }
 
 // GetFingerprintMapping is not supported on Participant 2.

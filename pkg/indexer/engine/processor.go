@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package engine
 
 import (
@@ -32,7 +34,7 @@ type EventFetcher interface {
 
 	// Events returns the read-only channel of decoded batches.
 	// The channel is closed when the stream terminates.
-	Events() <-chan *streaming.Batch[*indexer.ParsedEvent]
+	Events() <-chan *streaming.Batch[any]
 }
 
 // Store defines the persistence contract for the indexer Processor.
@@ -80,6 +82,26 @@ type Store interface {
 	// ApplySupplyDelta adjusts a token's TotalSupply by delta (signed decimal string).
 	// Called once per mint (+amount) or burn (-amount). Transfer events must not call this.
 	ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error
+
+	// InsertPendingOffer records a new TransferOffer (idempotent by ContractID).
+	// Status is set to PENDING on insert.
+	InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error
+
+	// MarkOfferAccepted transitions a TransferOffer to ACCEPTED status when the Canton
+	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
+	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
+	MarkOfferAccepted(ctx context.Context, contractID string) error
+
+	// InsertHolding records an active Utility.Registry.Holding contract so its amount
+	// and owner can be recovered when the contract is later archived (archive events
+	// carry only the contract ID). Idempotent on ContractID.
+	InsertHolding(ctx context.Context, h *indexer.HoldingChange) error
+
+	// TakeHolding deletes the row for contractID and returns the stored owner/
+	// instrument/amount needed to decrement the matching balance on archive.
+	// Returns ok=false on missing rows so replayed ARCHIVED events become no-ops
+	// instead of errors.
+	TakeHolding(ctx context.Context, contractID string) (h indexer.HoldingChange, ok bool, err error)
 }
 
 // Processor is the main run loop of the indexer. It wires the EventFetcher to the
@@ -91,14 +113,16 @@ type Store interface {
 type Processor struct {
 	fetcher EventFetcher
 	store   Store
+	metrics *Metrics
 	logger  *zap.Logger
 }
 
 // NewProcessor creates a Processor.
-func NewProcessor(fetcher EventFetcher, store Store, logger *zap.Logger) *Processor {
+func NewProcessor(fetcher EventFetcher, store Store, metrics *Metrics, logger *zap.Logger) *Processor {
 	return &Processor{
 		fetcher: fetcher,
 		store:   store,
+		metrics: metrics,
 		logger:  logger,
 	}
 }
@@ -140,7 +164,7 @@ func (p *Processor) Run(ctx context.Context) error {
 
 // processBatchWithRetry calls processBatch and retries with exponential backoff on failure.
 // It returns only when the batch is successfully persisted or ctx is canceled.
-func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.Batch[*indexer.ParsedEvent]) error {
+func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.Batch[any]) error {
 	delay := processorRetryBaseDelay
 
 	for {
@@ -149,6 +173,7 @@ func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.
 			return nil
 		}
 
+		p.metrics.BatchProcessingErrors.Inc()
 		p.logger.Error("failed to process batch, retrying",
 			zap.String("update_id", batch.UpdateID),
 			zap.Int64("offset", batch.Offset),
@@ -171,47 +196,33 @@ func (p *Processor) processBatchWithRetry(ctx context.Context, batch *streaming.
 // can skip already-indexed events without double-applying balances or supply.
 // All writes — event inserts, token upserts, supply/balance deltas, and offset advance —
 // are committed atomically. On any error the transaction is rolled back and the caller retries.
-func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*indexer.ParsedEvent]) error {
+func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any]) error {
 	err := p.store.RunInTx(ctx, func(ctx context.Context, tx Store) error {
-		for _, e := range batch.Items {
-			inserted, err := tx.InsertEvent(ctx, e)
-			if err != nil {
-				return fmt.Errorf("insert event: %w", err)
-			}
-			if !inserted {
-				continue
-			}
-
-			if err = tx.UpsertToken(ctx, tokenFromEvent(e)); err != nil {
-				return fmt.Errorf("upsert token: %w", err)
-			}
-
-			if admin, id, delta, ok := supplyDeltaFromEvent(e); ok {
-				if err = tx.ApplySupplyDelta(ctx, admin, id, delta); err != nil {
-					return fmt.Errorf("apply supply delta: %w", err)
+		for _, raw := range batch.Items {
+			switch item := raw.(type) {
+			case *indexer.ParsedEvent:
+				if err := p.processTransferEvent(ctx, tx, item, batch.Offset); err != nil {
+					return err
 				}
-			}
-
-			for _, u := range balanceUpdatesFromEvent(e) {
-				err = tx.ApplyBalanceDelta(ctx, u[0], e.InstrumentAdmin, e.InstrumentID, u[1])
-				if err == nil {
-					continue
+			case *indexer.PendingOffer:
+				if item.IsArchived {
+					if err := tx.MarkOfferAccepted(ctx, item.ContractID); err != nil {
+						return fmt.Errorf("mark offer accepted %s: %w", item.ContractID, err)
+					}
+				} else {
+					if err := tx.InsertPendingOffer(ctx, item); err != nil {
+						return fmt.Errorf("insert pending offer %s: %w", item.ContractID, err)
+					}
 				}
-				// For a TRANSFER where the sender delta is negative and the store reports
-				// ErrNegativeBalance: the sender's full mint history is on another participant
-				// and was never delivered to P1. Log a warning and skip the sender deduction —
-				// the receiver's credit is still applied correctly.
-				if e.EventType == indexer.EventTransfer && isNegativeDelta(u[1]) && errors.Is(err, ErrNegativeBalance) {
-					p.logger.Warn("sender balance underflow — mint history on another participant; skipping sender deduction",
-						zap.String("party", u[0]),
-						zap.String("instrument_admin", e.InstrumentAdmin),
-						zap.String("instrument_id", e.InstrumentID),
-						zap.String("delta", u[1]),
-						zap.Int64("offset", batch.Offset),
-					)
-					continue
+			case *indexer.HoldingChange:
+				if err := p.processHoldingChange(ctx, tx, item); err != nil {
+					return err
 				}
-				return fmt.Errorf("apply balance delta: %w", err)
+			default:
+				p.logger.Error("processBatch: unrecognized item type, skipping",
+					zap.String("type", fmt.Sprintf("%T", raw)),
+					zap.Int64("offset", batch.Offset),
+				)
 			}
 		}
 
@@ -225,6 +236,24 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 		return fmt.Errorf("tx at offset %d: %w", batch.Offset, err)
 	}
 
+	// Update offset and event-type counters after a successful commit.
+	// Per-type counters only track ParsedEvent (CIP56 TokenTransferEvent) since
+	// EventType/EffectiveTime are specific to that decoder; offers and holdings
+	// flow through the same processor but don't carry transfer semantics.
+	p.metrics.LastOffset.Set(float64(batch.Offset))
+	var lastEffectiveTime time.Time
+	for _, raw := range batch.Items {
+		if e, ok := raw.(*indexer.ParsedEvent); ok && e != nil {
+			p.metrics.IncEventsProcessed(e.EventType)
+			if e.EffectiveTime.After(lastEffectiveTime) {
+				lastEffectiveTime = e.EffectiveTime
+			}
+		}
+	}
+	if !lastEffectiveTime.IsZero() {
+		p.metrics.SyncLagSeconds.Set(time.Since(lastEffectiveTime).Seconds())
+	}
+
 	if len(batch.Items) > 0 {
 		p.logger.Debug("indexed batch",
 			zap.String("update_id", batch.UpdateID),
@@ -233,6 +262,95 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[*in
 		)
 	}
 
+	return nil
+}
+
+// processTransferEvent handles a single *indexer.ParsedEvent within a transaction.
+func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *indexer.ParsedEvent, batchOffset int64) error {
+	inserted, err := tx.InsertEvent(ctx, e)
+	if err != nil {
+		return fmt.Errorf("insert event: %w", err)
+	}
+	if !inserted {
+		return nil
+	}
+
+	if err = tx.UpsertToken(ctx, tokenFromEvent(e)); err != nil {
+		return fmt.Errorf("upsert token: %w", err)
+	}
+
+	if admin, id, delta, ok := supplyDeltaFromEvent(e); ok {
+		if err = tx.ApplySupplyDelta(ctx, admin, id, delta); err != nil {
+			return fmt.Errorf("apply supply delta: %w", err)
+		}
+	}
+
+	for _, u := range balanceUpdatesFromEvent(e) {
+		err = tx.ApplyBalanceDelta(ctx, u[0], e.InstrumentAdmin, e.InstrumentID, u[1])
+		if err == nil {
+			continue
+		}
+		// For a TRANSFER where the sender delta is negative and the store reports
+		// ErrNegativeBalance: the sender's full mint history is on another participant
+		// and was never delivered to P1. Log a warning and skip the sender deduction —
+		// the receiver's credit is still applied correctly.
+		if e.EventType == indexer.EventTransfer && isNegativeDelta(u[1]) && errors.Is(err, ErrNegativeBalance) {
+			p.logger.Warn("sender balance underflow — mint history on another participant; skipping sender deduction",
+				zap.String("party", u[0]),
+				zap.String("instrument_admin", e.InstrumentAdmin),
+				zap.String("instrument_id", e.InstrumentID),
+				zap.String("delta", u[1]),
+				zap.Int64("offset", batchOffset),
+			)
+			continue
+		}
+		return fmt.Errorf("apply balance delta: %w", err)
+	}
+	return nil
+}
+
+// processHoldingChange handles a Utility.Registry.Holding lifecycle event by
+// applying the matching balance delta:
+//   - CREATED: store the holding row + increment balance for owner by amount.
+//   - ARCHIVED: take (lookup + delete) the stored row + decrement balance by
+//     the stored amount. Missing rows are treated as already-processed and skipped.
+//
+// We deliberately do not advance total supply here — internal transfers (split/
+// lock/unlock) routinely archive one Holding and create another for the same total,
+// so attributing every create as a mint would inflate supply. Supply for Utility.
+// Registry instruments stays at 0 until we add explicit mint/burn-event tracking.
+func (p *Processor) processHoldingChange(ctx context.Context, tx Store, h *indexer.HoldingChange) error {
+	if h.IsArchived {
+		stored, ok, err := tx.TakeHolding(ctx, h.ContractID)
+		if err != nil {
+			return fmt.Errorf("take holding %s: %w", h.ContractID, err)
+		}
+		if !ok {
+			return nil
+		}
+		if err := tx.ApplyBalanceDelta(ctx, stored.Owner, stored.InstrumentAdmin, stored.InstrumentID, "-"+stored.Amount); err != nil {
+			if errors.Is(err, ErrNegativeBalance) {
+				p.logger.Warn("holding archive would underflow balance — mint history on another participant; skipping",
+					zap.String("contract_id", h.ContractID),
+					zap.String("party", stored.Owner),
+					zap.String("amount", stored.Amount),
+				)
+				return nil
+			}
+			return fmt.Errorf("apply holding archive delta: %w", err)
+		}
+		return nil
+	}
+	if h.Owner == "" || h.InstrumentID == "" || h.InstrumentAdmin == "" {
+		// Malformed CREATED event already logged by decoder; skip silently.
+		return nil
+	}
+	if err := tx.InsertHolding(ctx, h); err != nil {
+		return fmt.Errorf("insert holding %s: %w", h.ContractID, err)
+	}
+	if err := tx.ApplyBalanceDelta(ctx, h.Owner, h.InstrumentAdmin, h.InstrumentID, h.Amount); err != nil {
+		return fmt.Errorf("apply holding create delta: %w", err)
+	}
 	return nil
 }
 

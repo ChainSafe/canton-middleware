@@ -1,0 +1,87 @@
+package store
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
+)
+
+// StoreMetrics holds Prometheus collectors for the indexer database layer.
+type StoreMetrics struct {
+	// QueryDuration tracks database query latency partitioned by operation.
+	QueryDuration *prometheus.HistogramVec
+
+	// Errors counts database errors partitioned by operation.
+	Errors *prometheus.CounterVec
+}
+
+// NewStoreMetrics registers indexer store metrics against the given registerer.
+func NewStoreMetrics(reg sharedmetrics.NamespacedRegisterer) *StoreMetrics {
+	f := promauto.With(reg)
+	ns := reg.Namespace()
+	sub := "db"
+
+	return &StoreMetrics{
+		QueryDuration: f.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: ns, Subsystem: sub,
+			Name:    "query_duration_seconds",
+			Help:    "Database query duration in seconds, partitioned by operation",
+			Buckets: sharedmetrics.DBLatencyBuckets,
+		}, []string{"operation"}),
+
+		Errors: f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: ns, Subsystem: sub,
+			Name: "errors_total",
+			Help: "Total number of database errors, partitioned by operation",
+		}, []string{"operation"}),
+	}
+}
+
+// NewNopStoreMetrics returns a StoreMetrics instance backed by a throwaway registry.
+// Use in tests where metric values are not asserted.
+func NewNopStoreMetrics() *StoreMetrics {
+	return NewStoreMetrics(sharedmetrics.WithNamespace(prometheus.NewRegistry(), "nop"))
+}
+
+// ── Label value types ────────────────────────────────────────────────────────
+
+// StoreOperation identifies a database operation for metrics labeling.
+type StoreOperation string
+
+const (
+	// Write-path operations (processor / engine.Store).
+	OpLatestOffset       StoreOperation = "latest_offset"
+	OpInsertEvent        StoreOperation = "insert_event"
+	OpSaveOffset         StoreOperation = "save_offset"
+	OpUpsertToken        StoreOperation = "upsert_token"
+	OpApplyBalanceDelta  StoreOperation = "apply_balance_delta"
+	OpApplySupplyDelta   StoreOperation = "apply_supply_delta"
+	OpInsertPendingOffer StoreOperation = "insert_pending_offer"
+	OpMarkOfferAccepted  StoreOperation = "mark_offer_accepted"
+	OpInsertHolding      StoreOperation = "insert_holding"
+	OpTakeHolding        StoreOperation = "take_holding"
+
+	// Read-path operations (HTTP API / service.Store).
+	OpGetToken                StoreOperation = "get_token"
+	OpListTokens              StoreOperation = "list_tokens"
+	OpGetBalance              StoreOperation = "get_balance"
+	OpListBalancesForParty    StoreOperation = "list_balances_for_party"
+	OpListBalancesForToken    StoreOperation = "list_balances_for_token"
+	OpGetEvent                StoreOperation = "get_event"
+	OpListEvents              StoreOperation = "list_events"
+	OpListPendingOffersForPty StoreOperation = "list_pending_offers_for_party"
+	OpListAllPendingOffers    StoreOperation = "list_all_pending_offers"
+)
+
+// ── Helper methods ───────────────────────────────────────────────────────────
+
+// ObserveQueryDuration returns the observer for the given operation's query duration.
+func (m *StoreMetrics) ObserveQueryDuration(op StoreOperation) prometheus.Observer {
+	return m.QueryDuration.WithLabelValues(string(op))
+}
+
+// IncErrors increments the error counter for the given operation.
+func (m *StoreMetrics) IncErrors(op StoreOperation) {
+	m.Errors.WithLabelValues(string(op)).Inc()
+}

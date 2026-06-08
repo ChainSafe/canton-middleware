@@ -8,3 +8,15 @@ scrape_configs:
       - targets: ['relayer:9090']
         labels:
           service: 'relayer'
+
+  - job_name: 'canton-api-server'
+    static_configs:
+      - targets: ['api-server:9091']
+        labels:
+          service: 'api-server'
+
+  - job_name: 'canton-indexer'
+    static_configs:
+      - targets: ['indexer:9092']
+        labels:
+          service: 'indexer'

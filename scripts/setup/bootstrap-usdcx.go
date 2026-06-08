@@ -4,7 +4,13 @@
 //
 // Participant2 acts as the "external" USDCx issuer node, separate from the
 // middleware's participant1. The script creates the CIP56Manager, TokenConfig,
-// and CIP56TransferFactory for USDCx under the given USDCxIssuer party.
+// AllocationFactory, TransferRule, and InstrumentConfiguration for USDCx under
+// the given USDCxIssuer party.
+//
+// The AllocationFactory (from utility_registry_app_v0) replaces the old
+// CIP56TransferFactory. When TransferFactory_Transfer is called on it, it
+// creates a TransferOffer contract (pending state), matching devnet behaviour.
+// The receiver must exercise TransferInstruction_Accept to complete the transfer.
 //
 // The USDCxIssuer party must be allocated before calling this script (the
 // docker-bootstrap.sh allocates it via the Canton HTTP API on port 5023).
@@ -47,6 +53,9 @@ var (
 	clientIDFlag = flag.String("client-id", "local-test-client", "OAuth2 client ID")
 	clientSecFlag = flag.String("client-secret", "local-test-secret", "OAuth2 client secret")
 	cip56PkgID   = flag.String("cip56-package-id", "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2", "CIP56 package ID")
+	// Package IDs from deployments/usdcx-dars/manifest.json
+	registryAppPkgID = flag.String("registry-app-package-id", "7a75ef6e69f69395a4e60919e228528bb8f3881150ccfde3f31bcc73864b18ab", "utility_registry_app_v0 package ID")
+	registryPkgID    = flag.String("registry-package-id", "a236e8e22a3b5f199e37d5554e82bafd2df688f901de02b00be3964bdfa8c1ab", "utility_registry_v0 package ID")
 )
 
 func main() {
@@ -88,7 +97,7 @@ func main() {
 
 	// ── CIP56Manager ──────────────────────────────────────────────────────────
 
-	managerCID, err := findContract(ctx, p2, *issuerParty, "CIP56.Token", "CIP56Manager")
+	managerCID, err := findContractByPkg(ctx, p2, *issuerParty, *cip56PkgID, "CIP56.Token", "CIP56Manager")
 	if err == nil {
 		fmt.Printf("    CIP56Manager already exists: %s\n", managerCID)
 	} else {
@@ -114,28 +123,67 @@ func main() {
 		fmt.Printf("    Created: %s\n", configCID)
 	}
 
-	// ── CIP56TransferFactory ──────────────────────────────────────────────────
+	// ── AllocationFactory ─────────────────────────────────────────────────────
+	// Replaces CIP56TransferFactory. TransferFactory_Transfer creates a
+	// TransferOffer (pending), matching devnet behaviour.
 
-	factoryCID, err := findContract(ctx, p2, *issuerParty, "CIP56.TransferFactory", "CIP56TransferFactory")
+	allocFactoryCID, err := findContractByPkg(ctx, p2, *issuerParty, *registryAppPkgID,
+		"Utility.Registry.App.V0.Service.AllocationFactory", "AllocationFactory")
 	if err == nil {
-		fmt.Printf("    CIP56TransferFactory already exists: %s\n", factoryCID)
+		fmt.Printf("    AllocationFactory already exists: %s\n", allocFactoryCID)
 	} else {
-		fmt.Println(">>> Creating CIP56TransferFactory for USDCx...")
-		factoryCID, err = createTransferFactory(ctx, p2, *issuerParty, *domainIDFlag)
+		fmt.Println(">>> Creating AllocationFactory for USDCx...")
+		allocFactoryCID, err = createAllocationFactory(ctx, p2, *issuerParty, *domainIDFlag)
 		if err != nil {
-			fmt.Printf("    [WARN] CIP56TransferFactory: %v (may already exist)\n", err)
-		} else {
-			fmt.Printf("    Created: %s\n", factoryCID)
+			log.Fatalf("create AllocationFactory: %v", err)
 		}
+		fmt.Printf("    Created: %s\n", allocFactoryCID)
+	}
+
+	// ── TransferRule ──────────────────────────────────────────────────────────
+	// Required for TransferInstruction_Accept. Must be disclosed to the receiver
+	// via choiceContextData at accept time.
+
+	transferRuleCID, err := findContractByPkg(ctx, p2, *issuerParty, *registryPkgID,
+		"Utility.Registry.V0.Rule.Transfer", "TransferRule")
+	if err == nil {
+		fmt.Printf("    TransferRule already exists: %s\n", transferRuleCID)
+	} else {
+		fmt.Println(">>> Creating TransferRule for USDCx...")
+		transferRuleCID, err = createTransferRule(ctx, p2, *issuerParty, *domainIDFlag)
+		if err != nil {
+			log.Fatalf("create TransferRule: %v", err)
+		}
+		fmt.Printf("    Created: %s\n", transferRuleCID)
+	}
+
+	// ── InstrumentConfiguration ───────────────────────────────────────────────
+	// Required for validateTransfer inside TransferRule_TwoStepTransfer.
+	// holderRequirements = [] so no Credential contracts are needed locally.
+
+	instrumentConfigCID, err := findContractByPkg(ctx, p2, *issuerParty, *registryPkgID,
+		"Utility.Registry.V0.Configuration.Instrument", "InstrumentConfiguration")
+	if err == nil {
+		fmt.Printf("    InstrumentConfiguration already exists: %s\n", instrumentConfigCID)
+	} else {
+		fmt.Println(">>> Creating InstrumentConfiguration for USDCx...")
+		instrumentConfigCID, err = createInstrumentConfiguration(ctx, p2, *issuerParty, *domainIDFlag)
+		if err != nil {
+			log.Fatalf("create InstrumentConfiguration: %v", err)
+		}
+		fmt.Printf("    Created: %s\n", instrumentConfigCID)
 	}
 
 	fmt.Println()
 	fmt.Println("======================================================================")
 	fmt.Println("USDCx Bootstrap Complete")
 	fmt.Println("======================================================================")
-	fmt.Printf("Issuer:  %s\n", *issuerParty)
-	fmt.Printf("Manager: %s\n", managerCID)
-	fmt.Printf("Config:  %s\n", configCID)
+	fmt.Printf("Issuer:                %s\n", *issuerParty)
+	fmt.Printf("Manager:               %s\n", managerCID)
+	fmt.Printf("Config:                %s\n", configCID)
+	fmt.Printf("AllocationFactory:     %s\n", allocFactoryCID)
+	fmt.Printf("TransferRule:          %s\n", transferRuleCID)
+	fmt.Printf("InstrumentConfig:      %s\n", instrumentConfigCID)
 }
 
 // ─── Canton helpers ───────────────────────────────────────────────────────────
@@ -148,14 +196,31 @@ func cip56ID(module, entity string) *lapiv2.Identifier {
 	}
 }
 
-// findContract returns the first active contract of the given template for the issuer.
-func findContract(ctx context.Context, c *ledger.Client, issuer, module, entity string) (string, error) {
+func registryAppID(module, entity string) *lapiv2.Identifier {
+	return &lapiv2.Identifier{
+		PackageId:  *registryAppPkgID,
+		ModuleName: module,
+		EntityName: entity,
+	}
+}
+
+func registryID(module, entity string) *lapiv2.Identifier {
+	return &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: module,
+		EntityName: entity,
+	}
+}
+
+// findContractByPkg returns the first active contract of the given template for issuer.
+func findContractByPkg(ctx context.Context, c *ledger.Client, issuer, pkgID, module, entity string) (string, error) {
 	authCtx := c.AuthContext(ctx)
 	offset, err := c.GetLedgerEnd(authCtx)
 	if err != nil {
 		return "", err
 	}
-	events, err := c.GetActiveContractsByTemplate(authCtx, offset, []string{issuer}, cip56ID(module, entity))
+	tid := &lapiv2.Identifier{PackageId: pkgID, ModuleName: module, EntityName: entity}
+	events, err := c.GetActiveContractsByTemplate(authCtx, offset, []string{issuer}, tid)
 	if err != nil {
 		return "", err
 	}
@@ -255,20 +320,25 @@ func createTokenConfig(ctx context.Context, c *ledger.Client, issuer, syncID, ma
 	return findInTx(resp.Transaction, "TokenConfig")
 }
 
-func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID string) (string, error) {
+// createAllocationFactory creates an AllocationFactory on P2.
+// This is DA's template from utility_registry_app_v0 that creates TransferOffer
+// contracts (pending state) when TransferFactory_Transfer is called, matching
+// devnet behaviour.
+func createAllocationFactory(ctx context.Context, c *ledger.Client, issuer, syncID string) (string, error) {
 	authCtx := c.AuthContext(ctx)
 	resp, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &lapiv2.Commands{
 			SynchronizerId: syncID,
-			CommandId:      fmt.Sprintf("usdcx-factory-%d", time.Now().UnixNano()),
+			CommandId:      fmt.Sprintf("usdcx-alloc-factory-%d", time.Now().UnixNano()),
 			UserId:         sub(ctx, c),
-			ActAs:          []string{admin},
+			ActAs:          []string{issuer},
 			Commands: []*lapiv2.Command{{
 				Command: &lapiv2.Command_Create{Create: &lapiv2.CreateCommand{
-					TemplateId: cip56ID("CIP56.TransferFactory", "CIP56TransferFactory"),
+					TemplateId: registryAppID("Utility.Registry.App.V0.Service.AllocationFactory", "AllocationFactory"),
 					CreateArguments: &lapiv2.Record{Fields: []*lapiv2.RecordField{
-						{Label: "admin", Value: values.PartyValue(admin)},
-						{Label: "auditObservers", Value: values.ListValue(nil)},
+						{Label: "provider", Value: values.PartyValue(issuer)},
+						{Label: "registrar", Value: values.PartyValue(issuer)},
+						{Label: "operator", Value: values.PartyValue(issuer)},
 					}},
 				}},
 			}},
@@ -277,7 +347,86 @@ func createTransferFactory(ctx context.Context, c *ledger.Client, admin, syncID 
 	if err != nil {
 		return "", err
 	}
-	return findInTx(resp.Transaction, "CIP56TransferFactory")
+	return findInTx(resp.Transaction, "AllocationFactory")
+}
+
+// createTransferRule creates a TransferRule on P2.
+// Required at accept time — must be disclosed to the receiver's participant via
+// choiceContextData["utility.digitalasset.com/transfer-rule"].
+func createTransferRule(ctx context.Context, c *ledger.Client, issuer, syncID string) (string, error) {
+	authCtx := c.AuthContext(ctx)
+	resp, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: syncID,
+			CommandId:      fmt.Sprintf("usdcx-transfer-rule-%d", time.Now().UnixNano()),
+			UserId:         sub(ctx, c),
+			ActAs:          []string{issuer},
+			Commands: []*lapiv2.Command{{
+				Command: &lapiv2.Command_Create{Create: &lapiv2.CreateCommand{
+					TemplateId: registryID("Utility.Registry.V0.Rule.Transfer", "TransferRule"),
+					CreateArguments: &lapiv2.Record{Fields: []*lapiv2.RecordField{
+						{Label: "operator", Value: values.PartyValue(issuer)},
+						{Label: "provider", Value: values.PartyValue(issuer)},
+						{Label: "registrar", Value: values.PartyValue(issuer)},
+					}},
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return findInTx(resp.Transaction, "TransferRule")
+}
+
+// createInstrumentConfiguration creates an InstrumentConfiguration on P2.
+// holderRequirements = [] so no Credential contracts are needed locally.
+// Required for validateTransfer inside TransferRule_TwoStepTransfer.
+func createInstrumentConfiguration(ctx context.Context, c *ledger.Client, issuer, syncID string) (string, error) {
+	authCtx := c.AuthContext(ctx)
+	resp, err := c.Command().SubmitAndWaitForTransaction(authCtx, &lapiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &lapiv2.Commands{
+			SynchronizerId: syncID,
+			CommandId:      fmt.Sprintf("usdcx-instrument-config-%d", time.Now().UnixNano()),
+			UserId:         sub(ctx, c),
+			ActAs:          []string{issuer},
+			Commands: []*lapiv2.Command{{
+				Command: &lapiv2.Command_Create{Create: &lapiv2.CreateCommand{
+					TemplateId: registryID("Utility.Registry.V0.Configuration.Instrument", "InstrumentConfiguration"),
+					CreateArguments: &lapiv2.Record{Fields: []*lapiv2.RecordField{
+						{Label: "operator", Value: values.PartyValue(issuer)},
+						{Label: "provider", Value: values.PartyValue(issuer)},
+						{Label: "registrar", Value: values.PartyValue(issuer)},
+						// InstrumentIdentifier{source=registrar, id="USDCx", scheme="RegistrarInternalScheme"}
+						// scheme must be "RegistrarInternalScheme" per toInstrumentIdentifier in holding package
+						{Label: "defaultIdentifier", Value: encodeInstrumentIdentifier(issuer, "USDCx")},
+						{Label: "additionalIdentifiers", Value: values.ListValue(nil)},
+						{Label: "issuerRequirements", Value: values.ListValue(nil)},
+						{Label: "holderRequirements", Value: values.ListValue(nil)},
+						{Label: "providerAppRewardBeneficiaries", Value: values.None()},
+					}},
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return findInTx(resp.Transaction, "InstrumentConfiguration")
+}
+
+// encodeInstrumentIdentifier encodes a Utility.Registry.Holding.V0.Types.InstrumentIdentifier.
+// The scheme must be "RegistrarInternalScheme" for registrar-issued identifiers.
+func encodeInstrumentIdentifier(source, id string) *lapiv2.Value {
+	return &lapiv2.Value{
+		Sum: &lapiv2.Value_Record{
+			Record: &lapiv2.Record{Fields: []*lapiv2.RecordField{
+				{Label: "source", Value: values.PartyValue(source)},
+				{Label: "id", Value: values.TextValue(id)},
+				{Label: "scheme", Value: values.TextValue("RegistrarInternalScheme")},
+			}},
+		},
+	}
 }
 
 func findInTx(tx *lapiv2.Transaction, entity string) (string, error) {

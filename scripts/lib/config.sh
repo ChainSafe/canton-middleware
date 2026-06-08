@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
 # =============================================================================
 # Configuration loading for Canton-Ethereum bridge tests
 # =============================================================================

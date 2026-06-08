@@ -1,4 +1,4 @@
-.PHONY: build test clean run setup db-up db-down docker-up docker-down deploy-contracts install-mockery check-mockery generate-mocks build-dars devstack-up devstack-down test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
+.PHONY: build test clean run setup db-up db-down docker-up docker-down deploy-contracts install-mockery check-mockery generate-mocks build-dars download-usdcx-dars devstack-up devstack-down test-e2e test-e2e-api test-e2e-bridge test-e2e-indexer lint lint-e2e test-coverage test-coverage-check
 
 GREEN := \033[0;32m
 RED := \033[0;31m
@@ -140,7 +140,10 @@ export CANTON_MASTER_KEY
 build-dars:
 	./scripts/setup/build-dars.sh
 
-devstack-up:
+download-usdcx-dars:
+	./scripts/setup/download-usdcx-dars.sh
+
+devstack-up: download-usdcx-dars
 	go run ./tests/e2e/cmd/devstack up
 
 devstack-down:

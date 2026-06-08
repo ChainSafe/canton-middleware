@@ -9,10 +9,15 @@
 // api-server config with the issuer's live endpoint — no other code changes
 // are required.
 //
-// Protocol: POST /registry/transfer-instruction/v1/transfer-factory
+// Sender-side endpoint:
+//   POST /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/transfer-factory
 //
 //   Request body (RegistryRequest):
-//     { "expectedAdmin": "<party>", "transfer": { "sender": "...", ... } }
+//     { "choiceArguments": { "expectedAdmin": "<party>",
+//                            "transfer": { "sender": "...",
+//                                          "instrumentId": {"admin":"...","id":"USDCx"}, ... },
+//                            "extraArgs": {"context":{"values":{}},"meta":{"values":{}}} },
+//       "excludeDebugFields": false }
 //
 //   Response body (RegistryResponse):
 //     { "factoryId": "...", "transferKind": "transfer",
@@ -21,6 +26,19 @@
 //                                "createdEventBlob": "<base64>",
 //                                "templateId": "<pkg>:<module>:<entity>",
 //                                "synchronizerId": "..." }] }
+//
+// Receiver-side accept endpoint:
+//   POST /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
+//
+//   Request body: { "meta": {}, "excludeDebugFields": false }
+//
+//   Response body:
+//     { "choiceContextData": { "values": {
+//           "utility.digitalasset.com/transfer-rule":            {"tag":"AV_ContractId","value":"<cid>"},
+//           "utility.digitalasset.com/instrument-configuration": {"tag":"AV_ContractId","value":"<cid>"},
+//           "utility.digitalasset.com/sender-credentials":       {"tag":"AV_List","value":[]},
+//           "utility.digitalasset.com/receiver-credentials":     {"tag":"AV_List","value":[]} } },
+//       "disclosedContracts": [...] }
 //
 // These types must stay in sync with pkg/cantonsdk/token/registry_client.go.
 
@@ -52,34 +70,76 @@ var (
 	clientID     = flag.String("client-id", "local-test-client", "OAuth2 client ID")
 	clientSecret = flag.String("client-secret", "local-test-secret", "OAuth2 client secret")
 	listenPort   = flag.String("port", "8090", "HTTP port to listen on")
-	cip56PkgID   = flag.String("cip56-package-id", "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2", "CIP56 package ID")
-	cacheTTL     = flag.Duration("cache-ttl", 60*time.Second, "Factory cache TTL (0 = query on every request)")
+	// registryAppPkgID is the utility_registry_app_v0 package ID — AllocationFactory lives here.
+	registryAppPkgID = flag.String("registry-app-package-id", "7a75ef6e69f69395a4e60919e228528bb8f3881150ccfde3f31bcc73864b18ab", "utility_registry_app_v0 package ID")
+	// registryPkgID is the utility_registry_v0 package ID — TransferRule and InstrumentConfiguration live here.
+	registryPkgID = flag.String("registry-package-id", "a236e8e22a3b5f199e37d5554e82bafd2df688f901de02b00be3964bdfa8c1ab", "utility_registry_v0 package ID")
+	cacheTTL      = flag.Duration("cache-ttl", 60*time.Second, "Cache TTL for ACS queries (0 = query on every request)")
 )
 
 // ─── API types ───────────────────────────────────────────────────────────────
 // These must match the JSON shapes in pkg/cantonsdk/token/registry_client.go.
 
 // RegistryRequest is the POST body sent by RegistryClient.GetTransferFactory.
+// Mirrors the Splice token-standard shape DA's hosted registry expects: the
+// on-ledger choice arguments live under `choiceArguments`.
 type RegistryRequest struct {
+	ChoiceArguments    ChoiceArguments `json:"choiceArguments"`
+	ExcludeDebugFields bool            `json:"excludeDebugFields"`
+}
+
+// ChoiceArguments wraps the TransferFactory_Transfer arguments plus the
+// off-ledger extraArgs the registry uses to build the choice context.
+type ChoiceArguments struct {
 	ExpectedAdmin string         `json:"expectedAdmin"`
 	Transfer      TransferDetail `json:"transfer"`
+	ExtraArgs     ExtraArgs      `json:"extraArgs"`
+}
+
+// ExtraArgs is the off-ledger context/meta envelope. Both maps are empty for
+// the local devstack — the registry derives the real context from P2's ACS.
+type ExtraArgs struct {
+	Context AnyValueMap `json:"context"`
+	Meta    AnyValueMap `json:"meta"`
+}
+
+// AnyValueMap models the Splice `{"values":{...}}` AnyValue container.
+type AnyValueMap struct {
+	Values map[string]any `json:"values"`
 }
 
 // TransferDetail carries the transfer parameters sent by the caller.
 type TransferDetail struct {
-	Sender           string   `json:"sender"`
-	Receiver         string   `json:"receiver"`
-	Amount           string   `json:"amount"`
-	InstrumentID     string   `json:"instrumentId"`
-	InputHoldingCIDs []string `json:"inputHoldingCids"`
+	Sender           string        `json:"sender"`
+	Receiver         string        `json:"receiver"`
+	Amount           string        `json:"amount"`
+	InstrumentID     InstrumentRef `json:"instrumentId"`
+	InputHoldingCIDs []string      `json:"inputHoldingCids"`
+	Meta             AnyValueMap   `json:"meta"`
+	ExecuteBefore    string        `json:"executeBefore"`
+	RequestedAt      string        `json:"requestedAt"`
 }
 
-// RegistryResponse is the response body parsed by RegistryClient.GetTransferFactory.
+// InstrumentRef is the structured instrument identifier {admin, id}.
+type InstrumentRef struct {
+	Admin string `json:"admin"`
+	ID    string `json:"id"`
+}
+
+// RegistryResponse is the wire response, matching DA's hosted token-standard
+// registry shape: the AnyValue choice context and the disclosed contracts are
+// both nested inside `choiceContext` (the same envelope used by the
+// receiver-side AcceptContextResponse).
 type RegistryResponse struct {
-	FactoryID          string              `json:"factoryId"`
-	TransferKind       string              `json:"transferKind"`
-	ChoiceContext      any                 `json:"choiceContext"`
-	DisclosedContracts []DisclosedContract `json:"disclosedContracts"`
+	FactoryID     string              `json:"factoryId"`
+	TransferKind  string              `json:"transferKind"`
+	ChoiceContext registryChoiceCtxResp `json:"choiceContext"`
+}
+
+// registryChoiceCtxResp is the nested envelope returned inside `choiceContext`.
+type registryChoiceCtxResp struct {
+	ChoiceContextData  acceptChoiceContextData `json:"choiceContextData"`
+	DisclosedContracts []DisclosedContract     `json:"disclosedContracts"`
 }
 
 // DisclosedContract matches the registryDisclosedContract shape in registry_client.go.
@@ -90,11 +150,23 @@ type DisclosedContract struct {
 	SynchronizerID   string `json:"synchronizerId"`
 }
 
+// AcceptContextResponse is returned by the receiver-side accept endpoint.
+// The JSON shape must match what accept-via-interface.go and the SDK client expect.
+type AcceptContextResponse struct {
+	ChoiceContextData  acceptChoiceContextData `json:"choiceContextData"`
+	DisclosedContracts []DisclosedContract     `json:"disclosedContracts"`
+}
+
+// acceptChoiceContextData holds the AnyValue map consumed by TransferInstruction_Accept.
+type acceptChoiceContextData struct {
+	Values map[string]any `json:"values"`
+}
+
 type errorBody struct {
 	Error string `json:"error"`
 }
 
-// ─── Cache ───────────────────────────────────────────────────────────────────
+// ─── Caches ───────────────────────────────────────────────────────────────────
 
 type factoryCache struct {
 	mu        sync.RWMutex
@@ -125,13 +197,43 @@ func (c *factoryCache) store(resp *RegistryResponse) {
 	c.expiresAt = time.Now().Add(c.ttl)
 }
 
+type acceptContextCache struct {
+	mu        sync.RWMutex
+	resp      *AcceptContextResponse
+	expiresAt time.Time
+	ttl       time.Duration
+}
+
+func (c *acceptContextCache) load() *AcceptContextResponse {
+	if c.ttl == 0 {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.resp != nil && time.Now().Before(c.expiresAt) {
+		return c.resp
+	}
+	return nil
+}
+
+func (c *acceptContextCache) store(resp *AcceptContextResponse) {
+	if c.ttl == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resp = resp
+	c.expiresAt = time.Now().Add(c.ttl)
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 type server struct {
-	p2     *ledger.Client
-	issuer string
-	domain string
-	cache  *factoryCache
+	p2          *ledger.Client
+	issuer      string
+	domain      string
+	cache       *factoryCache
+	acceptCache *acceptContextCache
 }
 
 func main() {
@@ -172,14 +274,17 @@ func main() {
 	log.Printf("    Domain: %s", domain)
 
 	srv := &server{
-		p2:     p2,
-		issuer: issuer,
-		domain: domain,
-		cache:  &factoryCache{ttl: *cacheTTL},
+		p2:          p2,
+		issuer:      issuer,
+		domain:      domain,
+		cache:       &factoryCache{ttl: *cacheTTL},
+		acceptCache: &acceptContextCache{ttl: *cacheTTL},
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/registry/transfer-instruction/v1/transfer-factory", srv.handleTransferFactory)
+	// Both registry endpoints are mounted per-registrar under the same prefix,
+	// matching DA's hosted registry URL scheme. Dispatch by suffix below.
+	mux.HandleFunc("/api/token-standard/v0/registrars/", srv.routeRegistrar)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
@@ -192,7 +297,45 @@ func main() {
 	}
 }
 
-// handleTransferFactory implements POST /registry/transfer-instruction/v1/transfer-factory.
+// ─── Router ──────────────────────────────────────────────────────────────────
+
+// routeRegistrar dispatches requests under /api/token-standard/v0/registrars/
+// to the sender-side or receiver-side handler based on the URL suffix, after
+// validating that the registrar in the path matches our discovered issuer.
+func (s *server) routeRegistrar(w http.ResponseWriter, r *http.Request) {
+	// Strip the registered prefix; remainder is:
+	//   {registrar}/registry/transfer-instruction/v1/transfer-factory
+	//   {registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
+	remainder := strings.TrimPrefix(r.URL.Path, "/api/token-standard/v0/registrars/")
+	parts := strings.SplitN(remainder, "/", 8)
+	if len(parts) < 5 || parts[1] != "registry" || parts[2] != "transfer-instruction" || parts[3] != "v1" {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	}
+	registrar := parts[0]
+	if registrar != s.issuer {
+		writeJSON(w, http.StatusBadRequest, errorBody{
+			Error: fmt.Sprintf("registrar %q not managed by this registry", registrar),
+		})
+		return
+	}
+
+	switch {
+	case len(parts) == 5 && parts[4] == "transfer-factory":
+		s.handleTransferFactory(w, r)
+	case len(parts) == 7 && parts[5] == "choice-contexts" && parts[6] == "accept":
+		s.handleAcceptContext(w, r)
+	default:
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+	}
+}
+
+// ─── Sender-side handler ──────────────────────────────────────────────────────
+
+// handleTransferFactory implements POST
+// /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/transfer-factory.
+// Registrar match is enforced by routeRegistrar; this handler only validates
+// the choiceArguments.expectedAdmin matches.
 func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, errorBody{Error: "method not allowed"})
@@ -206,9 +349,9 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ExpectedAdmin != s.issuer {
+	if req.ChoiceArguments.ExpectedAdmin != s.issuer {
 		writeJSON(w, http.StatusBadRequest, errorBody{
-			Error: fmt.Sprintf("expectedAdmin %q does not match issuer", req.ExpectedAdmin),
+			Error: fmt.Sprintf("expectedAdmin %q does not match issuer", req.ChoiceArguments.ExpectedAdmin),
 		})
 		return
 	}
@@ -223,7 +366,7 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.queryFactory(ctx)
 	if err != nil {
-		log.Printf("ERROR: query CIP56TransferFactory: %v", err)
+		log.Printf("ERROR: query AllocationFactory: %v", err)
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "failed to retrieve transfer factory"})
 		return
 	}
@@ -232,10 +375,13 @@ func (s *server) handleTransferFactory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// queryFactory queries P2's ACS for the active CIP56TransferFactory and builds
-// the RegistryResponse. The IncludeCreatedEventBlob flag is required so the
-// caller can disclose the factory contract to a Canton node that doesn't hold it
-// in its own ACS (Canton DisclosedContracts mechanism).
+// queryFactory queries P2's ACS for the active AllocationFactory and the
+// InstrumentConfiguration referenced by it. AllocationFactory's
+// TransferFactory_Transfer choice requires the sender-side context entries
+// (instrument-configuration + empty sender-credentials list) and the
+// InstrumentConfiguration contract to be disclosed so a participant that
+// doesn't hold it in its own ACS (e.g. P1 when sender is on P2's-issuer-token)
+// can still fetch it during interpretation.
 func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 	authCtx := s.p2.AuthContext(ctx)
 
@@ -247,69 +393,213 @@ func (s *server) queryFactory(ctx context.Context) (*RegistryResponse, error) {
 		return nil, fmt.Errorf("ledger is empty")
 	}
 
-	tid := &lapiv2.Identifier{
-		PackageId:  *cip56PkgID,
-		ModuleName: "CIP56.TransferFactory",
-		EntityName: "CIP56TransferFactory",
+	factoryTID := &lapiv2.Identifier{
+		PackageId:  *registryAppPkgID,
+		ModuleName: "Utility.Registry.App.V0.Service.AllocationFactory",
+		EntityName: "AllocationFactory",
+	}
+	instrumentConfigTID := &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
+		EntityName: "InstrumentConfiguration",
 	}
 
+	factoryCID, factoryBlob, err := s.fetchContractFromACS(authCtx, end, factoryTID)
+	if err != nil {
+		return nil, fmt.Errorf("AllocationFactory: %w", err)
+	}
+	configCID, configBlob, err := s.fetchContractFromACS(authCtx, end, instrumentConfigTID)
+	if err != nil {
+		return nil, fmt.Errorf("InstrumentConfiguration: %w", err)
+	}
+
+	templateIDStr := func(id *lapiv2.Identifier) string {
+		return fmt.Sprintf("%s:%s:%s", id.PackageId, id.ModuleName, id.EntityName)
+	}
+	return &RegistryResponse{
+		FactoryID:    factoryCID,
+		TransferKind: "transfer",
+		ChoiceContext: registryChoiceCtxResp{
+			ChoiceContextData: acceptChoiceContextData{
+				Values: map[string]any{
+					"utility.digitalasset.com/instrument-configuration": map[string]string{
+						"tag": "AV_ContractId", "value": configCID,
+					},
+					"utility.digitalasset.com/sender-credentials": map[string]any{
+						"tag": "AV_List", "value": []any{},
+					},
+				},
+			},
+			DisclosedContracts: []DisclosedContract{
+				{
+					ContractID:       factoryCID,
+					CreatedEventBlob: base64.StdEncoding.EncodeToString(factoryBlob),
+					TemplateID:       templateIDStr(factoryTID),
+					SynchronizerID:   s.domain,
+				},
+				{
+					ContractID:       configCID,
+					CreatedEventBlob: base64.StdEncoding.EncodeToString(configBlob),
+					TemplateID:       templateIDStr(instrumentConfigTID),
+					SynchronizerID:   s.domain,
+				},
+			},
+		},
+	}, nil
+}
+
+// ─── Receiver-side handler ────────────────────────────────────────────────────
+
+// handleAcceptContext implements:
+//
+//	POST /api/token-standard/v0/registrars/{registrar}/registry/transfer-instruction/v1/{cid}/choice-contexts/accept
+//
+// Returns the choiceContextData (TransferRule + InstrumentConfiguration contract IDs as
+// AV_ContractId AnyValues) and their createdEventBlobs as disclosedContracts.
+// Path validation and registrar match are handled by routeRegistrar.
+// The {cid} path parameter is ignored — context is instrument-level, not
+// per-offer, for the local devstack with a single instrument.
+func (s *server) handleAcceptContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, errorBody{Error: "method not allowed"})
+		return
+	}
+
+	// Drain request body (ignored — request fields not used for local single-instrument setup)
+	_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+	_ = r.Body.Close()
+
+	if resp := s.acceptCache.load(); resp != nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.queryAcceptContext(ctx)
+	if err != nil {
+		log.Printf("ERROR: query accept context: %v", err)
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "failed to build accept context"})
+		return
+	}
+
+	s.acceptCache.store(resp)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// queryAcceptContext fetches TransferRule and InstrumentConfiguration from P2's
+// ACS and builds the AcceptContextResponse. Both contracts are disclosed so the
+// receiver's participant can verify them without holding them in its own ACS.
+func (s *server) queryAcceptContext(ctx context.Context) (*AcceptContextResponse, error) {
+	authCtx := s.p2.AuthContext(ctx)
+
+	end, err := s.p2.GetLedgerEnd(authCtx)
+	if err != nil {
+		return nil, fmt.Errorf("get ledger end: %w", err)
+	}
+	if end == 0 {
+		return nil, fmt.Errorf("ledger is empty")
+	}
+
+	transferRuleTID := &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: "Utility.Registry.V0.Rule.Transfer",
+		EntityName: "TransferRule",
+	}
+	instrumentConfigTID := &lapiv2.Identifier{
+		PackageId:  *registryPkgID,
+		ModuleName: "Utility.Registry.V0.Configuration.Instrument",
+		EntityName: "InstrumentConfiguration",
+	}
+
+	transferRuleCID, transferRuleBlob, err := s.fetchContractFromACS(authCtx, end, transferRuleTID)
+	if err != nil {
+		return nil, fmt.Errorf("TransferRule: %w", err)
+	}
+
+	instrumentConfigCID, instrumentConfigBlob, err := s.fetchContractFromACS(authCtx, end, instrumentConfigTID)
+	if err != nil {
+		return nil, fmt.Errorf("InstrumentConfiguration: %w", err)
+	}
+
+	templateIDStr := func(id *lapiv2.Identifier) string {
+		return fmt.Sprintf("%s:%s:%s", id.PackageId, id.ModuleName, id.EntityName)
+	}
+
+	return &AcceptContextResponse{
+		ChoiceContextData: acceptChoiceContextData{
+			Values: map[string]any{
+				"utility.digitalasset.com/transfer-rule": map[string]string{
+					"tag": "AV_ContractId", "value": transferRuleCID,
+				},
+				"utility.digitalasset.com/instrument-configuration": map[string]string{
+					"tag": "AV_ContractId", "value": instrumentConfigCID,
+				},
+				"utility.digitalasset.com/sender-credentials": map[string]any{
+					"tag": "AV_List", "value": []any{},
+				},
+				"utility.digitalasset.com/receiver-credentials": map[string]any{
+					"tag": "AV_List", "value": []any{},
+				},
+			},
+		},
+		DisclosedContracts: []DisclosedContract{
+			{
+				ContractID:       transferRuleCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(transferRuleBlob),
+				TemplateID:       templateIDStr(transferRuleTID),
+				SynchronizerID:   s.domain,
+			},
+			{
+				ContractID:       instrumentConfigCID,
+				CreatedEventBlob: base64.StdEncoding.EncodeToString(instrumentConfigBlob),
+				TemplateID:       templateIDStr(instrumentConfigTID),
+				SynchronizerID:   s.domain,
+			},
+		},
+	}, nil
+}
+
+// ─── Shared ACS helper ────────────────────────────────────────────────────────
+
+// fetchContractFromACS queries P2's ACS for the first active contract matching tid,
+// using FiltersForAnyParty so it works regardless of which party hosts the contract.
+// IncludeCreatedEventBlob is set so the blob can be returned as a disclosedContract.
+func (s *server) fetchContractFromACS(authCtx context.Context, end int64, tid *lapiv2.Identifier) (contractID string, blob []byte, err error) {
 	stream, err := s.p2.State().GetActiveContracts(authCtx, &lapiv2.GetActiveContractsRequest{
 		ActiveAtOffset: end,
 		EventFormat: &lapiv2.EventFormat{
-			FiltersByParty: map[string]*lapiv2.Filters{
-				s.issuer: {
-					Cumulative: []*lapiv2.CumulativeFilter{{
-						IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
-							TemplateFilter: &lapiv2.TemplateFilter{
-								TemplateId:              tid,
-								IncludeCreatedEventBlob: true,
-							},
+			FiltersForAnyParty: &lapiv2.Filters{
+				Cumulative: []*lapiv2.CumulativeFilter{{
+					IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+						TemplateFilter: &lapiv2.TemplateFilter{
+							TemplateId:              tid,
+							IncludeCreatedEventBlob: true,
 						},
-					}},
-				},
+					},
+				}},
 			},
-			Verbose: true,
+			Verbose: false,
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get active contracts: %w", err)
+		return "", nil, fmt.Errorf("get active contracts (%s): %w", tid.EntityName, err)
 	}
 
-	var events []*lapiv2.CreatedEvent
 	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
+		msg, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("receive stream: %w", err)
+			return "", nil, fmt.Errorf("recv (%s): %w", tid.EntityName, recvErr)
 		}
 		if ac := msg.GetActiveContract(); ac != nil && ac.CreatedEvent != nil {
-			events = append(events, ac.CreatedEvent)
+			return ac.CreatedEvent.ContractId, ac.CreatedEvent.CreatedEventBlob, nil
 		}
 	}
-
-	if len(events) == 0 {
-		return nil, fmt.Errorf("CIP56TransferFactory not found for issuer %s", s.issuer)
-	}
-	if len(events) > 1 {
-		log.Printf("WARN: %d CIP56TransferFactory contracts found, using first (cid=%s)", len(events), events[0].ContractId)
-	}
-
-	ev := events[0]
-	templateID := fmt.Sprintf("%s:%s:%s", tid.PackageId, tid.ModuleName, tid.EntityName)
-
-	return &RegistryResponse{
-		FactoryID:    ev.ContractId,
-		TransferKind: "transfer",
-		ChoiceContext: nil,
-		DisclosedContracts: []DisclosedContract{{
-			ContractID:       ev.ContractId,
-			CreatedEventBlob: base64.StdEncoding.EncodeToString(ev.CreatedEventBlob),
-			TemplateID:       templateID,
-			SynchronizerID:   s.domain,
-		}},
-	}, nil
+	return "", nil, fmt.Errorf("%s not found on P2 ACS (has bootstrap-usdcx run?)", tid.EntityName)
 }
 
 // ─── Discovery helpers ────────────────────────────────────────────────────────

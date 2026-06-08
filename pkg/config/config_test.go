@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 import (
@@ -123,21 +125,8 @@ func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
 		t.Fatalf("auth.expiry_leeway default mismatch: got %s", cfg.Canton.Ledger.Auth.ExpiryLeeway)
 	}
 
-	if cfg.Token.NativeBalanceWei != "1000000000000000000000" {
-		t.Fatalf("token.native_balance_wei default mismatch: got %q", cfg.Token.NativeBalanceWei)
-	}
-
 	if cfg.EthRPC.Enabled {
 		t.Fatal("eth_rpc.enabled default mismatch: expected false")
-	}
-	if cfg.EthRPC.GasPriceWei != "1000000000" {
-		t.Fatalf("eth_rpc.gas_price_wei default mismatch: got %q", cfg.EthRPC.GasPriceWei)
-	}
-	if cfg.EthRPC.GasLimit != 21000 {
-		t.Fatalf("eth_rpc.gas_limit default mismatch: got %d", cfg.EthRPC.GasLimit)
-	}
-	if cfg.EthRPC.NativeBalanceWei != "1000000000000000000000" {
-		t.Fatalf("eth_rpc.native_balance_wei default mismatch: got %q", cfg.EthRPC.NativeBalanceWei)
 	}
 	if cfg.EthRPC.RequestTimeout != 30*time.Second {
 		t.Fatalf("eth_rpc.request_timeout default mismatch: got %s", cfg.EthRPC.RequestTimeout)
@@ -145,12 +134,6 @@ func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
 
 	if cfg.Logging.OutputPath != "stdout" {
 		t.Fatalf("logging.output_path default mismatch: got %q", cfg.Logging.OutputPath)
-	}
-	if cfg.Reconciliation.InitialTimeout != 2*time.Minute {
-		t.Fatalf("reconciliation.initial_timeout default mismatch: got %s", cfg.Reconciliation.InitialTimeout)
-	}
-	if cfg.Reconciliation.Interval != 5*time.Minute {
-		t.Fatalf("reconciliation.interval default mismatch: got %s", cfg.Reconciliation.Interval)
 	}
 
 	if cfg.KeyManagement.MasterKeyEnv != "CANTON_MASTER_KEY" {
@@ -211,6 +194,9 @@ func TestLoadRelayerServer_AppliesDefaults(t *testing.T) {
 	}
 	if cfg.Ethereum.LookbackBlocks != 1000 {
 		t.Fatalf("ethereum.lookback_blocks default mismatch: got %d", cfg.Ethereum.LookbackBlocks)
+	}
+	if cfg.Ethereum.MaxBlockRange != 100 {
+		t.Fatalf("ethereum.max_block_range default mismatch: got %d", cfg.Ethereum.MaxBlockRange)
 	}
 
 	if cfg.Canton.Ledger.MaxMessageSize != 52428800 {

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 set -e
 
 # entrypoint.sh - Entrypoint script for Go services to handle migrations and startup

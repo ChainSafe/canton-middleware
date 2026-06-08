@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package transfer
 
 import (
@@ -114,7 +116,7 @@ func TestPreparedTransferCache_StartStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		cache.Start(ctx)
+		_ = cache.Start(ctx)
 		close(done)
 	}()
 

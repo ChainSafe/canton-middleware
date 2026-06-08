@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package token
 
 import (
@@ -18,21 +20,19 @@ type nativeImpl struct {
 	svc *Service
 }
 
-const decimalBase = 10
-
 // NewNative creates a Native implementation.
 func NewNative(svc *Service) Native {
 	return &nativeImpl{svc: svc}
 }
 
-func (n *nativeImpl) GetBalance(ctx context.Context, address common.Address) (big.Int, error) {
-	// TODO: This logic is confusing - either return not supported or implement it.
-	isRegistered, err := n.svc.isUserRegistered(ctx, address)
-	if err != nil || !isRegistered {
-		return big.Int{}, err
-	}
-	bal, _ := new(big.Int).SetString(n.svc.cfg.NativeBalanceWei, decimalBase)
-	return *bal, nil
+// GetBalance always reports a zero native balance. The native coin is synthetic
+// — there is no real gas token — so 0 is the honest value and avoids showing a
+// confusing fake balance in MetaMask. Gas is also fixed at 0 (see the ethrpc
+// service), so MetaMask's `balance >= value + gasLimit*gasPrice` pre-flight
+// check still passes as `0 >= 0` for the zero-value ERC-20 transfers this facade
+// supports.
+func (*nativeImpl) GetBalance(_ context.Context, _ common.Address) (big.Int, error) {
+	return big.Int{}, nil
 }
 
 func (*nativeImpl) Transfer(_ context.Context, _, _ common.Address, _ big.Int) error {

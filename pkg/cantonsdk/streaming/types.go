@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package streaming provides a reusable, generic Canton ledger streaming client.
 //
 // It wraps UpdateService.GetUpdates with automatic reconnection, exponential backoff,
@@ -124,6 +126,36 @@ func (e *LedgerEvent) NestedTextField(record, field string) string {
 // Returns "" when the outer field is absent or not a Record.
 func (e *LedgerEvent) NestedPartyField(record, field string) string {
 	return values.NestedPartyField(e.fields[record], field)
+}
+
+// NestedNumericField accesses a Numeric sub-field inside a named DAML Record field.
+// Example: event.NestedNumericField("transfer", "amount")
+// Returns "0" when the outer field is absent, the inner field is missing, or
+// the inner field is not a Numeric.
+func (e *LedgerEvent) NestedNumericField(record, field string) string {
+	return values.Numeric(values.RecordField(e.fields[record])[field])
+}
+
+// DoublyNestedPartyField accesses a Party field two records deep.
+// Example: event.DoublyNestedPartyField("transfer", "instrumentId", "admin")
+// Returns "" when any of the path segments is absent or not a Record.
+func (e *LedgerEvent) DoublyNestedPartyField(outer, middle, field string) string {
+	mid := values.RecordField(e.fields[outer])
+	if mid == nil {
+		return ""
+	}
+	return values.NestedPartyField(mid[middle], field)
+}
+
+// DoublyNestedTextField accesses a Text field two records deep.
+// Example: event.DoublyNestedTextField("transfer", "instrumentId", "id")
+// Returns "" when any of the path segments is absent or not a Record.
+func (e *LedgerEvent) DoublyNestedTextField(outer, middle, field string) string {
+	mid := values.RecordField(e.fields[outer])
+	if mid == nil {
+		return ""
+	}
+	return values.NestedTextField(mid[middle], field)
 }
 
 // OptionalMetaLookup looks up a string key within an Optional Metadata field.

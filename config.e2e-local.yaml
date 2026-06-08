@@ -82,34 +82,29 @@ token:
       symbol: "DEMO"
       decimals: 18
       instrument_id: "DEMO"
-    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48":
+    "0xC1A0000000000000000000000000000000000001":
       name: "USD Coin"
       symbol: "USDCx"
       decimals: 6
       instrument_id: "USDCx"
-  native_balance_wei: "1000000000000000000000"
 
 # Ethereum JSON-RPC facade (MetaMask compatibility)
 eth_rpc:
   enabled: true
   chain_id: 31337
-  gas_price_wei: "1000000000"
-  gas_limit: 21000
-  native_balance_wei: "1000000000000000000000"
   request_timeout: "30s"
 
 jwks:
   url: ""
   issuer: ""
 
+monitoring:
+  enabled: false
+
 logging:
   level: "debug"
   format: "json"
   output_path: "stdout"
-
-reconciliation:
-  initial_timeout: "2m"
-  interval: "10s"
 
 key_management:
   master_key_env: "CANTON_MASTER_KEY"

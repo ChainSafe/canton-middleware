@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package bridge implements optional Wayfinder bridge operations for Canton.
 //
 // It provides deposit/withdrawal flows and bridge-related event queries.

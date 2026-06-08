@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package ethereum
 
 import (
@@ -23,6 +25,7 @@ type Client struct {
 	wsClient   *ethclient.Client
 	privateKey *ecdsa.PrivateKey
 	address    common.Address
+	metrics    *Metrics
 	logger     *zap.Logger
 
 	bridgeAddress common.Address
@@ -33,8 +36,35 @@ type Client struct {
 	lastScannedBlock uint64
 }
 
-// NewClient creates a new Ethereum client
-func NewClient(cfg *Config, logger *zap.Logger) (*Client, error) {
+// observeRPC records the latency and terminal status of one outbound Ethereum
+// RPC call. Use it inline at the call site rather than as a wrapper so the
+// caller still owns ctx, result extraction, and error wrapping:
+//
+//	start := time.Now()
+//	header, err := c.client.HeaderByNumber(ctx, nil)
+//	c.observeRPC("get_latest_block", start, err)
+//	if err != nil { ... }
+//
+// The method label is a stable lowercase identifier — see the call sites
+// throughout this file for the enumerated set.
+func (c *Client) observeRPC(method string, start time.Time, err error) {
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	c.metrics.RPCDuration.WithLabelValues(method).Observe(time.Since(start).Seconds())
+	c.metrics.RPCCallsTotal.WithLabelValues(method, status).Inc()
+}
+
+// NewClient creates a new Ethereum client.
+//
+// metrics receives Prometheus observations for every outbound RPC call and
+// for the deposit-event poll loop. Pass NewNopMetrics() in tests where metric
+// values aren't asserted.
+func NewClient(cfg *Config, metrics *Metrics, logger *zap.Logger) (*Client, error) {
+	if metrics == nil {
+		metrics = NewNopMetrics()
+	}
 	// Connect to Ethereum RPC
 	client, err := ethclient.Dial(cfg.RPCURL)
 	if err != nil {
@@ -78,6 +108,7 @@ func NewClient(cfg *Config, logger *zap.Logger) (*Client, error) {
 		wsClient:      wsClient,
 		privateKey:    privateKey,
 		address:       address,
+		metrics:       metrics,
 		bridgeAddress: bridgeAddress,
 		bridge:        bridge,
 		logger:        logger,
@@ -105,6 +136,7 @@ func (c *Client) setLastScannedBlock(b uint64) {
 	c.mu.Lock()
 	if b > c.lastScannedBlock {
 		c.lastScannedBlock = b
+		c.metrics.LastScannedBlock.Set(float64(b))
 	}
 	c.mu.Unlock()
 }
@@ -119,7 +151,9 @@ func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) 
 	}
 
 	// Get nonce
+	nonceStart := time.Now()
 	nonce, err := c.client.PendingNonceAt(ctx, c.address)
+	c.observeRPC("pending_nonce_at", nonceStart, err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nonce: %w", err)
 	}
@@ -132,7 +166,9 @@ func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) 
 		maxGasPrice := new(big.Int)
 		maxGasPrice.SetString(c.config.MaxGasPrice, 10)
 
+		gasStart := time.Now()
 		gasPrice, err := c.client.SuggestGasPrice(ctx)
+		c.observeRPC("suggest_gas_price", gasStart, err)
 		if err != nil {
 			return nil, fmt.Errorf("failed to suggest gas price: %w", err)
 		}
@@ -152,16 +188,56 @@ func (c *Client) GetTransactor(ctx context.Context) (*bind.TransactOpts, error) 
 
 // GetLatestBlockNumber gets the latest block number
 func (c *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
+	start := time.Now()
 	header, err := c.client.HeaderByNumber(ctx, nil)
+	c.observeRPC("get_latest_block", start, err)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block: %w", err)
 	}
-	return header.Number.Uint64(), nil
+	n := header.Number.Uint64()
+	c.metrics.LatestBlockSeen.Set(float64(n))
+	return n, nil
 }
 
-// WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility)
+// blockRange is an inclusive [start, end] span of block numbers.
+type blockRange struct {
+	start uint64
+	end   uint64
+}
+
+// chunkRange splits the inclusive range [start, end] into consecutive slices of
+// at most maxRange blocks each. It returns nil for an empty range (start > end)
+// or a zero maxRange. The subtraction-based bound (end-s >= maxRange) avoids the
+// uint64 overflow that s+maxRange-1 would hit for very large maxRange values.
+func chunkRange(start, end, maxRange uint64) []blockRange {
+	if start > end || maxRange == 0 {
+		return nil
+	}
+	chunks := make([]blockRange, 0, (end-start)/maxRange+1)
+	for s := start; s <= end; {
+		e := end
+		if end-s >= maxRange {
+			e = s + maxRange - 1
+		}
+		chunks = append(chunks, blockRange{start: s, end: e})
+		if e == ^uint64(0) { // next start (e+1) would wrap to 0
+			break
+		}
+		s = e + 1
+	}
+	return chunks
+}
+
+// WatchDepositEvents polls for deposit events (uses polling for HTTP RPC compatibility).
+//
+// Each tick's [currentBlock+1, latestBlock] range is walked in slices of at most
+// config.MaxBlockRange blocks so requests stay under the provider's per-call cap.
+// On a slice failure, currentBlock advances only through the last successful
+// slice and the failing range is retried on the next tick.
 func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*DepositEvent) error) error {
-	c.logger.Info("Starting deposit event poller", zap.Uint64("from_block", fromBlock))
+	c.logger.Info("Starting deposit event poller",
+		zap.Uint64("from_block", fromBlock),
+		zap.Uint64("max_block_range", c.config.MaxBlockRange))
 
 	currentBlock := fromBlock
 	c.setLastScannedBlock(currentBlock)
@@ -174,60 +250,78 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			// Get latest block
-			latestBlock, err := c.GetLatestBlockNumber(ctx)
-			if err != nil {
-				c.logger.Warn("Failed to get latest block", zap.Error(err))
-				continue
-			}
+			// Wrap the tick body in a closure so a single deferred observation
+			// records the cycle duration regardless of which branch the tick
+			// takes. `continue` inside the for-loop is replaced by `return` to
+			// exit the closure; the outer for-select then advances to the next
+			// tick.
+			func() {
+				pollStart := time.Now()
+				defer func() {
+					c.metrics.EventPollDuration.Observe(time.Since(pollStart).Seconds())
+				}()
 
-			if latestBlock <= currentBlock {
-				// Still record that we've checked up to this point
-				c.setLastScannedBlock(latestBlock)
-				continue
-			}
-
-			// Query for events from currentBlock+1 to latestBlock
-			opts := &bind.FilterOpts{
-				Start:   currentBlock + 1,
-				End:     &latestBlock,
-				Context: ctx,
-			}
-
-			iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
-			if err != nil {
-				c.logger.Warn("Failed to filter deposit events", zap.Error(err))
-				continue
-			}
-
-			for iter.Next() {
-				event := iter.Event
-				depositEvent := &DepositEvent{
-					Token:           event.Token,
-					Sender:          event.Sender,
-					CantonRecipient: event.CantonRecipient,
-					Amount:          event.Amount,
-					Nonce:           event.Nonce,
-					BlockNumber:     event.Raw.BlockNumber,
-					TxHash:          event.Raw.TxHash,
-					LogIndex:        event.Raw.Index,
+				// Get latest block
+				latestBlock, err := c.GetLatestBlockNumber(ctx)
+				if err != nil {
+					c.metrics.EventPollFailuresTotal.WithLabelValues("get_latest_block").Inc()
+					c.logger.Warn("Failed to get latest block", zap.Error(err))
+					return
 				}
 
-				if err := handler(depositEvent); err != nil {
-					c.logger.Error("Failed to handle deposit event",
-						zap.Error(err),
-						zap.String("tx_hash", event.Raw.TxHash.Hex()))
+				if latestBlock <= currentBlock {
+					// Still record that we've checked up to this point
+					c.setLastScannedBlock(latestBlock)
+					return
 				}
-			}
 
-			if err := iter.Error(); err != nil {
-				c.logger.Warn("Iterator error", zap.Error(err))
-			}
-			iter.Close()
+				// Query for events from currentBlock+1 to latestBlock
+				opts := &bind.FilterOpts{
+					Start:   currentBlock + 1,
+					End:     &latestBlock,
+					Context: ctx,
+				}
 
-			// Update scan progress even if there were no events
-			currentBlock = latestBlock
-			c.setLastScannedBlock(currentBlock)
+				filterStart := time.Now()
+				iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
+				c.observeRPC("filter_deposit_events", filterStart, err)
+				if err != nil {
+					c.metrics.EventPollFailuresTotal.WithLabelValues("filter_events").Inc()
+					c.logger.Warn("Failed to filter deposit events", zap.Error(err))
+					return
+				}
+
+				for iter.Next() {
+					c.metrics.EventsFetchedTotal.Inc()
+					event := iter.Event
+					depositEvent := &DepositEvent{
+						Token:           event.Token,
+						Sender:          event.Sender,
+						CantonRecipient: event.CantonRecipient,
+						Amount:          event.Amount,
+						Nonce:           event.Nonce,
+						BlockNumber:     event.Raw.BlockNumber,
+						TxHash:          event.Raw.TxHash,
+						LogIndex:        event.Raw.Index,
+					}
+
+					if err := handler(depositEvent); err != nil {
+						c.logger.Error("Failed to handle deposit event",
+							zap.Error(err),
+							zap.String("tx_hash", event.Raw.TxHash.Hex()))
+					}
+				}
+
+				if err := iter.Error(); err != nil {
+					c.metrics.EventPollFailuresTotal.WithLabelValues("iterator").Inc()
+					c.logger.Warn("Iterator error", zap.Error(err))
+				}
+				iter.Close()
+
+				// Update scan progress even if there were no events
+				currentBlock = latestBlock
+				c.setLastScannedBlock(currentBlock)
+			}()
 		}
 	}
 }
@@ -252,7 +346,9 @@ func (c *Client) WithdrawFromCanton(
 		return common.Hash{}, fmt.Errorf("failed to create transactor: %w", err)
 	}
 
+	start := time.Now()
 	tx, err := c.bridge.WithdrawFromCanton(auth, token, recipient, amount, nonce, cantonTxHash)
+	c.observeRPC("withdraw_from_canton", start, err)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to submit withdrawal transaction: %w", err)
 	}
@@ -266,7 +362,10 @@ func (c *Client) WithdrawFromCanton(
 
 // IsWithdrawalProcessed checks if a Canton withdrawal has already been processed on EVM
 func (c *Client) IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error) {
-	return c.bridge.ProcessedCantonTxs(&bind.CallOpts{Context: ctx}, cantonTxHash)
+	start := time.Now()
+	processed, err := c.bridge.ProcessedCantonTxs(&bind.CallOpts{Context: ctx}, cantonTxHash)
+	c.observeRPC("is_withdrawal_processed", start, err)
+	return processed, err
 }
 
 // DepositToCanton submits a deposit transaction (for testing)
@@ -281,7 +380,9 @@ func (c *Client) DepositToCanton(
 		return common.Hash{}, fmt.Errorf("failed to create transactor: %w", err)
 	}
 
+	start := time.Now()
 	tx, err := c.bridge.DepositToCanton(auth, token, amount, cantonRecipient)
+	c.observeRPC("deposit_to_canton", start, err)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to submit deposit transaction: %w", err)
 	}

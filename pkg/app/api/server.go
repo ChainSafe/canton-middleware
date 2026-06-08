@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package api implements app.Runner for the API server process.
 package api
 
@@ -10,19 +12,20 @@ import (
 	"syscall"
 	"time"
 
+	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
+	"github.com/chainsafe/canton-middleware/pkg/custodial"
 	ethrpcminer "github.com/chainsafe/canton-middleware/pkg/ethrpc/miner"
 	ethrpc "github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	ethrpcstore "github.com/chainsafe/canton-middleware/pkg/ethrpc/store"
+	ethrpcsubmitter "github.com/chainsafe/canton-middleware/pkg/ethrpc/submitter"
 	indexerclient "github.com/chainsafe/canton-middleware/pkg/indexer/client"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
-	"github.com/chainsafe/canton-middleware/pkg/reconciler"
-	reconcilerstore "github.com/chainsafe/canton-middleware/pkg/reconciler/store"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/token"
 	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
@@ -32,8 +35,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/uptrace/bun"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -88,10 +94,18 @@ func (s *Server) Run() error {
 	}
 	defer dbBun.Close()
 
-	userStore := userstore.NewStore(dbBun)
+	// Metrics — registered once, injected into store wrappers and router middleware.
+	reg := sharedmetrics.WithNamespace(prometheus.DefaultRegisterer, "api_server")
+
+	userStore := userstore.NewInstrumentedStore(
+		userstore.NewStore(dbBun),
+		userstore.NewStoreMetrics(reg),
+	)
 	cipher := keys.NewMasterKeyCipher(masterKey)
 
-	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, logger)
+	metrics := apphttp.NewHTTPMetrics(reg)
+
+	cantonClient, err := s.openCantonClient(ctx, userStore, cipher, reg, logger)
 	if err != nil {
 		return err
 	}
@@ -99,48 +113,95 @@ func (s *Server) Run() error {
 
 	logger.Info("Connected to Canton")
 
-	recStore := reconcilerstore.NewStore(dbBun)
-	rec := reconciler.New(recStore, userStore, cantonClient.Token, logger)
-	s.runInitialReconcile(ctx, rec, logger)
-
-	stopReconcile := s.startPeriodicReconcile(rec, logger)
-	// We will call stopReconcile explicitly after ServeAndWait returns for deterministic shutdown order.
-	// Keep this defer as a safety net.
-	defer stopReconcile()
-
-	svcs, err := initServices(ctx, cfg, dbBun, cantonClient, cipher, logger)
+	// The indexer is now a hard dependency: the token provider (when in
+	// indexer mode), the accept worker, and the pending-offers list endpoint
+	// all read from it. Build the HTTP client once and share — separate
+	// instances would just open redundant idle connections to the same host.
+	indexerClient, err := buildIndexerClient(cfg, reg)
 	if err != nil {
 		return err
 	}
 
-	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, logger)
+	// All long-lived goroutines — background workers and HTTP servers — run
+	// under a single errgroup tied to gCtx. A signal (ctx) or any server error
+	// cancels gCtx, unwinding every goroutine; g.Wait() then blocks until they
+	// have all drained, so the deferred cantonClient/dbBun closes below never
+	// race with in-flight worker calls.
+	g, gCtx := errgroup.WithContext(ctx)
 
-	err = apphttp.ServeAndWait(ctx, router, logger, cfg.Server)
+	svcs, err := initServices(gCtx, g, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
+	if err != nil {
+		// initServices may have already started workers on g (the caches, and on
+		// later failures the miner/submitter). Cancel the group's context and wait
+		// for them to exit before returning — otherwise they outlive the deferred
+		// dbBun/cantonClient closes below and leak.
+		stop()
+		_ = g.Wait()
+		return err
+	}
 
-	// Stop background work before deferred DB/client closes kick in.
-	stopReconcile()
+	if cfg.AcceptWorker != nil {
+		worker := custodial.NewAcceptWorker(
+			cantonClient.Token,
+			userStore,
+			indexerClient,
+			cfg.AcceptWorker.PollInterval,
+			custodial.NewMetrics(reg),
+			logger,
+		)
+		g.Go(func() error { return worker.Run(gCtx) })
+		logger.Info("accept worker started",
+			zap.Duration("poll_interval", cfg.AcceptWorker.PollInterval),
+		)
+	}
 
-	return err
+	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
+
+	s.registerServers(g, gCtx, router, logger)
+
+	return g.Wait()
+}
+
+// buildIndexerClient creates the single indexer HTTP client used by every
+// part of the api-server that talks to the indexer. The URL is read from
+// token_provider.indexer.url, falling back to accept_worker.indexer_url, since
+// both are aliases for the same indexer service in every deployment we ship —
+// the dual configuration exists for historical reasons and is consolidated
+// here so the rest of the code never has to pick between them.
+//
+// An indexer is now required (the pending-offers endpoint backs onto it), so
+// startup fails fast if neither location is configured. The returned client is
+// wrapped with metrics so all outbound indexer calls are observed.
+func buildIndexerClient(cfg *config.APIServer, reg sharedmetrics.NamespacedRegisterer) (indexerclient.Client, error) {
+	url := ""
+	if cfg.TokenProvider != nil && cfg.TokenProvider.Indexer != nil {
+		url = cfg.TokenProvider.Indexer.URL
+	}
+	if url == "" && cfg.AcceptWorker != nil {
+		url = cfg.AcceptWorker.IndexerURL
+	}
+	if url == "" {
+		return nil, fmt.Errorf("indexer URL is required: set token_provider.indexer.url or accept_worker.indexer_url")
+	}
+	c, err := indexerclient.New(url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create indexer client (%s): %w", url, err)
+	}
+	return indexerclient.NewInstrumentedClient(c, indexerclient.NewMetrics(reg)), nil
 }
 
 // buildTokenProvider constructs the token data provider according to the
-// configured mode.  canton is the default; indexer reads from the indexer's
-// pre-materialized HTTP API instead of issuing live gRPC ACS scans.
-func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token) (token.Provider, error) {
-	switch cfg.TokenProvider.Mode {
-	case config.TokenProviderIndexer:
-		ic := cfg.TokenProvider.Indexer
-		if ic == nil {
-			return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
-		}
-		c, err := indexerclient.New(ic.URL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("create indexer client: %w", err)
-		}
-		return tokenprovider.NewIndexer(c, ic.Instruments), nil
-	default: // TokenProviderCanton
+// configured mode. canton is the default; indexer reads from the indexer's
+// pre-materialized HTTP API instead of issuing live gRPC ACS scans. The
+// indexer-mode branch reuses the shared client built by buildIndexerClient.
+func buildTokenProvider(cfg *config.APIServer, cantonToken cantontkn.Token, indexerClient indexerclient.Client) (token.Provider, error) {
+	if cfg.TokenProvider.Mode != config.TokenProviderIndexer {
 		return tokenprovider.NewCanton(cantonToken), nil
 	}
+	if cfg.TokenProvider.Indexer == nil {
+		return nil, fmt.Errorf("token_provider.indexer config is required when mode is %q", config.TokenProviderIndexer)
+	}
+	return tokenprovider.NewIndexer(indexerClient, cfg.TokenProvider.Indexer.Instruments), nil
 }
 
 type services struct {
@@ -151,17 +212,19 @@ type services struct {
 }
 
 func initServices(
-	ctx context.Context,
+	gCtx context.Context,
+	g *errgroup.Group,
 	cfg *config.APIServer,
 	dbBun *bun.DB,
+	userStore userstore.Store,
 	cantonClient *canton.Client,
+	indexerClient indexerclient.Client,
 	cipher keys.KeyCipher,
+	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*services, error) {
-	userStore := userstore.NewStore(dbBun)
-
 	topologyCache := userservice.NewTopologyCache(topologyCacheTTL)
-	go topologyCache.Start(ctx)
+	g.Go(func() error { return topologyCache.Start(gCtx) })
 
 	registrationService := userservice.NewService(
 		userStore,
@@ -173,26 +236,56 @@ func initServices(
 		topologyCache,
 	)
 
-	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token)
+	tokenDataProvider, err := buildTokenProvider(cfg, cantonClient.Token, indexerClient)
 	if err != nil {
 		return nil, fmt.Errorf("build token provider: %w", err)
 	}
 
-	evmStore := ethrpcstore.NewStore(dbBun)
+	evmStore := ethrpcstore.NewInstrumentedStore(
+		ethrpcstore.NewStore(dbBun),
+		ethrpcstore.NewStoreMetrics(reg),
+	)
 
 	transferCache := transfer.NewPreparedTransferCache(transferCacheTTL, transferCacheMaxSize)
-	go transferCache.Start(ctx)
+	g.Go(func() error { return transferCache.Start(gCtx) })
+	instrumentedCache := transfer.NewInstrumentedCache(transferCache, transfer.NewCacheMetrics(reg))
+
+	tokenService := token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token)
 
 	if cfg.EthRPC.Enabled {
-		m := ethrpcminer.New(evmStore, cfg.EthRPC.ChainID, cfg.EthRPC.GasLimit, cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval, logger)
-		go m.Start(ctx)
+		m := ethrpcminer.New(
+			evmStore,
+			cfg.EthRPC.ChainID, ethrpc.DefaultGasLimit,
+			cfg.EthRPC.MinerMaxTxsPerBlock, cfg.EthRPC.MinerInterval,
+			ethrpcminer.NewMetrics(reg),
+			logger,
+		)
+		g.Go(func() error { return m.Start(gCtx) })
+
+		// Async submitter: drives pending mempool entries → completed/failed by
+		// calling Canton. SendRawTransaction returns the tx hash immediately
+		// after the pending insert; this worker is what actually moves money.
+		// Runs SubmitterConcurrency transfers in parallel; each Canton call is
+		// bounded by a package-level timeout so a hung gRPC call can't drain
+		// the pool.
+		sub := ethrpcsubmitter.New(
+			evmStore,
+			tokenService,
+			cfg.EthRPC.SubmitterInterval,
+			cfg.EthRPC.SubmitterBatchSize,
+			cfg.EthRPC.SubmitterConcurrency,
+			ethrpcsubmitter.NewMetrics(reg),
+			logger,
+		)
+		g.Go(func() error { return sub.Start(gCtx) })
 	}
 
+	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient)
 	return &services{
 		evmStore:     evmStore,
-		tokenService: token.NewTokenService(cfg.Token, tokenDataProvider, userStore, cantonClient.Token),
+		tokenService: tokenService,
 		regSvc:       userservice.NewLog(registrationService, logger),
-		transferSvc:  transfer.NewLog(transfer.NewTransferService(cantonClient.Token, userStore, transferCache, tokenSymbols(cfg.Token)), logger),
+		transferSvc:  transfer.NewLog(transferSvc, logger),
 	}, nil
 }
 
@@ -216,6 +309,7 @@ func (s *Server) openCantonClient(
 	ctx context.Context,
 	keyStore userKeyStore,
 	cipher keys.KeyCipher,
+	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*canton.Client, error) {
 	keyResolver := func(partyID string) (cantontkn.Signer, error) {
@@ -234,6 +328,7 @@ func (s *Server) openCantonClient(
 		s.cfg.Canton,
 		canton.WithLogger(logger),
 		canton.WithKeyResolver(keyResolver),
+		canton.WithPrometheusRegisterer(reg),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create canton client: %w", err)
@@ -241,43 +336,24 @@ func (s *Server) openCantonClient(
 	return client, nil
 }
 
-func (s *Server) runInitialReconcile(
-	ctx context.Context,
-	reconciler *reconciler.Reconciler,
-	logger *zap.Logger,
-) {
-	if s.cfg.Reconciliation.InitialTimeout <= 0 {
-		return
+// registerServers adds the main HTTP server and, when monitoring is enabled,
+// the metrics server to the shared errgroup. They run on gCtx alongside the
+// background workers, so a failure in either server cancels gCtx and unwinds
+// everything; the caller's g.Wait() surfaces the first error.
+func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router http.Handler, logger *zap.Logger) {
+	g.Go(func() error {
+		return apphttp.ServeAndWait(gCtx, router, logger, s.cfg.Server)
+	})
+
+	if s.cfg.Monitoring != nil && s.cfg.Monitoring.Enabled {
+		r := chi.NewRouter()
+		r.Use(middleware.Recoverer)
+		r.Handle("/metrics", promhttp.Handler())
+
+		g.Go(func() error {
+			return apphttp.ServeAndWait(gCtx, r, logger, s.cfg.Monitoring.Server)
+		})
 	}
-
-	logger.Info("Running initial balance reconciliation",
-		zap.Duration("timeout", s.cfg.Reconciliation.InitialTimeout),
-	)
-
-	startupCtx, cancel := context.WithTimeout(ctx, s.cfg.Reconciliation.InitialTimeout)
-	defer cancel()
-
-	if err := reconciler.ReconcileAll(startupCtx); err != nil {
-		logger.Warn("Initial reconciliation failed (will retry periodically)", zap.Error(err))
-		return
-	}
-
-	logger.Info("Initial balance reconciliation completed")
-}
-
-func (s *Server) startPeriodicReconcile(
-	reconciler *reconciler.Reconciler,
-	logger *zap.Logger,
-) func() {
-	if s.cfg.Reconciliation.Interval <= 0 {
-		return func() {}
-	}
-
-	logger.Info("Starting periodic reconciliation", zap.Duration("interval", s.cfg.Reconciliation.Interval))
-	reconciler.StartPeriodicReconciliation(s.cfg.Reconciliation.Interval)
-
-	// Return stopper for deterministic shutdown ordering.
-	return func() { reconciler.Stop() }
 }
 
 func (s *Server) setupRouter(
@@ -286,6 +362,7 @@ func (s *Server) setupRouter(
 	tokenService *token.Service,
 	registrationService userservice.Service,
 	transferSvc transfer.Service,
+	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
 	r := chi.NewRouter()
@@ -295,10 +372,11 @@ func (s *Server) setupRouter(
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(time.Second * defaultRequestTimeout))
+	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 	r.Use(apphttp.CORSMiddleware(s.cfg.CORSOrigins))
 
 	// Health check
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get(s.cfg.Monitoring.HealthCheckURL, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
@@ -324,17 +402,4 @@ func (s *Server) setupRouter(
 	}
 
 	return r
-}
-
-// tokenSymbols extracts the unique symbol strings from the token config.
-func tokenSymbols(cfg *token.Config) []string {
-	seen := make(map[string]bool, len(cfg.SupportedTokens))
-	var symbols []string
-	for _, tkn := range cfg.SupportedTokens {
-		if !seen[tkn.Symbol] {
-			seen[tkn.Symbol] = true
-			symbols = append(symbols, tkn.Symbol)
-		}
-	}
-	return symbols
 }

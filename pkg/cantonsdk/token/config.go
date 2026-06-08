@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package token
 
 import "errors"
@@ -14,9 +16,15 @@ type Config struct {
 	IssuerParty string `yaml:"issuer_party"`
 	UserID      string `yaml:"user_id"`
 
-	CIP56PackageID          string `yaml:"cip56_package_id" validate:"required"`
-	SpliceTransferPackageID string `yaml:"splice_transfer_package_id" validate:"required"`
-	SpliceHoldingPackageID  string `yaml:"splice_holding_package_id" validate:"required"`
+	CIP56PackageID              string `yaml:"cip56_package_id" validate:"required"`
+	SpliceTransferPackageID     string `yaml:"splice_transfer_package_id" validate:"required"`
+	SpliceHoldingPackageID      string `yaml:"splice_holding_package_id" validate:"required"`
+	UtilityRegistryAppPackageID string `yaml:"utility_registry_app_package_id"`
+	// UtilityRegistryPackageID is the utility_registry_v0 package ID.
+	// Required when using AllocationFactory-based tokens (e.g., USDCx on P2) so that
+	// InstrumentConfiguration and TransferRule can be looked up and provided as context
+	// for the TransferFactory_Transfer choice.
+	UtilityRegistryPackageID string `yaml:"utility_registry_package_id"`
 
 	// ExternalTokens maps InstrumentAdmin party IDs to their registry configuration.
 	// Tokens whose InstrumentAdmin matches IssuerParty use local ACS-based factory discovery.
