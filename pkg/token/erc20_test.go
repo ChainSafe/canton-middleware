@@ -30,7 +30,7 @@ var (
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
 func newCfg() *token.Config {
-	cfg := token.NewConfig("5000000000000000000") // 5 ETH in wei
+	cfg := token.NewConfig()
 	cfg.AddToken(promptAddr, token.ERC20Token{Name: "Prompt Token", Symbol: "PROMPT", Decimals: 18, InstrumentID: "PROMPT"})
 	cfg.AddToken(demoAddr, token.ERC20Token{Name: "Demo Token", Symbol: "DEMO", Decimals: 18, InstrumentID: "DEMO"})
 	return cfg

@@ -67,14 +67,10 @@ token:
       symbol: "USDCx"
       decimals: 6
       instrument_id: "USDCx"
-  native_balance_wei: "1000000000000000000000"
 
 eth_rpc:
   enabled: true
   chain_id: 1337
-  gas_price_wei: "1000000000"
-  gas_limit: 21000
-  native_balance_wei: "1000000000000000000000"
   request_timeout: "60s"
 
 jwks:

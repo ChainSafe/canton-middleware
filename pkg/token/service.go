@@ -196,18 +196,6 @@ func (s *Service) getTokenName(_ context.Context, contract common.Address) (stri
 	return tkn.Name, nil
 }
 
-// isUserRegistered checks if an EVM address is registered
-func (s *Service) isUserRegistered(ctx context.Context, address common.Address) (bool, error) {
-	_, err := s.userStore.GetUserByEVMAddress(ctx, address.Hex())
-	if err != nil {
-		if errors.Is(err, user.ErrUserNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
 // getTokenSymbol returns the token symbol from config
 func (s *Service) getTokenSymbol(_ context.Context, contract common.Address) (string, error) {
 	tkn, err := s.cfg.getToken(contract)
