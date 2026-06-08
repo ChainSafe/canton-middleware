@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.1](https://github.com/ChainSafe/canton-middleware/compare/v0.5.0...v0.5.1) (2026-06-08)
+
+
+### Bug Fixes
+
+* **ethrpc:** report zero native balance and gas ([#304](https://github.com/ChainSafe/canton-middleware/issues/304)) ([6d552df](https://github.com/ChainSafe/canton-middleware/commit/6d552df23cfb0e93d9830c4e4d4ef1ab59920201))
+* run all server goroutines under one errgroup ([#303](https://github.com/ChainSafe/canton-middleware/issues/303)) ([16ffa3e](https://github.com/ChainSafe/canton-middleware/commit/16ffa3e67b57909dd1de80e14b4d3e5b880b20f2))
+* serve /health at the configured health_check_url ([#301](https://github.com/ChainSafe/canton-middleware/issues/301)) ([9a5ccbd](https://github.com/ChainSafe/canton-middleware/commit/9a5ccbd023c37b9fb013e68b5936f74a085f981f))
+* stop running balance reconciler in the API server ([#300](https://github.com/ChainSafe/canton-middleware/issues/300)) ([f9de530](https://github.com/ChainSafe/canton-middleware/commit/f9de53035004de3c17b9e445052fad83f6fd4379))
+
 ## [0.5.0](https://github.com/ChainSafe/canton-middleware/compare/v0.4.2...v0.5.0) (2026-06-08)
 
 
