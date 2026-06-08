@@ -131,7 +131,7 @@ func (s *Server) Run() error {
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := newRouter(svc, httpMetrics, logger)
+	router := s.newRouter(svc, httpMetrics, logger)
 
 	// ── Run both halves concurrently ──────────────────────────────────────────
 
@@ -213,7 +213,7 @@ func indexerTemplateIDs(cfg *indexer.Config) []streaming.TemplateID {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
+func (s *Server) newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -221,7 +221,7 @@ func newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger 
 	r.Use(middleware.Timeout(defaultMiddlewareTimeout))
 	r.Use(apphttp.RequestMetricsMiddleware(metrics))
 
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get(s.cfg.Monitoring.HealthCheckURL, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
