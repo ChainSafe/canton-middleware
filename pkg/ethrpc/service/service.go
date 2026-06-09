@@ -214,12 +214,13 @@ func (*ethService) Syncing(_ context.Context) bool {
 // checkWhitelist authorizes a transaction sender against the registration
 // whitelist.
 func (s *ethService) checkWhitelist(ctx context.Context, from common.Address) error {
-	whitelisted, err := s.whitelist.IsWhitelisted(ctx, from.Hex())
+	addr := strings.ToLower(from.Hex())
+	whitelisted, err := s.whitelist.IsWhitelisted(ctx, addr)
 	if err != nil {
 		return apperr.DependencyError(err, "whitelist check")
 	}
 	if !whitelisted {
-		return apperr.ForbiddenError(nil, fmt.Sprintf("sender not whitelisted: %s", from.Hex()))
+		return apperr.ForbiddenError(nil, fmt.Sprintf("sender not whitelisted: %s", addr))
 	}
 	return nil
 }
