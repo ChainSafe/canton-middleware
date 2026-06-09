@@ -331,9 +331,11 @@ func (c *Client) scanDepositRange(ctx context.Context, r blockRange, handler fun
 		}
 
 		if err := handler(depositEvent); err != nil {
-			c.logger.Error("Failed to handle deposit event",
-				zap.Error(err),
-				zap.String("tx_hash", event.Raw.TxHash.Hex()))
+			// The handler only fails on context cancellation (shutdown). Abort
+			// the slice without advancing scan progress so the unhandled events
+			// are re-scanned on the next tick or restart; downstream inserts are
+			// idempotent (ON CONFLICT DO NOTHING), so re-delivery is safe.
+			return fmt.Errorf("handle deposit event %s: %w", event.Raw.TxHash.Hex(), err)
 		}
 	}
 
