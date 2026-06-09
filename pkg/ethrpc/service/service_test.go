@@ -13,6 +13,8 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service/mocks"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
+	wlmocks "github.com/chainsafe/canton-middleware/pkg/user/whitelist/mocks"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -29,10 +31,23 @@ func defaultCfg() *ethrpc.Config {
 	}
 }
 
-// newSvc creates a real ethService backed by the supplied (possibly nil) dependencies.
+// newSvc creates a real ethService backed by the supplied (possibly nil)
+// dependencies, with a whitelist that allows any sender. The expectation is
+// optional (.Maybe) so tests that never reach SendRawTransaction don't need to
+// set one; see newSvcWithWhitelist when the whitelist behavior is under test.
 func newSvc(t *testing.T, cfg *ethrpc.Config, store service.Store, tokenSvc service.TokenService) service.Service {
 	t.Helper()
-	return service.NewService(cfg, store, tokenSvc)
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(true, nil).Maybe()
+	return service.NewService(cfg, store, tokenSvc, wl)
+}
+
+// newSvcWithWhitelist creates a service backed by the supplied whitelist checker.
+func newSvcWithWhitelist(
+	t *testing.T, cfg *ethrpc.Config, store service.Store, tokenSvc service.TokenService, wl whitelist.Checker,
+) service.Service {
+	t.Helper()
+	return service.NewService(cfg, store, tokenSvc, wl)
 }
 
 // ─── ChainID ──────────────────────────────────────────────────────────────────
@@ -274,6 +289,56 @@ func TestService_SendRawTransaction(t *testing.T) {
 		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(errors.New("db error"))
 
 		svc := newSvc(t, defaultCfg(), store, mockTokenSvc)
+		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
+		require.Error(t, err)
+		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
+	})
+
+	t.Run("whitelisted sender is accepted", func(t *testing.T) {
+		payload, expectedHash := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
+
+		mockTokenSvc := mocks.NewTokenService(t)
+		mockTokenSvc.EXPECT().ERC20(tokenAddr).Return(mocks.NewERC20(t), nil)
+
+		store := mocks.NewStore(t)
+		store.EXPECT().InsertMempoolEntry(mock.Anything, mock.Anything).Return(nil)
+
+		wl := wlmocks.NewChecker(t)
+		wl.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(true, nil).Once()
+
+		svc := newSvcWithWhitelist(t, defaultCfg(), store, mockTokenSvc, wl)
+		got, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
+		require.NoError(t, err)
+		assert.Equal(t, expectedHash, got)
+	})
+
+	t.Run("non-whitelisted sender is rejected without touching mempool or token service", func(t *testing.T) {
+		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
+
+		// Neither the token service nor the store may be consulted once the
+		// sender fails the whitelist — leave both bare with no expectations.
+		mockTokenSvc := mocks.NewTokenService(t)
+		store := mocks.NewStore(t)
+
+		wl := wlmocks.NewChecker(t)
+		wl.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(false, nil).Once()
+
+		svc := newSvcWithWhitelist(t, defaultCfg(), store, mockTokenSvc, wl)
+		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
+		require.Error(t, err)
+		assert.True(t, apperr.Is(err, apperr.CategoryForbidden))
+	})
+
+	t.Run("whitelist lookup error propagates as DependencyFailure", func(t *testing.T) {
+		payload, _ := buildSignedTransferTx(t, chainID, tokenAddr, recipient, amount)
+
+		mockTokenSvc := mocks.NewTokenService(t)
+		store := mocks.NewStore(t)
+
+		wl := wlmocks.NewChecker(t)
+		wl.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(false, errors.New("db down")).Once()
+
+		svc := newSvcWithWhitelist(t, defaultCfg(), store, mockTokenSvc, wl)
 		_, err := svc.SendRawTransaction(context.Background(), hexutil.Bytes(payload))
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
