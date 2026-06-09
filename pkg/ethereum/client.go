@@ -293,9 +293,9 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 }
 
 // scanDepositRange filters DepositToCanton events for a single inclusive block
-// range and dispatches each to handler. A filter or iterator error is returned
-// so the caller can stop advancing scan progress and retry the range on the
-// next tick. Handler errors are logged but do not abort the range.
+// range and dispatches each to handler. A filter, iterator, or handler error is
+// returned so the caller can stop advancing scan progress and retry the range
+// on the next tick.
 func (c *Client) scanDepositRange(ctx context.Context, r blockRange, handler func(*DepositEvent) error) error {
 	opts := &bind.FilterOpts{
 		Start:   r.start,
