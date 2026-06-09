@@ -17,6 +17,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service/mocks"
+	wlmocks "github.com/chainsafe/canton-middleware/pkg/user/whitelist/mocks"
 
 	geth "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -420,7 +421,10 @@ func TestEthAPI_SendRawTransaction(t *testing.T) {
 		t.Helper()
 		cfg := &ethrpc.Config{ChainID: chainID.Uint64()}
 		// Store and TokenService are nil because these validation paths never reach them.
-		_, rpcClient, cleanup := newTestServer(t, service.NewService(cfg, nil, nil))
+		// The whitelist allows any sender; .Maybe because some paths error before it.
+		wl := wlmocks.NewChecker(t)
+		wl.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(true, nil).Maybe()
+		_, rpcClient, cleanup := newTestServer(t, service.NewService(cfg, nil, nil, wl))
 		return rpcClient, cleanup
 	}
 

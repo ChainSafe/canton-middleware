@@ -31,6 +31,7 @@ import (
 	tokenprovider "github.com/chainsafe/canton-middleware/pkg/token/provider"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	userservice "github.com/chainsafe/canton-middleware/pkg/user/service"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 	"github.com/chainsafe/canton-middleware/pkg/userstore"
 
 	"github.com/go-chi/chi/v5"
@@ -122,6 +123,10 @@ func (s *Server) Run() error {
 		return err
 	}
 
+	// Single whitelist gate shared by the registration service and the eth-rpc
+	// facade. The skip_whitelist_check decision is baked in here once.
+	wl := whitelist.New(userStore, cfg.SkipWhitelistCheck)
+
 	// All long-lived goroutines — background workers and HTTP servers — run
 	// under a single errgroup tied to gCtx. A signal (ctx) or any server error
 	// cancels gCtx, unwinding every goroutine; g.Wait() then blocks until they
@@ -129,7 +134,7 @@ func (s *Server) Run() error {
 	// race with in-flight worker calls.
 	g, gCtx := errgroup.WithContext(ctx)
 
-	svcs, err := initServices(gCtx, g, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, reg, logger)
+	svcs, err := initServices(gCtx, g, cfg, dbBun, userStore, cantonClient, indexerClient, cipher, wl, reg, logger)
 	if err != nil {
 		// initServices may have already started workers on g (the caches, and on
 		// later failures the miner/submitter). Cancel the group's context and wait
@@ -155,7 +160,7 @@ func (s *Server) Run() error {
 		)
 	}
 
-	router := s.setupRouter(svcs.evmStore, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
+	router := s.setupRouter(svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
 
 	s.registerServers(g, gCtx, router, logger)
 
@@ -220,6 +225,7 @@ func initServices(
 	cantonClient *canton.Client,
 	indexerClient indexerclient.Client,
 	cipher keys.KeyCipher,
+	wl whitelist.Checker,
 	reg sharedmetrics.NamespacedRegisterer,
 	logger *zap.Logger,
 ) (*services, error) {
@@ -232,7 +238,7 @@ func initServices(
 		cipher,
 		logger,
 		cfg.SkipCantonSigVerify,
-		cfg.SkipWhitelistCheck,
+		wl,
 		topologyCache,
 	)
 
@@ -358,6 +364,7 @@ func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router
 
 func (s *Server) setupRouter(
 	evmStore ethrpc.Store,
+	wl whitelist.Checker,
 	cantonClient *canton.Client,
 	tokenService *token.Service,
 	registrationService userservice.Service,
@@ -397,7 +404,7 @@ func (s *Server) setupRouter(
 
 	// Ethereum JSON-RPC endpoints (if enabled)
 	if s.cfg.EthRPC.Enabled {
-		coreEthSvc := ethrpc.NewService(s.cfg.EthRPC, evmStore, tokenService)
+		coreEthSvc := ethrpc.NewService(s.cfg.EthRPC, evmStore, tokenService, wl)
 		ethrpc.RegisterRoutes(r, ethrpc.NewLog(coreEthSvc, logger), s.cfg.EthRPC.RequestTimeout, logger)
 	}
 

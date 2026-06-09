@@ -22,6 +22,7 @@ import (
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/identity"
 	"github.com/chainsafe/canton-middleware/pkg/keys"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 
 	"github.com/google/uuid"
 )
@@ -77,7 +78,7 @@ type registrationService struct {
 	logger                          *zap.Logger
 	keyCipher                       keys.KeyCipher
 	skipCantonSignatureVerification bool
-	skipWhitelistCheck              bool
+	whitelist                       whitelist.Checker
 	topologyCache                   TopologyCacheProvider
 }
 
@@ -88,7 +89,7 @@ func NewService(
 	keyCipher keys.KeyCipher,
 	logger *zap.Logger,
 	skipCantonSignatureVerification bool,
-	skipWhitelistCheck bool,
+	whitelist whitelist.Checker,
 	topologyCache TopologyCacheProvider,
 ) Service {
 	return &registrationService{
@@ -97,16 +98,13 @@ func NewService(
 		logger:                          logger,
 		keyCipher:                       keyCipher,
 		skipCantonSignatureVerification: skipCantonSignatureVerification,
-		skipWhitelistCheck:              skipWhitelistCheck,
+		whitelist:                       whitelist,
 		topologyCache:                   topologyCache,
 	}
 }
 
 func (s *registrationService) checkWhitelist(ctx context.Context, evmAddress string) error {
-	if s.skipWhitelistCheck {
-		return nil
-	}
-	whitelisted, err := s.store.IsWhitelisted(ctx, evmAddress)
+	whitelisted, err := s.whitelist.IsWhitelisted(ctx, evmAddress)
 	if err != nil {
 		return fmt.Errorf("failed to check whitelist: %w", err)
 	}

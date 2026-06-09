@@ -13,6 +13,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/token"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -77,6 +78,7 @@ type ethService struct {
 	cfg          ethrpc.Config
 	store        Store
 	tokenService TokenService
+	whitelist    whitelist.Checker
 	chainID      *big.Int
 	erc20ABI     abi.ABI
 	startTime    time.Time
@@ -93,14 +95,20 @@ const (
 	DefaultGasLimit = 21_000
 )
 
-// NewService creates a new ethService.
+// NewService creates a new ethService. whitelist authorizes transaction senders
+// in SendRawTransaction and must be non-nil; pass whitelist.New(src, true) to
+// disable the gate (skip_whitelist_check).
 func NewService(
 	cfg *ethrpc.Config,
 	evmStore Store,
 	tokenSvc TokenService,
+	whitelist whitelist.Checker,
 ) Service {
 	if cfg == nil {
 		panic("ethrpc: config is nil")
+	}
+	if whitelist == nil {
+		panic("ethrpc: whitelist checker is required (use whitelist.New to construct one)")
 	}
 
 	parsedABI, err := abi.JSON(strings.NewReader(ethereum.ERC20ABI))
@@ -113,6 +121,7 @@ func NewService(
 		cfg:          *cfg,
 		store:        evmStore,
 		tokenService: tokenSvc,
+		whitelist:    whitelist,
 		erc20ABI:     parsedABI,
 		startTime:    time.Now(),
 		chainID:      new(big.Int).SetUint64(cfg.ChainID),
@@ -202,6 +211,19 @@ func (*ethService) Syncing(_ context.Context) bool {
 // This matches standard Ethereum semantics where the node accepts a signed
 // transaction synchronously and clients poll the receipt — avoiding 5-15s+ HTTP
 // stalls under Canton load that previously broke MetaMask compatibility.
+// checkWhitelist authorizes a transaction sender against the registration
+// whitelist.
+func (s *ethService) checkWhitelist(ctx context.Context, from common.Address) error {
+	whitelisted, err := s.whitelist.IsWhitelisted(ctx, from.Hex())
+	if err != nil {
+		return apperr.DependencyError(err, "whitelist check")
+	}
+	if !whitelisted {
+		return apperr.ForbiddenError(nil, fmt.Sprintf("sender not whitelisted: %s", from.Hex()))
+	}
+	return nil
+}
+
 func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes) (common.Hash, error) {
 	var tx types.Transaction
 	if err := tx.UnmarshalBinary(data); err != nil {
@@ -212,6 +234,13 @@ func (s *ethService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 	from, err := types.Sender(signer, &tx)
 	if err != nil {
 		return common.Hash{}, apperr.BadRequestError(err, "invalid transaction signature")
+	}
+
+	// Authorize the sender before doing any work: only whitelisted addresses
+	// may submit transfers through the facade. Rejected synchronously so the
+	// wallet gets an immediate error instead of an eventual failed receipt.
+	if err = s.checkWhitelist(ctx, from); err != nil {
+		return common.Hash{}, err
 	}
 
 	contractAddress := tx.To()
