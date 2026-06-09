@@ -34,7 +34,7 @@ func defaultCfg() *ethrpc.Config {
 // newSvc creates a real ethService backed by the supplied (possibly nil)
 // dependencies, with a whitelist that allows any sender. The expectation is
 // optional (.Maybe) so tests that never reach SendRawTransaction don't need to
-// set one; see newSvcWithWhitelist when the whitelist behaviour is under test.
+// set one; see newSvcWithWhitelist when the whitelist behavior is under test.
 func newSvc(t *testing.T, cfg *ethrpc.Config, store service.Store, tokenSvc service.TokenService) service.Service {
 	t.Helper()
 	wl := wlmocks.NewChecker(t)
