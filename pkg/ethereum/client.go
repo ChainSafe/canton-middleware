@@ -275,55 +275,76 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 					return
 				}
 
-				// Query for events from currentBlock+1 to latestBlock
-				opts := &bind.FilterOpts{
-					Start:   currentBlock + 1,
-					End:     &latestBlock,
-					Context: ctx,
-				}
-
-				filterStart := time.Now()
-				iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
-				c.observeRPC("filter_deposit_events", filterStart, err)
-				if err != nil {
-					c.metrics.EventPollFailuresTotal.WithLabelValues("filter_events").Inc()
-					c.logger.Warn("Failed to filter deposit events", zap.Error(err))
-					return
-				}
-
-				for iter.Next() {
-					c.metrics.EventsFetchedTotal.Inc()
-					event := iter.Event
-					depositEvent := &DepositEvent{
-						Token:           event.Token,
-						Sender:          event.Sender,
-						CantonRecipient: event.CantonRecipient,
-						Amount:          event.Amount,
-						Nonce:           event.Nonce,
-						BlockNumber:     event.Raw.BlockNumber,
-						TxHash:          event.Raw.TxHash,
-						LogIndex:        event.Raw.Index,
+				// Walk [currentBlock+1, latestBlock] in slices of at most
+				// MaxBlockRange blocks so each eth_getLogs request stays under
+				// the provider's per-call range cap. Progress advances only
+				// through the last successful slice; a failing slice (and
+				// everything after it) is retried on the next tick.
+				for _, r := range chunkRange(currentBlock+1, latestBlock, c.config.MaxBlockRange) {
+					if err := c.scanDepositRange(ctx, r, handler); err != nil {
+						return
 					}
-
-					if err := handler(depositEvent); err != nil {
-						c.logger.Error("Failed to handle deposit event",
-							zap.Error(err),
-							zap.String("tx_hash", event.Raw.TxHash.Hex()))
-					}
+					currentBlock = r.end
+					c.setLastScannedBlock(currentBlock)
 				}
-
-				if err := iter.Error(); err != nil {
-					c.metrics.EventPollFailuresTotal.WithLabelValues("iterator").Inc()
-					c.logger.Warn("Iterator error", zap.Error(err))
-				}
-				iter.Close()
-
-				// Update scan progress even if there were no events
-				currentBlock = latestBlock
-				c.setLastScannedBlock(currentBlock)
 			}()
 		}
 	}
+}
+
+// scanDepositRange filters DepositToCanton events for a single inclusive block
+// range and dispatches each to handler. A filter, iterator, or handler error is
+// returned so the caller can stop advancing scan progress and retry the range
+// on the next tick.
+func (c *Client) scanDepositRange(ctx context.Context, r blockRange, handler func(*DepositEvent) error) error {
+	opts := &bind.FilterOpts{
+		Start:   r.start,
+		End:     &r.end,
+		Context: ctx,
+	}
+
+	filterStart := time.Now()
+	iter, err := c.bridge.FilterDepositToCanton(opts, nil, nil, nil)
+	c.observeRPC("filter_deposit_events", filterStart, err)
+	if err != nil {
+		c.metrics.EventPollFailuresTotal.WithLabelValues("filter_events").Inc()
+		c.logger.Warn("Failed to filter deposit events",
+			zap.Uint64("from_block", r.start),
+			zap.Uint64("to_block", r.end),
+			zap.Error(err))
+		return err
+	}
+	defer iter.Close()
+
+	for iter.Next() {
+		c.metrics.EventsFetchedTotal.Inc()
+		event := iter.Event
+		depositEvent := &DepositEvent{
+			Token:           event.Token,
+			Sender:          event.Sender,
+			CantonRecipient: event.CantonRecipient,
+			Amount:          event.Amount,
+			Nonce:           event.Nonce,
+			BlockNumber:     event.Raw.BlockNumber,
+			TxHash:          event.Raw.TxHash,
+			LogIndex:        event.Raw.Index,
+		}
+
+		if err := handler(depositEvent); err != nil {
+			// The handler only fails on context cancellation (shutdown). Abort
+			// the slice without advancing scan progress so the unhandled events
+			// are re-scanned on the next tick or restart; downstream inserts are
+			// idempotent (ON CONFLICT DO NOTHING), so re-delivery is safe.
+			return fmt.Errorf("handle deposit event %s: %w", event.Raw.TxHash.Hex(), err)
+		}
+	}
+
+	if err := iter.Error(); err != nil {
+		c.metrics.EventPollFailuresTotal.WithLabelValues("iterator").Inc()
+		c.logger.Warn("Iterator error", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 // WithdrawFromCanton submits a withdrawal transaction

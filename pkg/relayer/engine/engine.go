@@ -365,6 +365,15 @@ func (e *Engine) loadEthereumOffset(ctx context.Context) error {
 
 	if state != nil {
 		e.ethLastBlock = state.LastBlock
+		// Honor a configured start_block that is ahead of the stored progress so
+		// operators can fast-forward past a problematic range without editing the
+		// DB. The later of the two always wins; config never rewinds the relayer.
+		if e.config.EthStartBlock > e.ethLastBlock {
+			e.logger.Info("Configured start_block is ahead of stored block, fast-forwarding",
+				zap.Uint64("stored_block", e.ethLastBlock),
+				zap.Uint64("configured_start_block", e.config.EthStartBlock))
+			e.ethLastBlock = e.config.EthStartBlock
+		}
 		e.logger.Info("Loaded Ethereum last block", zap.Uint64("block", e.ethLastBlock))
 		return nil
 	}
