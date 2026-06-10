@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/ChainSafe/canton-middleware/compare/v0.5.1...v0.5.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* **relayer:** chunk eth log queries and honor configured start block ([#306](https://github.com/ChainSafe/canton-middleware/issues/306)) ([b0dc75f](https://github.com/ChainSafe/canton-middleware/commit/b0dc75f7180faec0f777f7d514ff6094bff84624))
+
 ## [0.5.1](https://github.com/ChainSafe/canton-middleware/compare/v0.5.0...v0.5.1) (2026-06-08)
 
 
