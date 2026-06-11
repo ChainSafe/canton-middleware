@@ -40,6 +40,7 @@ AUDIENCE="https://canton-ledger-api-prod1.02.chainsafe.dev"
 TOKEN_URL="https://prod-chainsafe.eu.auth0.com/oauth/token"
 DRY_RUN=0
 SKIP_PORT_FORWARD=0
+LIST_TOKEN_CONFIGS=0
 
 # ─── Parse flags ─────────────────────────────────────────────────────────────
 usage() {
@@ -54,6 +55,11 @@ Flags:
   --no-port-forward
                    Skip kubectl port-forward; assume Canton gRPC is reachable
                    at localhost:${LOCAL_PORT} already
+  --list-token-configs
+                   Diagnostic: list ALL CIP56.Config.TokenConfig contracts
+                   visible on the participant (any party as stakeholder).
+                   Use when mint reports "no TokenConfig found for DEMO" to
+                   see what's actually deployed. Skips rights check and mint.
   -h, --help       Show this help
 
 Required tools: aws, kubectl, grpcurl, jq, python3, curl, go
@@ -67,13 +73,14 @@ while [[ $# -gt 0 ]]; do
     -n|--namespace) K8S_NAMESPACE="$2"; shift 2 ;;
     --dry-run)      DRY_RUN=1; shift ;;
     --no-port-forward) SKIP_PORT_FORWARD=1; shift ;;
+    --list-token-configs) LIST_TOKEN_CONFIGS=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ -z "$RECIPIENT_PARTY" ]]; then
-  echo "ERROR: -p <recipient-party> is required" >&2
+if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 ]]; then
+  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs)" >&2
   usage >&2
   exit 2
 fi
@@ -230,6 +237,17 @@ logging:
   format: "console"
   output_path: "stdout"
 EOF
+
+# ─── Diagnostic short-circuit: --list-token-configs ──────────────────────────
+if [[ "$LIST_TOKEN_CONFIGS" -eq 1 ]]; then
+  echo ""
+  echo ">>> Listing all TokenConfig contracts visible on the participant..."
+  (
+    cd "$REPO_ROOT"
+    go run scripts/remote/list-token-configs.go -config "$TMP_CFG"
+  )
+  exit $?
+fi
 
 # ─── Step 1: Verify rights ───────────────────────────────────────────────────
 echo ""
