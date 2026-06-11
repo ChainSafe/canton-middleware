@@ -206,7 +206,6 @@ token:
       symbol: "PLC"
       decimals: 18
       instrument_id: "PLC"
-  native_balance_wei: "0"
 
 eth_rpc:
   enabled: false
