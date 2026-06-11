@@ -41,6 +41,7 @@ TOKEN_URL="https://prod-chainsafe.eu.auth0.com/oauth/token"
 DRY_RUN=0
 SKIP_PORT_FORWARD=0
 LIST_TOKEN_CONFIGS=0
+BOOTSTRAP_DEMO=0
 
 # ─── Parse flags ─────────────────────────────────────────────────────────────
 usage() {
@@ -60,6 +61,12 @@ Flags:
                    visible on the participant (any party as stakeholder).
                    Use when mint reports "no TokenConfig found for DEMO" to
                    see what's actually deployed. Skips rights check and mint.
+  --bootstrap-demo
+                   One-time setup: create the DEMO CIP56Manager + TokenConfig
+                   contracts on the participant under the configured issuer.
+                   Idempotent — re-running detects an existing TokenConfig
+                   and exits cleanly. Skips minting (use a regular -p run
+                   afterwards to mint to specific recipients).
   -h, --help       Show this help
 
 Required tools: aws, kubectl, grpcurl, jq, python3, curl, go
@@ -74,14 +81,20 @@ while [[ $# -gt 0 ]]; do
     --dry-run)      DRY_RUN=1; shift ;;
     --no-port-forward) SKIP_PORT_FORWARD=1; shift ;;
     --list-token-configs) LIST_TOKEN_CONFIGS=1; shift ;;
+    --bootstrap-demo) BOOTSTRAP_DEMO=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 ]]; then
-  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs)" >&2
+if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 && "$BOOTSTRAP_DEMO" -eq 0 ]]; then
+  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs or --bootstrap-demo)" >&2
   usage >&2
+  exit 2
+fi
+
+if [[ "$LIST_TOKEN_CONFIGS" -eq 1 && "$BOOTSTRAP_DEMO" -eq 1 ]]; then
+  echo "ERROR: --list-token-configs and --bootstrap-demo are mutually exclusive" >&2
   exit 2
 fi
 
@@ -247,6 +260,29 @@ if [[ "$LIST_TOKEN_CONFIGS" -eq 1 ]]; then
     go run scripts/remote/list-token-configs.go -config "$TMP_CFG"
   )
   exit $?
+fi
+
+# ─── Setup short-circuit: --bootstrap-demo ───────────────────────────────────
+if [[ "$BOOTSTRAP_DEMO" -eq 1 ]]; then
+  echo ""
+  echo ">>> Bootstrapping DEMO under issuer ${ISSUER_PARTY}..."
+  echo "    (idempotent — existing TokenConfig will be detected and reused)"
+  (
+    cd "$REPO_ROOT"
+    go run scripts/setup/bootstrap-demo.go \
+      -config "$TMP_CFG" \
+      -issuer "$ISSUER_PARTY" \
+      -no-mint
+  )
+  rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════"
+    echo "  Bootstrap complete."
+    echo "════════════════════════════════════════════════════════════════════════"
+    echo "  Re-run without --bootstrap-demo (with -p <party> -a <amount>) to mint."
+  fi
+  exit $rc
 fi
 
 # ─── Step 1: Verify rights ───────────────────────────────────────────────────

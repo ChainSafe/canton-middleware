@@ -31,11 +31,25 @@ aws sts get-caller-identity        # confirms AWS session
 kubectl get ns canton-middleware    # confirms cluster access
 ```
 
-## One-command run
+## First-time setup: bootstrap DEMO
+
+The participant ships without any CIP56 TokenConfig contracts. Before
+any mint can succeed, DEMO must be bootstrapped once. This creates the
+`CIP56Manager` + `TokenConfig` under the configured issuer
+(`chainsafe-middleware::122043f0b94e…` on prod1).
 
 ```bash
 cd /path/to/canton-middleware
 
+./scripts/remote/mint-demo-prod1.sh --bootstrap-demo
+```
+
+Idempotent — re-running detects the existing TokenConfig and exits cleanly.
+Run once per environment, then skip this step on subsequent mint sessions.
+
+## Minting after bootstrap
+
+```bash
 ./scripts/remote/mint-demo-prod1.sh \
   -p user_f39Fd6e5::1220eab9dc9b61bd5db2206550aacf9530c93c44c1935fd0412823c3afe5164a136a \
   -a 1000
@@ -46,6 +60,10 @@ Replace `-p <party>` and `-a <amount>` for other recipients.
 ### Optional flags
 
 - `--dry-run` — verify rights without minting (good first invocation).
+- `--bootstrap-demo` — one-time setup; create the DEMO CIP56Manager + TokenConfig.
+- `--list-token-configs` — diagnostic; list all TokenConfig contracts on the
+  participant. Use to confirm DEMO exists after bootstrap, or to debug
+  "no TokenConfig found" errors.
 - `-n <namespace>` — if the chart is deployed in a namespace other than
   `canton-middleware`.
 - `--no-port-forward` — if you're running from inside the cluster or already
