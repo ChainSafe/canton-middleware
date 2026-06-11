@@ -41,6 +41,7 @@ TOKEN_URL="https://prod-chainsafe.eu.auth0.com/oauth/token"
 DRY_RUN=0
 SKIP_PORT_FORWARD=0
 LIST_TOKEN_CONFIGS=0
+LIST_HOLDINGS=0
 BOOTSTRAP_DEMO=0
 
 # ─── Parse flags ─────────────────────────────────────────────────────────────
@@ -61,6 +62,10 @@ Flags:
                    visible on the participant (any party as stakeholder).
                    Use when mint reports "no TokenConfig found for DEMO" to
                    see what's actually deployed. Skips rights check and mint.
+  --list-holdings  Diagnostic: list ALL CIP56.Token.CIP56Holding contracts
+                   visible on the participant. Use to verify a mint produced
+                   a real on-ledger Holding, or to inspect existing balances.
+                   Skips rights check and mint.
   --bootstrap-demo
                    One-time setup: create the DEMO CIP56Manager + TokenConfig
                    contracts on the participant under the configured issuer.
@@ -81,20 +86,23 @@ while [[ $# -gt 0 ]]; do
     --dry-run)      DRY_RUN=1; shift ;;
     --no-port-forward) SKIP_PORT_FORWARD=1; shift ;;
     --list-token-configs) LIST_TOKEN_CONFIGS=1; shift ;;
+    --list-holdings) LIST_HOLDINGS=1; shift ;;
     --bootstrap-demo) BOOTSTRAP_DEMO=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 && "$BOOTSTRAP_DEMO" -eq 0 ]]; then
-  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs or --bootstrap-demo)" >&2
+if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 && "$LIST_HOLDINGS" -eq 0 && "$BOOTSTRAP_DEMO" -eq 0 ]]; then
+  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs, --list-holdings, or --bootstrap-demo)" >&2
   usage >&2
   exit 2
 fi
 
-if [[ "$LIST_TOKEN_CONFIGS" -eq 1 && "$BOOTSTRAP_DEMO" -eq 1 ]]; then
-  echo "ERROR: --list-token-configs and --bootstrap-demo are mutually exclusive" >&2
+# Mutual exclusivity among modes
+mode_count=$(( LIST_TOKEN_CONFIGS + LIST_HOLDINGS + BOOTSTRAP_DEMO ))
+if [[ $mode_count -gt 1 ]]; then
+  echo "ERROR: --list-token-configs, --list-holdings, and --bootstrap-demo are mutually exclusive" >&2
   exit 2
 fi
 
@@ -258,6 +266,17 @@ if [[ "$LIST_TOKEN_CONFIGS" -eq 1 ]]; then
   (
     cd "$REPO_ROOT"
     go run scripts/remote/list-token-configs.go -config "$TMP_CFG"
+  )
+  exit $?
+fi
+
+# ─── Diagnostic short-circuit: --list-holdings ───────────────────────────────
+if [[ "$LIST_HOLDINGS" -eq 1 ]]; then
+  echo ""
+  echo ">>> Listing all CIP56Holding contracts visible on the participant..."
+  (
+    cd "$REPO_ROOT"
+    go run scripts/remote/list-cip56-holdings.go -config "$TMP_CFG"
   )
   exit $?
 fi
