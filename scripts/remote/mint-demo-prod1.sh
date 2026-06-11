@@ -188,12 +188,36 @@ canton:
       token_url: "${TOKEN_URL}"
       expiry_leeway: "60s"
 
+  identity:
+    package_id: "#common"
+
   token:
     cip56_package_id: "#cip56-token"
     splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
     splice_holding_package_id: "#splice-api-token-holding-v1"
 
-# These fields are required by config.LoadAPIServer's validator but unused for mint.
+# Fields below are required by config.LoadAPIServer's validator but are not
+# used by the mint flow. Stub values just satisfy validation.
+
+token:
+  supported_tokens:
+    "0x0000000000000000000000000000000000000001":
+      name: "Placeholder"
+      symbol: "PLC"
+      decimals: 18
+      instrument_id: "PLC"
+  native_balance_wei: "0"
+
+eth_rpc:
+  enabled: false
+
+monitoring:
+  enabled: false
+
+key_management:
+  master_key_env: "CANTON_MASTER_KEY"
+  key_derivation: "generate"
+
 server:
   host: "0.0.0.0"
   port: 8081
