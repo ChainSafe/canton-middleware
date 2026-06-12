@@ -19,7 +19,7 @@ type EvmTransactionDao struct {
 	Nonce         uint64    `bun:"nonce,notnull"`
 	Input         []byte    `bun:"input,notnull,type:bytea"`
 	ValueWei      string    `bun:"value_wei,notnull,default:'0',type:text"`
-	Status        uint8     `bun:"status,notnull,default:1,type:smallint"`
+	Status        uint8     `bun:"status,notnull,type:smallint"`
 	BlockNumber   uint64    `bun:"block_number,notnull"`
 	BlockHash     []byte    `bun:"block_hash,notnull,type:bytea"`
 	TxIndex       uint      `bun:"tx_index,notnull,default:0"`
