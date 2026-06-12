@@ -215,3 +215,60 @@ jobs:
             --head "${BRANCH}" \
           || { echo "PR already exists for this branch, skipping"; exit 0; }
           gh pr merge --auto --squash --repo "${REPO}" "${BRANCH}"
+
+  open-prod-pr:
+    name: Open prod promotion PR
+    needs: open-devnet-pr
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
+    steps:
+      - name: Compute version
+        id: version
+        env:
+          REF: ${{ github.ref_name }}
+          INPUT: ${{ inputs.tag }}
+        run: |
+          VERSION="${INPUT:-$REF}"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Invalid version: $VERSION"; exit 1; }
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Wait for devnet bump PR to merge into main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
+          REPO: ChainSafe/infra-kubernetes
+        run: |
+          BRANCH="chore/bump-canton-middleware-api-${VERSION}"
+
+          # The devnet PR merges via auto-merge once its checks pass; poll until it lands
+          for i in $(seq 1 60); do
+            STATE=$(gh pr view "${BRANCH}" --repo "${REPO}" --json state --jq '.state' 2>/dev/null || echo "")
+            case "$STATE" in
+              MERGED) echo "Devnet bump PR merged into main"; exit 0 ;;
+              CLOSED) echo "Devnet bump PR was closed without merging"; exit 1 ;;
+              *) echo "Devnet bump PR state: ${STATE:-not found}, waiting... (${i}/60)"; sleep 30 ;;
+            esac
+          done
+          echo "Timed out waiting for devnet bump PR to merge"
+          exit 1
+
+      - name: Open PR from main into prod-main
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
+          REPO: ChainSafe/infra-kubernetes
+        run: |
+          # Nothing to promote if main has no commits ahead of prod-main
+          AHEAD=$(gh api "repos/${REPO}/compare/prod-main...main" --jq '.ahead_by')
+          if [ "$AHEAD" = "0" ]; then
+            echo "main has no changes for prod-main, skipping"
+            exit 0
+          fi
+
+          gh pr create \
+            --repo "${REPO}" \
+            --title "chore: promote main to prod-main (canton-middleware-api ${VERSION})" \
+            --body "Automated PR: promote \`main\` into \`prod-main\` after \`canton-middleware-api\` \`${VERSION}\` was merged into \`main\`." \
+            --base prod-main \
+            --head main \
+          || echo "PR from main into prod-main already exists, skipping"
