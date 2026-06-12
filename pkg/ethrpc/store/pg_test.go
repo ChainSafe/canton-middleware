@@ -324,6 +324,57 @@ func TestPGStore_Transactions(t *testing.T) {
 	}
 }
 
+// TestPGStore_FailedTransactionStatusPersists guards against a column-default
+// regression: the evm_transactions.status column must store status=0 (failed)
+// verbatim. A `default:1` bun tag would make bun emit SQL DEFAULT for the
+// zero value, silently flipping every failed transaction to status=1 (success)
+// while still carrying its revert reason — producing a contradictory receipt.
+// Requires a real Postgres (the bug only manifests against a DB that applies
+// the column default), which setupEVMStore provides via testcontainers.
+func TestPGStore_FailedTransactionStatusPersists(t *testing.T) {
+	ctx := context.Background()
+	store, _ := setupEVMStore(t)
+
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock failed: %v", err)
+	}
+	failed := &ethrpc.EvmTransaction{
+		TxHash:       []byte{0xfa, 0x11},
+		FromAddress:  "0x1111111111111111111111111111111111111111",
+		ToAddress:    "0x2222222222222222222222222222222222222222",
+		Nonce:        0,
+		Input:        []byte{0xaa},
+		ValueWei:     "0",
+		Status:       0, // failed — the zero value the bug would clobber
+		ErrorMessage: "failed to get recipient: user not found",
+		BlockNumber:  block.Number(),
+		BlockHash:    block.Hash(),
+		TxIndex:      0,
+		GasUsed:      21000,
+	}
+	if err = block.AddEvmTransaction(ctx, failed); err != nil {
+		t.Fatalf("AddEvmTransaction(failed) failed: %v", err)
+	}
+	if err = block.Finalize(ctx); err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+
+	got, err := store.GetEvmTransaction(ctx, failed.TxHash)
+	if err != nil {
+		t.Fatalf("GetEvmTransaction(failed) failed: %v", err)
+	}
+	if got == nil {
+		t.Fatalf("GetEvmTransaction(failed) returned nil")
+	}
+	if got.Status != 0 {
+		t.Fatalf("failed tx status not persisted: got %d want 0 (a non-zero result means the column default clobbered it)", got.Status)
+	}
+	if got.ErrorMessage != failed.ErrorMessage {
+		t.Fatalf("error message mismatch: got %q want %q", got.ErrorMessage, failed.ErrorMessage)
+	}
+}
+
 func TestPGStore_Logs(t *testing.T) {
 	ctx := context.Background()
 	store, db := setupEVMStore(t)
