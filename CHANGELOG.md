@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/ChainSafe/canton-middleware/compare/v0.5.2...v0.5.3) (2026-06-12)
+
+
+### Bug Fixes
+
+* **ethrpc:** persist failed transaction receipts as status=0 ([#309](https://github.com/ChainSafe/canton-middleware/issues/309)) ([6dfca79](https://github.com/ChainSafe/canton-middleware/commit/6dfca796f52b8865b444626900898c9e0e5ea971))
+
 ## [0.5.2](https://github.com/ChainSafe/canton-middleware/compare/v0.5.1...v0.5.2) (2026-06-09)
 
 
