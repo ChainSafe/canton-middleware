@@ -8,15 +8,21 @@
 //
 // It wildcard-lists every FingerprintMapping on the participant and re-creates each
 // one whose issuer is NOT the current issuer, under the current issuer, with the SAME
-// user party, fingerprint and EVM address. No userstore DB and no old-issuer party
-// needed — the old issuer is read off each existing contract.
+// user party, fingerprint and EVM address. The old issuer is read off each existing
+// contract, so no old-issuer party is needed.
+//
+// Scope is restricted to parties that exist in the userstore DB. There can be more
+// FingerprintMapping contracts on-ledger (demo/test/orphan parties from bootstrap or
+// shared ledgers) than real registered users, and we only want to re-anchor mappings
+// for actual users — so a mapping whose userParty is absent from the DB is skipped.
 //
 // The config's canton.issuer_party MUST be the current/new issuer:
 // CreateFingerprintMapping runs ActAs=that party. Reading every mapping relies on the
 // OAuth user's can_read_as_any_party right (same right the mint/list tooling uses).
+// The config's database.* must point at the userstore DB.
 //
-// Migrates ALL users in one run. Idempotent: a fingerprint already mapped under the
-// current issuer is skipped, so re-runs are safe. Use -party to scope to one user.
+// Migrates every DB user in one run. Idempotent: a fingerprint already mapped under
+// the current issuer is skipped, so re-runs are safe. Use -party to scope to one user.
 //
 // Usage:
 //
@@ -47,6 +53,8 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/log"
+	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	"github.com/chainsafe/canton-middleware/pkg/userstore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	expcreds "google.golang.org/grpc/experimental/credentials"
@@ -127,6 +135,27 @@ func main() {
 		fatalf("list mappings: %v", err)
 	}
 
+	// Authoritative set of real users. On-ledger mappings can outnumber registered
+	// users (demo/test/orphan parties), and we only re-anchor mappings for parties
+	// that exist in the userstore DB.
+	bunDB, err := pgutil.ConnectDB(cfg.Database)
+	if err != nil {
+		fatalf("connect to database: %v", err)
+	}
+	defer func() { _ = bunDB.Close() }()
+	users, err := userstore.NewStore(bunDB).ListUsers(ctx)
+	if err != nil {
+		fatalf("list users: %v", err)
+	}
+	dbParties := make(map[string]bool, len(users))
+	for _, u := range users {
+		if u.CantonPartyID != "" {
+			dbParties[u.CantonPartyID] = true
+		}
+	}
+	fmt.Printf("  DB users:    %d\n", len(dbParties))
+	fmt.Printf("  On-ledger:   %d mapping(s)\n\n", len(all))
+
 	// Fingerprints already mapped under the current issuer → skip set.
 	already := map[string]bool{}
 	for _, m := range all {
@@ -135,7 +164,7 @@ func main() {
 		}
 	}
 
-	var created, skipped int
+	var created, skipped, notInDB int
 	for _, m := range all {
 		if m.issuer == newIssuer { // already current — nothing to do
 			skipped++
@@ -143,6 +172,10 @@ func main() {
 		}
 		if m.fingerprint == "" || m.userParty == "" {
 			skipped++
+			continue
+		}
+		if !dbParties[m.userParty] { // not a registered user — leave it alone
+			notInDB++
 			continue
 		}
 		if *userParty != "" && m.userParty != *userParty {
@@ -153,7 +186,15 @@ func main() {
 			skipped++
 			continue
 		}
-		fmt.Printf("  - map fp=%s -> party=%s  evm=%s  (was issuer=%s)\n", m.fingerprint, m.userParty, m.evmAddress, m.issuer)
+		evm := m.evmAddress
+		if evm == "" {
+			evm = "(none)"
+		}
+		verb := "WOULD CREATE"
+		if *apply {
+			verb = "CREATING"
+		}
+		fmt.Printf("  - %s: fp=%s -> party=%s  evm=%s  (was issuer=%s)\n", verb, m.fingerprint, m.userParty, evm, m.issuer)
 		if !*apply {
 			already[normFP(m.fingerprint)] = true
 			created++
@@ -173,9 +214,9 @@ func main() {
 	fmt.Println()
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	if *apply {
-		fmt.Printf("  Done. Created %d mapping(s); %d skipped (already current / incomplete / filtered).\n", created, skipped)
+		fmt.Printf("  Done. Created %d mapping(s); %d skipped (already current / incomplete / filtered); %d not in DB.\n", created, skipped, notInDB)
 	} else {
-		fmt.Printf("  Dry run. Would create %d mapping(s); %d skipped. Re-run with -apply.\n", created, skipped)
+		fmt.Printf("  Dry run. Would create %d mapping(s); %d skipped; %d not in DB. Re-run with -apply.\n", created, skipped, notInDB)
 	}
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 }
@@ -233,7 +274,10 @@ func listAllMappings(ctx context.Context, state lapiv2.StateServiceClient, pkgID
 			issuer:      values.Party(f["issuer"]),
 			userParty:   values.Party(f["userParty"]),
 			fingerprint: values.Text(f["fingerprint"]),
-			evmAddress:  values.Text(f["evmAddress"]),
+			// evmAddress is Optional EvmAddress, and EvmAddress is a newtype
+			// (single-field record). values.Text can't decode that — unwrap the
+			// Optional and the newtype record, else the address round-trips to None.
+			evmAddress: values.Text(values.OptionalRecordFields(f["evmAddress"])["value"]),
 		})
 	}
 	return out, nil
