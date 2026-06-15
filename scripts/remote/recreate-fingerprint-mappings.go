@@ -1,34 +1,42 @@
 //go:build ignore
 
-// recreate-fingerprint-mappings.go — Recreate FingerprintMapping contracts under a
-// NEW issuer party after canton.issuer_party was changed. This restores
+// recreate-fingerprint-mappings.go — Recreate FingerprintMapping contracts under the
+// current (NEW) issuer party after canton.issuer_party was changed. This restores
 // fingerprint→party resolution for every user, which is what brings back USDCx
 // (external-token) balances and transfers — those were never stranded, only the
 // lookup broke.
 //
-// It reads the OLD mappings straight off the ledger (they persist, signed by the old
-// issuer) and re-creates each one under the new issuer with the SAME user party,
-// fingerprint and EVM address. No userstore DB needed.
+// It wildcard-lists every FingerprintMapping on the participant and re-creates each
+// one whose issuer is NOT the current issuer, under the current issuer, with the SAME
+// user party, fingerprint and EVM address. No userstore DB and no old-issuer party
+// needed — the old issuer is read off each existing contract.
 //
-// The config's canton.issuer_party MUST be the NEW issuer: CreateFingerprintMapping
-// runs ActAs=that party. Reading the old mappings relies on the OAuth user's
-// can_read_as_any_party right (same right the mint/list tooling uses).
+// The config's canton.issuer_party MUST be the current/new issuer:
+// CreateFingerprintMapping runs ActAs=that party. Reading every mapping relies on the
+// OAuth user's can_read_as_any_party right (same right the mint/list tooling uses).
 //
-// Idempotent: a fingerprint that already has a mapping under the new issuer is skipped.
+// Migrates ALL users in one run. Idempotent: a fingerprint already mapped under the
+// current issuer is skipped, so re-runs are safe. Use -party to scope to one user.
 //
 // Usage:
 //
 //	go run scripts/remote/recreate-fingerprint-mappings.go \
-//	  -config <config.yaml> \        # canton.issuer_party = NEW issuer
-//	  -old-issuer 'OLD_ISSUER::1220...' \
-//	  [-apply]                        # without this it's a dry run
+//	  -config <config.yaml> \   # canton.issuer_party = current/new issuer
+//	  [-party <user-party>] \   # optional: only this user
+//	  [-apply]                  # without this it's a dry run
 
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -39,16 +47,20 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/values"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/log"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	expcreds "google.golang.org/grpc/experimental/credentials"
+	"google.golang.org/grpc/metadata"
 )
 
 var (
-	configPath = flag.String("config", "", "Path to API server config file (required); canton.issuer_party must be the NEW issuer")
-	oldIssuer  = flag.String("old-issuer", "", "OLD issuer party whose FingerprintMappings to recreate (required)")
-	userParty  = flag.String("party", "", "Optional: only recreate the mapping for this user party")
+	configPath = flag.String("config", "", "Path to API server config file (required); canton.issuer_party must be the current/new issuer")
+	userParty  = flag.String("party", "", "Optional: only recreate the mapping for this user party (default: all users)")
 	apply      = flag.Bool("apply", false, "Perform creates. Without this flag it only reports (dry run).")
 )
 
 type mapping struct {
+	issuer      string
 	userParty   string
 	fingerprint string
 	evmAddress  string
@@ -59,9 +71,6 @@ func main() {
 	if *configPath == "" {
 		fatalf("-config is required")
 	}
-	if *oldIssuer == "" {
-		fatalf("-old-issuer is required")
-	}
 
 	cfg, err := config.LoadAPIServer(*configPath)
 	if err != nil {
@@ -69,27 +78,30 @@ func main() {
 	}
 	newIssuer := cfg.Canton.IssuerParty
 	if newIssuer == "" {
-		fatalf("canton.issuer_party is required in config (must be the NEW issuer)")
+		fatalf("canton.issuer_party is required in config (must be the current/new issuer)")
 	}
-	if newIssuer == *oldIssuer {
-		fatalf("-old-issuer equals canton.issuer_party (%s); nothing to migrate", newIssuer)
+	pkgID := cfg.Canton.Identity.PackageID
+	if pkgID == "" {
+		fatalf("canton.identity.package_id is required in config")
 	}
 
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
-	fmt.Println("  Recreate FingerprintMappings under the NEW issuer")
+	fmt.Println("  Recreate FingerprintMappings under the current issuer")
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	fmt.Printf("  Canton:      %s\n", cfg.Canton.Ledger.RPCURL)
-	fmt.Printf("  Old issuer:  %s\n", *oldIssuer)
 	fmt.Printf("  New issuer:  %s\n", newIssuer)
 	if *userParty != "" {
 		fmt.Printf("  Party:       %s\n", *userParty)
+	} else {
+		fmt.Printf("  Scope:       ALL users\n")
 	}
 	fmt.Printf("  Mode:        %s\n", modeLabel(*apply))
 	fmt.Println()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	// SDK client (current issuer) — used to create the new mappings.
 	logger, err := log.NewLogger(cfg.Logging)
 	if err != nil {
 		fatalf("init logger: %v", err)
@@ -100,34 +112,35 @@ func main() {
 	}
 	defer func() { _ = client.Close() }()
 
-	end, err := client.Ledger.GetLedgerEnd(ctx)
+	// Raw connection — wildcard-list every FingerprintMapping (any party as stakeholder).
+	conn, err := dialCanton(cfg)
 	if err != nil {
-		fatalf("get ledger end: %v", err)
+		fatalf("dial Canton: %v", err)
 	}
-	tid := &lapiv2.Identifier{
-		PackageId:  client.Identity.PackageID(),
-		ModuleName: "Common.FingerprintAuth",
-		EntityName: "FingerprintMapping",
+	defer conn.Close()
+	rctx, _, err := authContext(ctx, cfg.Canton)
+	if err != nil {
+		fatalf("auth: %v", err)
+	}
+	all, err := listAllMappings(rctx, lapiv2.NewStateServiceClient(conn), pkgID)
+	if err != nil {
+		fatalf("list mappings: %v", err)
 	}
 
-	// Old mappings to migrate (old issuer is signatory → sees them all).
-	oldEvents, err := client.Ledger.GetActiveContractsByTemplate(ctx, end, []string{*oldIssuer}, tid)
-	if err != nil {
-		fatalf("list old mappings: %v", err)
-	}
-	// Fingerprints already mapped under the new issuer → skip set.
-	newEvents, err := client.Ledger.GetActiveContractsByTemplate(ctx, end, []string{newIssuer}, tid)
-	if err != nil {
-		fatalf("list new mappings: %v", err)
-	}
+	// Fingerprints already mapped under the current issuer → skip set.
 	already := map[string]bool{}
-	for _, e := range newEvents {
-		already[normFP(values.Text(values.RecordToMap(e.CreateArguments)["fingerprint"]))] = true
+	for _, m := range all {
+		if m.issuer == newIssuer {
+			already[normFP(m.fingerprint)] = true
+		}
 	}
 
 	var created, skipped int
-	for _, e := range oldEvents {
-		m := decodeMapping(e)
+	for _, m := range all {
+		if m.issuer == newIssuer { // already current — nothing to do
+			skipped++
+			continue
+		}
 		if m.fingerprint == "" || m.userParty == "" {
 			skipped++
 			continue
@@ -140,8 +153,9 @@ func main() {
 			skipped++
 			continue
 		}
-		fmt.Printf("  - map fp=%s -> party=%s  evm=%s\n", m.fingerprint, m.userParty, m.evmAddress)
+		fmt.Printf("  - map fp=%s -> party=%s  evm=%s  (was issuer=%s)\n", m.fingerprint, m.userParty, m.evmAddress, m.issuer)
 		if !*apply {
+			already[normFP(m.fingerprint)] = true
 			created++
 			continue
 		}
@@ -152,7 +166,6 @@ func main() {
 		}); err != nil {
 			fatalf("create mapping fp=%s party=%s: %v", m.fingerprint, m.userParty, err)
 		}
-		// Guard against duplicate old contracts for the same fingerprint in one run.
 		already[normFP(m.fingerprint)] = true
 		created++
 	}
@@ -160,20 +173,135 @@ func main() {
 	fmt.Println()
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 	if *apply {
-		fmt.Printf("  Done. Created %d mapping(s); %d skipped (already mapped / incomplete).\n", created, skipped)
+		fmt.Printf("  Done. Created %d mapping(s); %d skipped (already current / incomplete / filtered).\n", created, skipped)
 	} else {
 		fmt.Printf("  Dry run. Would create %d mapping(s); %d skipped. Re-run with -apply.\n", created, skipped)
 	}
 	fmt.Println("══════════════════════════════════════════════════════════════════════")
 }
 
-func decodeMapping(e *lapiv2.CreatedEvent) mapping {
-	f := values.RecordToMap(e.CreateArguments)
-	return mapping{
-		userParty:   values.Party(f["userParty"]),
-		fingerprint: values.Text(f["fingerprint"]),
-		evmAddress:  values.Text(f["evmAddress"]),
+// listAllMappings wildcard-lists every Common.FingerprintAuth.FingerprintMapping
+// contract on the participant (requires can_read_as_any_party).
+func listAllMappings(ctx context.Context, state lapiv2.StateServiceClient, pkgID string) ([]mapping, error) {
+	end, err := state.GetLedgerEnd(ctx, &lapiv2.GetLedgerEndRequest{})
+	if err != nil {
+		return nil, err
 	}
+	if end.Offset == 0 {
+		return nil, fmt.Errorf("ledger is empty (offset 0)")
+	}
+	stream, err := state.GetActiveContracts(ctx, &lapiv2.GetActiveContractsRequest{
+		ActiveAtOffset: end.Offset,
+		EventFormat: &lapiv2.EventFormat{
+			FiltersForAnyParty: &lapiv2.Filters{
+				Cumulative: []*lapiv2.CumulativeFilter{
+					{
+						IdentifierFilter: &lapiv2.CumulativeFilter_TemplateFilter{
+							TemplateFilter: &lapiv2.TemplateFilter{
+								TemplateId: &lapiv2.Identifier{
+									PackageId:  pkgID,
+									ModuleName: "Common.FingerprintAuth",
+									EntityName: "FingerprintMapping",
+								},
+							},
+						},
+					},
+				},
+			},
+			Verbose: true,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var out []mapping
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		ac := msg.GetActiveContract()
+		if ac == nil {
+			continue
+		}
+		f := values.RecordToMap(ac.CreatedEvent.GetCreateArguments())
+		out = append(out, mapping{
+			issuer:      values.Party(f["issuer"]),
+			userParty:   values.Party(f["userParty"]),
+			fingerprint: values.Text(f["fingerprint"]),
+			evmAddress:  values.Text(f["evmAddress"]),
+		})
+	}
+	return out, nil
+}
+
+func dialCanton(cfg *config.APIServer) (*grpc.ClientConn, error) {
+	var opts []grpc.DialOption
+	if cfg.Canton.Ledger.TLS != nil && cfg.Canton.Ledger.TLS.Enabled {
+		tlsConfig := &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+		opts = append(opts, grpc.WithTransportCredentials(expcreds.NewTLSWithALPNDisabled(tlsConfig)))
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	if cfg.Canton.Ledger.MaxMessageSize > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.Canton.Ledger.MaxMessageSize)))
+	}
+	target := cfg.Canton.Ledger.RPCURL
+	if !strings.Contains(target, "://") {
+		target = "dns:///" + target
+	}
+	return grpc.NewClient(target, opts...)
+}
+
+func authContext(ctx context.Context, canton *cantonclient.Config) (context.Context, string, error) {
+	if canton.Ledger.Auth == nil || canton.Ledger.Auth.ClientID == "" {
+		return ctx, "", nil
+	}
+	payload := map[string]string{
+		"client_id":     canton.Ledger.Auth.ClientID,
+		"client_secret": canton.Ledger.Auth.ClientSecret,
+		"audience":      canton.Ledger.Auth.Audience,
+		"grant_type":    "client_credentials",
+	}
+	body, _ := json.Marshal(payload)
+	resp, err := http.Post(canton.Ledger.Auth.TokenURL, "application/json", bytes.NewBuffer(body))
+	if err != nil {
+		return nil, "", fmt.Errorf("token request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("token endpoint %d: %s", resp.StatusCode, respBody)
+	}
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return nil, "", err
+	}
+	var sub string
+	if parts := strings.Split(tokenResp.AccessToken, "."); len(parts) >= 2 {
+		padded := parts[1]
+		switch len(padded) % 4 {
+		case 2:
+			padded += "=="
+		case 3:
+			padded += "="
+		}
+		if decoded, err := base64.URLEncoding.DecodeString(padded); err == nil {
+			var c struct {
+				Sub string `json:"sub"`
+			}
+			_ = json.Unmarshal(decoded, &c)
+			sub = c.Sub
+		}
+	}
+	md := metadata.Pairs("authorization", "Bearer "+tokenResp.AccessToken)
+	return metadata.NewOutgoingContext(ctx, md), sub, nil
 }
 
 func normFP(s string) string {
