@@ -171,17 +171,20 @@ func (s *pgStore) RemoveFromWhitelist(ctx context.Context, evmAddress string) (b
 	return n > 0, nil
 }
 
-// ListWhitelist returns up to limit entries ordered by evm_address, starting
-// strictly after cursor. Ordering by the unique primary key gives a stable,
-// total order so the cursor never skips or repeats rows across pages.
+// ListWhitelist returns up to limit entries ordered by LOWER(evm_address),
+// starting strictly after cursor. Addresses are case-insensitive identifiers
+// stored in mixed-case (EIP-55) form, so ordering and the cursor comparison are
+// both lowercased: this keeps a stable total order even if the table ever holds
+// inconsistently-cased rows, matches the case-insensitive IsWhitelisted/Remove
+// lookups, and uses the LOWER(evm_address) functional index (migration 15).
 func (s *pgStore) ListWhitelist(ctx context.Context, cursor string, limit int) ([]*user.WhitelistEntry, error) {
 	var daos []WhitelistDao
 	q := s.db.NewSelect().
 		Model(&daos).
-		Order("evm_address ASC").
+		OrderExpr("LOWER(evm_address) ASC").
 		Limit(limit)
 	if cursor != "" {
-		q = q.Where("evm_address > ?", cursor)
+		q = q.Where("LOWER(evm_address) > LOWER(?)", cursor)
 	}
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("failed to list whitelist entries: %w", err)

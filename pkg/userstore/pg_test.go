@@ -345,6 +345,42 @@ func TestUserPGStore_ListWhitelist(t *testing.T) {
 	}
 }
 
+// TestUserPGStore_ListWhitelistCaseInsensitiveCursor guards against the
+// mixed-case pagination bug: with raw (ASCII) ordering, an uppercase address
+// like 0xDEF... sorts before a lowercase 0xabc... (since 'D' < 'a'), so a
+// lowercase cursor would skip it. Ordering and the cursor compare on
+// LOWER(evm_address), so addresses come back in case-insensitive order and the
+// cursor never skips a differently-cased row.
+func TestUserPGStore_ListWhitelistCaseInsensitiveCursor(t *testing.T) {
+	ctx, s := setupStore(t)
+
+	addrUpper := "0xDEF0000000000000000000000000000000000001" // lowercases to ...def...
+	addrLower := "0xabc0000000000000000000000000000000000002" // lowercases to ...abc...
+	for _, a := range []string{addrUpper, addrLower} {
+		if err := s.AddToWhitelist(ctx, a, ""); err != nil {
+			t.Fatalf("AddToWhitelist(%s) failed: %v", a, err)
+		}
+	}
+
+	// Case-insensitive order: abc (lower) before def (upper), despite ASCII order.
+	page, err := s.ListWhitelist(ctx, "", 10)
+	if err != nil {
+		t.Fatalf("ListWhitelist() failed: %v", err)
+	}
+	if len(page) != 2 || page[0].EVMAddress != addrLower || page[1].EVMAddress != addrUpper {
+		t.Fatalf("expected [%s, %s] in LOWER order, got %+v", addrLower, addrUpper, page)
+	}
+
+	// Cursor at the lowercase entry must still surface the mixed-case one.
+	next, err := s.ListWhitelist(ctx, addrLower, 10)
+	if err != nil {
+		t.Fatalf("ListWhitelist(cursor) failed: %v", err)
+	}
+	if len(next) != 1 || next[0].EVMAddress != addrUpper {
+		t.Fatalf("expected cursor after %s to return %s, got %+v", addrLower, addrUpper, next)
+	}
+}
+
 func TestUserPGStore_GetUserKeyMethods(t *testing.T) {
 	ctx, s := setupStore(t)
 

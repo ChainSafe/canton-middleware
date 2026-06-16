@@ -145,9 +145,15 @@ func (h *HTTP) getUser(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *HTTP) writeJSON(w http.ResponseWriter, status int, data any) {
+	// Marshal before writing the status line so a serialization failure yields a
+	// 500 rather than the intended status with a truncated body.
+	buf, err := json.Marshal(data)
+	if err != nil {
+		h.logger.Error("failed to marshal JSON response", zap.Error(err))
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		h.logger.Error("failed to write JSON response", zap.Error(err))
-	}
+	_, _ = w.Write(buf)
 }
