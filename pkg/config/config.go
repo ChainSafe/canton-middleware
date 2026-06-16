@@ -82,6 +82,18 @@ type APIServer struct {
 	SkipCantonSigVerify bool                          `yaml:"skip_canton_sig_verify" default:"false"`
 	SkipWhitelistCheck  bool                          `yaml:"skip_whitelist_check" default:"false"`
 	CORSOrigins         []string                      `yaml:"cors" default:"[\"*\"]"`
+	Admin               *AdminAPI                     `yaml:"admin" default:"-"` // nil disables the admin endpoints
+}
+
+// AdminAPI configures the optional admin HTTP endpoints (whitelist management).
+// Access is gated by a static bearer token. Supply it via env substitution
+// (api_key: "${ADMIN_API_KEY}")
+type AdminAPI struct {
+	// Enabled turns the admin endpoints on. When false (the default) no admin
+	// routes are mounted.
+	Enabled bool `yaml:"enabled" default:"false"`
+	// APIKey is the admin bearer token. Required when Enabled is true.
+	APIKey string `yaml:"api_key" validate:"required_if=Enabled true"`
 }
 
 // RelayerServer represents the application configuration for relayer.

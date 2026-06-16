@@ -52,6 +52,8 @@ const (
 	OpListCustodialUsers     StoreOperation = "list_custodial_users"
 	OpIsWhitelisted          StoreOperation = "is_whitelisted"
 	OpAddToWhitelist         StoreOperation = "add_to_whitelist"
+	OpRemoveFromWhitelist    StoreOperation = "remove_from_whitelist"
+	OpListWhitelist          StoreOperation = "list_whitelist"
 	OpGetKeyByCantonPartyID  StoreOperation = "get_key_by_canton_party_id"
 	OpGetKeyByEVMAddress     StoreOperation = "get_key_by_evm_address"
 	OpGetKeyByFingerprint    StoreOperation = "get_key_by_fingerprint"

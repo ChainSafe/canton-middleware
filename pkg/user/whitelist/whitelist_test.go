@@ -15,37 +15,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNew_SkipAllowsEveryoneWithoutConsultingSource(t *testing.T) {
-	// No expectations set: if New(skip=true) ever consults the source, the mock
-	// fails on an unexpected call.
-	src := mocks.NewChecker(t)
+func TestIsWhitelisted_SkipAllowsEveryoneWithoutConsultingStore(t *testing.T) {
+	// No expectations set: if skip=true ever consults the store, the mock fails
+	// on an unexpected call.
+	store := mocks.NewStore(t)
 
-	c := whitelist.New(src, true)
+	svc := whitelist.New(store, true)
 
-	ok, err := c.IsWhitelisted(context.Background(), "0xabc")
+	ok, err := svc.IsWhitelisted(context.Background(), "0xabc")
 	require.NoError(t, err)
 	assert.True(t, ok, "skip mode must allow every address")
 }
 
-func TestNew_EnforceDelegatesToSource(t *testing.T) {
-	src := mocks.NewChecker(t)
-	src.EXPECT().IsWhitelisted(mock.Anything, "0xabc").Return(true, nil).Once()
+func TestIsWhitelisted_EnforceDelegatesToStore(t *testing.T) {
+	store := mocks.NewStore(t)
+	store.EXPECT().IsWhitelisted(mock.Anything, "0xabc").Return(true, nil).Once()
 
-	c := whitelist.New(src, false)
+	svc := whitelist.New(store, false)
 
-	ok, err := c.IsWhitelisted(context.Background(), "0xabc")
+	ok, err := svc.IsWhitelisted(context.Background(), "0xabc")
 	require.NoError(t, err)
 	assert.True(t, ok)
 }
 
-func TestNew_EnforcePropagatesDenialAndError(t *testing.T) {
+func TestIsWhitelisted_EnforcePropagatesDenialAndError(t *testing.T) {
 	wantErr := errors.New("db down")
-	src := mocks.NewChecker(t)
-	src.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(false, wantErr).Once()
+	store := mocks.NewStore(t)
+	store.EXPECT().IsWhitelisted(mock.Anything, mock.Anything).Return(false, wantErr).Once()
 
-	c := whitelist.New(src, false)
+	svc := whitelist.New(store, false)
 
-	ok, err := c.IsWhitelisted(context.Background(), "0xabc")
+	ok, err := svc.IsWhitelisted(context.Background(), "0xabc")
 	require.ErrorIs(t, err, wantErr)
 	assert.False(t, ok)
 }

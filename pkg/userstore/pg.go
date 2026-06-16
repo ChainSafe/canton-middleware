@@ -17,6 +17,9 @@ import (
 // KeyDecryptor decrypts an encrypted private key string into raw bytes.
 type KeyDecryptor func(encryptedKey string) ([]byte, error)
 
+// whereWhitelistAddress matches a whitelist row by EVM address case-insensitively.
+const whereWhitelistAddress = "LOWER(evm_address) = LOWER(?)"
+
 type pgStore struct {
 	db *bun.DB
 }
@@ -119,7 +122,7 @@ func (s *pgStore) ListCustodialUsers(ctx context.Context) ([]*user.User, error) 
 func (s *pgStore) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
 	exists, err := s.db.NewSelect().
 		Model(&WhitelistDao{}).
-		Where("evm_address = ?", evmAddress).
+		Where(whereWhitelistAddress, evmAddress).
 		Exists(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to check whitelist: %w", err)
@@ -148,6 +151,46 @@ func (s *pgStore) AddToWhitelist(ctx context.Context, evmAddress, note string) e
 	}
 
 	return nil
+}
+
+// RemoveFromWhitelist deletes a whitelist entry and reports whether a row was
+// actually removed, so callers can distinguish a real deletion from a no-op on
+// an address that was never whitelisted.
+func (s *pgStore) RemoveFromWhitelist(ctx context.Context, evmAddress string) (bool, error) {
+	res, err := s.db.NewDelete().
+		Model((*WhitelistDao)(nil)).
+		Where(whereWhitelistAddress, evmAddress).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to remove whitelist entry: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ListWhitelist returns up to limit entries ordered by evm_address, starting
+// strictly after cursor. Ordering by the unique primary key gives a stable,
+// total order so the cursor never skips or repeats rows across pages.
+func (s *pgStore) ListWhitelist(ctx context.Context, cursor string, limit int) ([]*user.WhitelistEntry, error) {
+	var daos []WhitelistDao
+	q := s.db.NewSelect().
+		Model(&daos).
+		Order("evm_address ASC").
+		Limit(limit)
+	if cursor != "" {
+		q = q.Where("evm_address > ?", cursor)
+	}
+	if err := q.Scan(ctx); err != nil {
+		return nil, fmt.Errorf("failed to list whitelist entries: %w", err)
+	}
+	entries := make([]*user.WhitelistEntry, len(daos))
+	for i := range daos {
+		entries[i] = toWhitelistEntry(&daos[i])
+	}
+	return entries, nil
 }
 
 func (s *pgStore) getUserKeyBy(ctx context.Context, decryptor KeyDecryptor, column string, value string) ([]byte, error) {

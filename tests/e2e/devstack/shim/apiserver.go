@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -19,9 +21,25 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
 )
+
+// defaultAdminAPIKey is the admin bearer token used when ADMIN_API_KEY is not
+// set in the environment. It MUST match the default in the api-server's compose
+// environment (docker-compose.yaml: ADMIN_API_KEY: "${ADMIN_API_KEY:-...}") so
+// the token the test sends matches the one the server validates.
+const defaultAdminAPIKey = "local-admin-key"
+
+// adminAPIKey returns the admin bearer token, preferring ADMIN_API_KEY from the
+// environment so the test and the api-server container stay in sync.
+func adminAPIKey() string {
+	if k := os.Getenv("ADMIN_API_KEY"); k != "" {
+		return k
+	}
+	return defaultAdminAPIKey
+}
 
 var _ stack.APIServer = (*APIServerShim)(nil)
 
@@ -57,6 +75,45 @@ func (a *APIServerShim) Close()                 { a.evm.Close() }
 // Health returns nil when GET /health responds with 200.
 func (a *APIServerShim) Health(ctx context.Context) error {
 	return a.getOK(ctx, "/health")
+}
+
+// WhitelistAddress whitelists evmAddress via the admin API
+// (POST /admin/whitelist) using the configured admin bearer token. This is how
+// tests grant an address permission to register, exercising the real admin
+// endpoint rather than writing to the database directly.
+func (a *APIServerShim) WhitelistAddress(ctx context.Context, evmAddress string) error {
+	body := map[string]string{"evm_address": evmAddress, "note": "e2e-test"}
+	return a.postBearer(ctx, "/admin/whitelist", adminAPIKey(), body, nil)
+}
+
+// RemoveWhitelistAddress removes evmAddress from the whitelist via the admin API
+// (DELETE /admin/whitelist/{address}). Returns a *HTTPError with Code 404 when
+// the address was not whitelisted.
+func (a *APIServerShim) RemoveWhitelistAddress(ctx context.Context, evmAddress string) error {
+	return a.deleteBearer(ctx, "/admin/whitelist/"+evmAddress, adminAPIKey(), nil)
+}
+
+// ListWhitelist returns one cursor-delimited page of whitelist entries via the
+// admin API (GET /admin/whitelist?cursor=&limit=). An empty cursor starts from
+// the beginning; limit <= 0 lets the server apply its default.
+func (a *APIServerShim) ListWhitelist(ctx context.Context, cursor string, limit int) (*whitelist.Page, error) {
+	q := url.Values{}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/admin/whitelist"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+
+	var page whitelist.Page
+	if err := a.getBearer(ctx, path, adminAPIKey(), &page); err != nil {
+		return nil, err
+	}
+	return &page, nil
 }
 
 // Register sends POST /register.

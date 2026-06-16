@@ -55,7 +55,6 @@ var (
 //go:generate mockery --name Store --output mocks --outpkg mocks --filename mock_store.go --with-expecter
 type Store interface {
 	UserExists(ctx context.Context, evmAddress string) (bool, error)
-	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 	CreateUser(ctx context.Context, user *user.User) error
 	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)

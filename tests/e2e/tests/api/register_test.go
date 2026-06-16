@@ -106,7 +106,7 @@ func TestRegister_InvalidSignature_Fails(t *testing.T) {
 
 	// Whitelist User1 but sign with User2's key — the server will recover User2's
 	// address which is not whitelisted.
-	if err := sys.Postgres.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
+	if err := sys.APIServer.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
 		t.Fatalf("whitelist: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestRegister_PrepareTopology_MissingPublicKey_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
-	if err := sys.Postgres.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
+	if err := sys.APIServer.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
 		t.Fatalf("whitelist: %v", err)
 	}
 
@@ -320,7 +320,7 @@ func TestRegister_ExternalUser_MissingTopologySignature_Fails(t *testing.T) {
 	sys := presets.NewAPIStack(t)
 	ctx := context.Background()
 
-	if err := sys.Postgres.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
+	if err := sys.APIServer.WhitelistAddress(ctx, sys.Accounts.User1.Address.Hex()); err != nil {
 		t.Fatalf("whitelist: %v", err)
 	}
 

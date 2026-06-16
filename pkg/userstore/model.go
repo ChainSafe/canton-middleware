@@ -89,3 +89,15 @@ type WhitelistDao struct {
 	Note          *string   `bun:"note,type:varchar(500)"`
 	CreatedAt     time.Time `bun:"created_at,nullzero,default:current_timestamp"`
 }
+
+// toWhitelistEntry converts a WhitelistDao to the user.WhitelistEntry domain model.
+func toWhitelistEntry(dao *WhitelistDao) *user.WhitelistEntry {
+	entry := &user.WhitelistEntry{
+		EVMAddress: dao.EVMAddress,
+		CreatedAt:  dao.CreatedAt,
+	}
+	if dao.Note != nil {
+		entry.Note = *dao.Note
+	}
+	return entry
+}

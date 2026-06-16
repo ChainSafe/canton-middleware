@@ -225,6 +225,126 @@ func TestUserPGStore_IsWhitelisted(t *testing.T) {
 	}
 }
 
+func TestUserPGStore_RemoveFromWhitelist(t *testing.T) {
+	ctx, s := setupStore(t)
+
+	addr := "0x1234567890123456789012345678901234567890"
+
+	// Removing an absent address reports removed=false, not an error.
+	removed, err := s.RemoveFromWhitelist(ctx, addr)
+	if err != nil {
+		t.Fatalf("RemoveFromWhitelist(absent) failed: %v", err)
+	}
+	if removed {
+		t.Fatal("expected removed=false for an absent address")
+	}
+
+	if err = s.AddToWhitelist(ctx, addr, "test"); err != nil {
+		t.Fatalf("AddToWhitelist() failed: %v", err)
+	}
+	removed, err = s.RemoveFromWhitelist(ctx, addr)
+	if err != nil {
+		t.Fatalf("RemoveFromWhitelist() failed: %v", err)
+	}
+	if !removed {
+		t.Fatal("expected removed=true for a whitelisted address")
+	}
+
+	ok, err := s.IsWhitelisted(ctx, addr)
+	if err != nil {
+		t.Fatalf("IsWhitelisted() failed: %v", err)
+	}
+	if ok {
+		t.Fatalf("expected address to be removed from whitelist")
+	}
+}
+
+func TestUserPGStore_WhitelistCaseInsensitive(t *testing.T) {
+	ctx, s := setupStore(t)
+
+	// Stored via the checksummed (mixed-case) form...
+	checksummed := "0xAbC1230000000000000000000000000000000001"
+	lower := "0xabc1230000000000000000000000000000000001"
+
+	if err := s.AddToWhitelist(ctx, checksummed, ""); err != nil {
+		t.Fatalf("AddToWhitelist() failed: %v", err)
+	}
+
+	// ...must be found when queried with a differently-cased form (the eth-rpc
+	// facade lowercases; registration checksums).
+	ok, err := s.IsWhitelisted(ctx, lower)
+	if err != nil {
+		t.Fatalf("IsWhitelisted(lower) failed: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected lowercase lookup to match a checksummed entry")
+	}
+
+	removed, err := s.RemoveFromWhitelist(ctx, lower)
+	if err != nil {
+		t.Fatalf("RemoveFromWhitelist(lower) failed: %v", err)
+	}
+	if !removed {
+		t.Fatal("expected lowercase removal to delete the checksummed entry")
+	}
+}
+
+func TestUserPGStore_ListWhitelist(t *testing.T) {
+	ctx, s := setupStore(t)
+
+	const pageSize = 50
+	entries, err := s.ListWhitelist(ctx, "", pageSize)
+	if err != nil {
+		t.Fatalf("ListWhitelist() failed: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty whitelist, got %d entries", len(entries))
+	}
+
+	// Ordered by evm_address ascending, so addrA precedes addrB regardless of
+	// insertion order.
+	addrA := "0x1111111111111111111111111111111111111111"
+	addrB := "0x2222222222222222222222222222222222222222"
+	if err = s.AddToWhitelist(ctx, addrB, ""); err != nil {
+		t.Fatalf("AddToWhitelist(B) failed: %v", err)
+	}
+	if err = s.AddToWhitelist(ctx, addrA, "first"); err != nil {
+		t.Fatalf("AddToWhitelist(A) failed: %v", err)
+	}
+
+	entries, err = s.ListWhitelist(ctx, "", pageSize)
+	if err != nil {
+		t.Fatalf("ListWhitelist() failed: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].EVMAddress != addrA || entries[0].Note != "first" {
+		t.Fatalf("unexpected first entry: %+v", entries[0])
+	}
+	if entries[1].EVMAddress != addrB || entries[1].Note != "" {
+		t.Fatalf("unexpected second entry: %+v", entries[1])
+	}
+
+	// Cursor + limit: starting after addrA returns only addrB.
+	page, err := s.ListWhitelist(ctx, addrA, pageSize)
+	if err != nil {
+		t.Fatalf("ListWhitelist(cursor) failed: %v", err)
+	}
+	if len(page) != 1 || page[0].EVMAddress != addrB {
+		t.Fatalf("expected only addrB after cursor addrA, got %+v", page)
+	}
+
+	// limit caps the page size.
+	limited, err := s.ListWhitelist(ctx, "", 1)
+	if err != nil {
+		t.Fatalf("ListWhitelist(limit=1) failed: %v", err)
+	}
+	if len(limited) != 1 || limited[0].EVMAddress != addrA {
+		t.Fatalf("expected limit=1 to return just addrA, got %+v", limited)
+	}
+}
+
 func TestUserPGStore_GetUserKeyMethods(t *testing.T) {
 	ctx, s := setupStore(t)
 

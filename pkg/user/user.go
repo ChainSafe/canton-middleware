@@ -28,6 +28,13 @@ type User struct {
 	CantonPublicKeyFingerprint string     `json:"-"`        // For external users: Canton multihash fingerprint
 }
 
+// WhitelistEntry is the domain model for a single registration-whitelist record.
+type WhitelistEntry struct {
+	EVMAddress string    `json:"evm_address"`
+	Note       string    `json:"note,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // New creates a custodial User from the given parameters.
 func New(evmAddress, cantonPartyID, fingerprint, mappingCID, encryptedPKey string) *User {
 	now := time.Now()

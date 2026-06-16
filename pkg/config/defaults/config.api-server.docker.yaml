@@ -134,5 +134,12 @@ key_management:
 skip_canton_sig_verify: ${SKIP_CANTON_SIG_VERIFY}
 skip_whitelist_check: false
 
+# Admin API for whitelist management (POST/DELETE/GET /admin/whitelist).
+# Gated by a static bearer token supplied via the ADMIN_API_KEY env var.
+# Omit this block (or set enabled: false) to disable the admin endpoints.
+admin:
+  enabled: true
+  api_key: "${ADMIN_API_KEY}"
+
 cors:
   - "*"
