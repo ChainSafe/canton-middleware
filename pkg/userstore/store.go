@@ -19,6 +19,12 @@ type Store interface {
 	ListCustodialUsers(ctx context.Context) ([]*user.User, error)
 	IsWhitelisted(ctx context.Context, evmAddress string) (bool, error)
 	AddToWhitelist(ctx context.Context, evmAddress, note string) error
+	RemoveFromWhitelist(ctx context.Context, evmAddress string) (removed bool, err error)
+	// ListWhitelist returns up to limit entries ordered by evm_address ascending,
+	// starting strictly after cursor (the last evm_address of the previous page;
+	// empty starts from the beginning). evm_address is the unique primary key, so
+	// it is a stable cursor.
+	ListWhitelist(ctx context.Context, cursor string, limit int) (entries []*user.WhitelistEntry, err error)
 	GetUserKeyByCantonPartyID(ctx context.Context, decryptor KeyDecryptor, partyID string) ([]byte, error)
 	GetUserKeyByEVMAddress(ctx context.Context, decryptor KeyDecryptor, evmAddress string) ([]byte, error)
 	GetUserKeyByFingerprint(ctx context.Context, decryptor KeyDecryptor, fingerprint string) ([]byte, error)

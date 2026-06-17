@@ -86,6 +86,41 @@ func (h *httpClient) get(ctx context.Context, path string, query url.Values, out
 // response into out. sig and msg are set as X-Signature / X-Message headers
 // when non-empty (required by the transfer endpoints). out may be nil.
 func (h *httpClient) post(ctx context.Context, path, sig, msg string, body, out any) error {
+	return h.do(ctx, http.MethodPost, path, body, out, func(req *http.Request) {
+		if sig != "" {
+			req.Header.Set("X-Signature", sig)
+			req.Header.Set("X-Message", msg)
+		}
+	})
+}
+
+// bearerHeader returns a header-setter that attaches an
+// "Authorization: Bearer <token>" header, used by the admin endpoints.
+func bearerHeader(token string) func(*http.Request) {
+	return func(req *http.Request) { req.Header.Set("Authorization", "Bearer "+token) }
+}
+
+// postBearer performs POST <endpoint><path> with a JSON body and a bearer token.
+func (h *httpClient) postBearer(ctx context.Context, path, token string, body, out any) error {
+	return h.do(ctx, http.MethodPost, path, body, out, bearerHeader(token))
+}
+
+// getBearer performs GET <endpoint><path> with a bearer token, decoding into out.
+func (h *httpClient) getBearer(ctx context.Context, path, token string, out any) error {
+	return h.do(ctx, http.MethodGet, path, nil, out, bearerHeader(token))
+}
+
+// deleteBearer performs DELETE <endpoint><path> with a bearer token. out may be nil.
+func (h *httpClient) deleteBearer(ctx context.Context, path, token string, out any) error {
+	return h.do(ctx, http.MethodDelete, path, nil, out, bearerHeader(token))
+}
+
+// do performs an HTTP request with a JSON-encoded body, applies setHeaders, and
+// decodes a JSON response into out (which may be nil). Responses with status
+// >= 400 are returned as *HTTPError.
+func (h *httpClient) do(
+	ctx context.Context, method, path string, body, out any, setHeaders func(*http.Request),
+) error {
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -94,18 +129,17 @@ func (h *httpClient) post(ctx context.Context, path, sig, msg string, body, out 
 		}
 		r = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+path, r)
+	req, err := http.NewRequestWithContext(ctx, method, h.endpoint+path, r)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if sig != "" {
-		req.Header.Set("X-Signature", sig)
-		req.Header.Set("X-Message", msg)
+	if setHeaders != nil {
+		setHeaders(req)
 	}
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST %s: %w", path, err)
+		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= httpErrorStatusFloor {

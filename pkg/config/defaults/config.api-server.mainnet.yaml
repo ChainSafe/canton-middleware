@@ -99,5 +99,12 @@ key_management:
 
 skip_canton_sig_verify: false
 
+# Admin API for whitelist management (POST/DELETE/GET /admin/whitelist).
+# Enabled by ADMIN_API_ENABLED=true (default off); gated by a static bearer
+# token supplied via ADMIN_API_KEY (required when enabled).
+admin:
+  enabled: ${ADMIN_API_ENABLED}
+  api_key: "${ADMIN_API_KEY}"
+
 cors:
   - "${CORS_ALLOWED_ORIGINS}"

@@ -45,20 +45,6 @@ func NewPostgres(manifest *stack.ServiceManifest) (*PostgresShim, error) {
 func (p *PostgresShim) DSN() string  { return p.dsn }
 func (p *PostgresShim) Close() error { return p.db.Close() }
 
-// WhitelistAddress inserts evmAddress into the whitelist table so the
-// api-server will accept a registration request from that address.
-// Idempotent — conflicts on evm_address are silently ignored.
-func (p *PostgresShim) WhitelistAddress(ctx context.Context, evmAddress string) error {
-	_, err := p.db.ExecContext(ctx,
-		`INSERT INTO whitelist (evm_address, note) VALUES ($1, 'e2e-test') ON CONFLICT (evm_address) DO NOTHING`,
-		evmAddress,
-	)
-	if err != nil {
-		return fmt.Errorf("whitelist %s: %w", evmAddress, err)
-	}
-	return nil
-}
-
 // GetUser reads the canton_party, fingerprint, and key_mode for evmAddress
 // from the users table. Returns an error if the user does not exist.
 func (p *PostgresShim) GetUser(ctx context.Context, evmAddress string) (*user.RegisterResponse, error) {

@@ -1,0 +1,48 @@
+server:
+  host: "0.0.0.0"
+  port: 8081
+
+database:
+  url: "postgres://postgres:pass@localhost:5432/erc20_api"
+  ssl_mode: "disable"
+
+canton:
+  domain_id: "domain"
+  issuer_party: "issuer"
+  ledger:
+    rpc_url: "localhost:5011"
+    tls: {}
+    auth:
+      client_id: "client"
+      client_secret: "secret"
+      audience: "audience"
+      token_url: "http://localhost/token"
+  identity:
+    package_id: "identity-package"
+  token:
+    cip56_package_id: "cip56-package"
+    splice_transfer_package_id: "splice-package"
+    splice_holding_package_id: "test-splice-holding-pkg-id"
+
+token:
+  supported_tokens:
+    "0x0000000000000000000000000000000000000001":
+      name: "PROMPT"
+      symbol: "PROMPT"
+      decimals: 18
+      instrument_id: "PROMPT"
+
+eth_rpc:
+  chain_id: 31337
+
+logging:
+  level: "info"
+  format: "json"
+
+key_management: {}
+monitoring:
+  enabled: false
+
+# Admin enabled but no api_key — must fail required_if validation.
+admin:
+  enabled: true

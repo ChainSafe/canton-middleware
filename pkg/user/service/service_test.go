@@ -22,6 +22,16 @@ import (
 
 const testMessage = "register-me"
 
+// stubChecker is a whitelist.Checker test double: it answers every gate
+// check with `allow`. The registration service depends on the gate as a separate
+// collaborator from its Store, so tests inject this rather than overloading the
+// store mock.
+type stubChecker struct{ allow bool }
+
+func (s stubChecker) IsWhitelisted(context.Context, string) (bool, error) {
+	return s.allow, nil
+}
+
 func signEIP191Message(t *testing.T) (string, string) {
 	t.Helper()
 
@@ -47,10 +57,9 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 	evmAddress, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
-	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(true, nil).Once()
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: true}, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   testMessage,
@@ -69,12 +78,11 @@ func TestRegistrationService_RegisterWeb3User_UserAlreadyRegistered(t *testing.T
 
 func TestRegistrationService_RegisterWeb3User_NotWhitelisted(t *testing.T) {
 	ctx := context.Background()
-	evmAddress, signature := signEIP191Message(t)
+	_, signature := signEIP191Message(t)
 
 	storeMock := mocks.NewStore(t)
-	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: false}, nil)
 
 	_, err := svc.RegisterWeb3User(ctx, &user.RegisterRequest{
 		Message:   testMessage,
@@ -98,7 +106,7 @@ func TestPrepareExternalRegistration_UserAlreadyExists(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(true, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: true}, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
 		Message:         testMessage,
@@ -122,9 +130,8 @@ func TestPrepareExternalRegistration_NotWhitelisted(t *testing.T) {
 
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().UserExists(ctx, evmAddress).Return(false, nil).Once()
-	storeMock.EXPECT().IsWhitelisted(ctx, evmAddress).Return(false, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: false}, nil)
 
 	_, err := svc.PrepareExternalRegistration(ctx, &user.RegisterRequest{
 		Message:         testMessage,
@@ -150,7 +157,7 @@ func TestRegistrationService_RegisterCantonNativeUser_StoreError(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(nil, storeErr).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, stubChecker{allow: true}, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -173,7 +180,7 @@ func TestRegistrationService_RegisterCantonNativeUser_PartyAlreadyRegistered(t *
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByCantonPartyID(ctx, partyID).Return(&user.User{CantonPartyID: partyID}, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), true, stubChecker{allow: true}, nil)
 
 	_, err := svc.RegisterCantonNativeUser(ctx, &user.RegisterRequest{
 		CantonPartyID: partyID,
@@ -223,7 +230,7 @@ func TestGetUser_Success(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByEVMAddress(ctx, evmAddress).Return(expected, nil).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: true}, nil)
 	got, err := svc.GetUser(ctx, evmAddress, message, signature)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -270,7 +277,7 @@ func TestGetUser_UserNotFound(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByEVMAddress(ctx, evmAddress).Return(nil, user.ErrUserNotFound).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: true}, nil)
 	_, err := svc.GetUser(ctx, evmAddress, message, signature)
 	if err == nil {
 		t.Fatal("expected not-found error, got nil")
@@ -330,7 +337,7 @@ func TestGetUser_StoreError(t *testing.T) {
 	storeMock := mocks.NewStore(t)
 	storeMock.EXPECT().GetUserByEVMAddress(ctx, evmAddress).Return(nil, storeErr).Once()
 
-	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, storeMock, nil)
+	svc := NewService(storeMock, nil, nil, zap.NewNop(), false, stubChecker{allow: true}, nil)
 	_, err := svc.GetUser(ctx, evmAddress, message, signature)
 	if err == nil {
 		t.Fatal("expected error, got nil")

@@ -133,6 +133,30 @@ func (s *InstrumentedStore) AddToWhitelist(ctx context.Context, evmAddress, note
 	return err
 }
 
+func (s *InstrumentedStore) RemoveFromWhitelist(ctx context.Context, evmAddress string) (bool, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpRemoveFromWhitelist))
+	defer timer.ObserveDuration()
+
+	removed, err := s.inner.RemoveFromWhitelist(ctx, evmAddress)
+	if err != nil {
+		s.metrics.IncErrors(OpRemoveFromWhitelist)
+	}
+	return removed, err
+}
+
+func (s *InstrumentedStore) ListWhitelist(
+	ctx context.Context, cursor string, limit int,
+) ([]*user.WhitelistEntry, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListWhitelist))
+	defer timer.ObserveDuration()
+
+	entries, err := s.inner.ListWhitelist(ctx, cursor, limit)
+	if err != nil {
+		s.metrics.IncErrors(OpListWhitelist)
+	}
+	return entries, err
+}
+
 func (s *InstrumentedStore) GetUserKeyByCantonPartyID(
 	ctx context.Context, decryptor KeyDecryptor, partyID string,
 ) ([]byte, error) {

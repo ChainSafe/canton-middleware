@@ -18,6 +18,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 )
 
 // Anvil is the interface for the local Anvil Ethereum node.
@@ -129,6 +130,21 @@ type APIServer interface {
 
 	// Health returns nil when the api-server is ready to accept requests.
 	Health(ctx context.Context) error
+
+	// WhitelistAddress grants evmAddress permission to register by adding it to
+	// the whitelist via the admin API (POST /admin/whitelist). Used in test
+	// setup so registration is exercised end-to-end against the real endpoints.
+	WhitelistAddress(ctx context.Context, evmAddress string) error
+
+	// RemoveWhitelistAddress removes evmAddress from the whitelist via the admin
+	// API (DELETE /admin/whitelist/{address}). Returns a *shim.HTTPError with
+	// Code 404 when the address was not whitelisted.
+	RemoveWhitelistAddress(ctx context.Context, evmAddress string) error
+
+	// ListWhitelist returns one cursor-delimited page of whitelist entries via the
+	// admin API (GET /admin/whitelist?cursor=&limit=). An empty cursor starts from
+	// the beginning; limit <= 0 uses the server default.
+	ListWhitelist(ctx context.Context, cursor string, limit int) (*whitelist.Page, error)
 
 	// Register registers an EVM account in custodial web3 mode via
 	// POST /register. req.Signature is an EIP-191 personal_sign signature;
@@ -284,16 +300,12 @@ type Indexer interface {
 }
 
 // APIDatabase is the interface for direct access to the api-server's database
-// during E2E tests. It is used for setup (whitelisting test addresses) and
-// assertions (verifying user records written by the api-server).
+// during E2E tests. It is used for assertions (verifying user records written
+// by the api-server).
 type APIDatabase interface {
 	// DSN returns the api-server PostgreSQL connection string
 	// (e.g. "postgres://postgres:p@ssw0rd@localhost:5432/erc20_api").
 	DSN() string
-
-	// WhitelistAddress inserts evmAddress into the whitelist table, granting
-	// it permission to register with the api-server.
-	WhitelistAddress(ctx context.Context, evmAddress string) error
 
 	// GetUser returns the RegisterResponse for the user with the given EVM
 	// address by reading directly from the users table. Used by the DSL to

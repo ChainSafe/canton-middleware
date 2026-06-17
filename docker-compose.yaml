@@ -299,6 +299,12 @@ services:
       CANTON_AUTH_CLIENT_SECRET: "${CANTON_AUTH_CLIENT_SECRET:-local-test-secret}"
       CANTON_MASTER_KEY: "${CANTON_MASTER_KEY}"  # Generate with: openssl rand -base64 32
       SKIP_CANTON_SIG_VERIFY: "${SKIP_CANTON_SIG_VERIFY:-false}"  # Set to "true" for local testing
+      # Admin API: enabled on the api-server only. The bootstrap loads the same
+      # config but leaves ADMIN_API_ENABLED unset, so admin stays off there and
+      # its config load doesn't require a token. The key default MUST match
+      # defaultAdminAPIKey in tests/e2e/devstack/shim/apiserver.go.
+      ADMIN_API_ENABLED: "true"
+      ADMIN_API_KEY: "${ADMIN_API_KEY:-local-admin-key}"
     depends_on:
       bootstrap:
         condition: service_completed_successfully

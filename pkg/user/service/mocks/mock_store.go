@@ -235,63 +235,6 @@ func (_c *Store_GetUserByEVMAddress_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
-// IsWhitelisted provides a mock function with given fields: ctx, evmAddress
-func (_m *Store) IsWhitelisted(ctx context.Context, evmAddress string) (bool, error) {
-	ret := _m.Called(ctx, evmAddress)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IsWhitelisted")
-	}
-
-	var r0 bool
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
-		return rf(ctx, evmAddress)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
-		r0 = rf(ctx, evmAddress)
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, evmAddress)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Store_IsWhitelisted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsWhitelisted'
-type Store_IsWhitelisted_Call struct {
-	*mock.Call
-}
-
-// IsWhitelisted is a helper method to define mock.On call
-//   - ctx context.Context
-//   - evmAddress string
-func (_e *Store_Expecter) IsWhitelisted(ctx interface{}, evmAddress interface{}) *Store_IsWhitelisted_Call {
-	return &Store_IsWhitelisted_Call{Call: _e.mock.On("IsWhitelisted", ctx, evmAddress)}
-}
-
-func (_c *Store_IsWhitelisted_Call) Run(run func(ctx context.Context, evmAddress string)) *Store_IsWhitelisted_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *Store_IsWhitelisted_Call) Return(_a0 bool, _a1 error) *Store_IsWhitelisted_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Store_IsWhitelisted_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *Store_IsWhitelisted_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UserExists provides a mock function with given fields: ctx, evmAddress
 func (_m *Store) UserExists(ctx context.Context, evmAddress string) (bool, error) {
 	ret := _m.Called(ctx, evmAddress)

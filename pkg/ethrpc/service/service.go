@@ -96,7 +96,7 @@ const (
 )
 
 // NewService creates a new ethService. whitelist authorizes transaction senders
-// in SendRawTransaction and must be non-nil; pass whitelist.New(src, true) to
+// in SendRawTransaction and must be non-nil; pass whitelist.New(store, true) to
 // disable the gate (skip_whitelist_check).
 func NewService(
 	cfg *ethrpc.Config,

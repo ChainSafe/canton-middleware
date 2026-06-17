@@ -257,6 +257,18 @@ func TestLoadAPIServer_RequiredValidation(t *testing.T) {
 	}
 }
 
+func TestLoadAPIServer_AdminEnabledRequiresKey(t *testing.T) {
+	path := testConfigPath(t, "admin-enabled-no-key.api.yaml")
+
+	_, err := LoadAPIServer(path)
+	if err == nil {
+		t.Fatal("expected required validation error for admin.api_key, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "api_key") {
+		t.Fatalf("expected admin.api_key validation error, got: %v", err)
+	}
+}
+
 func TestLoadAPIServer_InvalidDatabaseURL(t *testing.T) {
 	path := testConfigPath(t, "invalid-database-url.api.yaml")
 
@@ -409,4 +421,5 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("INDEXER_URL", "http://indexer:8082")
 	t.Setenv("CANTON_USDCX_ISSUER_PARTY", "usdcx-issuer::1220test")
 	t.Setenv("CANTON_USDCX_REGISTRY_URL", "http://usdcx-registry:8090")
+	t.Setenv("ADMIN_API_KEY", "test-admin-key")
 }

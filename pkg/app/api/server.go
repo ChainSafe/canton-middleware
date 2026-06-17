@@ -160,7 +160,18 @@ func (s *Server) Run() error {
 		)
 	}
 
-	router := s.setupRouter(svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc, metrics, logger)
+	// Admin config is optional (nil when the `admin` block is omitted). The token
+	// is resolved by the config loader (api_key: "${ADMIN_API_KEY}") and validated
+	// as required when enabled, so setupRouter can read it straight off the value.
+	var adminCfg config.AdminAPI
+	if cfg.Admin != nil {
+		adminCfg = *cfg.Admin
+	}
+
+	router := s.setupRouter(
+		svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc,
+		adminCfg, metrics, logger,
+	)
 
 	s.registerServers(g, gCtx, router, logger)
 
@@ -364,11 +375,12 @@ func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router
 
 func (s *Server) setupRouter(
 	evmStore ethrpc.Store,
-	wl whitelist.Checker,
+	wl *whitelist.Service,
 	cantonClient *canton.Client,
 	tokenService *token.Service,
-	registrationService userservice.Service,
+	userService userservice.Service,
 	transferSvc transfer.Service,
+	adminCfg config.AdminAPI,
 	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
@@ -392,7 +404,12 @@ func (s *Server) setupRouter(
 	token.RegisterRoutes(r, tokenService, logger)
 
 	// Registration endpoints
-	userservice.RegisterRoutes(r, registrationService, logger)
+	userservice.RegisterRoutes(r, userService, logger)
+
+	// Admin endpoints (whitelist management), gated by a static bearer token.
+	if adminCfg.Enabled {
+		whitelist.RegisterAdminRoutes(r, wl, adminCfg.APIKey, logger)
+	}
 
 	// Non-custodial transfer endpoints (prepare/execute)
 	transfer.RegisterRoutes(r, transferSvc, logger)

@@ -72,7 +72,7 @@ func New(
 func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Account) *user.RegisterResponse {
 	t.Helper()
 
-	if err := d.postgres.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
+	if err := d.apiServer.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
 		t.Fatalf("whitelist %s: %v", account.Address.Hex(), err)
 	}
 
@@ -111,7 +111,7 @@ func (d *DSL) RegisterUser(ctx context.Context, t *testing.T, account stack.Acco
 func (d *DSL) RegisterExternalUser(ctx context.Context, t *testing.T, account stack.Account) (*user.RegisterResponse, *keys.CantonKeyPair) {
 	t.Helper()
 
-	if err := d.postgres.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
+	if err := d.apiServer.WhitelistAddress(ctx, account.Address.Hex()); err != nil {
 		t.Fatalf("whitelist %s: %v", account.Address.Hex(), err)
 	}
 
