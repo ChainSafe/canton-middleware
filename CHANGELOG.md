@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/ChainSafe/canton-middleware/compare/v0.5.3...v0.6.0) (2026-06-17)
+
+
+### Features
+
+* admin whitelist API ([#313](https://github.com/ChainSafe/canton-middleware/issues/313)) ([a798ad4](https://github.com/ChainSafe/canton-middleware/commit/a798ad4b0b48f5b08a951e527e309bbcfed66c09))
+* gate eth_sendRawTransaction behind the whitelist ([#305](https://github.com/ChainSafe/canton-middleware/issues/305)) ([e23ed70](https://github.com/ChainSafe/canton-middleware/commit/e23ed703388cbae8bfe235cb4e403763352f49e4))
+
 ## [0.5.3](https://github.com/ChainSafe/canton-middleware/compare/v0.5.2...v0.5.3) (2026-06-12)
 
 
