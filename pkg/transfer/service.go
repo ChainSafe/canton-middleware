@@ -151,6 +151,13 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		return nil, apperrors.BadRequestError(nil, "prepare/execute API requires key_mode=external")
 	}
 
+	// Exactly one recipient form is allowed; reject an ambiguous request rather
+	// than silently preferring one (the HTTP handler enforces this too, but the
+	// service must not resolve an ambiguous request when called directly).
+	if (req.To == "") == (req.ToPartyID == "") {
+		return nil, apperrors.BadRequestError(nil, "exactly one of to or to_party_id is required")
+	}
+
 	// Resolve the recipient party id. When the caller supplies a raw party id we
 	// use it directly (it may be a party not registered in the middleware, e.g.
 	// hosted on an external participant node); otherwise we look up the EVM

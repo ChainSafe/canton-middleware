@@ -241,6 +241,38 @@ func TestTransferService_Prepare_ToPartyID_Self(t *testing.T) {
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
+func TestTransferService_Prepare_BothRecipientForms_Rejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		To:        recipientUser().EVMAddress,
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_Prepare_NoRecipient_Rejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		Amount: "10",
+		Token:  "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
 // --- SendCustodial tests ---
 
 func custodialSender() *user.User {
