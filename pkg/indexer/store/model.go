@@ -19,6 +19,7 @@ type EventDao struct {
 	InstrumentAdmin string    `bun:",notnull,type:varchar(255)"`
 	Issuer          string    `bun:",notnull,type:varchar(255)"`
 	EventType       string    `bun:",notnull,type:varchar(20)"`
+	Source          string    `bun:",notnull,type:varchar(20),default:'cip56'"` // 'cip56' (atomic, drives balances) | 'offer' (history-only)
 	Amount          string    `bun:",notnull,type:text"`
 	FromPartyID     *string   `bun:",type:varchar(255)"`
 	ToPartyID       *string   `bun:",type:varchar(255)"`
@@ -100,6 +101,7 @@ func toEventDao(e *indexer.ParsedEvent) *EventDao {
 		InstrumentAdmin: e.InstrumentAdmin,
 		Issuer:          e.Issuer,
 		EventType:       string(e.EventType),
+		Source:          e.Source,
 		Amount:          e.Amount,
 		FromPartyID:     e.FromPartyID,
 		ToPartyID:       e.ToPartyID,
@@ -120,6 +122,7 @@ func fromEventDao(d *EventDao) *indexer.ParsedEvent {
 		InstrumentAdmin: d.InstrumentAdmin,
 		Issuer:          d.Issuer,
 		EventType:       indexer.EventType(d.EventType),
+		Source:          d.Source,
 		Amount:          d.Amount,
 		FromPartyID:     d.FromPartyID,
 		ToPartyID:       d.ToPartyID,

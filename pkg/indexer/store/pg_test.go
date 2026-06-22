@@ -825,38 +825,65 @@ func TestListOffersForParty(t *testing.T) {
 
 func TestListTransfers(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
 
-	// alice has: a settled DEMO TRANSFER event (she's sender), a MINT (excluded),
-	// and an accepted USDCx offer (she's receiver). A pending offer is excluded.
-	if _, err := s.InsertEvent(ctx, makeEvent("ev-transfer", 1, indexer.EventTransfer, ptr("alice"), ptr("bob"))); err != nil {
-		t.Fatalf("insert transfer event: %v", err)
+	// Completed transfers all live in indexer_events: a CIP-56 TRANSFER (alice
+	// sender) and a settled USDCx offer recorded as a source="offer" TRANSFER
+	// (alice receiver). A MINT is excluded (not a transfer).
+	if _, err := s.InsertEvent(ctx, makeEvent("ev-cip56", 1, indexer.EventTransfer, ptr("alice"), ptr("bob"))); err != nil {
+		t.Fatalf("insert cip56 transfer: %v", err)
 	}
 	if _, err := s.InsertEvent(ctx, makeEvent("ev-mint", 2, indexer.EventMint, nil, ptr("alice"))); err != nil {
-		t.Fatalf("insert mint event: %v", err)
+		t.Fatalf("insert mint: %v", err)
 	}
-	past := time.Now().UTC().Add(-time.Hour)
-	if err := s.InsertPendingOffer(ctx, makeOffer("of-accepted", "carol", "alice", 3, indexer.OfferStatusAccepted, &past)); err != nil {
-		t.Fatalf("insert accepted offer: %v", err)
+	usdcx := makeEvent("ev-usdcx", 3, indexer.EventTransfer, ptr("carol"), ptr("alice"))
+	usdcx.Source = indexer.EventSourceOffer
+	if _, err := s.InsertEvent(ctx, usdcx); err != nil {
+		t.Fatalf("insert usdcx settled transfer: %v", err)
 	}
+
+	// In-flight offers live in indexer_pending_offers (not transfers yet).
 	if err := s.InsertPendingOffer(ctx, makeOffer("of-pending", "dave", "alice", 4, indexer.OfferStatusPending, nil)); err != nil {
 		t.Fatalf("insert pending offer: %v", err)
 	}
+	past := time.Now().UTC().Add(-time.Hour)
+	if err := s.InsertPendingOffer(ctx, makeOffer("of-expired", "erin", "alice", 5, indexer.OfferStatusPending, &past)); err != nil {
+		t.Fatalf("insert expired offer: %v", err)
+	}
 
-	got, total, err := s.ListTransfers(ctx, "alice", indexer.TransferStatusCompleted, indexer.Pagination{Page: 1, Limit: 50})
+	// completed → both events (cip56 + offer-sourced), from the events table.
+	got, total, err := s.ListTransfers(ctx, "alice", indexer.TransferStatusCompleted, page)
 	if err != nil {
-		t.Fatalf("ListCompletedTransfers: %v", err)
+		t.Fatalf("ListTransfers(completed): %v", err)
 	}
 	if total != 2 || len(got) != 2 {
-		t.Fatalf("expected 2 completed transfers (1 event + 1 accepted offer), got total=%d len=%d", total, len(got))
+		t.Fatalf("expected 2 completed transfers, got total=%d len=%d", total, len(got))
 	}
 	bySource := map[string]indexer.Transfer{}
 	for _, c := range got {
 		bySource[c.Source] = c
 	}
-	if bySource["event"].ContractID != "ev-transfer" {
-		t.Fatalf("expected event source ev-transfer, got %+v", bySource["event"])
+	if bySource[indexer.EventSourceCIP56].ContractID != "ev-cip56" {
+		t.Fatalf("expected cip56 transfer ev-cip56, got %+v", bySource[indexer.EventSourceCIP56])
 	}
-	if bySource["offer"].ContractID != "of-accepted" || bySource["offer"].FromPartyID != "carol" {
-		t.Fatalf("expected accepted offer of-accepted from carol, got %+v", bySource["offer"])
+	if bySource[indexer.EventSourceOffer].ContractID != "ev-usdcx" || bySource[indexer.EventSourceOffer].FromPartyID != "carol" {
+		t.Fatalf("expected offer-sourced transfer ev-usdcx from carol, got %+v", bySource[indexer.EventSourceOffer])
+	}
+
+	// pending → the live offer; expired → the past-dated one. Both from offers table.
+	got, total, err = s.ListTransfers(ctx, "alice", indexer.TransferStatusPending, page)
+	if err != nil {
+		t.Fatalf("ListTransfers(pending): %v", err)
+	}
+	if total != 1 || got[0].ContractID != "of-pending" || got[0].Status != indexer.TransferStatusPending {
+		t.Fatalf("expected 1 pending transfer of-pending, got total=%d %+v", total, got)
+	}
+
+	got, total, err = s.ListTransfers(ctx, "alice", indexer.TransferStatusExpired, page)
+	if err != nil {
+		t.Fatalf("ListTransfers(expired): %v", err)
+	}
+	if total != 1 || got[0].ContractID != "of-expired" || got[0].Status != indexer.TransferStatusExpired {
+		t.Fatalf("expected 1 expired transfer of-expired, got total=%d %+v", total, got)
 	}
 }

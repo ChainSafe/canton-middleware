@@ -87,6 +87,11 @@ type Store interface {
 	// Status is set to PENDING on insert.
 	InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error
 
+	// GetPendingOffer returns the stored TransferOffer by ContractID, or nil when
+	// not found. Used on archive to recover the transfer fields (sender/receiver/
+	// amount) needed to record a settled-transfer event.
+	GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error)
+
 	// MarkOfferAccepted transitions a TransferOffer to ACCEPTED status when the Canton
 	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
 	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
@@ -206,6 +211,9 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				}
 			case *indexer.PendingOffer:
 				if item.IsArchived {
+					if err := p.recordSettledOffer(ctx, tx, item, batch.UpdateID); err != nil {
+						return err
+					}
 					if err := tx.MarkOfferAccepted(ctx, item.ContractID); err != nil {
 						return fmt.Errorf("mark offer accepted %s: %w", item.ContractID, err)
 					}
@@ -305,6 +313,51 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 			continue
 		}
 		return fmt.Errorf("apply balance delta: %w", err)
+	}
+	return nil
+}
+
+// recordSettledOffer writes a history-only TRANSFER event when a TransferOffer is
+// archived (settled). External tokens like USDCx move via offers and never emit our
+// CIP-56 TokenTransferEvent, so without this their transfers would be absent from
+// the events log. The event is tagged source="offer" and inserted directly (not via
+// processTransferEvent) so it is NOT counted toward balances or supply — those are
+// already maintained from the Holding lifecycle. Idempotent via the offer ContractID.
+//
+// The archived item carries only the ContractID, so the transfer fields are read
+// back from the stored offer row (written on its CREATE).
+func (p *Processor) recordSettledOffer(ctx context.Context, tx Store, item *indexer.PendingOffer, updateID string) error {
+	offer, err := tx.GetPendingOffer(ctx, item.ContractID)
+	if err != nil {
+		return fmt.Errorf("get pending offer %s: %w", item.ContractID, err)
+	}
+	if offer == nil {
+		// The offer's CREATE was never indexed (e.g. created before this indexer
+		// started), so we can't recover sender/receiver/amount. Nothing to record.
+		p.logger.Warn("settled offer not found in store; skipping transfer event",
+			zap.String("contract_id", item.ContractID),
+		)
+		return nil
+	}
+
+	from, to := offer.SenderPartyID, offer.ReceiverPartyID
+	event := &indexer.ParsedEvent{
+		ContractID:      offer.ContractID, // unique key; idempotent on replay
+		Source:          indexer.EventSourceOffer,
+		EventType:       indexer.EventTransfer,
+		InstrumentAdmin: offer.InstrumentAdmin,
+		InstrumentID:    offer.InstrumentID,
+		Issuer:          offer.InstrumentAdmin,
+		Amount:          offer.Amount,
+		FromPartyID:     &from,
+		ToPartyID:       &to,
+		TxID:            updateID,
+		LedgerOffset:    item.LedgerOffset,
+		Timestamp:       item.CreatedAt, // archive (settlement) time
+		EffectiveTime:   item.CreatedAt,
+	}
+	if _, err := tx.InsertEvent(ctx, event); err != nil {
+		return fmt.Errorf("record settled offer event %s: %w", item.ContractID, err)
 	}
 	return nil
 }

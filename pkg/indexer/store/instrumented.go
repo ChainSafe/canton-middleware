@@ -134,6 +134,17 @@ func (s *instrumentedWriteStore) InsertPendingOffer(ctx context.Context, offer *
 	return err
 }
 
+func (s *instrumentedWriteStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetPendingOffer))
+	defer timer.ObserveDuration()
+
+	offer, err := s.inner.GetPendingOffer(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpGetPendingOffer)
+	}
+	return offer, err
+}
+
 func (s *instrumentedWriteStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpMarkOfferAccepted))
 	defer timer.ObserveDuration()
@@ -231,6 +242,17 @@ func (s *InstrumentedStore) InsertPendingOffer(ctx context.Context, offer *index
 		s.metrics.IncErrors(OpInsertPendingOffer)
 	}
 	return err
+}
+
+func (s *InstrumentedStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetPendingOffer))
+	defer timer.ObserveDuration()
+
+	offer, err := s.inner.GetPendingOffer(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpGetPendingOffer)
+	}
+	return offer, err
 }
 
 func (s *InstrumentedStore) MarkOfferAccepted(ctx context.Context, contractID string) error {

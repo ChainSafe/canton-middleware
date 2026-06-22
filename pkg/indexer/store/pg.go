@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -286,6 +285,20 @@ func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.Pending
 	return nil
 }
 
+// GetPendingOffer returns the stored TransferOffer by ContractID, or nil when not found.
+func (s *PGStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
+	dao := new(PendingOfferDao)
+	err := s.db.NewSelect().Model(dao).Where("contract_id = ?", contractID).Limit(1).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get pending offer: %w", err)
+	}
+	offer := fromPendingOfferDao(dao)
+	return &offer, nil
+}
+
 // MarkOfferAccepted sets a TransferOffer's status to ACCEPTED. No-op when not found.
 func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
 	_, err := s.db.NewUpdate().
@@ -355,67 +368,60 @@ func (s *PGStore) ListOffersForParty(
 	return offers, int64(total), nil
 }
 
-// ListTransfers returns a party's transfers across all tokens, newest first, with
-// pagination. An empty status (or "all") returns every transfer; otherwise it
-// filters by the derived status ("pending" / "expired" / "completed").
-//
-// Transfers come from two disjoint sources — settled TokenTransferEvents (our
-// CIP-56 tokens, always "completed") and TransferOffers (external tokens like
-// USDCx, status derived from accept/expiry). A party's history is small, so we
-// read each table with a plain query, merge, sort, and paginate in memory rather
-// than pushing a UNION into SQL.
+// ListTransfers returns a party's transfers, newest first, with pagination.
+// Each status maps to exactly one table, so pagination is always native SQL:
+//   - completed (default): settled transfers from indexer_events (TRANSFER rows),
+//     which now covers all tokens — our CIP-56 tokens emit events directly, and
+//     settled external offers (USDCx) are recorded there as source="offer" events.
+//   - pending / expired: in-flight TransferOffers from indexer_pending_offers.
 func (s *PGStore) ListTransfers(
 	ctx context.Context, partyID, status string, p indexer.Pagination,
 ) ([]indexer.Transfer, int64, error) {
-	now := time.Now().UTC()
-	all := make([]indexer.Transfer, 0)
-
-	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		// Events are always "completed", so only read them when that status is wanted.
-		if status == "" || status == "all" || status == indexer.TransferStatusCompleted {
-			var events []EventDao
-			if err := db.NewSelect().Model(&events).
-				Where("event_type = ?", string(indexer.EventTransfer)).
-				Where("(from_party_id = ? OR to_party_id = ?)", partyID, partyID).
-				Scan(ctx); err != nil {
-				return fmt.Errorf("list transfer events: %w", err)
-			}
-			for i := range events {
-				all = append(all, transferFromEventDao(&events[i]))
-			}
+	switch status {
+	case indexer.TransferStatusPending, indexer.TransferStatusExpired:
+		offerStatus := indexer.OfferStatusPending
+		if status == indexer.TransferStatusExpired {
+			offerStatus = indexer.OfferStatusExpired
 		}
-
-		var offers []PendingOfferDao
-		if err := db.NewSelect().Model(&offers).
-			Where("(sender_party_id = ? OR receiver_party_id = ?)", partyID, partyID).
-			Scan(ctx); err != nil {
-			return fmt.Errorf("list transfer offers: %w", err)
+		offers, total, err := s.ListOffersForParty(
+			ctx, partyID, indexer.OfferQuery{Role: indexer.OfferRoleAny, Status: offerStatus}, p)
+		if err != nil {
+			return nil, 0, err
 		}
+		out := make([]indexer.Transfer, len(offers))
 		for i := range offers {
-			t := transferFromOfferDao(&offers[i], now)
-			if status == "" || status == "all" || status == t.Status {
-				all = append(all, t)
-			}
+			out[i] = transferFromOffer(&offers[i])
 		}
-		return nil
+		return out, total, nil
+	default: // "" / "all" / "completed" — settled transfers from the events log
+		return s.listCompletedTransfers(ctx, partyID, p)
+	}
+}
+
+func (s *PGStore) listCompletedTransfers(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
+	var events []EventDao
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		q := db.NewSelect().Model(&events).
+			Where("event_type = ?", string(indexer.EventTransfer)).
+			Where("(from_party_id = ? OR to_party_id = ?)", partyID, partyID).
+			OrderExpr("effective_time DESC")
+		var err error
+		if total, err = q.Count(ctx); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list transfers: %w", err)
+		return nil, 0, fmt.Errorf("list completed transfers: %w", err)
 	}
-
-	// Newest first across both sources.
-	sort.Slice(all, func(i, j int) bool { return all[i].Timestamp.After(all[j].Timestamp) })
-
-	total := int64(len(all))
-	start := (p.Page - 1) * p.Limit
-	if start >= len(all) {
-		return []indexer.Transfer{}, total, nil
+	out := make([]indexer.Transfer, len(events))
+	for i := range events {
+		out[i] = transferFromEventDao(&events[i])
 	}
-	end := start + p.Limit
-	if end > len(all) {
-		end = len(all)
-	}
-	return all[start:end], total, nil
+	return out, int64(total), nil
 }
 
 func transferFromEventDao(d *EventDao) indexer.Transfer {
@@ -426,9 +432,13 @@ func transferFromEventDao(d *EventDao) indexer.Transfer {
 	if d.ToPartyID != nil {
 		to = *d.ToPartyID
 	}
+	source := d.Source
+	if source == "" {
+		source = indexer.EventSourceCIP56
+	}
 	return indexer.Transfer{
 		ContractID:      d.ContractID,
-		Source:          "event",
+		Source:          source,
 		Status:          indexer.TransferStatusCompleted,
 		InstrumentAdmin: d.InstrumentAdmin,
 		InstrumentID:    d.InstrumentID,
@@ -440,24 +450,24 @@ func transferFromEventDao(d *EventDao) indexer.Transfer {
 	}
 }
 
-func transferFromOfferDao(d *PendingOfferDao, now time.Time) indexer.Transfer {
+func transferFromOffer(o *indexer.PendingOffer) indexer.Transfer {
 	status := indexer.TransferStatusPending
-	switch {
-	case d.Status == string(indexer.OfferStatusAccepted):
-		status = indexer.TransferStatusCompleted
-	case d.ExpiresAt != nil && !d.ExpiresAt.After(now):
+	switch o.Status {
+	case indexer.OfferStatusExpired:
 		status = indexer.TransferStatusExpired
+	case indexer.OfferStatusAccepted:
+		status = indexer.TransferStatusCompleted
 	}
 	return indexer.Transfer{
-		ContractID:      d.ContractID,
-		Source:          "offer",
+		ContractID:      o.ContractID,
+		Source:          indexer.EventSourceOffer,
 		Status:          status,
-		InstrumentAdmin: d.InstrumentAdmin,
-		InstrumentID:    d.InstrumentID,
-		Amount:          d.Amount,
-		FromPartyID:     d.SenderPartyID,
-		ToPartyID:       d.ReceiverPartyID,
-		Timestamp:       d.CreatedAt,
+		InstrumentAdmin: o.InstrumentAdmin,
+		InstrumentID:    o.InstrumentID,
+		Amount:          o.Amount,
+		FromPartyID:     o.SenderPartyID,
+		ToPartyID:       o.ReceiverPartyID,
+		Timestamp:       o.CreatedAt,
 	}
 }
 

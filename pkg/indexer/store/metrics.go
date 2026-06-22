@@ -59,6 +59,7 @@ const (
 	OpApplySupplyDelta   StoreOperation = "apply_supply_delta"
 	OpInsertPendingOffer StoreOperation = "insert_pending_offer"
 	OpMarkOfferAccepted  StoreOperation = "mark_offer_accepted"
+	OpGetPendingOffer    StoreOperation = "get_pending_offer"
 	OpInsertHolding      StoreOperation = "insert_holding"
 	OpTakeHolding        StoreOperation = "take_holding"
 

@@ -118,6 +118,7 @@ func NewTokenTransferDecoder(
 			InstrumentID:    instrumentID,
 			InstrumentAdmin: instrumentAdmin,
 			Issuer:          ev.PartyField("issuer"),
+			Source:          indexer.EventSourceCIP56,
 			EventType:       et,
 			Amount:          ev.NumericField("amount"),
 			FromPartyID:     fromPartyID,

@@ -63,6 +63,14 @@ type PendingOffer struct {
 	IsArchived bool `json:"-"`
 }
 
+// Event source values, recorded on ParsedEvent / EventDao.Source.
+const (
+	// EventSourceCIP56 marks an atomic CIP-56 TokenTransferEvent; these drive balances and supply.
+	EventSourceCIP56 = "cip56"
+	// EventSourceOffer marks a settled external TransferOffer recorded for history only.
+	EventSourceOffer = "offer"
+)
+
 // Transfer status values used by ListTransfers / the /transfers endpoint.
 // A transfer is "completed" once settled; an offer that hasn't settled is
 // "pending" (or "expired" once past its executeBefore).
@@ -72,16 +80,14 @@ const (
 	TransferStatusCompleted = "completed"
 )
 
-// Transfer is a token transfer, generalized across all tokens. It unifies two
-// on-ledger representations that never overlap:
-//   - our CIP-56 tokens settle atomically and emit a TokenTransferEvent (Source "event")
-//   - external tokens (e.g. USDCx) move via a TransferOffer (Source "offer")
-//
-// Status is derived: events are always "completed"; offers are "completed" when
-// accepted, "expired" past executeBefore, otherwise "pending".
+// Transfer is a token transfer, generalized across all tokens. Completed transfers
+// all come from the events log (indexer_events): our CIP-56 tokens emit a
+// TokenTransferEvent directly (Source "cip56"), and settled external offers like
+// USDCx are recorded there too (Source "offer"). Pending/expired transfers are
+// in-flight TransferOffers (Source "offer").
 type Transfer struct {
 	ContractID      string    `json:"contract_id"`
-	Source          string    `json:"source"` // "event" | "offer"
+	Source          string    `json:"source"` // "cip56" | "offer"
 	Status          string    `json:"status"` // "pending" | "expired" | "completed"
 	InstrumentAdmin string    `json:"instrument_admin"`
 	InstrumentID    string    `json:"instrument_id"`
@@ -129,6 +135,11 @@ type ParsedEvent struct {
 
 	// Issuer of the TokenTransferEvent contract (the token config issuer).
 	Issuer string `json:"issuer"`
+
+	// Source records how the event was produced: "cip56" for our atomic
+	// TokenTransferEvent (which drives balances/supply), or "offer" for a settled
+	// external TransferOffer recorded for history only. Empty defaults to "cip56".
+	Source string `json:"source,omitempty"`
 
 	// Transfer semantics, mirroring ERC-20 Transfer(from, to, value).
 	EventType   EventType `json:"event_type"`

@@ -390,18 +390,29 @@ func TestProcessor_Run_PendingOfferCreated_Inserted(t *testing.T) {
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
-func TestProcessor_Run_PendingOfferArchived_MarkedAccepted(t *testing.T) {
+func TestProcessor_Run_PendingOfferArchived_RecordsTransferAndMarksAccepted(t *testing.T) {
 	store := mocks.NewStore(t)
 	fetcher := mocks.NewEventFetcher(t)
-	offer := pendingOffer()
-	offer.IsArchived = true
+	// Archive event carries only the contract id; the stored offer supplies the fields.
+	archived := &indexer.PendingOffer{ContractID: "offer-contract-1", IsArchived: true, LedgerOffset: 11, CreatedAt: time.Unix(1_700_000_500, 0)}
+	stored := pendingOffer()
 
 	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
 	fetcher.EXPECT().Start(mock.Anything, int64(0))
-	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, offer)))
+	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, archived)))
 
 	setupRunInTx(store)
-	store.EXPECT().MarkOfferAccepted(mock.Anything, offer.ContractID).Return(nil)
+	store.EXPECT().GetPendingOffer(mock.Anything, stored.ContractID).Return(stored, nil)
+	// A history-only TRANSFER event is recorded (source=offer), then the offer is marked accepted.
+	store.EXPECT().InsertEvent(mock.Anything, mock.MatchedBy(func(e *indexer.ParsedEvent) bool {
+		return e.ContractID == stored.ContractID &&
+			e.Source == indexer.EventSourceOffer &&
+			e.EventType == indexer.EventTransfer &&
+			e.FromPartyID != nil && *e.FromPartyID == stored.SenderPartyID &&
+			e.ToPartyID != nil && *e.ToPartyID == stored.ReceiverPartyID &&
+			e.Amount == stored.Amount
+	})).Return(true, nil)
+	store.EXPECT().MarkOfferAccepted(mock.Anything, stored.ContractID).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))

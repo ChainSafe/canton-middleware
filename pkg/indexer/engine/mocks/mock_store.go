@@ -123,6 +123,65 @@ func (_c *Store_ApplySupplyDelta_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
+// GetPendingOffer provides a mock function with given fields: ctx, contractID
+func (_m *Store) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetPendingOffer")
+	}
+
+	var r0 *indexer.PendingOffer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*indexer.PendingOffer, error)); ok {
+		return rf(ctx, contractID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *indexer.PendingOffer); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexer.PendingOffer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, contractID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetPendingOffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPendingOffer'
+type Store_GetPendingOffer_Call struct {
+	*mock.Call
+}
+
+// GetPendingOffer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *Store_Expecter) GetPendingOffer(ctx interface{}, contractID interface{}) *Store_GetPendingOffer_Call {
+	return &Store_GetPendingOffer_Call{Call: _e.mock.On("GetPendingOffer", ctx, contractID)}
+}
+
+func (_c *Store_GetPendingOffer_Call) Run(run func(ctx context.Context, contractID string)) *Store_GetPendingOffer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_GetPendingOffer_Call) Return(_a0 *indexer.PendingOffer, _a1 error) *Store_GetPendingOffer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetPendingOffer_Call) RunAndReturn(run func(context.Context, string) (*indexer.PendingOffer, error)) *Store_GetPendingOffer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // InsertEvent provides a mock function with given fields: ctx, event
 func (_m *Store) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {
 	ret := _m.Called(ctx, event)
