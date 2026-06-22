@@ -45,9 +45,9 @@ type IndexerReader interface {
 	GetOffersForParty(
 		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.PendingOffer], error)
-	GetCompletedTransfers(
-		ctx context.Context, partyID string, p indexer.Pagination,
-	) (*indexer.Page[indexer.CompletedTransfer], error)
+	GetTransfers(
+		ctx context.Context, partyID, status string, p indexer.Pagination,
+	) (*indexer.Page[indexer.Transfer], error)
 }
 
 // Service is the interface for the non-custodial prepare/execute transfer flow.
@@ -452,7 +452,7 @@ func (s *TransferService) ListCompleted(
 		return nil, fmt.Errorf("lookup user: %w", err)
 	}
 
-	result, err := s.offerLister.GetCompletedTransfers(ctx, u.CantonPartyID, p)
+	result, err := s.offerLister.GetTransfers(ctx, u.CantonPartyID, indexer.TransferStatusCompleted, p)
 	if err != nil {
 		return nil, fmt.Errorf("list completed transfers: %w", err)
 	}

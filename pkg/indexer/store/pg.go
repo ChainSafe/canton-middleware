@@ -354,10 +354,11 @@ func (s *PGStore) ListOffersForParty(
 	return offers, int64(total), nil
 }
 
-// completedTransferRow is the scan target for the ListCompletedTransfers union.
-type completedTransferRow struct {
+// transferRow is the scan target for the ListTransfers union.
+type transferRow struct {
 	ContractID      string    `bun:"contract_id"`
 	Source          string    `bun:"source"`
+	Status          string    `bun:"status"`
 	InstrumentAdmin string    `bun:"instrument_admin"`
 	InstrumentID    string    `bun:"instrument_id"`
 	Amount          string    `bun:"amount"`
@@ -367,47 +368,68 @@ type completedTransferRow struct {
 	Ts              time.Time `bun:"ts"`
 }
 
-// completedTransfersUnion is the body of the completed-transfers query: settled
-// TRANSFER events plus accepted TransferOffers involving the party, normalized to
-// one column set. The two sources are disjoint (our CIP-56 tokens emit events and
-// never create offers; external tokens use offers and never emit our events), so
-// UNION ALL does not double-count.
-const completedTransfersUnion = `
-	SELECT contract_id, 'event' AS source, instrument_admin, instrument_id, amount,
+// transfersUnion normalizes both transfer representations involving a party into
+// one column set with a derived status. The two sources are disjoint (our CIP-56
+// tokens emit events and never create offers; external tokens use offers and
+// never emit our events), so UNION ALL does not double-count. The single `?` is
+// the comparison time for the offer expiry case. Callers wrap this in an outer
+// query that optionally filters by status and paginates.
+const transfersUnion = `
+	SELECT contract_id, 'event' AS source, 'completed' AS status, instrument_admin, instrument_id, amount,
 	       COALESCE(from_party_id, '') AS from_party, COALESCE(to_party_id, '') AS to_party,
 	       tx_id, effective_time AS ts
 	FROM indexer_events
 	WHERE event_type = 'TRANSFER' AND (from_party_id = ? OR to_party_id = ?)
 	UNION ALL
-	SELECT contract_id, 'offer' AS source, instrument_admin, instrument_id, amount,
+	SELECT contract_id, 'offer' AS source,
+	       CASE WHEN status = 'ACCEPTED' THEN 'completed'
+	            WHEN expires_at IS NOT NULL AND expires_at <= ? THEN 'expired'
+	            ELSE 'pending' END AS status,
+	       instrument_admin, instrument_id, amount,
 	       sender_party_id AS from_party, receiver_party_id AS to_party,
 	       '' AS tx_id, created_at AS ts
 	FROM indexer_pending_offers
-	WHERE status = 'ACCEPTED' AND (sender_party_id = ? OR receiver_party_id = ?)`
+	WHERE (sender_party_id = ? OR receiver_party_id = ?)`
 
-// ListCompletedTransfers returns a party's settled transfers across all tokens,
-// newest first, with pagination. Generalizes over both settlement mechanisms.
-func (s *PGStore) ListCompletedTransfers(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) ([]indexer.CompletedTransfer, int64, error) {
-	var rows []completedTransferRow
+// ListTransfers returns a party's transfers across all tokens, newest first, with
+// pagination. An empty status (or "all") returns every transfer; otherwise it
+// filters by the derived status ("pending" / "expired" / "completed").
+func (s *PGStore) ListTransfers(
+	ctx context.Context, partyID, status string, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
+	now := time.Now().UTC()
+	subArgs := []any{partyID, partyID, now, partyID, partyID}
+	outer := ""
+	if status != "" && status != "all" {
+		outer = " WHERE t.status = ?"
+	}
+
+	var rows []transferRow
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		countQ := "SELECT count(*) FROM (" + completedTransfersUnion + ") AS u"
-		if err := db.NewRaw(countQ, partyID, partyID, partyID, partyID).Scan(ctx, &total); err != nil {
+		countArgs := append([]any{}, subArgs...)
+		if outer != "" {
+			countArgs = append(countArgs, status)
+		}
+		countQ := "SELECT count(*) FROM (" + transfersUnion + ") AS t" + outer
+		if err := db.NewRaw(countQ, countArgs...).Scan(ctx, &total); err != nil {
 			return fmt.Errorf("count: %w", err)
 		}
-		pageQ := completedTransfersUnion + "\n\tORDER BY ts DESC\n\tLIMIT ? OFFSET ?"
-		return db.NewRaw(pageQ, partyID, partyID, partyID, partyID, p.Limit, (p.Page-1)*p.Limit).Scan(ctx, &rows)
+
+		pageArgs := append([]any{}, countArgs...)
+		pageArgs = append(pageArgs, p.Limit, (p.Page-1)*p.Limit)
+		pageQ := "SELECT * FROM (" + transfersUnion + ") AS t" + outer + " ORDER BY ts DESC LIMIT ? OFFSET ?"
+		return db.NewRaw(pageQ, pageArgs...).Scan(ctx, &rows)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list completed transfers: %w", err)
+		return nil, 0, fmt.Errorf("list transfers: %w", err)
 	}
-	out := make([]indexer.CompletedTransfer, len(rows))
+	out := make([]indexer.Transfer, len(rows))
 	for i := range rows {
-		out[i] = indexer.CompletedTransfer{
+		out[i] = indexer.Transfer{
 			ContractID:      rows[i].ContractID,
 			Source:          rows[i].Source,
+			Status:          rows[i].Status,
 			InstrumentAdmin: rows[i].InstrumentAdmin,
 			InstrumentID:    rows[i].InstrumentID,
 			Amount:          rows[i].Amount,

@@ -22,7 +22,7 @@ const (
 	OpListPartyEvents        ClientOperation = "list_party_events"
 	OpGetPendingOffersForPty ClientOperation = "get_pending_offers_for_party"
 	OpGetAllPendingOffers    ClientOperation = "get_all_pending_offers"
-	OpGetCompletedTransfers  ClientOperation = "get_completed_transfers"
+	OpGetTransfers           ClientOperation = "get_transfers"
 )
 
 // Metrics holds Prometheus collectors for the indexer HTTP client.

@@ -823,9 +823,9 @@ func TestTransferService_ListCompleted_Success(t *testing.T) {
 
 	offers := mocks.NewIndexerReader(t)
 	page := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetCompletedTransfers(ctx, sender.CantonPartyID, page).
-		Return(&indexer.Page[indexer.CompletedTransfer]{
-			Items: []indexer.CompletedTransfer{
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferStatusCompleted, page).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
 				{ // our-token settled transfer (event)
 					ContractID:      "ev-1",
 					Source:          "event",

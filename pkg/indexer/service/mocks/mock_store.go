@@ -403,73 +403,6 @@ func (_c *Store_ListBalancesForToken_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// ListCompletedTransfers provides a mock function with given fields: ctx, partyID, p
-func (_m *Store) ListCompletedTransfers(ctx context.Context, partyID string, p indexer.Pagination) ([]indexer.CompletedTransfer, int64, error) {
-	ret := _m.Called(ctx, partyID, p)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListCompletedTransfers")
-	}
-
-	var r0 []indexer.CompletedTransfer
-	var r1 int64
-	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) ([]indexer.CompletedTransfer, int64, error)); ok {
-		return rf(ctx, partyID, p)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) []indexer.CompletedTransfer); ok {
-		r0 = rf(ctx, partyID, p)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]indexer.CompletedTransfer)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.Pagination) int64); ok {
-		r1 = rf(ctx, partyID, p)
-	} else {
-		r1 = ret.Get(1).(int64)
-	}
-
-	if rf, ok := ret.Get(2).(func(context.Context, string, indexer.Pagination) error); ok {
-		r2 = rf(ctx, partyID, p)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
-}
-
-// Store_ListCompletedTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCompletedTransfers'
-type Store_ListCompletedTransfers_Call struct {
-	*mock.Call
-}
-
-// ListCompletedTransfers is a helper method to define mock.On call
-//   - ctx context.Context
-//   - partyID string
-//   - p indexer.Pagination
-func (_e *Store_Expecter) ListCompletedTransfers(ctx interface{}, partyID interface{}, p interface{}) *Store_ListCompletedTransfers_Call {
-	return &Store_ListCompletedTransfers_Call{Call: _e.mock.On("ListCompletedTransfers", ctx, partyID, p)}
-}
-
-func (_c *Store_ListCompletedTransfers_Call) Run(run func(ctx context.Context, partyID string, p indexer.Pagination)) *Store_ListCompletedTransfers_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(indexer.Pagination))
-	})
-	return _c
-}
-
-func (_c *Store_ListCompletedTransfers_Call) Return(_a0 []indexer.CompletedTransfer, _a1 int64, _a2 error) *Store_ListCompletedTransfers_Call {
-	_c.Call.Return(_a0, _a1, _a2)
-	return _c
-}
-
-func (_c *Store_ListCompletedTransfers_Call) RunAndReturn(run func(context.Context, string, indexer.Pagination) ([]indexer.CompletedTransfer, int64, error)) *Store_ListCompletedTransfers_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListEvents provides a mock function with given fields: ctx, f, p
 func (_m *Store) ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error) {
 	ret := _m.Called(ctx, f, p)
@@ -667,6 +600,74 @@ func (_c *Store_ListTokens_Call) Return(_a0 []*indexer.Token, _a1 int64, _a2 err
 }
 
 func (_c *Store_ListTokens_Call) RunAndReturn(run func(context.Context, indexer.Pagination) ([]*indexer.Token, int64, error)) *Store_ListTokens_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListTransfers provides a mock function with given fields: ctx, partyID, status, p
+func (_m *Store) ListTransfers(ctx context.Context, partyID string, status string, p indexer.Pagination) ([]indexer.Transfer, int64, error) {
+	ret := _m.Called(ctx, partyID, status, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListTransfers")
+	}
+
+	var r0 []indexer.Transfer
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) ([]indexer.Transfer, int64, error)); ok {
+		return rf(ctx, partyID, status, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) []indexer.Transfer); ok {
+		r0 = rf(ctx, partyID, status, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]indexer.Transfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, indexer.Pagination) int64); ok {
+		r1 = rf(ctx, partyID, status, p)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, indexer.Pagination) error); ok {
+		r2 = rf(ctx, partyID, status, p)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// Store_ListTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListTransfers'
+type Store_ListTransfers_Call struct {
+	*mock.Call
+}
+
+// ListTransfers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - status string
+//   - p indexer.Pagination
+func (_e *Store_Expecter) ListTransfers(ctx interface{}, partyID interface{}, status interface{}, p interface{}) *Store_ListTransfers_Call {
+	return &Store_ListTransfers_Call{Call: _e.mock.On("ListTransfers", ctx, partyID, status, p)}
+}
+
+func (_c *Store_ListTransfers_Call) Run(run func(ctx context.Context, partyID string, status string, p indexer.Pagination)) *Store_ListTransfers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(indexer.Pagination))
+	})
+	return _c
+}
+
+func (_c *Store_ListTransfers_Call) Return(_a0 []indexer.Transfer, _a1 int64, _a2 error) *Store_ListTransfers_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *Store_ListTransfers_Call) RunAndReturn(run func(context.Context, string, string, indexer.Pagination) ([]indexer.Transfer, int64, error)) *Store_ListTransfers_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -142,66 +142,6 @@ func (_c *Service_GetBalance_Call) RunAndReturn(run func(context.Context, string
 	return _c
 }
 
-// GetCompletedTransfers provides a mock function with given fields: ctx, partyID, p
-func (_m *Service) GetCompletedTransfers(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error) {
-	ret := _m.Called(ctx, partyID, p)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetCompletedTransfers")
-	}
-
-	var r0 *indexer.Page[indexer.CompletedTransfer]
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error)); ok {
-		return rf(ctx, partyID, p)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) *indexer.Page[indexer.CompletedTransfer]); ok {
-		r0 = rf(ctx, partyID, p)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*indexer.Page[indexer.CompletedTransfer])
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, p)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Service_GetCompletedTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCompletedTransfers'
-type Service_GetCompletedTransfers_Call struct {
-	*mock.Call
-}
-
-// GetCompletedTransfers is a helper method to define mock.On call
-//   - ctx context.Context
-//   - partyID string
-//   - p indexer.Pagination
-func (_e *Service_Expecter) GetCompletedTransfers(ctx interface{}, partyID interface{}, p interface{}) *Service_GetCompletedTransfers_Call {
-	return &Service_GetCompletedTransfers_Call{Call: _e.mock.On("GetCompletedTransfers", ctx, partyID, p)}
-}
-
-func (_c *Service_GetCompletedTransfers_Call) Run(run func(ctx context.Context, partyID string, p indexer.Pagination)) *Service_GetCompletedTransfers_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(indexer.Pagination))
-	})
-	return _c
-}
-
-func (_c *Service_GetCompletedTransfers_Call) Return(_a0 *indexer.Page[indexer.CompletedTransfer], _a1 error) *Service_GetCompletedTransfers_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Service_GetCompletedTransfers_Call) RunAndReturn(run func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error)) *Service_GetCompletedTransfers_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetEvent provides a mock function with given fields: ctx, contractID
 func (_m *Service) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error) {
 	ret := _m.Called(ctx, contractID)
@@ -378,6 +318,67 @@ func (_c *Service_GetToken_Call) Return(_a0 *indexer.Token, _a1 error) *Service_
 }
 
 func (_c *Service_GetToken_Call) RunAndReturn(run func(context.Context, string, string) (*indexer.Token, error)) *Service_GetToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetTransfers provides a mock function with given fields: ctx, partyID, status, p
+func (_m *Service) GetTransfers(ctx context.Context, partyID string, status string, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
+	ret := _m.Called(ctx, partyID, status, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTransfers")
+	}
+
+	var r0 *indexer.Page[indexer.Transfer]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
+		return rf(ctx, partyID, status, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
+		r0 = rf(ctx, partyID, status, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexer.Page[indexer.Transfer])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, indexer.Pagination) error); ok {
+		r1 = rf(ctx, partyID, status, p)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTransfers'
+type Service_GetTransfers_Call struct {
+	*mock.Call
+}
+
+// GetTransfers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - status string
+//   - p indexer.Pagination
+func (_e *Service_Expecter) GetTransfers(ctx interface{}, partyID interface{}, status interface{}, p interface{}) *Service_GetTransfers_Call {
+	return &Service_GetTransfers_Call{Call: _e.mock.On("GetTransfers", ctx, partyID, status, p)}
+}
+
+func (_c *Service_GetTransfers_Call) Run(run func(ctx context.Context, partyID string, status string, p indexer.Pagination)) *Service_GetTransfers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(indexer.Pagination))
+	})
+	return _c
+}
+
+func (_c *Service_GetTransfers_Call) Return(_a0 *indexer.Page[indexer.Transfer], _a1 error) *Service_GetTransfers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetTransfers_Call) RunAndReturn(run func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *Service_GetTransfers_Call {
 	_c.Call.Return(run)
 	return _c
 }

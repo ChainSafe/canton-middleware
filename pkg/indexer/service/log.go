@@ -306,8 +306,8 @@ func (ls *logService) GetAllPendingOffers(
 	return ls.svc.GetAllPendingOffers(ctx, p)
 }
 
-func (ls *logService) GetCompletedTransfers(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) (*indexer.Page[indexer.CompletedTransfer], error) {
-	return ls.svc.GetCompletedTransfers(ctx, partyID, p)
+func (ls *logService) GetTransfers(
+	ctx context.Context, partyID, status string, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	return ls.svc.GetTransfers(ctx, partyID, status, p)
 }

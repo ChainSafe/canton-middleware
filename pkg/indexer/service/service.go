@@ -34,10 +34,11 @@ type Store interface {
 	) ([]indexer.PendingOffer, int64, error)
 	// ListAllPendingOffers returns all PENDING TransferOffers across all parties.
 	ListAllPendingOffers(ctx context.Context, p indexer.Pagination) ([]indexer.PendingOffer, int64, error)
-	// ListCompletedTransfers returns a party's settled transfers across all tokens.
-	ListCompletedTransfers(
-		ctx context.Context, partyID string, p indexer.Pagination,
-	) ([]indexer.CompletedTransfer, int64, error)
+	// ListTransfers returns a party's transfers across all tokens, optionally
+	// filtered by status ("" / "all" = no filter).
+	ListTransfers(
+		ctx context.Context, partyID, status string, p indexer.Pagination,
+	) ([]indexer.Transfer, int64, error)
 }
 
 //go:generate mockery --name Service --output mocks --outpkg mocks --filename mock_service.go --with-expecter
@@ -75,10 +76,11 @@ type Service interface {
 	) (*indexer.Page[indexer.PendingOffer], error)
 	// GetAllPendingOffers returns all PENDING TransferOffers across all parties, paginated.
 	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
-	// GetCompletedTransfers returns a party's settled transfers across all tokens, paginated.
-	GetCompletedTransfers(
-		ctx context.Context, partyID string, p indexer.Pagination,
-	) (*indexer.Page[indexer.CompletedTransfer], error)
+	// GetTransfers returns a party's transfers across all tokens, optionally
+	// filtered by status, paginated.
+	GetTransfers(
+		ctx context.Context, partyID, status string, p indexer.Pagination,
+	) (*indexer.Page[indexer.Transfer], error)
 }
 
 // NewService creates a new indexer Service backed by store.
@@ -208,12 +210,12 @@ func (s *svc) GetAllPendingOffers(
 	return &indexer.Page[indexer.PendingOffer]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
 }
 
-func (s *svc) GetCompletedTransfers(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) (*indexer.Page[indexer.CompletedTransfer], error) {
-	items, total, err := s.store.ListCompletedTransfers(ctx, partyID, p)
+func (s *svc) GetTransfers(
+	ctx context.Context, partyID, status string, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	items, total, err := s.store.ListTransfers(ctx, partyID, status, p)
 	if err != nil {
 		return nil, err
 	}
-	return &indexer.Page[indexer.CompletedTransfer]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
+	return &indexer.Page[indexer.Transfer]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
 }

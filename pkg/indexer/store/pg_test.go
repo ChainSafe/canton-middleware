@@ -823,7 +823,7 @@ func TestListOffersForParty(t *testing.T) {
 	}
 }
 
-func TestListCompletedTransfers(t *testing.T) {
+func TestListTransfers(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
 
 	// alice has: a settled DEMO TRANSFER event (she's sender), a MINT (excluded),
@@ -842,14 +842,14 @@ func TestListCompletedTransfers(t *testing.T) {
 		t.Fatalf("insert pending offer: %v", err)
 	}
 
-	got, total, err := s.ListCompletedTransfers(ctx, "alice", indexer.Pagination{Page: 1, Limit: 50})
+	got, total, err := s.ListTransfers(ctx, "alice", indexer.TransferStatusCompleted, indexer.Pagination{Page: 1, Limit: 50})
 	if err != nil {
 		t.Fatalf("ListCompletedTransfers: %v", err)
 	}
 	if total != 2 || len(got) != 2 {
 		t.Fatalf("expected 2 completed transfers (1 event + 1 accepted offer), got total=%d len=%d", total, len(got))
 	}
-	bySource := map[string]indexer.CompletedTransfer{}
+	bySource := map[string]indexer.Transfer{}
 	for _, c := range got {
 		bySource[c.Source] = c
 	}

@@ -42,7 +42,7 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
 		r.Get("/parties/{partyID}/offers", apphttp.HandleError(h.listOffers))
-		r.Get("/parties/{partyID}/completed-transfers", apphttp.HandleError(h.listCompletedTransfers))
+		r.Get("/parties/{partyID}/transfers", apphttp.HandleError(h.listTransfers))
 		r.Get("/pending-offers", apphttp.HandleError(h.listAllPendingOffers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
@@ -190,18 +190,35 @@ func (h *HTTP) listOffers(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *HTTP) listCompletedTransfers(w http.ResponseWriter, r *http.Request) error {
+func (h *HTTP) listTransfers(w http.ResponseWriter, r *http.Request) error {
 	partyID := chi.URLParam(r, "partyID")
 	p, err := parsePagination(r)
 	if err != nil {
 		return err
 	}
-	page, err := h.service.GetCompletedTransfers(r.Context(), partyID, p)
+	status, err := parseTransferStatus(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetTransfers(r.Context(), partyID, status, p)
 	if err != nil {
 		return err
 	}
 	h.writeJSON(w, page)
 	return nil
+}
+
+// parseTransferStatus reads ?status= for the transfers endpoint. Empty or "all"
+// means no filter; otherwise pending / expired / completed.
+func parseTransferStatus(r *http.Request) (string, error) {
+	switch s := r.URL.Query().Get("status"); s {
+	case "", "all":
+		return "", nil
+	case indexer.TransferStatusPending, indexer.TransferStatusExpired, indexer.TransferStatusCompleted:
+		return s, nil
+	default:
+		return "", apperrors.BadRequestError(nil, "status must be pending, expired, completed, or all")
+	}
 }
 
 // parseOfferQuery reads ?role= and ?status= into an indexer.OfferQuery.

@@ -129,11 +129,11 @@ func (c *InstrumentedClient) GetAllPendingOffers(
 	return page, err
 }
 
-func (c *InstrumentedClient) GetCompletedTransfers(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) (*indexer.Page[indexer.CompletedTransfer], error) {
-	defer c.observe(OpGetCompletedTransfers)()
-	page, err := c.inner.GetCompletedTransfers(ctx, partyID, p)
-	c.incErr(OpGetCompletedTransfers, err)
+func (c *InstrumentedClient) GetTransfers(
+	ctx context.Context, partyID, status string, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	defer c.observe(OpGetTransfers)()
+	page, err := c.inner.GetTransfers(ctx, partyID, status, p)
+	c.incErr(OpGetTransfers, err)
 	return page, err
 }

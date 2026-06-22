@@ -63,13 +63,26 @@ type PendingOffer struct {
 	IsArchived bool `json:"-"`
 }
 
-// CompletedTransfer is a settled token transfer, generalized across all tokens.
-// It unifies two on-ledger representations that never overlap:
+// Transfer status values used by ListTransfers / the /transfers endpoint.
+// A transfer is "completed" once settled; an offer that hasn't settled is
+// "pending" (or "expired" once past its executeBefore).
+const (
+	TransferStatusPending   = "pending"
+	TransferStatusExpired   = "expired"
+	TransferStatusCompleted = "completed"
+)
+
+// Transfer is a token transfer, generalized across all tokens. It unifies two
+// on-ledger representations that never overlap:
 //   - our CIP-56 tokens settle atomically and emit a TokenTransferEvent (Source "event")
-//   - external tokens (e.g. USDCx) settle via an accepted TransferOffer (Source "offer")
-type CompletedTransfer struct {
+//   - external tokens (e.g. USDCx) move via a TransferOffer (Source "offer")
+//
+// Status is derived: events are always "completed"; offers are "completed" when
+// accepted, "expired" past executeBefore, otherwise "pending".
+type Transfer struct {
 	ContractID      string    `json:"contract_id"`
 	Source          string    `json:"source"` // "event" | "offer"
+	Status          string    `json:"status"` // "pending" | "expired" | "completed"
 	InstrumentAdmin string    `json:"instrument_admin"`
 	InstrumentID    string    `json:"instrument_id"`
 	Amount          string    `json:"amount"`
