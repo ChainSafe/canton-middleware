@@ -303,7 +303,7 @@ func (c *Client) ProcessDepositAndMint(ctx context.Context, req ProcessDepositRe
 		// Diagnostic: every created contract with its package id, so a package
 		// mismatch (event under a cip56-token package the indexer's #cip56-token
 		// filter doesn't match) is visible without a ledger query.
-		c.logger.Info("ProcessDepositAndMint created contract",
+		c.logger.Debug("ProcessDepositAndMint created contract",
 			zap.String("package_id", created.TemplateId.PackageId),
 			zap.String("module", created.TemplateId.ModuleName),
 			zap.String("entity", created.TemplateId.EntityName),
