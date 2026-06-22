@@ -42,6 +42,7 @@ DRY_RUN=0
 SKIP_PORT_FORWARD=0
 LIST_TOKEN_CONFIGS=0
 LIST_HOLDINGS=0
+LIST_PACKAGES=0
 BOOTSTRAP_DEMO=0
 
 # ─── Parse flags ─────────────────────────────────────────────────────────────
@@ -66,6 +67,11 @@ Flags:
                    visible on the participant. Use to verify a mint produced
                    a real on-ledger Holding, or to inspect existing balances.
                    Skips rights check and mint.
+  --list-packages  Diagnostic: list deployed DARs (bridge/cip56/common/utility-
+                   registry/splice) with name, version and package_id. Use to
+                   compare deployed DAR versions across environments. Requires
+                   participant_admin (the prod1 OAuth user has it). Skips
+                   rights check and mint.
   --bootstrap-demo
                    One-time setup: create the DEMO CIP56Manager + TokenConfig
                    contracts on the participant under the configured issuer.
@@ -87,22 +93,23 @@ while [[ $# -gt 0 ]]; do
     --no-port-forward) SKIP_PORT_FORWARD=1; shift ;;
     --list-token-configs) LIST_TOKEN_CONFIGS=1; shift ;;
     --list-holdings) LIST_HOLDINGS=1; shift ;;
+    --list-packages) LIST_PACKAGES=1; shift ;;
     --bootstrap-demo) BOOTSTRAP_DEMO=1; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 && "$LIST_HOLDINGS" -eq 0 && "$BOOTSTRAP_DEMO" -eq 0 ]]; then
-  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs, --list-holdings, or --bootstrap-demo)" >&2
+if [[ -z "$RECIPIENT_PARTY" && "$LIST_TOKEN_CONFIGS" -eq 0 && "$LIST_HOLDINGS" -eq 0 && "$LIST_PACKAGES" -eq 0 && "$BOOTSTRAP_DEMO" -eq 0 ]]; then
+  echo "ERROR: -p <recipient-party> is required (unless --list-token-configs, --list-holdings, --list-packages, or --bootstrap-demo)" >&2
   usage >&2
   exit 2
 fi
 
 # Mutual exclusivity among modes
-mode_count=$(( LIST_TOKEN_CONFIGS + LIST_HOLDINGS + BOOTSTRAP_DEMO ))
+mode_count=$(( LIST_TOKEN_CONFIGS + LIST_HOLDINGS + LIST_PACKAGES + BOOTSTRAP_DEMO ))
 if [[ $mode_count -gt 1 ]]; then
-  echo "ERROR: --list-token-configs, --list-holdings, and --bootstrap-demo are mutually exclusive" >&2
+  echo "ERROR: --list-token-configs, --list-holdings, --list-packages, and --bootstrap-demo are mutually exclusive" >&2
   exit 2
 fi
 
@@ -277,6 +284,19 @@ if [[ "$LIST_HOLDINGS" -eq 1 ]]; then
   (
     cd "$REPO_ROOT"
     go run scripts/remote/list-cip56-holdings.go -config "$TMP_CFG"
+  )
+  exit $?
+fi
+
+# ─── Diagnostic short-circuit: --list-packages ───────────────────────────────
+if [[ "$LIST_PACKAGES" -eq 1 ]]; then
+  echo ""
+  echo ">>> Listing deployed DARs (bridge/cip56/common/utility-registry/splice) on the participant..."
+  (
+    cd "$REPO_ROOT"
+    go run scripts/remote/list-packages.go \
+      -config "$TMP_CFG" \
+      -filter "bridge,cip56,common,utility-registry,splice"
   )
   exit $?
 fi
