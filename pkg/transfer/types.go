@@ -73,6 +73,33 @@ type IncomingTransfersList struct {
 	HasMore bool               `json:"has_more"`
 }
 
+// OutgoingTransfer is a single TransferOffer the queried party sent. Mirrors
+// IncomingTransfer but adds Status (pending/expired/accepted) and ExpiresAt so
+// callers can track an outbound offer through its lifecycle.
+type OutgoingTransfer struct {
+	ContractID      string `json:"contract_id"`
+	SenderPartyID   string `json:"sender_party_id"`
+	ReceiverPartyID string `json:"receiver_party_id"`
+	Amount          string `json:"amount"`
+	InstrumentAdmin string `json:"instrument_admin"`
+	InstrumentID    string `json:"instrument_id"`
+	Status          string `json:"status"`
+	ExpiresAt       string `json:"expires_at,omitempty"` // RFC3339; omitted when the offer never expires
+	Symbol          string `json:"symbol,omitempty"`
+	Decimals        int    `json:"decimals,omitempty"`
+	Name            string `json:"name,omitempty"`
+	ContractAddress string `json:"contract_address,omitempty"`
+}
+
+// OutgoingTransfersList is the HTTP response body for GET /api/v2/transfer/outgoing.
+type OutgoingTransfersList struct {
+	Items   []OutgoingTransfer `json:"items"`
+	Total   int64              `json:"total"`
+	Page    int                `json:"page"`
+	Limit   int                `json:"limit"`
+	HasMore bool               `json:"has_more"`
+}
+
 // PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.
 type PrepareAcceptRequest struct {
 	InstrumentAdmin string `json:"instrument_admin"` // Canton party ID of the instrument admin

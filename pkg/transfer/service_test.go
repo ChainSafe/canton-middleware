@@ -756,3 +756,57 @@ func TestTransferService_ExecuteAccept_DelegatesToExecute(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "completed", resp.Status)
 }
+
+// --- ListOutgoing tests ---
+
+func TestTransferService_ListOutgoing_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	expires := time.Now().Add(time.Hour).UTC()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewIndexerReader(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID,
+		indexer.OfferQuery{Role: indexer.OfferRoleSender, Status: indexer.OfferStatusPending}, page).
+		Return(&indexer.Page[indexer.PendingOffer]{
+			Items: []indexer.PendingOffer{
+				{
+					ContractID:      "out-1",
+					Status:          indexer.OfferStatusPending,
+					SenderPartyID:   sender.CantonPartyID,
+					ReceiverPartyID: "party::receiverXXXXXXXXXXXXXXXXXXXXX",
+					Amount:          "7.5",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "DEMO",
+					ExpiresAt:       &expires,
+				},
+			},
+			Total: 1, Page: 1, Limit: 50,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListOutgoing(ctx, sender.EVMAddress, indexer.OfferStatusPending, page)
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, "out-1", resp.Items[0].ContractID)
+	assert.Equal(t, "PENDING", resp.Items[0].Status)
+	assert.NotEmpty(t, resp.Items[0].ExpiresAt)
+	// Counterparty (receiver) is truncated; instrument metadata enriched from config.
+	assert.Contains(t, resp.Items[0].ReceiverPartyID, "…")
+	assert.Equal(t, "DEMO", resp.Items[0].Symbol)
+	assert.Equal(t, 18, resp.Items[0].Decimals)
+	assert.False(t, resp.HasMore)
+}
+
+func TestTransferService_ListOutgoing_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
+	_, err := svc.ListOutgoing(ctx, senderUser().EVMAddress, "", indexer.Pagination{Page: 1, Limit: 50})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}

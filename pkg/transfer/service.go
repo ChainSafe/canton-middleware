@@ -62,6 +62,10 @@ type Service interface {
 	// query any address's pending offers; the response is intentionally minimized
 	// (party IDs truncated) to keep that from leaking counterparties.
 	ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error)
+	// ListOutgoing returns one page of the user's outbound TransferOffers filtered
+	// by status (pending / expired / accepted / all). Like ListIncoming it is
+	// unauthenticated and truncates party IDs.
+	ListOutgoing(ctx context.Context, evmAddr string, status indexer.OfferStatus, p indexer.Pagination) (*OutgoingTransfersList, error)
 	// PrepareAccept builds a Canton transaction for accepting an inbound offer.
 	PrepareAccept(
 		ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
@@ -372,6 +376,59 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 		Page:    p.Page,
 		Limit:   p.Limit,
 		HasMore: hasMore,
+	}, nil
+}
+
+// ListOutgoing returns one page of the user's outbound TransferOffers filtered
+// by status. Data comes from the indexer (role=sender); party IDs are truncated
+// like ListIncoming since the endpoint is unauthenticated.
+func (s *TransferService) ListOutgoing(
+	ctx context.Context, evmAddr string, status indexer.OfferStatus, p indexer.Pagination,
+) (*OutgoingTransfersList, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.BadRequestError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+
+	result, err := s.offerLister.GetOffersForParty(ctx, u.CantonPartyID,
+		indexer.OfferQuery{Role: indexer.OfferRoleSender, Status: status}, p)
+	if err != nil {
+		return nil, fmt.Errorf("list outgoing offers: %w", err)
+	}
+
+	items := make([]OutgoingTransfer, 0, len(result.Items))
+	for i := range result.Items {
+		o := &result.Items[i]
+		item := OutgoingTransfer{
+			ContractID:      o.ContractID,
+			SenderPartyID:   truncatePartyID(o.SenderPartyID),
+			ReceiverPartyID: truncatePartyID(o.ReceiverPartyID),
+			Amount:          o.Amount,
+			InstrumentAdmin: o.InstrumentAdmin,
+			InstrumentID:    o.InstrumentID,
+			Status:          string(o.Status),
+		}
+		if o.ExpiresAt != nil {
+			item.ExpiresAt = o.ExpiresAt.Format(time.RFC3339)
+		}
+		if meta, ok := s.tokensByInstrument[instrumentKey{id: o.InstrumentID}]; ok {
+			item.Symbol = meta.symbol
+			item.Decimals = meta.decimals
+			item.Name = meta.name
+			item.ContractAddress = meta.contractAddress
+		}
+		items = append(items, item)
+	}
+
+	return &OutgoingTransfersList{
+		Items:   items,
+		Total:   result.Total,
+		Page:    p.Page,
+		Limit:   p.Limit,
+		HasMore: int64(p.Page*p.Limit) < result.Total,
 	}, nil
 }
 
