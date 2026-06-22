@@ -101,17 +101,19 @@ type OutgoingTransfersList struct {
 }
 
 // CompletedTransfer is a single settled transfer in the unified history view,
-// generalized across all tokens (our CIP-56 tokens and external ones like USDCx).
+// generalized across all tokens (our CIP-56 tokens and external ones like USDCx)
+// and both transfer shapes (direct CIP-56 and offer-based).
 type CompletedTransfer struct {
 	ContractID      string `json:"contract_id"`
-	Source          string `json:"source"` // "event" | "offer"
+	Kind            string `json:"kind"`   // "direct" | "offer"
+	Status          string `json:"status"` // "completed"
 	FromPartyID     string `json:"from_party_id"`
 	ToPartyID       string `json:"to_party_id"`
 	Amount          string `json:"amount"`
 	InstrumentAdmin string `json:"instrument_admin"`
 	InstrumentID    string `json:"instrument_id"`
 	Timestamp       string `json:"timestamp"`       // RFC3339
-	TxID            string `json:"tx_id,omitempty"` // ledger update id (events only)
+	TxID            string `json:"tx_id,omitempty"` // ledger update id
 	Symbol          string `json:"symbol,omitempty"`
 	Decimals        int    `json:"decimals,omitempty"`
 	Name            string `json:"name,omitempty"`

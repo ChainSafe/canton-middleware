@@ -512,23 +512,25 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 		longReceiver = "party::receiverXXXXXXXXXXXXXXXXXXXXX"
 	)
 	reqPagination := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, indexer.OfferQuery{Role: indexer.OfferRoleReceiver, Status: indexer.OfferStatusPending}, reqPagination).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferQuery{Role: indexer.TransferRoleReceiver, Status: indexer.TransferStatusPending}, reqPagination).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
 				{
 					ContractID:      "cid-1",
-					Status:          indexer.OfferStatusPending,
-					SenderPartyID:   longSender,
-					ReceiverPartyID: longReceiver,
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     longSender,
+					ToPartyID:       longReceiver,
 					Amount:          "10.0",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "DEMO",
 				},
 				{
 					ContractID:      "cid-2",
-					Status:          indexer.OfferStatusPending,
-					SenderPartyID:   "party::sender-bob",
-					ReceiverPartyID: longReceiver,
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     "party::sender-bob",
+					ToPartyID:       longReceiver,
 					Amount:          "5.5",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "UNKNOWN",
@@ -582,11 +584,11 @@ func TestTransferService_ListIncoming_HasMore(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	offers := mocks.NewIndexerReader(t)
-	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, indexer.OfferQuery{Role: indexer.OfferRoleReceiver, Status: indexer.OfferStatusPending}, indexer.Pagination{Page: 1, Limit: 2}).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{
-				{ContractID: "cid-1", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
-				{ContractID: "cid-2", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferQuery{Role: indexer.TransferRoleReceiver, Status: indexer.TransferStatusPending}, indexer.Pagination{Page: 1, Limit: 2}).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
+				{ContractID: "cid-1", Status: indexer.TransferStatusPending, InstrumentID: "DEMO"},
+				{ContractID: "cid-2", Status: indexer.TransferStatusPending, InstrumentID: "DEMO"},
 			},
 			Total: 5,
 			Page:  1,
@@ -613,9 +615,9 @@ func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	offers := mocks.NewIndexerReader(t)
-	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, mock.Anything, mock.Anything).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{},
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, mock.Anything, mock.Anything).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{},
 			Total: 0,
 			Page:  1,
 			Limit: 200,
@@ -769,15 +771,16 @@ func TestTransferService_ListOutgoing_Success(t *testing.T) {
 
 	offers := mocks.NewIndexerReader(t)
 	page := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID,
-		indexer.OfferQuery{Role: indexer.OfferRoleSender, Status: indexer.OfferStatusPending}, page).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusPending}, page).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
 				{
 					ContractID:      "out-1",
-					Status:          indexer.OfferStatusPending,
-					SenderPartyID:   sender.CantonPartyID,
-					ReceiverPartyID: "party::receiverXXXXXXXXXXXXXXXXXXXXX",
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     sender.CantonPartyID,
+					ToPartyID:       "party::receiverXXXXXXXXXXXXXXXXXXXXX",
 					Amount:          "7.5",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "DEMO",
@@ -788,11 +791,11 @@ func TestTransferService_ListOutgoing_Success(t *testing.T) {
 		}, nil).Once()
 
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
-	resp, err := svc.ListOutgoing(ctx, sender.EVMAddress, indexer.OfferStatusPending, page)
+	resp, err := svc.ListOutgoing(ctx, sender.EVMAddress, indexer.TransferStatusPending, page)
 	require.NoError(t, err)
 	require.Len(t, resp.Items, 1)
 	assert.Equal(t, "out-1", resp.Items[0].ContractID)
-	assert.Equal(t, "PENDING", resp.Items[0].Status)
+	assert.Equal(t, "pending", resp.Items[0].Status)
 	assert.NotEmpty(t, resp.Items[0].ExpiresAt)
 	// Counterparty (receiver) is truncated; instrument metadata enriched from config.
 	assert.Contains(t, resp.Items[0].ReceiverPartyID, "…")
@@ -823,29 +826,32 @@ func TestTransferService_ListCompleted_Success(t *testing.T) {
 
 	offers := mocks.NewIndexerReader(t)
 	page := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferStatusCompleted, page).
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleAny, Status: indexer.TransferStatusCompleted}, page).
 		Return(&indexer.Page[indexer.Transfer]{
 			Items: []indexer.Transfer{
-				{ // our-token settled transfer (event)
+				{ // our-token settled transfer (direct)
 					ContractID:      "ev-1",
-					Source:          "event",
+					Kind:            indexer.TransferKindDirect,
+					Status:          indexer.TransferStatusCompleted,
 					FromPartyID:     sender.CantonPartyID,
 					ToPartyID:       "party::receiverXXXXXXXXXXXXXXXXXXXXX",
 					Amount:          "3",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "DEMO",
 					TxID:            "tx-1",
-					Timestamp:       ts,
+					CreatedAt:       ts,
 				},
-				{ // USDCx settled transfer (accepted offer)
+				{ // USDCx settled transfer (offer-based)
 					ContractID:      "of-1",
-					Source:          "offer",
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusCompleted,
 					FromPartyID:     "party::senderXXXXXXXXXXXXXXXXXXXXXXX",
 					ToPartyID:       sender.CantonPartyID,
 					Amount:          "9",
 					InstrumentAdmin: "circle::admin",
 					InstrumentID:    "USDC",
-					Timestamp:       ts,
+					CreatedAt:       ts,
 				},
 			},
 			Total: 2, Page: 1, Limit: 50,
@@ -856,12 +862,12 @@ func TestTransferService_ListCompleted_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Items, 2)
 
-	assert.Equal(t, "event", resp.Items[0].Source)
+	assert.Equal(t, "direct", resp.Items[0].Kind)
 	assert.Equal(t, "tx-1", resp.Items[0].TxID)
 	assert.Equal(t, "DEMO", resp.Items[0].Symbol) // enriched from config
 	assert.Contains(t, resp.Items[0].ToPartyID, "…")
 
-	assert.Equal(t, "offer", resp.Items[1].Source)
+	assert.Equal(t, "offer", resp.Items[1].Kind)
 	assert.Empty(t, resp.Items[1].TxID)   // offers carry no tx id
 	assert.Empty(t, resp.Items[1].Symbol) // USDC not in test config -> not enriched
 	assert.Equal(t, "USDC", resp.Items[1].InstrumentID)

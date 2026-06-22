@@ -269,81 +269,86 @@ func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer
 	}, true, nil
 }
 
-// ─── pending offer methods ───────────────────────────────────────────────────
+// ─── transfer methods ────────────────────────────────────────────────────────
 
-// InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.
-func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	dao := toPendingOfferDao(offer)
-	dao.Status = string(indexer.OfferStatusPending)
+// InsertTransfer records a new offer-based transfer (Kind "offer") with status
+// "pending". Idempotent by ContractID.
+func (s *PGStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
+	dao := toTransferDao(t)
+	dao.Kind = indexer.TransferKindOffer
+	dao.Status = indexer.TransferStatusPending
 	_, err := s.db.NewInsert().
 		Model(dao).
 		On("CONFLICT (contract_id) DO NOTHING").
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("insert pending offer: %w", err)
+		return fmt.Errorf("insert transfer: %w", err)
 	}
 	return nil
 }
 
-// GetPendingOffer returns the stored TransferOffer by ContractID, or nil when not found.
-func (s *PGStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
-	dao := new(PendingOfferDao)
-	err := s.db.NewSelect().Model(dao).Where("contract_id = ?", contractID).Limit(1).Scan(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get pending offer: %w", err)
-	}
-	offer := fromPendingOfferDao(dao)
-	return &offer, nil
-}
-
-// MarkOfferAccepted sets a TransferOffer's status to ACCEPTED. No-op when not found.
-func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+// CompleteTransfer sets a transfer's status to "completed" (offer archived).
+// No-op when not found.
+func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error {
 	_, err := s.db.NewUpdate().
-		Model((*PendingOfferDao)(nil)).
-		Set("status = ?", string(indexer.OfferStatusAccepted)).
+		Model((*TransferDao)(nil)).
+		Set("status = ?", indexer.TransferStatusCompleted).
 		Where("contract_id = ?", contractID).
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("mark offer accepted: %w", err)
+		return fmt.Errorf("complete transfer: %w", err)
 	}
 	return nil
 }
 
-// ListOffersForParty returns a party's TransferOffers filtered by role
-// (receiver/sender/any) and status (pending/accepted/expired/all), ordered by
-// ledger_offset ASC, with pagination. EXPIRED is derived from a still-PENDING
-// row whose expires_at is in the past; matching rows are returned with their
-// Status set to EXPIRED regardless of the requested filter.
-func (s *PGStore) ListOffersForParty(
-	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
+// UpsertDirectTransfer records a settled direct (CIP-56) transfer. Idempotent by
+// ContractID — replayed TRANSFER events are no-ops.
+func (s *PGStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
+	dao := toTransferDao(t)
+	dao.Kind = indexer.TransferKindDirect
+	dao.Status = indexer.TransferStatusCompleted
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("upsert direct transfer: %w", err)
+	}
+	return nil
+}
+
+// ListTransfers returns a party's transfers from indexer_transfers, newest first,
+// with native pagination. Role selects the matching side; status filters the
+// lifecycle. "expired" is derived (pending row whose expires_at is in the past) —
+// after scanning, rows still stored "pending" but past their expiry are surfaced
+// with Status "expired".
+func (s *PGStore) ListTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
 	now := time.Now().UTC()
-	var daos []PendingOfferDao
+	var daos []TransferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		q := db.NewSelect().Model(&daos).OrderExpr("ledger_offset ASC")
+		q := db.NewSelect().Model(&daos).OrderExpr("created_at DESC")
 
 		switch query.Role {
-		case indexer.OfferRoleSender:
-			q = q.Where("sender_party_id = ?", partyID)
-		case indexer.OfferRoleAny:
-			q = q.Where("(sender_party_id = ? OR receiver_party_id = ?)", partyID, partyID)
-		default: // receiver (preserves the original incoming-only behavior)
-			q = q.Where("receiver_party_id = ?", partyID)
+		case indexer.TransferRoleSender:
+			q = q.Where("from_party_id = ?", partyID)
+		case indexer.TransferRoleAny:
+			q = q.Where("(from_party_id = ? OR to_party_id = ?)", partyID, partyID)
+		default: // receiver
+			q = q.Where("to_party_id = ?", partyID)
 		}
 
 		switch query.Status {
-		case indexer.OfferStatusPending:
-			q = q.Where("status = ?", string(indexer.OfferStatusPending)).
+		case indexer.TransferStatusPending:
+			q = q.Where("status = ?", indexer.TransferStatusPending).
 				Where("(expires_at IS NULL OR expires_at > ?)", now)
-		case indexer.OfferStatusExpired:
-			q = q.Where("status = ?", string(indexer.OfferStatusPending)).
+		case indexer.TransferStatusExpired:
+			q = q.Where("status = ?", indexer.TransferStatusPending).
 				Where("expires_at IS NOT NULL AND expires_at <= ?", now)
-		case indexer.OfferStatusAccepted:
-			q = q.Where("status = ?", string(indexer.OfferStatusAccepted))
+		case indexer.TransferStatusCompleted:
+			q = q.Where("status = ?", indexer.TransferStatusCompleted)
 		default: // "" = all statuses, no filter
 		}
 
@@ -354,134 +359,35 @@ func (s *PGStore) ListOffersForParty(
 		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list offers: %w", err)
+		return nil, 0, fmt.Errorf("list transfers: %w", err)
 	}
-	offers := make([]indexer.PendingOffer, len(daos))
+	out := make([]indexer.Transfer, len(daos))
 	for i := range daos {
-		offers[i] = fromPendingOfferDao(&daos[i])
-		// Surface the derived EXPIRED status so callers see it on any filter.
-		if offers[i].Status == indexer.OfferStatusPending &&
-			offers[i].ExpiresAt != nil && !offers[i].ExpiresAt.After(now) {
-			offers[i].Status = indexer.OfferStatusExpired
+		out[i] = fromTransferDao(&daos[i])
+		// Surface the derived "expired" status so callers see it on any filter.
+		if out[i].Status == indexer.TransferStatusPending &&
+			out[i].ExpiresAt != nil && !out[i].ExpiresAt.After(now) {
+			out[i].Status = indexer.TransferStatusExpired
 		}
-	}
-	return offers, int64(total), nil
-}
-
-// ListTransfers returns a party's transfers, newest first, with pagination.
-// Each status maps to exactly one table, so pagination is always native SQL:
-//   - completed (default): settled transfers from indexer_events (TRANSFER rows),
-//     which now covers all tokens — our CIP-56 tokens emit events directly, and
-//     settled external offers (USDCx) are recorded there as source="offer" events.
-//   - pending / expired: in-flight TransferOffers from indexer_pending_offers.
-func (s *PGStore) ListTransfers(
-	ctx context.Context, partyID, status string, p indexer.Pagination,
-) ([]indexer.Transfer, int64, error) {
-	switch status {
-	case indexer.TransferStatusPending, indexer.TransferStatusExpired:
-		offerStatus := indexer.OfferStatusPending
-		if status == indexer.TransferStatusExpired {
-			offerStatus = indexer.OfferStatusExpired
-		}
-		offers, total, err := s.ListOffersForParty(
-			ctx, partyID, indexer.OfferQuery{Role: indexer.OfferRoleAny, Status: offerStatus}, p)
-		if err != nil {
-			return nil, 0, err
-		}
-		out := make([]indexer.Transfer, len(offers))
-		for i := range offers {
-			out[i] = transferFromOffer(&offers[i])
-		}
-		return out, total, nil
-	default: // "" / "all" / "completed" — settled transfers from the events log
-		return s.listCompletedTransfers(ctx, partyID, p)
-	}
-}
-
-func (s *PGStore) listCompletedTransfers(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) ([]indexer.Transfer, int64, error) {
-	var events []EventDao
-	var total int
-	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		q := db.NewSelect().Model(&events).
-			Where("event_type = ?", string(indexer.EventTransfer)).
-			Where("(from_party_id = ? OR to_party_id = ?)", partyID, partyID).
-			OrderExpr("effective_time DESC")
-		var err error
-		if total, err = q.Count(ctx); err != nil {
-			return fmt.Errorf("count: %w", err)
-		}
-		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("list completed transfers: %w", err)
-	}
-	out := make([]indexer.Transfer, len(events))
-	for i := range events {
-		out[i] = transferFromEventDao(&events[i])
 	}
 	return out, int64(total), nil
 }
 
-func transferFromEventDao(d *EventDao) indexer.Transfer {
-	from, to := "", ""
-	if d.FromPartyID != nil {
-		from = *d.FromPartyID
-	}
-	if d.ToPartyID != nil {
-		to = *d.ToPartyID
-	}
-	source := d.Source
-	if source == "" {
-		source = indexer.EventSourceCIP56
-	}
-	return indexer.Transfer{
-		ContractID:      d.ContractID,
-		Source:          source,
-		Status:          indexer.TransferStatusCompleted,
-		InstrumentAdmin: d.InstrumentAdmin,
-		InstrumentID:    d.InstrumentID,
-		Amount:          d.Amount,
-		FromPartyID:     from,
-		ToPartyID:       to,
-		TxID:            d.TxID,
-		Timestamp:       d.EffectiveTime,
-	}
-}
-
-func transferFromOffer(o *indexer.PendingOffer) indexer.Transfer {
-	status := indexer.TransferStatusPending
-	switch o.Status {
-	case indexer.OfferStatusExpired:
-		status = indexer.TransferStatusExpired
-	case indexer.OfferStatusAccepted:
-		status = indexer.TransferStatusCompleted
-	}
-	return indexer.Transfer{
-		ContractID:      o.ContractID,
-		Source:          indexer.EventSourceOffer,
-		Status:          status,
-		InstrumentAdmin: o.InstrumentAdmin,
-		InstrumentID:    o.InstrumentID,
-		Amount:          o.Amount,
-		FromPartyID:     o.SenderPartyID,
-		ToPartyID:       o.ReceiverPartyID,
-		Timestamp:       o.CreatedAt,
-	}
-}
-
-// ListAllPendingOffers returns all PENDING offers across all parties,
-// ordered by ledger_offset ASC, with pagination.
-func (s *PGStore) ListAllPendingOffers(
+// ListPendingTransfers returns all pending (not expired) offer-based transfers
+// across all parties, ordered by created_at DESC, with pagination. Drives the
+// custodial accept worker.
+func (s *PGStore) ListPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
-	var daos []PendingOfferDao
+) ([]indexer.Transfer, int64, error) {
+	now := time.Now().UTC()
+	var daos []TransferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
 		q := db.NewSelect().Model(&daos).
-			Where("status = ?", string(indexer.OfferStatusPending)).
-			OrderExpr("ledger_offset ASC")
+			Where("kind = ?", indexer.TransferKindOffer).
+			Where("status = ?", indexer.TransferStatusPending).
+			Where("(expires_at IS NULL OR expires_at > ?)", now).
+			OrderExpr("created_at DESC")
 		var err error
 		if total, err = q.Count(ctx); err != nil {
 			return fmt.Errorf("count: %w", err)
@@ -489,13 +395,13 @@ func (s *PGStore) ListAllPendingOffers(
 		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list all pending offers: %w", err)
+		return nil, 0, fmt.Errorf("list pending transfers: %w", err)
 	}
-	offers := make([]indexer.PendingOffer, len(daos))
+	out := make([]indexer.Transfer, len(daos))
 	for i := range daos {
-		offers[i] = fromPendingOfferDao(&daos[i])
+		out[i] = fromTransferDao(&daos[i])
 	}
-	return offers, int64(total), nil
+	return out, int64(total), nil
 }
 
 // ─── service.Store read-path methods ─────────────────────────────────────────

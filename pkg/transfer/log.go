@@ -155,14 +155,14 @@ func (ls *logService) ListIncoming(ctx context.Context, evmAddr string, p indexe
 
 // ListOutgoing wraps the service method with logging.
 func (ls *logService) ListOutgoing(
-	ctx context.Context, evmAddr string, status indexer.OfferStatus, p indexer.Pagination,
+	ctx context.Context, evmAddr string, status string, p indexer.Pagination,
 ) (resp *OutgoingTransfersList, err error) {
 	start := time.Now()
 	ls.logger.Info("ListOutgoing started",
 		zap.String("service", transferServiceName),
 		zap.String("method", "ListOutgoing"),
 		zap.String("evm_addr", evmAddr),
-		zap.String("status", string(status)),
+		zap.String("status", status),
 		zap.Int("page", p.Page),
 		zap.Int("limit", p.Limit),
 	)

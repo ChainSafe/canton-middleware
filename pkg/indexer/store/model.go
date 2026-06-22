@@ -19,7 +19,6 @@ type EventDao struct {
 	InstrumentAdmin string    `bun:",notnull,type:varchar(255)"`
 	Issuer          string    `bun:",notnull,type:varchar(255)"`
 	EventType       string    `bun:",notnull,type:varchar(20)"`
-	Source          string    `bun:",notnull,type:varchar(20),default:'cip56'"` // 'cip56' (atomic, drives balances) | 'offer' (history-only)
 	Amount          string    `bun:",notnull,type:text"`
 	FromPartyID     *string   `bun:",type:varchar(255)"`
 	ToPartyID       *string   `bun:",type:varchar(255)"`
@@ -77,21 +76,27 @@ type HoldingDao struct {
 	LedgerOffset    int64  `bun:",notnull"`
 }
 
-// PendingOfferDao maps to the 'indexer_pending_offers' table.
-// Rows are written on TransferOffer CREATED events and updated (status→ACCEPTED)
-// on ARCHIVED events. Rows are never deleted — the table is a full audit log.
-type PendingOfferDao struct {
-	bun.BaseModel   `bun:"table:indexer_pending_offers"`
+// TransferDao maps to the 'indexer_transfers' table — the generalized transfer
+// log holding both direct (atomic CIP-56) and offer (2-step) transfers with a
+// mutable status lifecycle. Rows are never deleted; the table is a full history.
+//   - direct: written on a CIP-56 TRANSFER event, always Status "completed".
+//   - offer:  written "pending" on a TransferOffer CREATE, set "completed" on its
+//     ARCHIVE. ExpiresAt carries the offer's executeBefore; "expired" is derived
+//     at read time (pending + ExpiresAt in the past) and never stored.
+type TransferDao struct {
+	bun.BaseModel   `bun:"table:indexer_transfers"`
 	ContractID      string     `bun:",pk,type:varchar(255)"`
-	Status          string     `bun:",notnull,type:varchar(20),default:'PENDING'"`
-	ReceiverPartyID string     `bun:",notnull,type:varchar(255)"`
-	SenderPartyID   string     `bun:",notnull,type:varchar(255)"`
+	Kind            string     `bun:",notnull,type:varchar(20)"`
+	Status          string     `bun:",notnull,type:varchar(20)"`
+	FromPartyID     string     `bun:",notnull,type:varchar(255)"`
+	ToPartyID       string     `bun:",notnull,type:varchar(255)"`
 	InstrumentAdmin string     `bun:",notnull,type:varchar(255)"`
 	InstrumentID    string     `bun:",notnull,type:varchar(255)"`
 	Amount          string     `bun:",notnull,type:text"`
+	ExpiresAt       *time.Time `bun:",nullzero"` // offer executeBefore; NULL for direct / never-expires
+	TxID            string     `bun:",type:varchar(255)"`
 	LedgerOffset    int64      `bun:",notnull"`
 	CreatedAt       time.Time  `bun:",notnull"`
-	ExpiresAt       *time.Time `bun:",nullzero"` // offer executeBefore; NULL = never expires
 }
 
 func toEventDao(e *indexer.ParsedEvent) *EventDao {
@@ -101,7 +106,6 @@ func toEventDao(e *indexer.ParsedEvent) *EventDao {
 		InstrumentAdmin: e.InstrumentAdmin,
 		Issuer:          e.Issuer,
 		EventType:       string(e.EventType),
-		Source:          e.Source,
 		Amount:          e.Amount,
 		FromPartyID:     e.FromPartyID,
 		ToPartyID:       e.ToPartyID,
@@ -122,7 +126,6 @@ func fromEventDao(d *EventDao) *indexer.ParsedEvent {
 		InstrumentAdmin: d.InstrumentAdmin,
 		Issuer:          d.Issuer,
 		EventType:       indexer.EventType(d.EventType),
-		Source:          d.Source,
 		Amount:          d.Amount,
 		FromPartyID:     d.FromPartyID,
 		ToPartyID:       d.ToPartyID,
@@ -157,32 +160,36 @@ func fromBalanceDao(d *BalanceDao) *indexer.Balance {
 	}
 }
 
-func toPendingOfferDao(o *indexer.PendingOffer) *PendingOfferDao {
-	return &PendingOfferDao{
-		ContractID:      o.ContractID,
-		Status:          string(o.Status),
-		ReceiverPartyID: o.ReceiverPartyID,
-		SenderPartyID:   o.SenderPartyID,
-		InstrumentAdmin: o.InstrumentAdmin,
-		InstrumentID:    o.InstrumentID,
-		Amount:          o.Amount,
-		LedgerOffset:    o.LedgerOffset,
-		CreatedAt:       o.CreatedAt,
-		ExpiresAt:       o.ExpiresAt,
+func toTransferDao(t *indexer.Transfer) *TransferDao {
+	return &TransferDao{
+		ContractID:      t.ContractID,
+		Kind:            t.Kind,
+		Status:          t.Status,
+		FromPartyID:     t.FromPartyID,
+		ToPartyID:       t.ToPartyID,
+		InstrumentAdmin: t.InstrumentAdmin,
+		InstrumentID:    t.InstrumentID,
+		Amount:          t.Amount,
+		ExpiresAt:       t.ExpiresAt,
+		TxID:            t.TxID,
+		LedgerOffset:    t.LedgerOffset,
+		CreatedAt:       t.CreatedAt,
 	}
 }
 
-func fromPendingOfferDao(d *PendingOfferDao) indexer.PendingOffer {
-	return indexer.PendingOffer{
+func fromTransferDao(d *TransferDao) indexer.Transfer {
+	return indexer.Transfer{
 		ContractID:      d.ContractID,
-		Status:          indexer.OfferStatus(d.Status),
-		ReceiverPartyID: d.ReceiverPartyID,
-		SenderPartyID:   d.SenderPartyID,
+		Kind:            d.Kind,
+		Status:          d.Status,
+		FromPartyID:     d.FromPartyID,
+		ToPartyID:       d.ToPartyID,
 		InstrumentAdmin: d.InstrumentAdmin,
 		InstrumentID:    d.InstrumentID,
 		Amount:          d.Amount,
+		ExpiresAt:       d.ExpiresAt,
+		TxID:            d.TxID,
 		LedgerOffset:    d.LedgerOffset,
 		CreatedAt:       d.CreatedAt,
-		ExpiresAt:       d.ExpiresAt,
 	}
 }

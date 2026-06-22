@@ -22,70 +22,9 @@ func (_m *IndexerReader) EXPECT() *IndexerReader_Expecter {
 	return &IndexerReader_Expecter{mock: &_m.Mock}
 }
 
-// GetOffersForParty provides a mock function with given fields: ctx, partyID, query, p
-func (_m *IndexerReader) GetOffersForParty(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error) {
+// GetTransfers provides a mock function with given fields: ctx, partyID, query, p
+func (_m *IndexerReader) GetTransfers(ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
 	ret := _m.Called(ctx, partyID, query, p)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetOffersForParty")
-	}
-
-	var r0 *indexer.Page[indexer.PendingOffer]
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)); ok {
-		return rf(ctx, partyID, query, p)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) *indexer.Page[indexer.PendingOffer]); ok {
-		r0 = rf(ctx, partyID, query, p)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*indexer.Page[indexer.PendingOffer])
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, query, p)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// IndexerReader_GetOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOffersForParty'
-type IndexerReader_GetOffersForParty_Call struct {
-	*mock.Call
-}
-
-// GetOffersForParty is a helper method to define mock.On call
-//   - ctx context.Context
-//   - partyID string
-//   - query indexer.OfferQuery
-//   - p indexer.Pagination
-func (_e *IndexerReader_Expecter) GetOffersForParty(ctx interface{}, partyID interface{}, query interface{}, p interface{}) *IndexerReader_GetOffersForParty_Call {
-	return &IndexerReader_GetOffersForParty_Call{Call: _e.mock.On("GetOffersForParty", ctx, partyID, query, p)}
-}
-
-func (_c *IndexerReader_GetOffersForParty_Call) Run(run func(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination)) *IndexerReader_GetOffersForParty_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(indexer.OfferQuery), args[3].(indexer.Pagination))
-	})
-	return _c
-}
-
-func (_c *IndexerReader_GetOffersForParty_Call) Return(_a0 *indexer.Page[indexer.PendingOffer], _a1 error) *IndexerReader_GetOffersForParty_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *IndexerReader_GetOffersForParty_Call) RunAndReturn(run func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)) *IndexerReader_GetOffersForParty_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetTransfers provides a mock function with given fields: ctx, partyID, status, p
-func (_m *IndexerReader) GetTransfers(ctx context.Context, partyID string, status string, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
-	ret := _m.Called(ctx, partyID, status, p)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetTransfers")
@@ -93,19 +32,19 @@ func (_m *IndexerReader) GetTransfers(ctx context.Context, partyID string, statu
 
 	var r0 *indexer.Page[indexer.Transfer]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
-		return rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
+		return rf(ctx, partyID, query, p)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
-		r0 = rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
+		r0 = rf(ctx, partyID, query, p)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*indexer.Page[indexer.Transfer])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) error); ok {
+		r1 = rf(ctx, partyID, query, p)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -121,15 +60,15 @@ type IndexerReader_GetTransfers_Call struct {
 // GetTransfers is a helper method to define mock.On call
 //   - ctx context.Context
 //   - partyID string
-//   - status string
+//   - query indexer.TransferQuery
 //   - p indexer.Pagination
-func (_e *IndexerReader_Expecter) GetTransfers(ctx interface{}, partyID interface{}, status interface{}, p interface{}) *IndexerReader_GetTransfers_Call {
-	return &IndexerReader_GetTransfers_Call{Call: _e.mock.On("GetTransfers", ctx, partyID, status, p)}
+func (_e *IndexerReader_Expecter) GetTransfers(ctx interface{}, partyID interface{}, query interface{}, p interface{}) *IndexerReader_GetTransfers_Call {
+	return &IndexerReader_GetTransfers_Call{Call: _e.mock.On("GetTransfers", ctx, partyID, query, p)}
 }
 
-func (_c *IndexerReader_GetTransfers_Call) Run(run func(ctx context.Context, partyID string, status string, p indexer.Pagination)) *IndexerReader_GetTransfers_Call {
+func (_c *IndexerReader_GetTransfers_Call) Run(run func(ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination)) *IndexerReader_GetTransfers_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(indexer.Pagination))
+		run(args[0].(context.Context), args[1].(string), args[2].(indexer.TransferQuery), args[3].(indexer.Pagination))
 	})
 	return _c
 }
@@ -139,7 +78,7 @@ func (_c *IndexerReader_GetTransfers_Call) Return(_a0 *indexer.Page[indexer.Tran
 	return _c
 }
 
-func (_c *IndexerReader_GetTransfers_Call) RunAndReturn(run func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *IndexerReader_GetTransfers_Call {
+func (_c *IndexerReader_GetTransfers_Call) RunAndReturn(run func(context.Context, string, indexer.TransferQuery, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *IndexerReader_GetTransfers_Call {
 	_c.Call.Return(run)
 	return _c
 }

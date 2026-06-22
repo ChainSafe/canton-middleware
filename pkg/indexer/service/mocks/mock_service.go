@@ -22,65 +22,6 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
-// GetAllPendingOffers provides a mock function with given fields: ctx, p
-func (_m *Service) GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error) {
-	ret := _m.Called(ctx, p)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetAllPendingOffers")
-	}
-
-	var r0 *indexer.Page[indexer.PendingOffer]
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)); ok {
-		return rf(ctx, p)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, indexer.Pagination) *indexer.Page[indexer.PendingOffer]); ok {
-		r0 = rf(ctx, p)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*indexer.Page[indexer.PendingOffer])
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, indexer.Pagination) error); ok {
-		r1 = rf(ctx, p)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Service_GetAllPendingOffers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAllPendingOffers'
-type Service_GetAllPendingOffers_Call struct {
-	*mock.Call
-}
-
-// GetAllPendingOffers is a helper method to define mock.On call
-//   - ctx context.Context
-//   - p indexer.Pagination
-func (_e *Service_Expecter) GetAllPendingOffers(ctx interface{}, p interface{}) *Service_GetAllPendingOffers_Call {
-	return &Service_GetAllPendingOffers_Call{Call: _e.mock.On("GetAllPendingOffers", ctx, p)}
-}
-
-func (_c *Service_GetAllPendingOffers_Call) Run(run func(ctx context.Context, p indexer.Pagination)) *Service_GetAllPendingOffers_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(indexer.Pagination))
-	})
-	return _c
-}
-
-func (_c *Service_GetAllPendingOffers_Call) Return(_a0 *indexer.Page[indexer.PendingOffer], _a1 error) *Service_GetAllPendingOffers_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *Service_GetAllPendingOffers_Call) RunAndReturn(run func(context.Context, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)) *Service_GetAllPendingOffers_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetBalance provides a mock function with given fields: ctx, partyID, admin, id
 func (_m *Service) GetBalance(ctx context.Context, partyID string, admin string, id string) (*indexer.Balance, error) {
 	ret := _m.Called(ctx, partyID, admin, id)
@@ -201,29 +142,29 @@ func (_c *Service_GetEvent_Call) RunAndReturn(run func(context.Context, string) 
 	return _c
 }
 
-// GetOffersForParty provides a mock function with given fields: ctx, partyID, query, p
-func (_m *Service) GetOffersForParty(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error) {
-	ret := _m.Called(ctx, partyID, query, p)
+// GetPendingTransfers provides a mock function with given fields: ctx, p
+func (_m *Service) GetPendingTransfers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
+	ret := _m.Called(ctx, p)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetOffersForParty")
+		panic("no return value specified for GetPendingTransfers")
 	}
 
-	var r0 *indexer.Page[indexer.PendingOffer]
+	var r0 *indexer.Page[indexer.Transfer]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)); ok {
-		return rf(ctx, partyID, query, p)
+	if rf, ok := ret.Get(0).(func(context.Context, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
+		return rf(ctx, p)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) *indexer.Page[indexer.PendingOffer]); ok {
-		r0 = rf(ctx, partyID, query, p)
+	if rf, ok := ret.Get(0).(func(context.Context, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
+		r0 = rf(ctx, p)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*indexer.Page[indexer.PendingOffer])
+			r0 = ret.Get(0).(*indexer.Page[indexer.Transfer])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, query, p)
+	if rf, ok := ret.Get(1).(func(context.Context, indexer.Pagination) error); ok {
+		r1 = rf(ctx, p)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -231,33 +172,31 @@ func (_m *Service) GetOffersForParty(ctx context.Context, partyID string, query 
 	return r0, r1
 }
 
-// Service_GetOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOffersForParty'
-type Service_GetOffersForParty_Call struct {
+// Service_GetPendingTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPendingTransfers'
+type Service_GetPendingTransfers_Call struct {
 	*mock.Call
 }
 
-// GetOffersForParty is a helper method to define mock.On call
+// GetPendingTransfers is a helper method to define mock.On call
 //   - ctx context.Context
-//   - partyID string
-//   - query indexer.OfferQuery
 //   - p indexer.Pagination
-func (_e *Service_Expecter) GetOffersForParty(ctx interface{}, partyID interface{}, query interface{}, p interface{}) *Service_GetOffersForParty_Call {
-	return &Service_GetOffersForParty_Call{Call: _e.mock.On("GetOffersForParty", ctx, partyID, query, p)}
+func (_e *Service_Expecter) GetPendingTransfers(ctx interface{}, p interface{}) *Service_GetPendingTransfers_Call {
+	return &Service_GetPendingTransfers_Call{Call: _e.mock.On("GetPendingTransfers", ctx, p)}
 }
 
-func (_c *Service_GetOffersForParty_Call) Run(run func(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination)) *Service_GetOffersForParty_Call {
+func (_c *Service_GetPendingTransfers_Call) Run(run func(ctx context.Context, p indexer.Pagination)) *Service_GetPendingTransfers_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(indexer.OfferQuery), args[3].(indexer.Pagination))
+		run(args[0].(context.Context), args[1].(indexer.Pagination))
 	})
 	return _c
 }
 
-func (_c *Service_GetOffersForParty_Call) Return(_a0 *indexer.Page[indexer.PendingOffer], _a1 error) *Service_GetOffersForParty_Call {
+func (_c *Service_GetPendingTransfers_Call) Return(_a0 *indexer.Page[indexer.Transfer], _a1 error) *Service_GetPendingTransfers_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Service_GetOffersForParty_Call) RunAndReturn(run func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)) *Service_GetOffersForParty_Call {
+func (_c *Service_GetPendingTransfers_Call) RunAndReturn(run func(context.Context, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *Service_GetPendingTransfers_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -322,9 +261,9 @@ func (_c *Service_GetToken_Call) RunAndReturn(run func(context.Context, string, 
 	return _c
 }
 
-// GetTransfers provides a mock function with given fields: ctx, partyID, status, p
-func (_m *Service) GetTransfers(ctx context.Context, partyID string, status string, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
-	ret := _m.Called(ctx, partyID, status, p)
+// GetTransfers provides a mock function with given fields: ctx, partyID, query, p
+func (_m *Service) GetTransfers(ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
+	ret := _m.Called(ctx, partyID, query, p)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetTransfers")
@@ -332,19 +271,19 @@ func (_m *Service) GetTransfers(ctx context.Context, partyID string, status stri
 
 	var r0 *indexer.Page[indexer.Transfer]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
-		return rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)); ok {
+		return rf(ctx, partyID, query, p)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
-		r0 = rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) *indexer.Page[indexer.Transfer]); ok {
+		r0 = rf(ctx, partyID, query, p)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*indexer.Page[indexer.Transfer])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, status, p)
+	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.TransferQuery, indexer.Pagination) error); ok {
+		r1 = rf(ctx, partyID, query, p)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -360,15 +299,15 @@ type Service_GetTransfers_Call struct {
 // GetTransfers is a helper method to define mock.On call
 //   - ctx context.Context
 //   - partyID string
-//   - status string
+//   - query indexer.TransferQuery
 //   - p indexer.Pagination
-func (_e *Service_Expecter) GetTransfers(ctx interface{}, partyID interface{}, status interface{}, p interface{}) *Service_GetTransfers_Call {
-	return &Service_GetTransfers_Call{Call: _e.mock.On("GetTransfers", ctx, partyID, status, p)}
+func (_e *Service_Expecter) GetTransfers(ctx interface{}, partyID interface{}, query interface{}, p interface{}) *Service_GetTransfers_Call {
+	return &Service_GetTransfers_Call{Call: _e.mock.On("GetTransfers", ctx, partyID, query, p)}
 }
 
-func (_c *Service_GetTransfers_Call) Run(run func(ctx context.Context, partyID string, status string, p indexer.Pagination)) *Service_GetTransfers_Call {
+func (_c *Service_GetTransfers_Call) Run(run func(ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination)) *Service_GetTransfers_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(indexer.Pagination))
+		run(args[0].(context.Context), args[1].(string), args[2].(indexer.TransferQuery), args[3].(indexer.Pagination))
 	})
 	return _c
 }
@@ -378,7 +317,7 @@ func (_c *Service_GetTransfers_Call) Return(_a0 *indexer.Page[indexer.Transfer],
 	return _c
 }
 
-func (_c *Service_GetTransfers_Call) RunAndReturn(run func(context.Context, string, string, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *Service_GetTransfers_Call {
+func (_c *Service_GetTransfers_Call) RunAndReturn(run func(context.Context, string, indexer.TransferQuery, indexer.Pagination) (*indexer.Page[indexer.Transfer], error)) *Service_GetTransfers_Call {
 	_c.Call.Return(run)
 	return _c
 }

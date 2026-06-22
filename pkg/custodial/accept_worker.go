@@ -115,13 +115,13 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 
 	page := 1
 	for {
-		result, err := w.indexer.GetAllPendingOffers(ctx, indexer.Pagination{
+		result, err := w.indexer.GetPendingTransfers(ctx, indexer.Pagination{
 			Page:  page,
 			Limit: acceptWorkerPageLimit,
 		})
 		if err != nil {
 			w.metrics.ErrorsTotal.WithLabelValues("fetch_offers").Inc()
-			w.logger.Warn("accept worker: failed to fetch pending offers", zap.Error(err))
+			w.logger.Warn("accept worker: failed to fetch pending transfers", zap.Error(err))
 			return
 		}
 
@@ -134,30 +134,31 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 		w.metrics.OffersFetchedTotal.Add(float64(len(result.Items)))
 
 		for i := range result.Items {
-			offer := result.Items[i]
-			if !custodialParties[offer.ReceiverPartyID] {
+			transfer := result.Items[i]
+			// ToPartyID is the offer receiver — the custodial party that must accept.
+			if !custodialParties[transfer.ToPartyID] {
 				continue
 			}
 			acceptStart := time.Now()
 			err := w.cantonToken.AcceptTransferInstruction(
-				ctx, offer.ReceiverPartyID, offer.ContractID, offer.InstrumentAdmin,
+				ctx, transfer.ToPartyID, transfer.ContractID, transfer.InstrumentAdmin,
 			)
 			w.metrics.OfferAcceptDuration.Observe(time.Since(acceptStart).Seconds())
 			if err != nil {
 				w.metrics.OffersAcceptedTotal.WithLabelValues("error").Inc()
 				w.logger.Warn("accept worker: failed to accept offer",
-					zap.String("party_id", offer.ReceiverPartyID),
-					zap.String("contract_id", offer.ContractID),
+					zap.String("party_id", transfer.ToPartyID),
+					zap.String("contract_id", transfer.ContractID),
 					zap.Error(err),
 				)
 				continue
 			}
 			w.metrics.OffersAcceptedTotal.WithLabelValues("success").Inc()
 			w.logger.Info("accept worker: accepted transfer offer",
-				zap.String("party_id", offer.ReceiverPartyID),
-				zap.String("contract_id", offer.ContractID),
-				zap.String("sender", offer.SenderPartyID),
-				zap.String("amount", offer.Amount),
+				zap.String("party_id", transfer.ToPartyID),
+				zap.String("contract_id", transfer.ContractID),
+				zap.String("sender", transfer.FromPartyID),
+				zap.String("amount", transfer.Amount),
 			)
 		}
 

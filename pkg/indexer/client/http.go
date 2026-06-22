@@ -50,14 +50,11 @@ type Client interface {
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
-	// Pending inbound transfers
-	GetOffersForParty(
-		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
-	) (*indexer.Page[indexer.PendingOffer], error)
-	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	// Transfers
 	GetTransfers(
-		ctx context.Context, partyID, status string, p indexer.Pagination,
+		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.Transfer], error)
+	GetPendingTransfers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -198,52 +195,35 @@ func (c *HTTP) ListPartyEvents(
 	return &page, nil
 }
 
-// GetOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/offers,
-// filtering by role (receiver/sender/any) and status (pending/accepted/expired/all).
-func (c *HTTP) GetOffersForParty(
-	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
+// GetTransfers calls GET /indexer/v1/admin/parties/{partyID}/transfers,
+// filtering by role (receiver/sender/any) and status (pending/expired/completed;
+// "" = all).
+func (c *HTTP) GetTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
 	q := pageQuery(p)
 	if query.Role != "" {
 		q.Set("role", string(query.Role))
 	}
 	if query.Status != "" {
-		// Map the derived/stored status to the HTTP query vocabulary (lowercase).
-		q.Set("status", strings.ToLower(string(query.Status)))
-	}
-	u := c.partyBase(partyID) + "/offers?" + q.Encode()
-	var page indexer.Page[indexer.PendingOffer]
-	if err := c.getJSON(ctx, u, &page); err != nil {
-		return nil, fmt.Errorf("offers for party %s: %w", partyID, err)
-	}
-	return &page, nil
-}
-
-// GetAllPendingOffers calls GET /indexer/v1/admin/pending-offers.
-func (c *HTTP) GetAllPendingOffers(
-	ctx context.Context, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
-	u := c.baseURL + "/indexer/v1/admin/pending-offers?" + pageQuery(p).Encode()
-	var page indexer.Page[indexer.PendingOffer]
-	if err := c.getJSON(ctx, u, &page); err != nil {
-		return nil, fmt.Errorf("get all pending offers: %w", err)
-	}
-	return &page, nil
-}
-
-// GetTransfers calls GET /indexer/v1/admin/parties/{partyID}/transfers,
-// optionally filtering by status (pending/expired/completed; "" = all).
-func (c *HTTP) GetTransfers(
-	ctx context.Context, partyID, status string, p indexer.Pagination,
-) (*indexer.Page[indexer.Transfer], error) {
-	q := pageQuery(p)
-	if status != "" {
-		q.Set("status", status)
+		q.Set("status", query.Status)
 	}
 	u := c.partyBase(partyID) + "/transfers?" + q.Encode()
 	var page indexer.Page[indexer.Transfer]
 	if err := c.getJSON(ctx, u, &page); err != nil {
 		return nil, fmt.Errorf("transfers for party %s: %w", partyID, err)
+	}
+	return &page, nil
+}
+
+// GetPendingTransfers calls GET /indexer/v1/admin/pending-transfers.
+func (c *HTTP) GetPendingTransfers(
+	ctx context.Context, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	u := c.baseURL + "/indexer/v1/admin/pending-transfers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.Transfer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("get pending transfers: %w", err)
 	}
 	return &page, nil
 }

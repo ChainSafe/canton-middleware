@@ -123,35 +123,35 @@ func (s *instrumentedWriteStore) ApplySupplyDelta(ctx context.Context, instrumen
 	return err
 }
 
-func (s *instrumentedWriteStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertPendingOffer))
+func (s *instrumentedWriteStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.InsertPendingOffer(ctx, offer)
+	err := s.inner.InsertTransfer(ctx, t)
 	if err != nil {
-		s.metrics.IncErrors(OpInsertPendingOffer)
+		s.metrics.IncErrors(OpInsertTransfer)
 	}
 	return err
 }
 
-func (s *instrumentedWriteStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetPendingOffer))
+func (s *instrumentedWriteStore) CompleteTransfer(ctx context.Context, contractID string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCompleteTransfer))
 	defer timer.ObserveDuration()
 
-	offer, err := s.inner.GetPendingOffer(ctx, contractID)
+	err := s.inner.CompleteTransfer(ctx, contractID)
 	if err != nil {
-		s.metrics.IncErrors(OpGetPendingOffer)
+		s.metrics.IncErrors(OpCompleteTransfer)
 	}
-	return offer, err
+	return err
 }
 
-func (s *instrumentedWriteStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpMarkOfferAccepted))
+func (s *instrumentedWriteStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpsertDirectTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.MarkOfferAccepted(ctx, contractID)
+	err := s.inner.UpsertDirectTransfer(ctx, t)
 	if err != nil {
-		s.metrics.IncErrors(OpMarkOfferAccepted)
+		s.metrics.IncErrors(OpUpsertDirectTransfer)
 	}
 	return err
 }
@@ -233,35 +233,35 @@ func (s *InstrumentedStore) ApplySupplyDelta(ctx context.Context, instrumentAdmi
 	return err
 }
 
-func (s *InstrumentedStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertPendingOffer))
+func (s *InstrumentedStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.InsertPendingOffer(ctx, offer)
+	err := s.inner.InsertTransfer(ctx, t)
 	if err != nil {
-		s.metrics.IncErrors(OpInsertPendingOffer)
+		s.metrics.IncErrors(OpInsertTransfer)
 	}
 	return err
 }
 
-func (s *InstrumentedStore) GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetPendingOffer))
+func (s *InstrumentedStore) CompleteTransfer(ctx context.Context, contractID string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCompleteTransfer))
 	defer timer.ObserveDuration()
 
-	offer, err := s.inner.GetPendingOffer(ctx, contractID)
+	err := s.inner.CompleteTransfer(ctx, contractID)
 	if err != nil {
-		s.metrics.IncErrors(OpGetPendingOffer)
+		s.metrics.IncErrors(OpCompleteTransfer)
 	}
-	return offer, err
+	return err
 }
 
-func (s *InstrumentedStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpMarkOfferAccepted))
+func (s *InstrumentedStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpsertDirectTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.MarkOfferAccepted(ctx, contractID)
+	err := s.inner.UpsertDirectTransfer(ctx, t)
 	if err != nil {
-		s.metrics.IncErrors(OpMarkOfferAccepted)
+		s.metrics.IncErrors(OpUpsertDirectTransfer)
 	}
 	return err
 }
@@ -373,41 +373,28 @@ func (s *InstrumentedStore) ListEvents(
 	return events, total, err
 }
 
-func (s *InstrumentedStore) ListOffersForParty(
-	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingOffersForPty))
-	defer timer.ObserveDuration()
-
-	offers, total, err := s.inner.ListOffersForParty(ctx, partyID, query, p)
-	if err != nil {
-		s.metrics.IncErrors(OpListPendingOffersForPty)
-	}
-	return offers, total, err
-}
-
-func (s *InstrumentedStore) ListAllPendingOffers(
-	ctx context.Context, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListAllPendingOffers))
-	defer timer.ObserveDuration()
-
-	offers, total, err := s.inner.ListAllPendingOffers(ctx, p)
-	if err != nil {
-		s.metrics.IncErrors(OpListAllPendingOffers)
-	}
-	return offers, total, err
-}
-
 func (s *InstrumentedStore) ListTransfers(
-	ctx context.Context, partyID, status string, p indexer.Pagination,
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
 ) ([]indexer.Transfer, int64, error) {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListTransfers))
 	defer timer.ObserveDuration()
 
-	transfers, total, err := s.inner.ListTransfers(ctx, partyID, status, p)
+	transfers, total, err := s.inner.ListTransfers(ctx, partyID, query, p)
 	if err != nil {
 		s.metrics.IncErrors(OpListTransfers)
+	}
+	return transfers, total, err
+}
+
+func (s *InstrumentedStore) ListPendingTransfers(
+	ctx context.Context, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingTransfers))
+	defer timer.ObserveDuration()
+
+	transfers, total, err := s.inner.ListPendingTransfers(ctx, p)
+	if err != nil {
+		s.metrics.IncErrors(OpListPendingTransfers)
 	}
 	return transfers, total, err
 }

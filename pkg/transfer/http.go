@@ -187,7 +187,7 @@ func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error
 		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
 	}
 
-	status, err := parseOfferStatus(r)
+	status, err := parseOutgoingStatus(r)
 	if err != nil {
 		return err
 	}
@@ -230,20 +230,21 @@ func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-// parseOfferStatus maps ?status= to an indexer.OfferStatus filter.
-// Empty or "all" means no status filter.
-func parseOfferStatus(r *http.Request) (indexer.OfferStatus, error) {
+// parseOutgoingStatus maps ?status= to a transfer status filter for the outgoing
+// endpoint. Empty or "all" means no status filter. "accepted" is accepted as a
+// backward-compatible alias for "completed".
+func parseOutgoingStatus(r *http.Request) (string, error) {
 	switch r.URL.Query().Get("status") {
 	case "", "all":
 		return "", nil
 	case "pending":
-		return indexer.OfferStatusPending, nil
-	case "accepted":
-		return indexer.OfferStatusAccepted, nil
+		return indexer.TransferStatusPending, nil
 	case "expired":
-		return indexer.OfferStatusExpired, nil
+		return indexer.TransferStatusExpired, nil
+	case "completed", "accepted":
+		return indexer.TransferStatusCompleted, nil
 	default:
-		return "", apperrors.BadRequestError(nil, "status must be pending, accepted, expired, or all")
+		return "", apperrors.BadRequestError(nil, "status must be pending, expired, completed, or all")
 	}
 }
 

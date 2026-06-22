@@ -83,19 +83,18 @@ type Store interface {
 	// Called once per mint (+amount) or burn (-amount). Transfer events must not call this.
 	ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error
 
-	// InsertPendingOffer records a new TransferOffer (idempotent by ContractID).
-	// Status is set to PENDING on insert.
-	InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error
+	// InsertTransfer records a new offer-based transfer (Kind "offer") with status
+	// "pending". Idempotent by ContractID.
+	InsertTransfer(ctx context.Context, t *indexer.Transfer) error
 
-	// GetPendingOffer returns the stored TransferOffer by ContractID, or nil when
-	// not found. Used on archive to recover the transfer fields (sender/receiver/
-	// amount) needed to record a settled-transfer event.
-	GetPendingOffer(ctx context.Context, contractID string) (*indexer.PendingOffer, error)
+	// CompleteTransfer transitions a transfer to "completed" when the Canton ledger
+	// emits an ARCHIVED event for the offer contract (receiver exercised Accept, or
+	// the offer was rejected/expired). The row is kept for history; no-op when not found.
+	CompleteTransfer(ctx context.Context, contractID string) error
 
-	// MarkOfferAccepted transitions a TransferOffer to ACCEPTED status when the Canton
-	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
-	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
-	MarkOfferAccepted(ctx context.Context, contractID string) error
+	// UpsertDirectTransfer records a settled direct (atomic CIP-56) transfer.
+	// Idempotent by ContractID — replayed TRANSFER events are no-ops.
+	UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error
 
 	// InsertHolding records an active Utility.Registry.Holding contract so its amount
 	// and owner can be recovered when the contract is later archived (archive events
@@ -209,17 +208,14 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				if err := p.processTransferEvent(ctx, tx, item, batch.Offset); err != nil {
 					return err
 				}
-			case *indexer.PendingOffer:
-				if item.IsArchived {
-					if err := p.recordSettledOffer(ctx, tx, item, batch.UpdateID); err != nil {
-						return err
-					}
-					if err := tx.MarkOfferAccepted(ctx, item.ContractID); err != nil {
-						return fmt.Errorf("mark offer accepted %s: %w", item.ContractID, err)
+			case *indexer.Transfer:
+				if item.Archived {
+					if err := tx.CompleteTransfer(ctx, item.ContractID); err != nil {
+						return fmt.Errorf("complete transfer %s: %w", item.ContractID, err)
 					}
 				} else {
-					if err := tx.InsertPendingOffer(ctx, item); err != nil {
-						return fmt.Errorf("insert pending offer %s: %w", item.ContractID, err)
+					if err := tx.InsertTransfer(ctx, item); err != nil {
+						return fmt.Errorf("insert transfer %s: %w", item.ContractID, err)
 					}
 				}
 			case *indexer.HoldingChange:
@@ -314,50 +310,28 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 		}
 		return fmt.Errorf("apply balance delta: %w", err)
 	}
-	return nil
-}
 
-// recordSettledOffer writes a history-only TRANSFER event when a TransferOffer is
-// archived (settled). External tokens like USDCx move via offers and never emit our
-// CIP-56 TokenTransferEvent, so without this their transfers would be absent from
-// the events log. The event is tagged source="offer" and inserted directly (not via
-// processTransferEvent) so it is NOT counted toward balances or supply — those are
-// already maintained from the Holding lifecycle. Idempotent via the offer ContractID.
-//
-// The archived item carries only the ContractID, so the transfer fields are read
-// back from the stored offer row (written on its CREATE).
-func (p *Processor) recordSettledOffer(ctx context.Context, tx Store, item *indexer.PendingOffer, updateID string) error {
-	offer, err := tx.GetPendingOffer(ctx, item.ContractID)
-	if err != nil {
-		return fmt.Errorf("get pending offer %s: %w", item.ContractID, err)
-	}
-	if offer == nil {
-		// The offer's CREATE was never indexed (e.g. created before this indexer
-		// started), so we can't recover sender/receiver/amount. Nothing to record.
-		p.logger.Warn("settled offer not found in store; skipping transfer event",
-			zap.String("contract_id", item.ContractID),
-		)
-		return nil
-	}
-
-	from, to := offer.SenderPartyID, offer.ReceiverPartyID
-	event := &indexer.ParsedEvent{
-		ContractID:      offer.ContractID, // unique key; idempotent on replay
-		Source:          indexer.EventSourceOffer,
-		EventType:       indexer.EventTransfer,
-		InstrumentAdmin: offer.InstrumentAdmin,
-		InstrumentID:    offer.InstrumentID,
-		Issuer:          offer.InstrumentAdmin,
-		Amount:          offer.Amount,
-		FromPartyID:     &from,
-		ToPartyID:       &to,
-		TxID:            updateID,
-		LedgerOffset:    item.LedgerOffset,
-		Timestamp:       item.CreatedAt, // archive (settlement) time
-		EffectiveTime:   item.CreatedAt,
-	}
-	if _, err := tx.InsertEvent(ctx, event); err != nil {
-		return fmt.Errorf("record settled offer event %s: %w", item.ContractID, err)
+	// Record a settled direct transfer in indexer_transfers so the unified history
+	// view covers our atomic CIP-56 transfers alongside offer-based ones. Only
+	// TRANSFER (not MINT/BURN) produces a transfer row, and only on first insert
+	// (inserted==true) so replays don't duplicate. Guard nil parties defensively —
+	// a TRANSFER always has both, but the store column is NOT NULL.
+	if e.EventType == indexer.EventTransfer && e.FromPartyID != nil && e.ToPartyID != nil {
+		if err := tx.UpsertDirectTransfer(ctx, &indexer.Transfer{
+			ContractID:      e.ContractID,
+			Kind:            indexer.TransferKindDirect,
+			Status:          indexer.TransferStatusCompleted,
+			FromPartyID:     *e.FromPartyID,
+			ToPartyID:       *e.ToPartyID,
+			InstrumentAdmin: e.InstrumentAdmin,
+			InstrumentID:    e.InstrumentID,
+			Amount:          e.Amount,
+			TxID:            e.TxID,
+			LedgerOffset:    e.LedgerOffset,
+			CreatedAt:       e.EffectiveTime,
+		}); err != nil {
+			return fmt.Errorf("upsert direct transfer: %w", err)
+		}
 	}
 	return nil
 }

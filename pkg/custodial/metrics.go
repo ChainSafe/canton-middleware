@@ -33,7 +33,7 @@ type Metrics struct {
 
 	// ErrorsTotal counts cycles that aborted early.
 	//   phase=list_users   – ListCustodialUsers failed
-	//   phase=fetch_offers – GetAllPendingOffers failed on some page
+	//   phase=fetch_offers – GetPendingTransfers failed on some page
 	// Per-offer accept failures are *not* counted here (see OffersAccepted).
 	ErrorsTotal *prometheus.CounterVec
 

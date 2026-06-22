@@ -94,7 +94,7 @@ func makeBatch(offset int64, events ...*indexer.ParsedEvent) *streaming.Batch[an
 	}
 }
 
-func makeOfferBatch(offset int64, offers ...*indexer.PendingOffer) *streaming.Batch[any] {
+func makeOfferBatch(offset int64, offers ...*indexer.Transfer) *streaming.Batch[any] {
 	items := make([]any, len(offers))
 	for i, o := range offers {
 		items[i] = o
@@ -106,12 +106,14 @@ func makeOfferBatch(offset int64, offers ...*indexer.PendingOffer) *streaming.Ba
 	}
 }
 
-func pendingOffer() *indexer.PendingOffer {
-	return &indexer.PendingOffer{
+func pendingOffer() *indexer.Transfer {
+	return &indexer.Transfer{
 		ContractID:      "offer-contract-1",
-		IsArchived:      false,
-		ReceiverPartyID: testRecipient,
-		SenderPartyID:   testSender,
+		Kind:            indexer.TransferKindOffer,
+		Status:          indexer.TransferStatusPending,
+		Archived:        false,
+		ToPartyID:       testRecipient,
+		FromPartyID:     testSender,
 		InstrumentAdmin: testInstrumentAdmin,
 		InstrumentID:    testInstrumentID,
 		Amount:          testAmount,
@@ -257,6 +259,13 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	// Transfer: no ApplySupplyDelta.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(t *indexer.Transfer) bool {
+		return t.ContractID == ev.ContractID &&
+			t.Kind == indexer.TransferKindDirect &&
+			t.Status == indexer.TransferStatusCompleted &&
+			t.FromPartyID == testSender && t.ToPartyID == testRecipient &&
+			t.Amount == testAmount
+	})).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -289,6 +298,9 @@ func TestProcessor_Run_Transfer_CrossParticipantSender(t *testing.T) {
 		Return(fmt.Errorf("%w for party %s: current=0 delta=-%s", engine.ErrNegativeBalance, testSender, testAmount))
 	// Receiver credit must still be applied despite the sender error being skipped.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(t *indexer.Transfer) bool {
+		return t.ContractID == ev.ContractID && t.Kind == indexer.TransferKindDirect
+	})).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -384,35 +396,24 @@ func TestProcessor_Run_PendingOfferCreated_Inserted(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(10, offer)))
 
 	setupRunInTx(store)
-	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().InsertTransfer(mock.Anything, offer).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(10)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
-func TestProcessor_Run_PendingOfferArchived_RecordsTransferAndMarksAccepted(t *testing.T) {
+func TestProcessor_Run_OfferArchived_CompletesTransfer(t *testing.T) {
 	store := mocks.NewStore(t)
 	fetcher := mocks.NewEventFetcher(t)
-	// Archive event carries only the contract id; the stored offer supplies the fields.
-	archived := &indexer.PendingOffer{ContractID: "offer-contract-1", IsArchived: true, LedgerOffset: 11, CreatedAt: time.Unix(1_700_000_500, 0)}
-	stored := pendingOffer()
+	// Archive event carries only the contract id; the existing row is completed by id.
+	archived := &indexer.Transfer{ContractID: "offer-contract-1", Kind: indexer.TransferKindOffer, Archived: true, LedgerOffset: 11, CreatedAt: time.Unix(1_700_000_500, 0)}
 
 	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
 	fetcher.EXPECT().Start(mock.Anything, int64(0))
 	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, archived)))
 
 	setupRunInTx(store)
-	store.EXPECT().GetPendingOffer(mock.Anything, stored.ContractID).Return(stored, nil)
-	// A history-only TRANSFER event is recorded (source=offer), then the offer is marked accepted.
-	store.EXPECT().InsertEvent(mock.Anything, mock.MatchedBy(func(e *indexer.ParsedEvent) bool {
-		return e.ContractID == stored.ContractID &&
-			e.Source == indexer.EventSourceOffer &&
-			e.EventType == indexer.EventTransfer &&
-			e.FromPartyID != nil && *e.FromPartyID == stored.SenderPartyID &&
-			e.ToPartyID != nil && *e.ToPartyID == stored.ReceiverPartyID &&
-			e.Amount == stored.Amount
-	})).Return(true, nil)
-	store.EXPECT().MarkOfferAccepted(mock.Anything, stored.ContractID).Return(nil)
+	store.EXPECT().CompleteTransfer(mock.Anything, archived.ContractID).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -445,7 +446,7 @@ func TestProcessor_Run_MixedBatch_ParsedEventAndOffer(t *testing.T) {
 	}).Return(nil)
 	store.EXPECT().ApplySupplyDelta(mock.Anything, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
-	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().InsertTransfer(mock.Anything, offer).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(20)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))

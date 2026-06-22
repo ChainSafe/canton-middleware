@@ -118,7 +118,6 @@ func NewTokenTransferDecoder(
 			InstrumentID:    instrumentID,
 			InstrumentAdmin: instrumentAdmin,
 			Issuer:          ev.PartyField("issuer"),
-			Source:          indexer.EventSourceCIP56,
 			EventType:       et,
 			Amount:          ev.NumericField("amount"),
 			FromPartyID:     fromPartyID,
@@ -135,17 +134,22 @@ func NewTokenTransferDecoder(
 	}
 }
 
-// NewOfferDecoder returns a decode function for TransferOffer CREATED and ARCHIVED events.
-// Returns nil, false when packageID is empty (feature disabled).
+// NewOfferDecoder returns a decode function for TransferOffer CREATED and ARCHIVED
+// events, producing an *indexer.Transfer of Kind "offer". Returns nil, false when
+// packageID is empty (feature disabled).
+//
+// On CREATED the transfer is "pending" with all fields populated; on ARCHIVED only
+// ContractID/LedgerOffset/CreatedAt and the Archived flag are set — the processor
+// uses ContractID to complete the existing row.
 func NewOfferDecoder(
 	packageID string, logger *zap.Logger,
-) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
 	if packageID == "" {
-		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
 			return nil, false
 		}
 	}
-	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.PendingOffer, bool) {
+	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (*indexer.Transfer, bool) {
 		// Match by module+entity only. The stream-level filter (buildTemplateFilters)
 		// already narrowed the wire to this template; comparing ev.PackageID to a
 		// config-supplied value breaks when the config uses a package-name reference
@@ -154,31 +158,33 @@ func NewOfferDecoder(
 		if ev.ModuleName != transferOfferModule || ev.TemplateName != transferOfferEntity {
 			return nil, false
 		}
-		offer := &indexer.PendingOffer{
+		transfer := &indexer.Transfer{
 			ContractID:   ev.ContractID,
-			IsArchived:   !ev.IsCreated,
+			Kind:         indexer.TransferKindOffer,
+			Archived:     !ev.IsCreated,
 			LedgerOffset: tx.Offset,
 			CreatedAt:    tx.EffectiveTime,
 		}
 		if ev.IsCreated {
 			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
 			// Receiver/sender/amount/instrumentId all live inside the nested transfer record.
-			offer.ReceiverPartyID = ev.NestedPartyField("transfer", "receiver")
-			offer.SenderPartyID = ev.NestedPartyField("transfer", "sender")
-			offer.Amount = ev.NestedNumericField("transfer", "amount")
-			offer.InstrumentAdmin = ev.DoublyNestedPartyField("transfer", "instrumentId", "admin")
-			offer.InstrumentID = ev.DoublyNestedTextField("transfer", "instrumentId", "id")
+			transfer.Status = indexer.TransferStatusPending
+			transfer.ToPartyID = ev.NestedPartyField("transfer", "receiver")
+			transfer.FromPartyID = ev.NestedPartyField("transfer", "sender")
+			transfer.Amount = ev.NestedNumericField("transfer", "amount")
+			transfer.InstrumentAdmin = ev.DoublyNestedPartyField("transfer", "instrumentId", "admin")
+			transfer.InstrumentID = ev.DoublyNestedTextField("transfer", "instrumentId", "id")
 			if exp := ev.NestedTimestampField("transfer", "executeBefore"); !exp.IsZero() {
-				offer.ExpiresAt = &exp
+				transfer.ExpiresAt = &exp
 			}
-			if offer.ReceiverPartyID == "" {
+			if transfer.ToPartyID == "" {
 				logger.Warn("TransferOffer CREATED decoded with empty receiver — field name mismatch?",
 					zap.String("contract_id", ev.ContractID),
 					zap.Int64("offset", tx.Offset),
 				)
 			}
 		}
-		return offer, true
+		return transfer, true
 	}
 }
 
@@ -232,7 +238,7 @@ func NewHoldingDecoder(
 // templates, so the order is purely a fast-path optimization for the common case.
 func NewMultiDecoder(
 	transferDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.ParsedEvent, bool),
-	offerDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.PendingOffer, bool),
+	offerDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool),
 	holdingDecode func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.HoldingChange, bool),
 ) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (any, bool) {
 	return func(tx *streaming.LedgerTransaction, ev *streaming.LedgerEvent) (any, bool) {
