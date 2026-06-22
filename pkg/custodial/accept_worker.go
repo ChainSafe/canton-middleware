@@ -163,7 +163,7 @@ func (w *AcceptWorker) acceptPending(ctx context.Context) {
 		}
 
 		if int64(page*acceptWorkerPageLimit) >= result.Total {
-			// Reached the end of the pending-offers stream — cycle completed
+			// Reached the end of the pending-transfers stream — cycle completed
 			// without an unrecoverable error. Per-offer failures don't count
 			// against the cycle's success: those are tracked in
 			// OffersAcceptedTotal{result="error"}.
