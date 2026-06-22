@@ -743,6 +743,8 @@ func makeOfferTransfer(contractID, from, to string, offset int64, expires *time.
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	return &indexer.Transfer{
 		ContractID:      contractID,
+		Kind:            indexer.TransferKindOffer,
+		Status:          indexer.TransferStatusPending,
 		FromPartyID:     from,
 		ToPartyID:       to,
 		InstrumentAdmin: "admin-1",
@@ -758,6 +760,8 @@ func makeDirectTransfer(contractID, from, to string, offset int64) *indexer.Tran
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	return &indexer.Transfer{
 		ContractID:      contractID,
+		Kind:            indexer.TransferKindDirect,
+		Status:          indexer.TransferStatusCompleted,
 		FromPartyID:     from,
 		ToPartyID:       to,
 		InstrumentAdmin: "admin-1",
@@ -769,14 +773,13 @@ func makeDirectTransfer(contractID, from, to string, offset int64) *indexer.Tran
 	}
 }
 
-// TestInsertTransfer_ForcesOfferPending verifies InsertTransfer always stamps
-// kind=offer/status=pending and is idempotent by ContractID.
-func TestInsertTransfer_ForcesOfferPending(t *testing.T) {
+// TestInsertTransfer_Offer verifies an offer/pending transfer is stored as the
+// caller specified, is idempotent by ContractID, and surfaces through the
+// pending-offer compatibility view.
+func TestInsertTransfer_Offer(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
 
 	o := makeOfferTransfer("o-1", "alice", "bob", 1, nil)
-	o.Kind = "garbage"   // should be overwritten
-	o.Status = "garbage" // should be overwritten
 	if err := s.InsertTransfer(ctx, o); err != nil {
 		t.Fatalf("InsertTransfer: %v", err)
 	}
@@ -822,17 +825,17 @@ func TestCompleteTransfer_RemovesFromPendingShim(t *testing.T) {
 	}
 }
 
-// TestUpsertDirectTransfer_NotInPendingShim verifies direct transfers are
-// completed and never surface through the offer compatibility views.
-func TestUpsertDirectTransfer_NotInPendingShim(t *testing.T) {
+// TestInsertTransfer_Direct_NotInPendingShim verifies direct (completed)
+// transfers never surface through the offer compatibility views.
+func TestInsertTransfer_Direct_NotInPendingShim(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
 
-	if err := s.UpsertDirectTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
-		t.Fatalf("UpsertDirectTransfer: %v", err)
+	if err := s.InsertTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
+		t.Fatalf("InsertTransfer: %v", err)
 	}
 	// Idempotent replay.
-	if err := s.UpsertDirectTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
-		t.Fatalf("UpsertDirectTransfer (replay): %v", err)
+	if err := s.InsertTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
+		t.Fatalf("InsertTransfer (replay): %v", err)
 	}
 
 	_, total, err := s.ListAllPendingOffers(ctx, indexer.Pagination{Page: 1, Limit: 10})

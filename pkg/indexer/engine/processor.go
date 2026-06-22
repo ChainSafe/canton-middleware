@@ -83,18 +83,15 @@ type Store interface {
 	// Called once per mint (+amount) or burn (-amount). Transfer events must not call this.
 	ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error
 
-	// InsertTransfer records a new offer-based transfer (Kind "offer") with status
-	// "pending". Idempotent by ContractID.
+	// InsertTransfer records a transfer with the caller-set Kind and Status — a
+	// new offer (offer/pending) or a settled direct CIP-56 transfer
+	// (direct/completed). Idempotent by ContractID, so stream replays are no-ops.
 	InsertTransfer(ctx context.Context, t *indexer.Transfer) error
 
 	// CompleteTransfer transitions a transfer to "completed" when the Canton ledger
 	// emits an ARCHIVED event for the offer contract (receiver exercised Accept, or
 	// the offer was rejected/expired). The row is kept for history; no-op when not found.
 	CompleteTransfer(ctx context.Context, contractID string) error
-
-	// UpsertDirectTransfer records a settled direct (atomic CIP-56) transfer.
-	// Idempotent by ContractID — replayed TRANSFER events are no-ops.
-	UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error
 
 	// InsertHolding records an active Utility.Registry.Holding contract so its amount
 	// and owner can be recovered when the contract is later archived (archive events
@@ -331,7 +328,7 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 	// Guard nil parties defensively — a TRANSFER always has both, but the store
 	// column is NOT NULL.
 	if e.EventType == indexer.EventTransfer && e.FromPartyID != nil && e.ToPartyID != nil {
-		if err := tx.UpsertDirectTransfer(ctx, &indexer.Transfer{
+		if err := tx.InsertTransfer(ctx, &indexer.Transfer{
 			ContractID:      e.ContractID,
 			Kind:            indexer.TransferKindDirect,
 			Status:          indexer.TransferStatusCompleted,
@@ -344,7 +341,7 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 			LedgerOffset:    e.LedgerOffset,
 			CreatedAt:       e.EffectiveTime,
 		}); err != nil {
-			return fmt.Errorf("upsert direct transfer: %w", err)
+			return fmt.Errorf("insert direct transfer: %w", err)
 		}
 	}
 	return nil

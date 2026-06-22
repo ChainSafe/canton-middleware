@@ -51,17 +51,16 @@ type StoreOperation string
 
 const (
 	// Write-path operations (processor / engine.Store).
-	OpLatestOffset         StoreOperation = "latest_offset"
-	OpInsertEvent          StoreOperation = "insert_event"
-	OpSaveOffset           StoreOperation = "save_offset"
-	OpUpsertToken          StoreOperation = "upsert_token"
-	OpApplyBalanceDelta    StoreOperation = "apply_balance_delta"
-	OpApplySupplyDelta     StoreOperation = "apply_supply_delta"
-	OpInsertTransfer       StoreOperation = "insert_transfer"
-	OpCompleteTransfer     StoreOperation = "complete_transfer"
-	OpUpsertDirectTransfer StoreOperation = "upsert_direct_transfer"
-	OpInsertHolding        StoreOperation = "insert_holding"
-	OpTakeHolding          StoreOperation = "take_holding"
+	OpLatestOffset      StoreOperation = "latest_offset"
+	OpInsertEvent       StoreOperation = "insert_event"
+	OpSaveOffset        StoreOperation = "save_offset"
+	OpUpsertToken       StoreOperation = "upsert_token"
+	OpApplyBalanceDelta StoreOperation = "apply_balance_delta"
+	OpApplySupplyDelta  StoreOperation = "apply_supply_delta"
+	OpInsertTransfer    StoreOperation = "insert_transfer"
+	OpCompleteTransfer  StoreOperation = "complete_transfer"
+	OpInsertHolding     StoreOperation = "insert_holding"
+	OpTakeHolding       StoreOperation = "take_holding"
 
 	// Read-path operations (HTTP API / service.Store).
 	OpGetToken                StoreOperation = "get_token"

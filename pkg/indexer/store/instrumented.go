@@ -145,17 +145,6 @@ func (s *instrumentedWriteStore) CompleteTransfer(ctx context.Context, contractI
 	return err
 }
 
-func (s *instrumentedWriteStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpsertDirectTransfer))
-	defer timer.ObserveDuration()
-
-	err := s.inner.UpsertDirectTransfer(ctx, t)
-	if err != nil {
-		s.metrics.IncErrors(OpUpsertDirectTransfer)
-	}
-	return err
-}
-
 func (s *instrumentedWriteStore) InsertHolding(ctx context.Context, h *indexer.HoldingChange) error {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpInsertHolding))
 	defer timer.ObserveDuration()
@@ -251,17 +240,6 @@ func (s *InstrumentedStore) CompleteTransfer(ctx context.Context, contractID str
 	err := s.inner.CompleteTransfer(ctx, contractID)
 	if err != nil {
 		s.metrics.IncErrors(OpCompleteTransfer)
-	}
-	return err
-}
-
-func (s *InstrumentedStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpUpsertDirectTransfer))
-	defer timer.ObserveDuration()
-
-	err := s.inner.UpsertDirectTransfer(ctx, t)
-	if err != nil {
-		s.metrics.IncErrors(OpUpsertDirectTransfer)
 	}
 	return err
 }

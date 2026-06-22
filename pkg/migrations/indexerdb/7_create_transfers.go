@@ -119,9 +119,11 @@ func init() {
 			})
 		}
 
-		// 5. Sort chronologically (oldest first).
+		// 5. Order by ledger_offset (the ledger's canonical, strictly-monotonic
+		//    sequence) so the backfill is deterministic — created_at is an
+		//    effective-time and can tie across contracts.
 		sort.Slice(transfers, func(i, j int) bool {
-			return transfers[i].CreatedAt.Before(transfers[j].CreatedAt)
+			return transfers[i].LedgerOffset < transfers[j].LedgerOffset
 		})
 
 		// 6. Insert the history into the new table.

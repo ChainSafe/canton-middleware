@@ -535,53 +535,6 @@ func (_c *Store_TakeHolding_Call) RunAndReturn(run func(context.Context, string)
 	return _c
 }
 
-// UpsertDirectTransfer provides a mock function with given fields: ctx, t
-func (_m *Store) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
-	ret := _m.Called(ctx, t)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpsertDirectTransfer")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *indexer.Transfer) error); ok {
-		r0 = rf(ctx, t)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_UpsertDirectTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertDirectTransfer'
-type Store_UpsertDirectTransfer_Call struct {
-	*mock.Call
-}
-
-// UpsertDirectTransfer is a helper method to define mock.On call
-//   - ctx context.Context
-//   - t *indexer.Transfer
-func (_e *Store_Expecter) UpsertDirectTransfer(ctx interface{}, t interface{}) *Store_UpsertDirectTransfer_Call {
-	return &Store_UpsertDirectTransfer_Call{Call: _e.mock.On("UpsertDirectTransfer", ctx, t)}
-}
-
-func (_c *Store_UpsertDirectTransfer_Call) Run(run func(ctx context.Context, t *indexer.Transfer)) *Store_UpsertDirectTransfer_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*indexer.Transfer))
-	})
-	return _c
-}
-
-func (_c *Store_UpsertDirectTransfer_Call) Return(_a0 error) *Store_UpsertDirectTransfer_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_UpsertDirectTransfer_Call) RunAndReturn(run func(context.Context, *indexer.Transfer) error) *Store_UpsertDirectTransfer_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UpsertToken provides a mock function with given fields: ctx, token
 func (_m *Store) UpsertToken(ctx context.Context, token *indexer.Token) error {
 	ret := _m.Called(ctx, token)

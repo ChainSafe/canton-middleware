@@ -12,11 +12,13 @@ import (
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 )
 
-// legacyOffer models the indexer_pending_offers table across its lifetime
-// (migrations 5–7). The table is generalized into indexer_transfers and dropped
-// in migration 7; this model is retained so migrations 5/7 can create, read, and
-// drop it with the bun query builder after the original PendingOfferDao was
-// removed from the store package.
+// legacyOffer is the bun model for the legacy indexer_pending_offers table.
+//
+// The store's PendingOfferDao was removed when the table was generalized into
+// indexer_transfers (migration 7), so this struct is kept here for backward
+// compatibility: it lets the historical migrations (5 = create, 7 = read +
+// drop) keep managing the old table with the bun query builder instead of raw
+// SQL. Migration-only; intentionally not exported from the store package.
 //
 // ExpiresAt is part of the model from the start so migration 7 can read it; on a
 // fresh database the column is created here.

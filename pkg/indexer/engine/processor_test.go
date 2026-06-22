@@ -275,7 +275,7 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	// A CIP-56 TRANSFER also records a settled direct transfer row.
-	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
+	store.EXPECT().InsertTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
 		return tr.ContractID == testContractID &&
 			tr.Kind == indexer.TransferKindDirect &&
 			tr.Status == indexer.TransferStatusCompleted &&
@@ -315,7 +315,7 @@ func TestProcessor_Run_Transfer_CrossParticipantSender(t *testing.T) {
 	// Receiver credit must still be applied despite the sender error being skipped.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	// The direct transfer row is still recorded for the unified history view.
-	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
+	store.EXPECT().InsertTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
 		return tr.ContractID == testContractID && tr.Kind == indexer.TransferKindDirect
 	})).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)

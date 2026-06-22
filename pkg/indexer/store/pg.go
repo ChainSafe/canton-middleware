@@ -273,12 +273,14 @@ func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer
 
 // InsertTransfer records a new offer-based transfer (Kind "offer") with status
 // "pending". Idempotent by ContractID.
+// InsertTransfer records a transfer with the caller-provided Kind and Status
+// (offer/pending for a new TransferOffer, direct/completed for a settled CIP-56
+// transfer). Idempotent by ContractID: the ledger stream is replayed from the
+// last saved offset on restart/reconnect, so re-seeing the same contract is a
+// no-op rather than an error or a duplicate.
 func (s *PGStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
-	dao := toTransferDao(t)
-	dao.Kind = indexer.TransferKindOffer
-	dao.Status = indexer.TransferStatusPending
 	_, err := s.db.NewInsert().
-		Model(dao).
+		Model(toTransferDao(t)).
 		On("CONFLICT (contract_id) DO NOTHING").
 		Exec(ctx)
 	if err != nil {
@@ -297,22 +299,6 @@ func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("complete transfer: %w", err)
-	}
-	return nil
-}
-
-// UpsertDirectTransfer records a settled direct (CIP-56) transfer. Idempotent by
-// ContractID — replayed TRANSFER events are no-ops.
-func (s *PGStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
-	dao := toTransferDao(t)
-	dao.Kind = indexer.TransferKindDirect
-	dao.Status = indexer.TransferStatusCompleted
-	_, err := s.db.NewInsert().
-		Model(dao).
-		On("CONFLICT (contract_id) DO NOTHING").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("upsert direct transfer: %w", err)
 	}
 	return nil
 }
