@@ -33,6 +33,56 @@ type PendingOffer struct {
 
 	// IsArchived is a decode-time signal only — not persisted.
 	IsArchived bool `json:"-"`
+
+	// ExpiresAt is a decode-only field carrying the offer's executeBefore from the
+	// decoder to the processor. It is never serialized in the external API response.
+	ExpiresAt *time.Time `json:"-"`
+}
+
+// Transfer status values recorded on Transfer.Status / the indexer_transfers table.
+// A transfer is "completed" once settled; an offer that hasn't settled is "pending"
+// (or "expired" once past its executeBefore). "expired" is a derived status — never
+// persisted, only computed at read time from a still-pending row whose ExpiresAt is
+// in the past.
+const (
+	TransferStatusPending   = "pending"
+	TransferStatusExpired   = "expired"
+	TransferStatusCompleted = "completed"
+)
+
+// Transfer kind values, recorded on Transfer.Kind / the indexer_transfers table.
+const (
+	// TransferKindDirect is our atomic CIP-56 TokenTransferEvent — a single-step
+	// settled transfer. Always Status "completed".
+	TransferKindDirect = "direct"
+	// TransferKindOffer is a 2-step (offer-based) transfer, e.g. USDCx. It starts
+	// "pending" on the TransferOffer CREATE and becomes "completed" on its ARCHIVE.
+	TransferKindOffer = "offer"
+)
+
+// Transfer is a token transfer, generalized across all tokens and both transfer
+// shapes. Direct transfers (Kind "direct") are our atomic CIP-56 TokenTransferEvents;
+// 2-step transfers (Kind "offer") are offer-based, e.g. USDCx. Rows live in
+// indexer_transfers with a mutable status lifecycle: offers start "pending" and become
+// "completed" on archive; direct transfers are always "completed". "expired" is derived
+// at read time and never stored.
+type Transfer struct {
+	ContractID      string     `json:"contract_id"`
+	Kind            string     `json:"kind"`   // "direct" | "offer"
+	Status          string     `json:"status"` // "pending" | "expired" | "completed"
+	FromPartyID     string     `json:"from_party_id"`
+	ToPartyID       string     `json:"to_party_id"`
+	InstrumentAdmin string     `json:"instrument_admin"`
+	InstrumentID    string     `json:"instrument_id"`
+	Amount          string     `json:"amount"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"` // offer executeBefore; nil for direct
+	TxID            string     `json:"tx_id,omitempty"`      // ledger update id
+	LedgerOffset    int64      `json:"ledger_offset"`
+	CreatedAt       time.Time  `json:"created_at"`
+
+	// Archived is a decode-time signal only — not persisted. Set by the offer
+	// decoder on an ARCHIVED event so the processor completes the transfer.
+	Archived bool `json:"-"`
 }
 
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.

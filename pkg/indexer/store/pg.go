@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
@@ -268,46 +269,95 @@ func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer
 	}, true, nil
 }
 
-// ─── pending offer methods ───────────────────────────────────────────────────
+// ─── transfer write methods ──────────────────────────────────────────────────
 
-// InsertPendingOffer records a new TransferOffer with status PENDING. Idempotent by ContractID.
-func (s *PGStore) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	dao := toPendingOfferDao(offer)
-	dao.Status = string(indexer.OfferStatusPending)
+// InsertTransfer records a new offer-based transfer (Kind "offer") with status
+// "pending". Idempotent by ContractID.
+func (s *PGStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
+	dao := toTransferDao(t)
+	dao.Kind = indexer.TransferKindOffer
+	dao.Status = indexer.TransferStatusPending
 	_, err := s.db.NewInsert().
 		Model(dao).
 		On("CONFLICT (contract_id) DO NOTHING").
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("insert pending offer: %w", err)
+		return fmt.Errorf("insert transfer: %w", err)
 	}
 	return nil
 }
 
-// MarkOfferAccepted sets a TransferOffer's status to ACCEPTED. No-op when not found.
-func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) error {
+// CompleteTransfer sets a transfer's status to "completed" (offer archived).
+// No-op when not found.
+func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error {
 	_, err := s.db.NewUpdate().
-		Model((*PendingOfferDao)(nil)).
-		Set("status = ?", string(indexer.OfferStatusAccepted)).
+		Model((*TransferDao)(nil)).
+		Set("status = ?", indexer.TransferStatusCompleted).
 		Where("contract_id = ?", contractID).
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("mark offer accepted: %w", err)
+		return fmt.Errorf("complete transfer: %w", err)
 	}
 	return nil
 }
 
-// ListPendingOffersForParty returns PENDING offers where receiver = partyID,
-// ordered by ledger_offset ASC, with pagination.
+// UpsertDirectTransfer records a settled direct (CIP-56) transfer. Idempotent by
+// ContractID — replayed TRANSFER events are no-ops.
+func (s *PGStore) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
+	dao := toTransferDao(t)
+	dao.Kind = indexer.TransferKindDirect
+	dao.Status = indexer.TransferStatusCompleted
+	_, err := s.db.NewInsert().
+		Model(dao).
+		On("CONFLICT (contract_id) DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("upsert direct transfer: %w", err)
+	}
+	return nil
+}
+
+// ─── pending offer compatibility shim ────────────────────────────────────────
+//
+// The external indexer API (GetPendingOffersForParty / GetAllPendingOffers) is
+// unchanged: it still returns []indexer.PendingOffer. These two methods preserve
+// the base signatures but read from indexer_transfers instead of the retired
+// indexer_pending_offers table — selecting only offer-kind, still-pending,
+// not-yet-expired rows and mapping each TransferDao back to a PendingOffer.
+
+// transferDaoToPendingOffer maps a generalized transfer row back to the legacy
+// PendingOffer shape (sender/receiver naming, no kind/expires_at). Status is
+// always PENDING here since the shim only ever selects pending rows.
+func transferDaoToPendingOffer(d *TransferDao) indexer.PendingOffer {
+	t := fromTransferDao(d)
+	return indexer.PendingOffer{
+		ContractID:      t.ContractID,
+		Status:          indexer.OfferStatusPending,
+		ReceiverPartyID: t.ToPartyID,
+		SenderPartyID:   t.FromPartyID,
+		InstrumentAdmin: t.InstrumentAdmin,
+		InstrumentID:    t.InstrumentID,
+		Amount:          t.Amount,
+		LedgerOffset:    t.LedgerOffset,
+		CreatedAt:       t.CreatedAt,
+	}
+}
+
+// ListPendingOffersForParty returns pending, not-yet-expired offer transfers where
+// receiver = partyID, ordered by ledger_offset ASC, with pagination. Reads
+// indexer_transfers and maps results to the legacy PendingOffer type.
 func (s *PGStore) ListPendingOffersForParty(
 	ctx context.Context, partyID string, p indexer.Pagination,
 ) ([]indexer.PendingOffer, int64, error) {
-	var daos []PendingOfferDao
+	now := time.Now().UTC()
+	var daos []TransferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
 		q := db.NewSelect().Model(&daos).
-			Where("receiver_party_id = ?", partyID).
-			Where("status = ?", string(indexer.OfferStatusPending)).
+			Where("to_party_id = ?", partyID).
+			Where("kind = ?", indexer.TransferKindOffer).
+			Where("status = ?", indexer.TransferStatusPending).
+			Where("(expires_at IS NULL OR expires_at > ?)", now).
 			OrderExpr("ledger_offset ASC")
 		var err error
 		if total, err = q.Count(ctx); err != nil {
@@ -320,21 +370,25 @@ func (s *PGStore) ListPendingOffersForParty(
 	}
 	offers := make([]indexer.PendingOffer, len(daos))
 	for i := range daos {
-		offers[i] = fromPendingOfferDao(&daos[i])
+		offers[i] = transferDaoToPendingOffer(&daos[i])
 	}
 	return offers, int64(total), nil
 }
 
-// ListAllPendingOffers returns all PENDING offers across all parties,
-// ordered by ledger_offset ASC, with pagination.
+// ListAllPendingOffers returns all pending, not-yet-expired offer transfers across
+// all parties, ordered by ledger_offset ASC, with pagination. Reads
+// indexer_transfers and maps results to the legacy PendingOffer type.
 func (s *PGStore) ListAllPendingOffers(
 	ctx context.Context, p indexer.Pagination,
 ) ([]indexer.PendingOffer, int64, error) {
-	var daos []PendingOfferDao
+	now := time.Now().UTC()
+	var daos []TransferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
 		q := db.NewSelect().Model(&daos).
-			Where("status = ?", string(indexer.OfferStatusPending)).
+			Where("kind = ?", indexer.TransferKindOffer).
+			Where("status = ?", indexer.TransferStatusPending).
+			Where("(expires_at IS NULL OR expires_at > ?)", now).
 			OrderExpr("ledger_offset ASC")
 		var err error
 		if total, err = q.Count(ctx); err != nil {
@@ -347,7 +401,7 @@ func (s *PGStore) ListAllPendingOffers(
 	}
 	offers := make([]indexer.PendingOffer, len(daos))
 	for i := range daos {
-		offers[i] = fromPendingOfferDao(&daos[i])
+		offers[i] = transferDaoToPendingOffer(&daos[i])
 	}
 	return offers, int64(total), nil
 }

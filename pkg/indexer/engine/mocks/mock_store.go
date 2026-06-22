@@ -123,6 +123,53 @@ func (_c *Store_ApplySupplyDelta_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
+// CompleteTransfer provides a mock function with given fields: ctx, contractID
+func (_m *Store) CompleteTransfer(ctx context.Context, contractID string) error {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompleteTransfer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_CompleteTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteTransfer'
+type Store_CompleteTransfer_Call struct {
+	*mock.Call
+}
+
+// CompleteTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *Store_Expecter) CompleteTransfer(ctx interface{}, contractID interface{}) *Store_CompleteTransfer_Call {
+	return &Store_CompleteTransfer_Call{Call: _e.mock.On("CompleteTransfer", ctx, contractID)}
+}
+
+func (_c *Store_CompleteTransfer_Call) Run(run func(ctx context.Context, contractID string)) *Store_CompleteTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_CompleteTransfer_Call) Return(_a0 error) *Store_CompleteTransfer_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_CompleteTransfer_Call) RunAndReturn(run func(context.Context, string) error) *Store_CompleteTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // InsertEvent provides a mock function with given fields: ctx, event
 func (_m *Store) InsertEvent(ctx context.Context, event *indexer.ParsedEvent) (bool, error) {
 	ret := _m.Called(ctx, event)
@@ -227,17 +274,17 @@ func (_c *Store_InsertHolding_Call) RunAndReturn(run func(context.Context, *inde
 	return _c
 }
 
-// InsertPendingOffer provides a mock function with given fields: ctx, offer
-func (_m *Store) InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error {
-	ret := _m.Called(ctx, offer)
+// InsertTransfer provides a mock function with given fields: ctx, t
+func (_m *Store) InsertTransfer(ctx context.Context, t *indexer.Transfer) error {
+	ret := _m.Called(ctx, t)
 
 	if len(ret) == 0 {
-		panic("no return value specified for InsertPendingOffer")
+		panic("no return value specified for InsertTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *indexer.PendingOffer) error); ok {
-		r0 = rf(ctx, offer)
+	if rf, ok := ret.Get(0).(func(context.Context, *indexer.Transfer) error); ok {
+		r0 = rf(ctx, t)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -245,31 +292,31 @@ func (_m *Store) InsertPendingOffer(ctx context.Context, offer *indexer.PendingO
 	return r0
 }
 
-// Store_InsertPendingOffer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertPendingOffer'
-type Store_InsertPendingOffer_Call struct {
+// Store_InsertTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertTransfer'
+type Store_InsertTransfer_Call struct {
 	*mock.Call
 }
 
-// InsertPendingOffer is a helper method to define mock.On call
+// InsertTransfer is a helper method to define mock.On call
 //   - ctx context.Context
-//   - offer *indexer.PendingOffer
-func (_e *Store_Expecter) InsertPendingOffer(ctx interface{}, offer interface{}) *Store_InsertPendingOffer_Call {
-	return &Store_InsertPendingOffer_Call{Call: _e.mock.On("InsertPendingOffer", ctx, offer)}
+//   - t *indexer.Transfer
+func (_e *Store_Expecter) InsertTransfer(ctx interface{}, t interface{}) *Store_InsertTransfer_Call {
+	return &Store_InsertTransfer_Call{Call: _e.mock.On("InsertTransfer", ctx, t)}
 }
 
-func (_c *Store_InsertPendingOffer_Call) Run(run func(ctx context.Context, offer *indexer.PendingOffer)) *Store_InsertPendingOffer_Call {
+func (_c *Store_InsertTransfer_Call) Run(run func(ctx context.Context, t *indexer.Transfer)) *Store_InsertTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*indexer.PendingOffer))
+		run(args[0].(context.Context), args[1].(*indexer.Transfer))
 	})
 	return _c
 }
 
-func (_c *Store_InsertPendingOffer_Call) Return(_a0 error) *Store_InsertPendingOffer_Call {
+func (_c *Store_InsertTransfer_Call) Return(_a0 error) *Store_InsertTransfer_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Store_InsertPendingOffer_Call) RunAndReturn(run func(context.Context, *indexer.PendingOffer) error) *Store_InsertPendingOffer_Call {
+func (_c *Store_InsertTransfer_Call) RunAndReturn(run func(context.Context, *indexer.Transfer) error) *Store_InsertTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -326,53 +373,6 @@ func (_c *Store_LatestOffset_Call) Return(_a0 int64, _a1 error) *Store_LatestOff
 }
 
 func (_c *Store_LatestOffset_Call) RunAndReturn(run func(context.Context) (int64, error)) *Store_LatestOffset_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// MarkOfferAccepted provides a mock function with given fields: ctx, contractID
-func (_m *Store) MarkOfferAccepted(ctx context.Context, contractID string) error {
-	ret := _m.Called(ctx, contractID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for MarkOfferAccepted")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, contractID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Store_MarkOfferAccepted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkOfferAccepted'
-type Store_MarkOfferAccepted_Call struct {
-	*mock.Call
-}
-
-// MarkOfferAccepted is a helper method to define mock.On call
-//   - ctx context.Context
-//   - contractID string
-func (_e *Store_Expecter) MarkOfferAccepted(ctx interface{}, contractID interface{}) *Store_MarkOfferAccepted_Call {
-	return &Store_MarkOfferAccepted_Call{Call: _e.mock.On("MarkOfferAccepted", ctx, contractID)}
-}
-
-func (_c *Store_MarkOfferAccepted_Call) Run(run func(ctx context.Context, contractID string)) *Store_MarkOfferAccepted_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *Store_MarkOfferAccepted_Call) Return(_a0 error) *Store_MarkOfferAccepted_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Store_MarkOfferAccepted_Call) RunAndReturn(run func(context.Context, string) error) *Store_MarkOfferAccepted_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -531,6 +531,53 @@ func (_c *Store_TakeHolding_Call) Return(h indexer.HoldingChange, ok bool, err e
 }
 
 func (_c *Store_TakeHolding_Call) RunAndReturn(run func(context.Context, string) (indexer.HoldingChange, bool, error)) *Store_TakeHolding_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpsertDirectTransfer provides a mock function with given fields: ctx, t
+func (_m *Store) UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error {
+	ret := _m.Called(ctx, t)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpsertDirectTransfer")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *indexer.Transfer) error); ok {
+		r0 = rf(ctx, t)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Store_UpsertDirectTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpsertDirectTransfer'
+type Store_UpsertDirectTransfer_Call struct {
+	*mock.Call
+}
+
+// UpsertDirectTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - t *indexer.Transfer
+func (_e *Store_Expecter) UpsertDirectTransfer(ctx interface{}, t interface{}) *Store_UpsertDirectTransfer_Call {
+	return &Store_UpsertDirectTransfer_Call{Call: _e.mock.On("UpsertDirectTransfer", ctx, t)}
+}
+
+func (_c *Store_UpsertDirectTransfer_Call) Run(run func(ctx context.Context, t *indexer.Transfer)) *Store_UpsertDirectTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*indexer.Transfer))
+	})
+	return _c
+}
+
+func (_c *Store_UpsertDirectTransfer_Call) Return(_a0 error) *Store_UpsertDirectTransfer_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Store_UpsertDirectTransfer_Call) RunAndReturn(run func(context.Context, *indexer.Transfer) error) *Store_UpsertDirectTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }

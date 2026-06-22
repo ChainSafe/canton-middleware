@@ -120,6 +120,23 @@ func pendingOffer() *indexer.PendingOffer {
 	}
 }
 
+// matchOfferTransfer returns a matcher asserting the processor built the right
+// offer-kind Transfer (pending status, sender/receiver mapped from the offer)
+// from a PendingOffer item.
+func matchOfferTransfer(o *indexer.PendingOffer) func(*indexer.Transfer) bool {
+	return func(tr *indexer.Transfer) bool {
+		return tr.ContractID == o.ContractID &&
+			tr.Kind == indexer.TransferKindOffer &&
+			tr.Status == indexer.TransferStatusPending &&
+			tr.FromPartyID == o.SenderPartyID &&
+			tr.ToPartyID == o.ReceiverPartyID &&
+			tr.InstrumentAdmin == o.InstrumentAdmin &&
+			tr.InstrumentID == o.InstrumentID &&
+			tr.Amount == o.Amount &&
+			tr.LedgerOffset == o.LedgerOffset
+	}
+}
+
 func feedCh(batches ...*streaming.Batch[any]) <-chan *streaming.Batch[any] {
 	ch := make(chan *streaming.Batch[any], len(batches))
 	for _, b := range batches {
@@ -257,6 +274,14 @@ func TestProcessor_Run_TransferBatch(t *testing.T) {
 	// Transfer: no ApplySupplyDelta.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testSender, testInstrumentAdmin, testInstrumentID, "-"+testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	// A CIP-56 TRANSFER also records a settled direct transfer row.
+	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
+		return tr.ContractID == testContractID &&
+			tr.Kind == indexer.TransferKindDirect &&
+			tr.Status == indexer.TransferStatusCompleted &&
+			tr.FromPartyID == testSender && tr.ToPartyID == testRecipient &&
+			tr.Amount == testAmount
+	})).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -289,6 +314,10 @@ func TestProcessor_Run_Transfer_CrossParticipantSender(t *testing.T) {
 		Return(fmt.Errorf("%w for party %s: current=0 delta=-%s", engine.ErrNegativeBalance, testSender, testAmount))
 	// Receiver credit must still be applied despite the sender error being skipped.
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	// The direct transfer row is still recorded for the unified history view.
+	store.EXPECT().UpsertDirectTransfer(mock.Anything, mock.MatchedBy(func(tr *indexer.Transfer) bool {
+		return tr.ContractID == testContractID && tr.Kind == indexer.TransferKindDirect
+	})).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(3)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -384,7 +413,7 @@ func TestProcessor_Run_PendingOfferCreated_Inserted(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(10, offer)))
 
 	setupRunInTx(store)
-	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().InsertTransfer(mock.Anything, mock.MatchedBy(matchOfferTransfer(offer))).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(10)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -401,7 +430,7 @@ func TestProcessor_Run_PendingOfferArchived_MarkedAccepted(t *testing.T) {
 	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, offer)))
 
 	setupRunInTx(store)
-	store.EXPECT().MarkOfferAccepted(mock.Anything, offer.ContractID).Return(nil)
+	store.EXPECT().CompleteTransfer(mock.Anything, offer.ContractID).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
@@ -434,7 +463,7 @@ func TestProcessor_Run_MixedBatch_ParsedEventAndOffer(t *testing.T) {
 	}).Return(nil)
 	store.EXPECT().ApplySupplyDelta(mock.Anything, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
 	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
-	store.EXPECT().InsertPendingOffer(mock.Anything, offer).Return(nil)
+	store.EXPECT().InsertTransfer(mock.Anything, mock.MatchedBy(matchOfferTransfer(offer))).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(20)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))

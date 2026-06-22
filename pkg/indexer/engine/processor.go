@@ -83,14 +83,18 @@ type Store interface {
 	// Called once per mint (+amount) or burn (-amount). Transfer events must not call this.
 	ApplySupplyDelta(ctx context.Context, instrumentAdmin, instrumentID, delta string) error
 
-	// InsertPendingOffer records a new TransferOffer (idempotent by ContractID).
-	// Status is set to PENDING on insert.
-	InsertPendingOffer(ctx context.Context, offer *indexer.PendingOffer) error
+	// InsertTransfer records a new offer-based transfer (Kind "offer") with status
+	// "pending". Idempotent by ContractID.
+	InsertTransfer(ctx context.Context, t *indexer.Transfer) error
 
-	// MarkOfferAccepted transitions a TransferOffer to ACCEPTED status when the Canton
-	// ledger emits an ARCHIVED event for the contract (receiver exercised Accept, or the
-	// offer was rejected/expired). The row is kept for audit history; no-op when not found.
-	MarkOfferAccepted(ctx context.Context, contractID string) error
+	// CompleteTransfer transitions a transfer to "completed" when the Canton ledger
+	// emits an ARCHIVED event for the offer contract (receiver exercised Accept, or
+	// the offer was rejected/expired). The row is kept for history; no-op when not found.
+	CompleteTransfer(ctx context.Context, contractID string) error
+
+	// UpsertDirectTransfer records a settled direct (atomic CIP-56) transfer.
+	// Idempotent by ContractID — replayed TRANSFER events are no-ops.
+	UpsertDirectTransfer(ctx context.Context, t *indexer.Transfer) error
 
 	// InsertHolding records an active Utility.Registry.Holding contract so its amount
 	// and owner can be recovered when the contract is later archived (archive events
@@ -206,12 +210,25 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				}
 			case *indexer.PendingOffer:
 				if item.IsArchived {
-					if err := tx.MarkOfferAccepted(ctx, item.ContractID); err != nil {
-						return fmt.Errorf("mark offer accepted %s: %w", item.ContractID, err)
+					if err := tx.CompleteTransfer(ctx, item.ContractID); err != nil {
+						return fmt.Errorf("complete transfer %s: %w", item.ContractID, err)
 					}
 				} else {
-					if err := tx.InsertPendingOffer(ctx, item); err != nil {
-						return fmt.Errorf("insert pending offer %s: %w", item.ContractID, err)
+					it := &indexer.Transfer{
+						ContractID:      item.ContractID,
+						Kind:            indexer.TransferKindOffer,
+						Status:          indexer.TransferStatusPending,
+						FromPartyID:     item.SenderPartyID,
+						ToPartyID:       item.ReceiverPartyID,
+						InstrumentAdmin: item.InstrumentAdmin,
+						InstrumentID:    item.InstrumentID,
+						Amount:          item.Amount,
+						ExpiresAt:       item.ExpiresAt,
+						LedgerOffset:    item.LedgerOffset,
+						CreatedAt:       item.CreatedAt,
+					}
+					if err := tx.InsertTransfer(ctx, it); err != nil {
+						return fmt.Errorf("insert transfer %s: %w", item.ContractID, err)
 					}
 				}
 			case *indexer.HoldingChange:
@@ -305,6 +322,30 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 			continue
 		}
 		return fmt.Errorf("apply balance delta: %w", err)
+	}
+
+	// Record a settled direct transfer in indexer_transfers so the unified history
+	// view covers our atomic CIP-56 transfers alongside offer-based ones. Only
+	// TRANSFER (not MINT/BURN) produces a transfer row, and only on first insert
+	// (this point is reached only when inserted==true) so replays don't duplicate.
+	// Guard nil parties defensively — a TRANSFER always has both, but the store
+	// column is NOT NULL.
+	if e.EventType == indexer.EventTransfer && e.FromPartyID != nil && e.ToPartyID != nil {
+		if err := tx.UpsertDirectTransfer(ctx, &indexer.Transfer{
+			ContractID:      e.ContractID,
+			Kind:            indexer.TransferKindDirect,
+			Status:          indexer.TransferStatusCompleted,
+			FromPartyID:     *e.FromPartyID,
+			ToPartyID:       *e.ToPartyID,
+			InstrumentAdmin: e.InstrumentAdmin,
+			InstrumentID:    e.InstrumentID,
+			Amount:          e.Amount,
+			TxID:            e.TxID,
+			LedgerOffset:    e.LedgerOffset,
+			CreatedAt:       e.EffectiveTime,
+		}); err != nil {
+			return fmt.Errorf("upsert direct transfer: %w", err)
+		}
 	}
 	return nil
 }
