@@ -39,19 +39,19 @@ func recipientUser() *user.User {
 	}
 }
 
-// newTestService builds a TransferService wired to a fresh PendingOfferLister
+// newTestService builds a TransferService wired to a fresh IndexerReader
 // mock. The api-server now requires the indexer to be configured, so the
 // production constructor refuses to operate without an offer lister; tests
 // pass `t` so an unused mock fails cleanly if a test accidentally invokes it.
 func newTestService(t *testing.T, tok *mocks.Token, store *mocks.UserStore, cache *mocks.TransferCache) *TransferService {
-	return newTestServiceWithOffers(tok, store, cache, mocks.NewPendingOfferLister(t))
+	return newTestServiceWithOffers(tok, store, cache, mocks.NewIndexerReader(t))
 }
 
 func newTestServiceWithOffers(
 	tok *mocks.Token,
 	store *mocks.UserStore,
 	cache *mocks.TransferCache,
-	offers *mocks.PendingOfferLister,
+	offers *mocks.IndexerReader,
 ) *TransferService {
 	return &TransferService{
 		cantonToken:         tok,
@@ -504,7 +504,7 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
+	offers := mocks.NewIndexerReader(t)
 	// Sender/receiver party IDs are intentionally long-form here so the test
 	// exercises the server-side truncation that ListIncoming applies.
 	const (
@@ -512,23 +512,25 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 		longReceiver = "party::receiverXXXXXXXXXXXXXXXXXXXXX"
 	)
 	reqPagination := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, reqPagination).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferQuery{Role: indexer.TransferRoleReceiver, Status: indexer.TransferStatusPending}, reqPagination).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
 				{
 					ContractID:      "cid-1",
-					Status:          indexer.OfferStatusPending,
-					SenderPartyID:   longSender,
-					ReceiverPartyID: longReceiver,
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     longSender,
+					ToPartyID:       longReceiver,
 					Amount:          "10.0",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "DEMO",
 				},
 				{
 					ContractID:      "cid-2",
-					Status:          indexer.OfferStatusPending,
-					SenderPartyID:   "party::sender-bob",
-					ReceiverPartyID: longReceiver,
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     "party::sender-bob",
+					ToPartyID:       longReceiver,
 					Amount:          "5.5",
 					InstrumentAdmin: "admin::issuer",
 					InstrumentID:    "UNKNOWN",
@@ -581,12 +583,12 @@ func TestTransferService_ListIncoming_HasMore(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, indexer.Pagination{Page: 1, Limit: 2}).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{
-				{ContractID: "cid-1", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
-				{ContractID: "cid-2", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
+	offers := mocks.NewIndexerReader(t)
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, indexer.TransferQuery{Role: indexer.TransferRoleReceiver, Status: indexer.TransferStatusPending}, indexer.Pagination{Page: 1, Limit: 2}).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
+				{ContractID: "cid-1", Status: indexer.TransferStatusPending, InstrumentID: "DEMO"},
+				{ContractID: "cid-2", Status: indexer.TransferStatusPending, InstrumentID: "DEMO"},
 			},
 			Total: 5,
 			Page:  1,
@@ -612,10 +614,10 @@ func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.Anything).
-		Return(&indexer.Page[indexer.PendingOffer]{
-			Items: []indexer.PendingOffer{},
+	offers := mocks.NewIndexerReader(t)
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID, mock.Anything, mock.Anything).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{},
 			Total: 0,
 			Page:  1,
 			Limit: 200,
@@ -634,7 +636,7 @@ func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
 
-	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
 
 	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
@@ -648,7 +650,7 @@ func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
 
 	_, err := svc.ListIncoming(ctx, sender.EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
@@ -755,4 +757,128 @@ func TestTransferService_ExecuteAccept_DelegatesToExecute(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "completed", resp.Status)
+}
+
+// --- ListOutgoing tests ---
+
+func TestTransferService_ListOutgoing_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	expires := time.Now().Add(time.Hour).UTC()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewIndexerReader(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusPending}, page).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
+				{
+					ContractID:      "out-1",
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusPending,
+					FromPartyID:     sender.CantonPartyID,
+					ToPartyID:       "party::receiverXXXXXXXXXXXXXXXXXXXXX",
+					Amount:          "7.5",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "DEMO",
+					ExpiresAt:       &expires,
+				},
+			},
+			Total: 1, Page: 1, Limit: 50,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListOutgoing(ctx, sender.EVMAddress, indexer.TransferStatusPending, page)
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, "out-1", resp.Items[0].ContractID)
+	assert.Equal(t, "pending", resp.Items[0].Status)
+	assert.NotEmpty(t, resp.Items[0].ExpiresAt)
+	// Counterparty (receiver) is truncated; instrument metadata enriched from config.
+	assert.Contains(t, resp.Items[0].ReceiverPartyID, "…")
+	assert.Equal(t, "DEMO", resp.Items[0].Symbol)
+	assert.Equal(t, 18, resp.Items[0].Decimals)
+	assert.False(t, resp.HasMore)
+}
+
+func TestTransferService_ListOutgoing_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
+	_, err := svc.ListOutgoing(ctx, senderUser().EVMAddress, "", indexer.Pagination{Page: 1, Limit: 50})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+// --- ListCompleted tests ---
+
+func TestTransferService_ListCompleted_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	ts := time.Now().UTC()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewIndexerReader(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+	offers.EXPECT().GetTransfers(ctx, sender.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleAny, Status: indexer.TransferStatusCompleted}, page).
+		Return(&indexer.Page[indexer.Transfer]{
+			Items: []indexer.Transfer{
+				{ // our-token settled transfer (direct)
+					ContractID:      "ev-1",
+					Kind:            indexer.TransferKindDirect,
+					Status:          indexer.TransferStatusCompleted,
+					FromPartyID:     sender.CantonPartyID,
+					ToPartyID:       "party::receiverXXXXXXXXXXXXXXXXXXXXX",
+					Amount:          "3",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "DEMO",
+					TxID:            "tx-1",
+					CreatedAt:       ts,
+				},
+				{ // USDCx settled transfer (offer-based)
+					ContractID:      "of-1",
+					Kind:            indexer.TransferKindOffer,
+					Status:          indexer.TransferStatusCompleted,
+					FromPartyID:     "party::senderXXXXXXXXXXXXXXXXXXXXXXX",
+					ToPartyID:       sender.CantonPartyID,
+					Amount:          "9",
+					InstrumentAdmin: "circle::admin",
+					InstrumentID:    "USDC",
+					CreatedAt:       ts,
+				},
+			},
+			Total: 2, Page: 1, Limit: 50,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListCompleted(ctx, sender.EVMAddress, page)
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 2)
+
+	assert.Equal(t, "direct", resp.Items[0].Kind)
+	assert.Equal(t, "tx-1", resp.Items[0].TxID)
+	assert.Equal(t, "DEMO", resp.Items[0].Symbol) // enriched from config
+	assert.Contains(t, resp.Items[0].ToPartyID, "…")
+
+	assert.Equal(t, "offer", resp.Items[1].Kind)
+	assert.Empty(t, resp.Items[1].TxID)   // offers carry no tx id
+	assert.Empty(t, resp.Items[1].Symbol) // USDC not in test config -> not enriched
+	assert.Equal(t, "USDC", resp.Items[1].InstrumentID)
+}
+
+func TestTransferService_ListCompleted_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
+	_, err := svc.ListCompleted(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }

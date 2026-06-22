@@ -115,7 +115,7 @@ func (s *Server) Run() error {
 	logger.Info("Connected to Canton")
 
 	// The indexer is now a hard dependency: the token provider (when in
-	// indexer mode), the accept worker, and the pending-offers list endpoint
+	// indexer mode), the accept worker, and the transfers list endpoints
 	// all read from it. Build the HTTP client once and share — separate
 	// instances would just open redundant idle connections to the same host.
 	indexerClient, err := buildIndexerClient(cfg, reg)
@@ -185,7 +185,7 @@ func (s *Server) Run() error {
 // the dual configuration exists for historical reasons and is consolidated
 // here so the rest of the code never has to pick between them.
 //
-// An indexer is now required (the pending-offers endpoint backs onto it), so
+// An indexer is now required (the transfer list/history endpoints back onto it), so
 // startup fails fast if neither location is configured. The returned client is
 // wrapped with metrics so all outbound indexer calls are observed.
 func buildIndexerClient(cfg *config.APIServer, reg sharedmetrics.NamespacedRegisterer) (indexerclient.Client, error) {

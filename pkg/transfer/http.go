@@ -49,6 +49,8 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	r.Post("/api/v2/transfer/custodial", apphttp.HandleError(h.sendCustodial))
 
 	r.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
+	r.Get("/api/v2/transfer/outgoing", apphttp.HandleError(h.listOutgoing))
+	r.Get("/api/v2/transfer/completed", apphttp.HandleError(h.listCompleted))
 	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
 	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
 }
@@ -171,6 +173,79 @@ func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error
 
 	h.writeJSON(w, resp)
 	return nil
+}
+
+// listOutgoing returns the queried address's outbound TransferOffers. Like
+// listIncoming it is unauthenticated and takes the EVM address as a query param;
+// ?status= filters by pending|expired|accepted|all (default all).
+func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error {
+	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if evmAddr == "" {
+		return apperrors.BadRequestError(nil, "address query parameter is required")
+	}
+	if !auth.ValidateEVMAddress(evmAddr) {
+		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+
+	status, err := parseOutgoingStatus(r)
+	if err != nil {
+		return err
+	}
+	p, err := parseListPagination(r)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.svc.ListOutgoing(r.Context(), auth.NormalizeAddress(evmAddr), status, p)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// listCompleted returns the queried address's settled transfers across all tokens.
+// Unauthenticated, EVM address as a query param, party IDs truncated.
+func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) error {
+	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if evmAddr == "" {
+		return apperrors.BadRequestError(nil, "address query parameter is required")
+	}
+	if !auth.ValidateEVMAddress(evmAddr) {
+		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+
+	p, err := parseListPagination(r)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.svc.ListCompleted(r.Context(), auth.NormalizeAddress(evmAddr), p)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// parseOutgoingStatus maps ?status= to a transfer status filter for the outgoing
+// endpoint. Empty or "all" means no status filter. "accepted" is accepted as a
+// backward-compatible alias for "completed".
+func parseOutgoingStatus(r *http.Request) (string, error) {
+	switch r.URL.Query().Get("status") {
+	case "", "all":
+		return "", nil
+	case "pending":
+		return indexer.TransferStatusPending, nil
+	case "expired":
+		return indexer.TransferStatusExpired, nil
+	case "completed", "accepted":
+		return indexer.TransferStatusCompleted, nil
+	default:
+		return "", apperrors.BadRequestError(nil, "status must be pending, expired, completed, or all")
+	}
 }
 
 // parseListPagination reads ?page=N&limit=L from the request, defaulting to

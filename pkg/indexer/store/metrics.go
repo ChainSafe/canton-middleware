@@ -63,15 +63,15 @@ const (
 	OpTakeHolding       StoreOperation = "take_holding"
 
 	// Read-path operations (HTTP API / service.Store).
-	OpGetToken                StoreOperation = "get_token"
-	OpListTokens              StoreOperation = "list_tokens"
-	OpGetBalance              StoreOperation = "get_balance"
-	OpListBalancesForParty    StoreOperation = "list_balances_for_party"
-	OpListBalancesForToken    StoreOperation = "list_balances_for_token"
-	OpGetEvent                StoreOperation = "get_event"
-	OpListEvents              StoreOperation = "list_events"
-	OpListPendingOffersForPty StoreOperation = "list_pending_offers_for_party"
-	OpListAllPendingOffers    StoreOperation = "list_all_pending_offers"
+	OpGetToken             StoreOperation = "get_token"
+	OpListTokens           StoreOperation = "list_tokens"
+	OpGetBalance           StoreOperation = "get_balance"
+	OpListBalancesForParty StoreOperation = "list_balances_for_party"
+	OpListBalancesForToken StoreOperation = "list_balances_for_token"
+	OpGetEvent             StoreOperation = "get_event"
+	OpListEvents           StoreOperation = "list_events"
+	OpListTransfers        StoreOperation = "list_transfers"
+	OpListPendingTransfers StoreOperation = "list_pending_transfers"
 )
 
 // ── Helper methods ───────────────────────────────────────────────────────────

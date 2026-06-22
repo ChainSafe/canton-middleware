@@ -23,7 +23,7 @@ import (
 
 //go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
 //go:generate mockery --name TransferCache --output mocks --outpkg mocks --filename mock_transfer_cache.go --with-expecter
-//go:generate mockery --name PendingOfferLister --output mocks --outpkg mocks --filename mock_pending_offer_lister.go --with-expecter
+//go:generate mockery --name IndexerReader --output mocks --outpkg mocks --filename mock_indexer_reader.go --with-expecter
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 
 // UserStore is the narrow interface for looking up users.
@@ -37,16 +37,14 @@ type TransferCache interface {
 	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
 }
 
-// PendingOfferLister is the narrow slice of indexer/client.Client used by
-// ListIncoming. The transfer service treats the indexer as the source of truth
-// for pending TransferOffer state instead of querying Canton directly — the
-// indexer already maintains `indexer_pending_offers` with all the fields we
-// need (sender, amount, instrument), so going through it avoids duplicate
-// decode logic in cantonsdk/token.
-type PendingOfferLister interface {
-	GetPendingOffersForParty(
-		ctx context.Context, partyID string, p indexer.Pagination,
-	) (*indexer.Page[indexer.PendingOffer], error)
+// IndexerReader is the slice of indexer/client.Client the transfer service uses
+// to read TransferOffer state. The indexer is the source of truth for the offer
+// lifecycle (incoming/outgoing/expired/accepted), so the service reads from it
+// rather than re-decoding Canton contracts.
+type IndexerReader interface {
+	GetTransfers(
+		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+	) (*indexer.Page[indexer.Transfer], error)
 }
 
 // Service is the interface for the non-custodial prepare/execute transfer flow.
@@ -64,6 +62,13 @@ type Service interface {
 	// query any address's pending offers; the response is intentionally minimized
 	// (party IDs truncated) to keep that from leaking counterparties.
 	ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error)
+	// ListOutgoing returns one page of the user's outbound transfers filtered
+	// by status (pending / expired / completed / all). Like ListIncoming it is
+	// unauthenticated and truncates party IDs.
+	ListOutgoing(ctx context.Context, evmAddr string, status string, p indexer.Pagination) (*OutgoingTransfersList, error)
+	// ListCompleted returns one page of the user's settled transfers across all
+	// tokens (TokenTransferEvents and accepted TransferOffers), newest first.
+	ListCompleted(ctx context.Context, evmAddr string, p indexer.Pagination) (*CompletedTransfersList, error)
 	// PrepareAccept builds a Canton transaction for accepting an inbound offer.
 	PrepareAccept(
 		ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
@@ -77,7 +82,7 @@ type TransferService struct {
 	cantonToken         token.Token
 	userStore           UserStore
 	cache               TransferCache
-	offerLister         PendingOfferLister
+	offerLister         IndexerReader
 	allowedTokenSymbols map[string]bool
 	tokensByInstrument  map[instrumentKey]instrumentMeta
 }
@@ -105,7 +110,7 @@ func NewTransferService(
 	userStore UserStore,
 	cache TransferCache,
 	tokenCfg *pkgtoken.Config,
-	offerLister PendingOfferLister,
+	offerLister IndexerReader,
 ) *TransferService {
 	allowed := map[string]bool{}
 	byInstrument := map[instrumentKey]instrumentMeta{}
@@ -326,9 +331,10 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 		return nil, apperrors.BadRequestError(nil, "incoming transfer API requires key_mode=external")
 	}
 
-	result, err := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, p)
+	result, err := s.offerLister.GetTransfers(ctx, u.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleReceiver, Status: indexer.TransferStatusPending}, p)
 	if err != nil {
-		return nil, fmt.Errorf("list pending offers: %w", err)
+		return nil, fmt.Errorf("list pending transfers: %w", err)
 	}
 
 	// Start with a non-nil empty slice so the JSON response marshals to `[]`
@@ -336,9 +342,9 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 	items := make([]IncomingTransfer, 0, len(result.Items))
 	for i := range result.Items {
 		o := &result.Items[i]
-		// The indexer's pending-offers query already filters to PENDING at the
-		// SQL layer, so this is a defensive check in case the contract changes.
-		if o.Status != indexer.OfferStatusPending {
+		// The indexer's query already filters to pending at the SQL layer, so
+		// this is a defensive check in case the contract changes.
+		if o.Status != indexer.TransferStatusPending {
 			continue
 		}
 		// Party IDs are truncated server-side because this endpoint is
@@ -351,8 +357,8 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 		// data (`/tokens` already exposes it).
 		item := IncomingTransfer{
 			ContractID:      o.ContractID,
-			SenderPartyID:   truncatePartyID(o.SenderPartyID),
-			ReceiverPartyID: truncatePartyID(o.ReceiverPartyID),
+			SenderPartyID:   truncatePartyID(o.FromPartyID),
+			ReceiverPartyID: truncatePartyID(o.ToPartyID),
 			Amount:          o.Amount,
 			InstrumentAdmin: o.InstrumentAdmin,
 			InstrumentID:    o.InstrumentID,
@@ -373,6 +379,112 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 		Page:    p.Page,
 		Limit:   p.Limit,
 		HasMore: hasMore,
+	}, nil
+}
+
+// ListOutgoing returns one page of the user's outbound transfers filtered
+// by status. Data comes from the indexer (role=sender); party IDs are truncated
+// like ListIncoming since the endpoint is unauthenticated.
+func (s *TransferService) ListOutgoing(
+	ctx context.Context, evmAddr string, status string, p indexer.Pagination,
+) (*OutgoingTransfersList, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.BadRequestError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+
+	result, err := s.offerLister.GetTransfers(ctx, u.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: status}, p)
+	if err != nil {
+		return nil, fmt.Errorf("list outgoing transfers: %w", err)
+	}
+
+	items := make([]OutgoingTransfer, 0, len(result.Items))
+	for i := range result.Items {
+		o := &result.Items[i]
+		item := OutgoingTransfer{
+			ContractID:      o.ContractID,
+			SenderPartyID:   truncatePartyID(o.FromPartyID),
+			ReceiverPartyID: truncatePartyID(o.ToPartyID),
+			Amount:          o.Amount,
+			InstrumentAdmin: o.InstrumentAdmin,
+			InstrumentID:    o.InstrumentID,
+			Status:          o.Status,
+		}
+		if o.ExpiresAt != nil {
+			item.ExpiresAt = o.ExpiresAt.Format(time.RFC3339)
+		}
+		if meta, ok := s.tokensByInstrument[instrumentKey{id: o.InstrumentID}]; ok {
+			item.Symbol = meta.symbol
+			item.Decimals = meta.decimals
+			item.Name = meta.name
+			item.ContractAddress = meta.contractAddress
+		}
+		items = append(items, item)
+	}
+
+	return &OutgoingTransfersList{
+		Items:   items,
+		Total:   result.Total,
+		Page:    p.Page,
+		Limit:   p.Limit,
+		HasMore: int64(p.Page*p.Limit) < result.Total,
+	}, nil
+}
+
+// ListCompleted returns one page of the user's settled transfers across all
+// tokens. Data comes from the indexer's generalized completed-transfers query;
+// party IDs are truncated like the other read endpoints since this is unauthenticated.
+func (s *TransferService) ListCompleted(
+	ctx context.Context, evmAddr string, p indexer.Pagination,
+) (*CompletedTransfersList, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.BadRequestError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+
+	result, err := s.offerLister.GetTransfers(ctx, u.CantonPartyID,
+		indexer.TransferQuery{Role: indexer.TransferRoleAny, Status: indexer.TransferStatusCompleted}, p)
+	if err != nil {
+		return nil, fmt.Errorf("list completed transfers: %w", err)
+	}
+
+	items := make([]CompletedTransfer, 0, len(result.Items))
+	for i := range result.Items {
+		t := &result.Items[i]
+		item := CompletedTransfer{
+			ContractID:      t.ContractID,
+			Kind:            t.Kind,
+			Status:          t.Status,
+			FromPartyID:     truncatePartyID(t.FromPartyID),
+			ToPartyID:       truncatePartyID(t.ToPartyID),
+			Amount:          t.Amount,
+			InstrumentAdmin: t.InstrumentAdmin,
+			InstrumentID:    t.InstrumentID,
+			Timestamp:       t.CreatedAt.Format(time.RFC3339),
+			TxID:            t.TxID,
+		}
+		if meta, ok := s.tokensByInstrument[instrumentKey{id: t.InstrumentID}]; ok {
+			item.Symbol = meta.symbol
+			item.Decimals = meta.decimals
+			item.Name = meta.name
+			item.ContractAddress = meta.contractAddress
+		}
+		items = append(items, item)
+	}
+
+	return &CompletedTransfersList{
+		Items:   items,
+		Total:   result.Total,
+		Page:    p.Page,
+		Limit:   p.Limit,
+		HasMore: int64(p.Page*p.Limit) < result.Total,
 	}, nil
 }
 
