@@ -289,18 +289,52 @@ func (c *Client) ProcessDepositAndMint(ctx context.Context, req ProcessDepositRe
 		return nil, fmt.Errorf("process deposit and mint: missing transaction in response")
 	}
 
+	// Locate the minted holding and verify the TokenTransferEvent the indexer
+	// relies on was emitted in the same transaction. The mint creates both
+	// atomically (CIP56.Config:TokenConfig.IssuerMint), and the event is
+	// issuer-signed, so both are visible in this issuer-scoped response.
+	var holdingCID string
+	var transferEventPackageID string
 	for _, e := range resp.Transaction.Events {
 		created := e.GetCreated()
 		if created == nil || created.TemplateId == nil {
 			continue
 		}
-		// Mint results in a holding being created.
-		if created.TemplateId.ModuleName == "CIP56.Token" && created.TemplateId.EntityName == "CIP56Holding" {
-			return &ProcessedDeposit{ContractID: created.ContractId}, nil
+		// Diagnostic: every created contract with its package id, so a package
+		// mismatch (event under a cip56-token package the indexer's #cip56-token
+		// filter doesn't match) is visible without a ledger query.
+		c.logger.Debug("ProcessDepositAndMint created contract",
+			zap.String("package_id", created.TemplateId.PackageId),
+			zap.String("module", created.TemplateId.ModuleName),
+			zap.String("entity", created.TemplateId.EntityName),
+			zap.String("contract_id", created.ContractId))
+
+		switch {
+		case created.TemplateId.ModuleName == "CIP56.Token" && created.TemplateId.EntityName == "CIP56Holding":
+			holdingCID = created.ContractId
+		case created.TemplateId.ModuleName == "CIP56.Events" && created.TemplateId.EntityName == "TokenTransferEvent":
+			transferEventPackageID = created.TemplateId.PackageId
 		}
 	}
 
-	return nil, fmt.Errorf("CIP56Holding contract not found in response")
+	if holdingCID == "" {
+		return nil, fmt.Errorf("CIP56Holding contract not found in response")
+	}
+
+	// A holding without a TokenTransferEvent mints tokens that the indexer can
+	// never see (balances stay flat). Surface it loudly instead of silently
+	// succeeding — this is the failure mode that hid the missing-balance bug.
+	if transferEventPackageID == "" {
+		c.logger.Warn("ProcessDepositAndMint created a CIP56Holding but NO TokenTransferEvent; "+
+			"indexer-derived balances will not reflect this mint. Check the deployed "+
+			"bridge-wayfinder/cip56-token package versions.",
+			zap.String("holding_cid", holdingCID))
+	} else {
+		c.logger.Info("ProcessDepositAndMint emitted TokenTransferEvent",
+			zap.String("token_transfer_event_package_id", transferEventPackageID))
+	}
+
+	return &ProcessedDeposit{ContractID: holdingCID}, nil
 }
 
 func (c *Client) InitiateWithdrawal(ctx context.Context, req InitiateWithdrawalRequest) (string, error) {
