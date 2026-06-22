@@ -354,6 +354,72 @@ func (s *PGStore) ListOffersForParty(
 	return offers, int64(total), nil
 }
 
+// completedTransferRow is the scan target for the ListCompletedTransfers union.
+type completedTransferRow struct {
+	ContractID      string    `bun:"contract_id"`
+	Source          string    `bun:"source"`
+	InstrumentAdmin string    `bun:"instrument_admin"`
+	InstrumentID    string    `bun:"instrument_id"`
+	Amount          string    `bun:"amount"`
+	FromParty       string    `bun:"from_party"`
+	ToParty         string    `bun:"to_party"`
+	TxID            string    `bun:"tx_id"`
+	Ts              time.Time `bun:"ts"`
+}
+
+// completedTransfersUnion is the body of the completed-transfers query: settled
+// TRANSFER events plus accepted TransferOffers involving the party, normalized to
+// one column set. The two sources are disjoint (our CIP-56 tokens emit events and
+// never create offers; external tokens use offers and never emit our events), so
+// UNION ALL does not double-count.
+const completedTransfersUnion = `
+	SELECT contract_id, 'event' AS source, instrument_admin, instrument_id, amount,
+	       COALESCE(from_party_id, '') AS from_party, COALESCE(to_party_id, '') AS to_party,
+	       tx_id, effective_time AS ts
+	FROM indexer_events
+	WHERE event_type = 'TRANSFER' AND (from_party_id = ? OR to_party_id = ?)
+	UNION ALL
+	SELECT contract_id, 'offer' AS source, instrument_admin, instrument_id, amount,
+	       sender_party_id AS from_party, receiver_party_id AS to_party,
+	       '' AS tx_id, created_at AS ts
+	FROM indexer_pending_offers
+	WHERE status = 'ACCEPTED' AND (sender_party_id = ? OR receiver_party_id = ?)`
+
+// ListCompletedTransfers returns a party's settled transfers across all tokens,
+// newest first, with pagination. Generalizes over both settlement mechanisms.
+func (s *PGStore) ListCompletedTransfers(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.CompletedTransfer, int64, error) {
+	var rows []completedTransferRow
+	var total int
+	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
+		countQ := "SELECT count(*) FROM (" + completedTransfersUnion + ") AS u"
+		if err := db.NewRaw(countQ, partyID, partyID, partyID, partyID).Scan(ctx, &total); err != nil {
+			return fmt.Errorf("count: %w", err)
+		}
+		pageQ := completedTransfersUnion + "\n\tORDER BY ts DESC\n\tLIMIT ? OFFSET ?"
+		return db.NewRaw(pageQ, partyID, partyID, partyID, partyID, p.Limit, (p.Page-1)*p.Limit).Scan(ctx, &rows)
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list completed transfers: %w", err)
+	}
+	out := make([]indexer.CompletedTransfer, len(rows))
+	for i := range rows {
+		out[i] = indexer.CompletedTransfer{
+			ContractID:      rows[i].ContractID,
+			Source:          rows[i].Source,
+			InstrumentAdmin: rows[i].InstrumentAdmin,
+			InstrumentID:    rows[i].InstrumentID,
+			Amount:          rows[i].Amount,
+			FromPartyID:     rows[i].FromParty,
+			ToPartyID:       rows[i].ToParty,
+			TxID:            rows[i].TxID,
+			Timestamp:       rows[i].Ts,
+		}
+	}
+	return out, int64(total), nil
+}
+
 // ListAllPendingOffers returns all PENDING offers across all parties,
 // ordered by ledger_offset ASC, with pagination.
 func (s *PGStore) ListAllPendingOffers(

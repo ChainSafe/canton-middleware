@@ -376,3 +376,16 @@ func (s *InstrumentedStore) ListAllPendingOffers(
 	}
 	return offers, total, err
 }
+
+func (s *InstrumentedStore) ListCompletedTransfers(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) ([]indexer.CompletedTransfer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListCompletedTransfers))
+	defer timer.ObserveDuration()
+
+	transfers, total, err := s.inner.ListCompletedTransfers(ctx, partyID, p)
+	if err != nil {
+		s.metrics.IncErrors(OpListCompletedTransfers)
+	}
+	return transfers, total, err
+}

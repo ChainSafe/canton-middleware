@@ -100,6 +100,33 @@ type OutgoingTransfersList struct {
 	HasMore bool               `json:"has_more"`
 }
 
+// CompletedTransfer is a single settled transfer in the unified history view,
+// generalized across all tokens (our CIP-56 tokens and external ones like USDCx).
+type CompletedTransfer struct {
+	ContractID      string `json:"contract_id"`
+	Source          string `json:"source"` // "event" | "offer"
+	FromPartyID     string `json:"from_party_id"`
+	ToPartyID       string `json:"to_party_id"`
+	Amount          string `json:"amount"`
+	InstrumentAdmin string `json:"instrument_admin"`
+	InstrumentID    string `json:"instrument_id"`
+	Timestamp       string `json:"timestamp"`       // RFC3339
+	TxID            string `json:"tx_id,omitempty"` // ledger update id (events only)
+	Symbol          string `json:"symbol,omitempty"`
+	Decimals        int    `json:"decimals,omitempty"`
+	Name            string `json:"name,omitempty"`
+	ContractAddress string `json:"contract_address,omitempty"`
+}
+
+// CompletedTransfersList is the HTTP response body for GET /api/v2/transfer/completed.
+type CompletedTransfersList struct {
+	Items   []CompletedTransfer `json:"items"`
+	Total   int64               `json:"total"`
+	Page    int                 `json:"page"`
+	Limit   int                 `json:"limit"`
+	HasMore bool                `json:"has_more"`
+}
+
 // PrepareAcceptRequest is the HTTP request body for preparing a non-custodial accept.
 type PrepareAcceptRequest struct {
 	InstrumentAdmin string `json:"instrument_admin"` // Canton party ID of the instrument admin

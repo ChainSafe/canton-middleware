@@ -55,6 +55,9 @@ type Client interface {
 		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.PendingOffer], error)
 	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	GetCompletedTransfers(
+		ctx context.Context, partyID string, p indexer.Pagination,
+	) (*indexer.Page[indexer.CompletedTransfer], error)
 }
 
 // HTTP implements Client by calling the indexer's unauthenticated admin HTTP API.
@@ -224,6 +227,18 @@ func (c *HTTP) GetAllPendingOffers(
 	var page indexer.Page[indexer.PendingOffer]
 	if err := c.getJSON(ctx, u, &page); err != nil {
 		return nil, fmt.Errorf("get all pending offers: %w", err)
+	}
+	return &page, nil
+}
+
+// GetCompletedTransfers calls GET /indexer/v1/admin/parties/{partyID}/completed-transfers.
+func (c *HTTP) GetCompletedTransfers(
+	ctx context.Context, partyID string, p indexer.Pagination,
+) (*indexer.Page[indexer.CompletedTransfer], error) {
+	u := c.partyBase(partyID) + "/completed-transfers?" + pageQuery(p).Encode()
+	var page indexer.Page[indexer.CompletedTransfer]
+	if err := c.getJSON(ctx, u, &page); err != nil {
+		return nil, fmt.Errorf("completed transfers for party %s: %w", partyID, err)
 	}
 	return &page, nil
 }

@@ -50,6 +50,7 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 
 	r.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
 	r.Get("/api/v2/transfer/outgoing", apphttp.HandleError(h.listOutgoing))
+	r.Get("/api/v2/transfer/completed", apphttp.HandleError(h.listCompleted))
 	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
 	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
 }
@@ -196,6 +197,31 @@ func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error
 	}
 
 	resp, err := h.svc.ListOutgoing(r.Context(), auth.NormalizeAddress(evmAddr), status, p)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// listCompleted returns the queried address's settled transfers across all tokens.
+// Unauthenticated, EVM address as a query param, party IDs truncated.
+func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) error {
+	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if evmAddr == "" {
+		return apperrors.BadRequestError(nil, "address query parameter is required")
+	}
+	if !auth.ValidateEVMAddress(evmAddr) {
+		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+
+	p, err := parseListPagination(r)
+	if err != nil {
+		return err
+	}
+
+	resp, err := h.svc.ListCompleted(r.Context(), auth.NormalizeAddress(evmAddr), p)
 	if err != nil {
 		return err
 	}

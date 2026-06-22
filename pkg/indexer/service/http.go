@@ -42,6 +42,7 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
 		r.Get("/parties/{partyID}/offers", apphttp.HandleError(h.listOffers))
+		r.Get("/parties/{partyID}/completed-transfers", apphttp.HandleError(h.listCompletedTransfers))
 		r.Get("/pending-offers", apphttp.HandleError(h.listAllPendingOffers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
@@ -182,6 +183,20 @@ func (h *HTTP) listOffers(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page, err := h.service.GetOffersForParty(r.Context(), partyID, query, p)
+	if err != nil {
+		return err
+	}
+	h.writeJSON(w, page)
+	return nil
+}
+
+func (h *HTTP) listCompletedTransfers(w http.ResponseWriter, r *http.Request) error {
+	partyID := chi.URLParam(r, "partyID")
+	p, err := parsePagination(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetCompletedTransfers(r.Context(), partyID, p)
 	if err != nil {
 		return err
 	}

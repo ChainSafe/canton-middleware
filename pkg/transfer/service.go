@@ -45,6 +45,9 @@ type IndexerReader interface {
 	GetOffersForParty(
 		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.PendingOffer], error)
+	GetCompletedTransfers(
+		ctx context.Context, partyID string, p indexer.Pagination,
+	) (*indexer.Page[indexer.CompletedTransfer], error)
 }
 
 // Service is the interface for the non-custodial prepare/execute transfer flow.
@@ -66,6 +69,9 @@ type Service interface {
 	// by status (pending / expired / accepted / all). Like ListIncoming it is
 	// unauthenticated and truncates party IDs.
 	ListOutgoing(ctx context.Context, evmAddr string, status indexer.OfferStatus, p indexer.Pagination) (*OutgoingTransfersList, error)
+	// ListCompleted returns one page of the user's settled transfers across all
+	// tokens (TokenTransferEvents and accepted TransferOffers), newest first.
+	ListCompleted(ctx context.Context, evmAddr string, p indexer.Pagination) (*CompletedTransfersList, error)
 	// PrepareAccept builds a Canton transaction for accepting an inbound offer.
 	PrepareAccept(
 		ctx context.Context, evmAddr, contractID string, req *PrepareAcceptRequest,
@@ -424,6 +430,57 @@ func (s *TransferService) ListOutgoing(
 	}
 
 	return &OutgoingTransfersList{
+		Items:   items,
+		Total:   result.Total,
+		Page:    p.Page,
+		Limit:   p.Limit,
+		HasMore: int64(p.Page*p.Limit) < result.Total,
+	}, nil
+}
+
+// ListCompleted returns one page of the user's settled transfers across all
+// tokens. Data comes from the indexer's generalized completed-transfers query;
+// party IDs are truncated like the other read endpoints since this is unauthenticated.
+func (s *TransferService) ListCompleted(
+	ctx context.Context, evmAddr string, p indexer.Pagination,
+) (*CompletedTransfersList, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.BadRequestError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+
+	result, err := s.offerLister.GetCompletedTransfers(ctx, u.CantonPartyID, p)
+	if err != nil {
+		return nil, fmt.Errorf("list completed transfers: %w", err)
+	}
+
+	items := make([]CompletedTransfer, 0, len(result.Items))
+	for i := range result.Items {
+		t := &result.Items[i]
+		item := CompletedTransfer{
+			ContractID:      t.ContractID,
+			Source:          t.Source,
+			FromPartyID:     truncatePartyID(t.FromPartyID),
+			ToPartyID:       truncatePartyID(t.ToPartyID),
+			Amount:          t.Amount,
+			InstrumentAdmin: t.InstrumentAdmin,
+			InstrumentID:    t.InstrumentID,
+			Timestamp:       t.Timestamp.Format(time.RFC3339),
+			TxID:            t.TxID,
+		}
+		if meta, ok := s.tokensByInstrument[instrumentKey{id: t.InstrumentID}]; ok {
+			item.Symbol = meta.symbol
+			item.Decimals = meta.decimals
+			item.Name = meta.name
+			item.ContractAddress = meta.contractAddress
+		}
+		items = append(items, item)
+	}
+
+	return &CompletedTransfersList{
 		Items:   items,
 		Total:   result.Total,
 		Page:    p.Page,

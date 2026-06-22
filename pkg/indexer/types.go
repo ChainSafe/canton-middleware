@@ -63,6 +63,22 @@ type PendingOffer struct {
 	IsArchived bool `json:"-"`
 }
 
+// CompletedTransfer is a settled token transfer, generalized across all tokens.
+// It unifies two on-ledger representations that never overlap:
+//   - our CIP-56 tokens settle atomically and emit a TokenTransferEvent (Source "event")
+//   - external tokens (e.g. USDCx) settle via an accepted TransferOffer (Source "offer")
+type CompletedTransfer struct {
+	ContractID      string    `json:"contract_id"`
+	Source          string    `json:"source"` // "event" | "offer"
+	InstrumentAdmin string    `json:"instrument_admin"`
+	InstrumentID    string    `json:"instrument_id"`
+	Amount          string    `json:"amount"`
+	FromPartyID     string    `json:"from_party_id"`
+	ToPartyID       string    `json:"to_party_id"`
+	TxID            string    `json:"tx_id,omitempty"` // ledger update id (events only)
+	Timestamp       time.Time `json:"timestamp"`
+}
+
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.
 // Derived from the fromParty/toParty Optional fields — mirrors ERC-20 Transfer semantics:
 //

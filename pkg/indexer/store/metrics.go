@@ -72,6 +72,7 @@ const (
 	OpListEvents              StoreOperation = "list_events"
 	OpListPendingOffersForPty StoreOperation = "list_pending_offers_for_party"
 	OpListAllPendingOffers    StoreOperation = "list_all_pending_offers"
+	OpListCompletedTransfers  StoreOperation = "list_completed_transfers"
 )
 
 // ── Helper methods ───────────────────────────────────────────────────────────

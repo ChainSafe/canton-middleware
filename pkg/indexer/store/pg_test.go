@@ -822,3 +822,41 @@ func TestListOffersForParty(t *testing.T) {
 		t.Fatalf("receiver/all unexpected: total=%d got=%v", total, ids(got))
 	}
 }
+
+func TestListCompletedTransfers(t *testing.T) {
+	ctx, s := setupIndexerStore(t)
+
+	// alice has: a settled DEMO TRANSFER event (she's sender), a MINT (excluded),
+	// and an accepted USDCx offer (she's receiver). A pending offer is excluded.
+	if _, err := s.InsertEvent(ctx, makeEvent("ev-transfer", 1, indexer.EventTransfer, ptr("alice"), ptr("bob"))); err != nil {
+		t.Fatalf("insert transfer event: %v", err)
+	}
+	if _, err := s.InsertEvent(ctx, makeEvent("ev-mint", 2, indexer.EventMint, nil, ptr("alice"))); err != nil {
+		t.Fatalf("insert mint event: %v", err)
+	}
+	past := time.Now().UTC().Add(-time.Hour)
+	if err := s.InsertPendingOffer(ctx, makeOffer("of-accepted", "carol", "alice", 3, indexer.OfferStatusAccepted, &past)); err != nil {
+		t.Fatalf("insert accepted offer: %v", err)
+	}
+	if err := s.InsertPendingOffer(ctx, makeOffer("of-pending", "dave", "alice", 4, indexer.OfferStatusPending, nil)); err != nil {
+		t.Fatalf("insert pending offer: %v", err)
+	}
+
+	got, total, err := s.ListCompletedTransfers(ctx, "alice", indexer.Pagination{Page: 1, Limit: 50})
+	if err != nil {
+		t.Fatalf("ListCompletedTransfers: %v", err)
+	}
+	if total != 2 || len(got) != 2 {
+		t.Fatalf("expected 2 completed transfers (1 event + 1 accepted offer), got total=%d len=%d", total, len(got))
+	}
+	bySource := map[string]indexer.CompletedTransfer{}
+	for _, c := range got {
+		bySource[c.Source] = c
+	}
+	if bySource["event"].ContractID != "ev-transfer" {
+		t.Fatalf("expected event source ev-transfer, got %+v", bySource["event"])
+	}
+	if bySource["offer"].ContractID != "of-accepted" || bySource["offer"].FromPartyID != "carol" {
+		t.Fatalf("expected accepted offer of-accepted from carol, got %+v", bySource["offer"])
+	}
+}

@@ -810,3 +810,69 @@ func TestTransferService_ListOutgoing_UserNotFound(t *testing.T) {
 	_, err := svc.ListOutgoing(ctx, senderUser().EVMAddress, "", indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
+
+// --- ListCompleted tests ---
+
+func TestTransferService_ListCompleted_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	ts := time.Now().UTC()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewIndexerReader(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+	offers.EXPECT().GetCompletedTransfers(ctx, sender.CantonPartyID, page).
+		Return(&indexer.Page[indexer.CompletedTransfer]{
+			Items: []indexer.CompletedTransfer{
+				{ // our-token settled transfer (event)
+					ContractID:      "ev-1",
+					Source:          "event",
+					FromPartyID:     sender.CantonPartyID,
+					ToPartyID:       "party::receiverXXXXXXXXXXXXXXXXXXXXX",
+					Amount:          "3",
+					InstrumentAdmin: "admin::issuer",
+					InstrumentID:    "DEMO",
+					TxID:            "tx-1",
+					Timestamp:       ts,
+				},
+				{ // USDCx settled transfer (accepted offer)
+					ContractID:      "of-1",
+					Source:          "offer",
+					FromPartyID:     "party::senderXXXXXXXXXXXXXXXXXXXXXXX",
+					ToPartyID:       sender.CantonPartyID,
+					Amount:          "9",
+					InstrumentAdmin: "circle::admin",
+					InstrumentID:    "USDC",
+					Timestamp:       ts,
+				},
+			},
+			Total: 2, Page: 1, Limit: 50,
+		}, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.ListCompleted(ctx, sender.EVMAddress, page)
+	require.NoError(t, err)
+	require.Len(t, resp.Items, 2)
+
+	assert.Equal(t, "event", resp.Items[0].Source)
+	assert.Equal(t, "tx-1", resp.Items[0].TxID)
+	assert.Equal(t, "DEMO", resp.Items[0].Symbol) // enriched from config
+	assert.Contains(t, resp.Items[0].ToPartyID, "…")
+
+	assert.Equal(t, "offer", resp.Items[1].Source)
+	assert.Empty(t, resp.Items[1].TxID)   // offers carry no tx id
+	assert.Empty(t, resp.Items[1].Symbol) // USDC not in test config -> not enriched
+	assert.Equal(t, "USDC", resp.Items[1].InstrumentID)
+}
+
+func TestTransferService_ListCompleted_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
+	_, err := svc.ListCompleted(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}

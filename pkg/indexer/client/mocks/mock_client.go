@@ -142,6 +142,66 @@ func (_c *Client_GetBalance_Call) RunAndReturn(run func(context.Context, string,
 	return _c
 }
 
+// GetCompletedTransfers provides a mock function with given fields: ctx, partyID, p
+func (_m *Client) GetCompletedTransfers(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error) {
+	ret := _m.Called(ctx, partyID, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCompletedTransfers")
+	}
+
+	var r0 *indexer.Page[indexer.CompletedTransfer]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error)); ok {
+		return rf(ctx, partyID, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) *indexer.Page[indexer.CompletedTransfer]); ok {
+		r0 = rf(ctx, partyID, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexer.Page[indexer.CompletedTransfer])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.Pagination) error); ok {
+		r1 = rf(ctx, partyID, p)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Client_GetCompletedTransfers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCompletedTransfers'
+type Client_GetCompletedTransfers_Call struct {
+	*mock.Call
+}
+
+// GetCompletedTransfers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - p indexer.Pagination
+func (_e *Client_Expecter) GetCompletedTransfers(ctx interface{}, partyID interface{}, p interface{}) *Client_GetCompletedTransfers_Call {
+	return &Client_GetCompletedTransfers_Call{Call: _e.mock.On("GetCompletedTransfers", ctx, partyID, p)}
+}
+
+func (_c *Client_GetCompletedTransfers_Call) Run(run func(ctx context.Context, partyID string, p indexer.Pagination)) *Client_GetCompletedTransfers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(indexer.Pagination))
+	})
+	return _c
+}
+
+func (_c *Client_GetCompletedTransfers_Call) Return(_a0 *indexer.Page[indexer.CompletedTransfer], _a1 error) *Client_GetCompletedTransfers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Client_GetCompletedTransfers_Call) RunAndReturn(run func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.CompletedTransfer], error)) *Client_GetCompletedTransfers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetEvent provides a mock function with given fields: ctx, contractID
 func (_m *Client) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error) {
 	ret := _m.Called(ctx, contractID)
