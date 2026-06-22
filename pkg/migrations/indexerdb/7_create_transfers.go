@@ -38,15 +38,31 @@ func init() {
 	Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
 		log.Println("creating indexer_transfers and migrating history from offers + events...")
 
-		// 1. Create the new table and its indexes.
+		// 1. Create the new table and its indexes. `status` backs the
+		//    pending/worker filters; the composite (party, created_at) indexes back
+		//    the list-by-party-newest-first read queries without a filesort.
 		if err := mghelper.CreateSchema(ctx, db, &indexerstore.TransferDao{}); err != nil {
 			return err
 		}
-		if err := mghelper.CreateModelIndexes(
-			ctx, db, &indexerstore.TransferDao{}, "from_party_id", "to_party_id", "status",
-		); err != nil {
+		if err := mghelper.CreateModelIndexes(ctx, db, &indexerstore.TransferDao{}, "status"); err != nil {
 			return err
 		}
+		for _, col := range []string{"from_party_id", "to_party_id"} {
+			if _, err := db.NewCreateIndex().
+				Model(&indexerstore.TransferDao{}).
+				Index("idx_indexer_transfers_"+col+"_created_at").
+				Column(col, "created_at").
+				IfNotExists().
+				Exec(ctx); err != nil {
+				return err
+			}
+		}
+
+		// Migration strategy: read both source tables into memory, merge, and bulk
+		// insert. The indexer's transfer history is small (bounded by this
+		// participant's own transfers), so loading it in one pass is cheap and keeps
+		// the migration readable. If that volume ever grows large, switch to an
+		// INSERT … SELECT performed entirely in the database.
 
 		// 2. Fetch all existing offers.
 		var offers []legacyOffer

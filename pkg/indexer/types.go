@@ -79,10 +79,6 @@ type Transfer struct {
 	TxID            string     `json:"tx_id,omitempty"`      // ledger update id
 	LedgerOffset    int64      `json:"ledger_offset"`
 	CreatedAt       time.Time  `json:"created_at"`
-
-	// Archived is a decode-time signal only — not persisted. Set by the offer
-	// decoder on an ARCHIVED event so the processor completes the transfer.
-	Archived bool `json:"-"`
 }
 
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.
