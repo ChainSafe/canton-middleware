@@ -15,7 +15,29 @@ const (
 	// TransferOffer contract — either because the receiver exercised TransferInstruction_Accept
 	// or because the offer was rejected/expired. The row is kept for audit history.
 	OfferStatusAccepted OfferStatus = "ACCEPTED"
+
+	// OfferStatusExpired is a derived (never-persisted) status: a still-PENDING
+	// offer whose ExpiresAt is in the past. Returned to callers so they can tell
+	// expired-but-not-yet-archived offers apart from live ones.
+	OfferStatusExpired OfferStatus = "EXPIRED"
 )
+
+// OfferRole selects which side of a TransferOffer a party query matches.
+type OfferRole string
+
+const (
+	OfferRoleReceiver OfferRole = "receiver" // offers sent TO the party (incoming)
+	OfferRoleSender   OfferRole = "sender"   // offers sent BY the party (outgoing)
+	OfferRoleAny      OfferRole = "any"      // either side
+)
+
+// OfferQuery filters a party's TransferOffers by role and status.
+// A zero Role defaults to receiver (preserves the original incoming-only query);
+// a zero Status means "all statuses".
+type OfferQuery struct {
+	Role   OfferRole
+	Status OfferStatus // "" = all; PENDING / ACCEPTED / EXPIRED
+}
 
 // PendingOffer represents a TransferOffer contract on the Canton ledger.
 // Rows are written on CREATED events and updated to ACCEPTED on ARCHIVED events.
@@ -30,6 +52,12 @@ type PendingOffer struct {
 	Amount          string      `json:"amount"`
 	LedgerOffset    int64       `json:"ledger_offset"`
 	CreatedAt       time.Time   `json:"created_at"`
+
+	// ExpiresAt is the offer's executeBefore time (Splice TransferInstruction).
+	// Nil when the source contract did not carry one (e.g. rows created before
+	// expiry tracking, or templates without the field), in which case the offer
+	// is treated as never-expiring.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 
 	// IsArchived is a decode-time signal only — not persisted.
 	IsArchived bool `json:"-"`

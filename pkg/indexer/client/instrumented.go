@@ -111,11 +111,11 @@ func (c *InstrumentedClient) ListPartyEvents(
 	return page, err
 }
 
-func (c *InstrumentedClient) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+func (c *InstrumentedClient) GetOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) (*indexer.Page[indexer.PendingOffer], error) {
 	defer c.observe(OpGetPendingOffersForPty)()
-	page, err := c.inner.GetPendingOffersForParty(ctx, partyID, p)
+	page, err := c.inner.GetOffersForParty(ctx, partyID, query, p)
 	c.incErr(OpGetPendingOffersForPty, err)
 	return page, err
 }

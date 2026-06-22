@@ -51,7 +51,9 @@ type Client interface {
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// Pending inbound transfers
-	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	GetOffersForParty(
+		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
+	) (*indexer.Page[indexer.PendingOffer], error)
 	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
 
@@ -193,14 +195,23 @@ func (c *HTTP) ListPartyEvents(
 	return &page, nil
 }
 
-// GetPendingOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/pending-offers.
-func (c *HTTP) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+// GetOffersForParty calls GET /indexer/v1/admin/parties/{partyID}/offers,
+// filtering by role (receiver/sender/any) and status (pending/accepted/expired/all).
+func (c *HTTP) GetOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) (*indexer.Page[indexer.PendingOffer], error) {
-	u := c.partyBase(partyID) + "/pending-offers?" + pageQuery(p).Encode()
+	q := pageQuery(p)
+	if query.Role != "" {
+		q.Set("role", string(query.Role))
+	}
+	if query.Status != "" {
+		// Map the derived/stored status to the HTTP query vocabulary (lowercase).
+		q.Set("status", strings.ToLower(string(query.Status)))
+	}
+	u := c.partyBase(partyID) + "/offers?" + q.Encode()
 	var page indexer.Page[indexer.PendingOffer]
 	if err := c.getJSON(ctx, u, &page); err != nil {
-		return nil, fmt.Errorf("pending offers for party %s: %w", partyID, err)
+		return nil, fmt.Errorf("offers for party %s: %w", partyID, err)
 	}
 	return &page, nil
 }

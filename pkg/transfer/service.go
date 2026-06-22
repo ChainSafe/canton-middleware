@@ -23,7 +23,7 @@ import (
 
 //go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
 //go:generate mockery --name TransferCache --output mocks --outpkg mocks --filename mock_transfer_cache.go --with-expecter
-//go:generate mockery --name PendingOfferLister --output mocks --outpkg mocks --filename mock_pending_offer_lister.go --with-expecter
+//go:generate mockery --name IndexerReader --output mocks --outpkg mocks --filename mock_indexer_reader.go --with-expecter
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 
 // UserStore is the narrow interface for looking up users.
@@ -37,15 +37,13 @@ type TransferCache interface {
 	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
 }
 
-// PendingOfferLister is the narrow slice of indexer/client.Client used by
-// ListIncoming. The transfer service treats the indexer as the source of truth
-// for pending TransferOffer state instead of querying Canton directly — the
-// indexer already maintains `indexer_pending_offers` with all the fields we
-// need (sender, amount, instrument), so going through it avoids duplicate
-// decode logic in cantonsdk/token.
-type PendingOfferLister interface {
-	GetPendingOffersForParty(
-		ctx context.Context, partyID string, p indexer.Pagination,
+// IndexerReader is the slice of indexer/client.Client the transfer service uses
+// to read TransferOffer state. The indexer is the source of truth for the offer
+// lifecycle (incoming/outgoing/expired/accepted), so the service reads from it
+// rather than re-decoding Canton contracts.
+type IndexerReader interface {
+	GetOffersForParty(
+		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.PendingOffer], error)
 }
 
@@ -77,7 +75,7 @@ type TransferService struct {
 	cantonToken         token.Token
 	userStore           UserStore
 	cache               TransferCache
-	offerLister         PendingOfferLister
+	offerLister         IndexerReader
 	allowedTokenSymbols map[string]bool
 	tokensByInstrument  map[instrumentKey]instrumentMeta
 }
@@ -105,7 +103,7 @@ func NewTransferService(
 	userStore UserStore,
 	cache TransferCache,
 	tokenCfg *pkgtoken.Config,
-	offerLister PendingOfferLister,
+	offerLister IndexerReader,
 ) *TransferService {
 	allowed := map[string]bool{}
 	byInstrument := map[instrumentKey]instrumentMeta{}
@@ -326,7 +324,8 @@ func (s *TransferService) ListIncoming(ctx context.Context, evmAddr string, p in
 		return nil, apperrors.BadRequestError(nil, "incoming transfer API requires key_mode=external")
 	}
 
-	result, err := s.offerLister.GetPendingOffersForParty(ctx, u.CantonPartyID, p)
+	result, err := s.offerLister.GetOffersForParty(ctx, u.CantonPartyID,
+		indexer.OfferQuery{Role: indexer.OfferRoleReceiver, Status: indexer.OfferStatusPending}, p)
 	if err != nil {
 		return nil, fmt.Errorf("list pending offers: %w", err)
 	}

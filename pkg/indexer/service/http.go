@@ -41,7 +41,7 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances", apphttp.HandleError(h.listPartyBalances))
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
-		r.Get("/parties/{partyID}/pending-offers", apphttp.HandleError(h.listPendingOffers))
+		r.Get("/parties/{partyID}/offers", apphttp.HandleError(h.listOffers))
 		r.Get("/pending-offers", apphttp.HandleError(h.listAllPendingOffers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
@@ -171,18 +171,53 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *HTTP) listPendingOffers(w http.ResponseWriter, r *http.Request) error {
+func (h *HTTP) listOffers(w http.ResponseWriter, r *http.Request) error {
 	partyID := chi.URLParam(r, "partyID")
 	p, err := parsePagination(r)
 	if err != nil {
 		return err
 	}
-	page, err := h.service.GetPendingOffersForParty(r.Context(), partyID, p)
+	query, err := parseOfferQuery(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetOffersForParty(r.Context(), partyID, query, p)
 	if err != nil {
 		return err
 	}
 	h.writeJSON(w, page)
 	return nil
+}
+
+// parseOfferQuery reads ?role= and ?status= into an indexer.OfferQuery.
+// role defaults to receiver (incoming); status defaults to all.
+func parseOfferQuery(r *http.Request) (indexer.OfferQuery, error) {
+	q := indexer.OfferQuery{Role: indexer.OfferRoleReceiver}
+
+	switch r.URL.Query().Get("role") {
+	case "", "receiver":
+		q.Role = indexer.OfferRoleReceiver
+	case "sender":
+		q.Role = indexer.OfferRoleSender
+	case "any":
+		q.Role = indexer.OfferRoleAny
+	default:
+		return q, apperrors.BadRequestError(nil, "role must be receiver, sender, or any")
+	}
+
+	switch r.URL.Query().Get("status") {
+	case "", "all":
+		q.Status = ""
+	case "pending":
+		q.Status = indexer.OfferStatusPending
+	case "accepted":
+		q.Status = indexer.OfferStatusAccepted
+	case "expired":
+		q.Status = indexer.OfferStatusExpired
+	default:
+		return q, apperrors.BadRequestError(nil, "status must be pending, accepted, expired, or all")
+	}
+	return q, nil
 }
 
 func (h *HTTP) listAllPendingOffers(w http.ResponseWriter, r *http.Request) error {

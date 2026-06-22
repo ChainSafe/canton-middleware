@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
@@ -297,18 +298,41 @@ func (s *PGStore) MarkOfferAccepted(ctx context.Context, contractID string) erro
 	return nil
 }
 
-// ListPendingOffersForParty returns PENDING offers where receiver = partyID,
-// ordered by ledger_offset ASC, with pagination.
-func (s *PGStore) ListPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+// ListOffersForParty returns a party's TransferOffers filtered by role
+// (receiver/sender/any) and status (pending/accepted/expired/all), ordered by
+// ledger_offset ASC, with pagination. EXPIRED is derived from a still-PENDING
+// row whose expires_at is in the past; matching rows are returned with their
+// Status set to EXPIRED regardless of the requested filter.
+func (s *PGStore) ListOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) ([]indexer.PendingOffer, int64, error) {
+	now := time.Now().UTC()
 	var daos []PendingOfferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		q := db.NewSelect().Model(&daos).
-			Where("receiver_party_id = ?", partyID).
-			Where("status = ?", string(indexer.OfferStatusPending)).
-			OrderExpr("ledger_offset ASC")
+		q := db.NewSelect().Model(&daos).OrderExpr("ledger_offset ASC")
+
+		switch query.Role {
+		case indexer.OfferRoleSender:
+			q = q.Where("sender_party_id = ?", partyID)
+		case indexer.OfferRoleAny:
+			q = q.Where("(sender_party_id = ? OR receiver_party_id = ?)", partyID, partyID)
+		default: // receiver (preserves the original incoming-only behavior)
+			q = q.Where("receiver_party_id = ?", partyID)
+		}
+
+		switch query.Status {
+		case indexer.OfferStatusPending:
+			q = q.Where("status = ?", string(indexer.OfferStatusPending)).
+				Where("(expires_at IS NULL OR expires_at > ?)", now)
+		case indexer.OfferStatusExpired:
+			q = q.Where("status = ?", string(indexer.OfferStatusPending)).
+				Where("expires_at IS NOT NULL AND expires_at <= ?", now)
+		case indexer.OfferStatusAccepted:
+			q = q.Where("status = ?", string(indexer.OfferStatusAccepted))
+		default: // "" = all statuses, no filter
+		}
+
 		var err error
 		if total, err = q.Count(ctx); err != nil {
 			return fmt.Errorf("count: %w", err)
@@ -316,11 +340,16 @@ func (s *PGStore) ListPendingOffersForParty(
 		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list pending offers: %w", err)
+		return nil, 0, fmt.Errorf("list offers: %w", err)
 	}
 	offers := make([]indexer.PendingOffer, len(daos))
 	for i := range daos {
 		offers[i] = fromPendingOfferDao(&daos[i])
+		// Surface the derived EXPIRED status so callers see it on any filter.
+		if offers[i].Status == indexer.OfferStatusPending &&
+			offers[i].ExpiresAt != nil && !offers[i].ExpiresAt.After(now) {
+			offers[i].Status = indexer.OfferStatusExpired
+		}
 	}
 	return offers, int64(total), nil
 }

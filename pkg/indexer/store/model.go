@@ -81,15 +81,16 @@ type HoldingDao struct {
 // on ARCHIVED events. Rows are never deleted — the table is a full audit log.
 type PendingOfferDao struct {
 	bun.BaseModel   `bun:"table:indexer_pending_offers"`
-	ContractID      string    `bun:",pk,type:varchar(255)"`
-	Status          string    `bun:",notnull,type:varchar(20),default:'PENDING'"`
-	ReceiverPartyID string    `bun:",notnull,type:varchar(255)"`
-	SenderPartyID   string    `bun:",notnull,type:varchar(255)"`
-	InstrumentAdmin string    `bun:",notnull,type:varchar(255)"`
-	InstrumentID    string    `bun:",notnull,type:varchar(255)"`
-	Amount          string    `bun:",notnull,type:text"`
-	LedgerOffset    int64     `bun:",notnull"`
-	CreatedAt       time.Time `bun:",notnull"`
+	ContractID      string     `bun:",pk,type:varchar(255)"`
+	Status          string     `bun:",notnull,type:varchar(20),default:'PENDING'"`
+	ReceiverPartyID string     `bun:",notnull,type:varchar(255)"`
+	SenderPartyID   string     `bun:",notnull,type:varchar(255)"`
+	InstrumentAdmin string     `bun:",notnull,type:varchar(255)"`
+	InstrumentID    string     `bun:",notnull,type:varchar(255)"`
+	Amount          string     `bun:",notnull,type:text"`
+	LedgerOffset    int64      `bun:",notnull"`
+	CreatedAt       time.Time  `bun:",notnull"`
+	ExpiresAt       *time.Time `bun:",nullzero"` // offer executeBefore; NULL = never expires
 }
 
 func toEventDao(e *indexer.ParsedEvent) *EventDao {
@@ -164,6 +165,7 @@ func toPendingOfferDao(o *indexer.PendingOffer) *PendingOfferDao {
 		Amount:          o.Amount,
 		LedgerOffset:    o.LedgerOffset,
 		CreatedAt:       o.CreatedAt,
+		ExpiresAt:       o.ExpiresAt,
 	}
 }
 
@@ -178,5 +180,6 @@ func fromPendingOfferDao(d *PendingOfferDao) indexer.PendingOffer {
 		Amount:          d.Amount,
 		LedgerOffset:    d.LedgerOffset,
 		CreatedAt:       d.CreatedAt,
+		ExpiresAt:       d.ExpiresAt,
 	}
 }

@@ -24,8 +24,11 @@ func setupIndexerStore(t *testing.T) (context.Context, *PGStore) {
 	db, cleanup := pgutil.SetupTestDB(t)
 	t.Cleanup(cleanup)
 
-	if err := mghelper.CreateSchema(ctx, db, &EventDao{}, &TokenDao{}, &BalanceDao{}, &OffsetDao{}); err != nil {
+	if err := mghelper.CreateSchema(ctx, db, &EventDao{}, &TokenDao{}, &BalanceDao{}, &OffsetDao{}, &PendingOfferDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
+	}
+	if err := mghelper.CreateModelIndexes(ctx, db, &PendingOfferDao{}, "receiver_party_id", "status", "sender_party_id"); err != nil {
+		t.Fatalf("failed to create pending-offer indexes: %v", err)
 	}
 	// Mirror the indexes created by the migration files so the test schema matches
 	// production. This catches index-related issues (e.g. constraint violations) and
@@ -731,5 +734,91 @@ func TestPGStore_ListEvents(t *testing.T) {
 	}
 	if len(page2) != 1 {
 		t.Fatalf("expected 1 event on page2, got %d", len(page2))
+	}
+}
+
+func makeOffer(cid, sender, receiver string, offset int64, status indexer.OfferStatus, expiresAt *time.Time) *indexer.PendingOffer {
+	return &indexer.PendingOffer{
+		ContractID:      cid,
+		Status:          status,
+		SenderPartyID:   sender,
+		ReceiverPartyID: receiver,
+		InstrumentAdmin: "admin-1",
+		InstrumentID:    "DEMO",
+		Amount:          "10",
+		LedgerOffset:    offset,
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+		ExpiresAt:       expiresAt,
+	}
+}
+
+func TestListOffersForParty(t *testing.T) {
+	ctx, s := setupIndexerStore(t)
+
+	past := time.Now().UTC().Add(-time.Hour)
+	future := time.Now().UTC().Add(time.Hour)
+
+	// alice sends three offers (live / expired / never-expires) and receives one accepted.
+	offers := []*indexer.PendingOffer{
+		makeOffer("o-live", "alice", "bob", 1, indexer.OfferStatusPending, &future),
+		makeOffer("o-expired", "alice", "carol", 2, indexer.OfferStatusPending, &past),
+		makeOffer("o-noexp", "alice", "eve", 3, indexer.OfferStatusPending, nil),
+		makeOffer("o-accepted", "dave", "alice", 4, indexer.OfferStatusAccepted, &past),
+	}
+	for _, o := range offers {
+		if err := s.InsertPendingOffer(ctx, o); err != nil {
+			t.Fatalf("InsertPendingOffer(%s): %v", o.ContractID, err)
+		}
+	}
+
+	ids := func(list []indexer.PendingOffer) map[string]indexer.OfferStatus {
+		m := map[string]indexer.OfferStatus{}
+		for _, o := range list {
+			m[o.ContractID] = o.Status
+		}
+		return m
+	}
+	page := indexer.Pagination{Page: 1, Limit: 50}
+
+	// role=sender, status=pending → only live + never-expires (expired excluded).
+	got, total, err := s.ListOffersForParty(ctx, "alice",
+		indexer.OfferQuery{Role: indexer.OfferRoleSender, Status: indexer.OfferStatusPending}, page)
+	if err != nil {
+		t.Fatalf("sender/pending: %v", err)
+	}
+	m := ids(got)
+	if total != 2 || len(m) != 2 || m["o-live"] != indexer.OfferStatusPending || m["o-noexp"] != indexer.OfferStatusPending {
+		t.Fatalf("sender/pending unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=sender, status=expired → only the past-dated pending offer, surfaced as EXPIRED.
+	got, total, err = s.ListOffersForParty(ctx, "alice",
+		indexer.OfferQuery{Role: indexer.OfferRoleSender, Status: indexer.OfferStatusExpired}, page)
+	if err != nil {
+		t.Fatalf("sender/expired: %v", err)
+	}
+	m = ids(got)
+	if total != 1 || m["o-expired"] != indexer.OfferStatusExpired {
+		t.Fatalf("sender/expired unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=any, status=accepted → the accepted offer where alice is receiver.
+	got, total, err = s.ListOffersForParty(ctx, "alice",
+		indexer.OfferQuery{Role: indexer.OfferRoleAny, Status: indexer.OfferStatusAccepted}, page)
+	if err != nil {
+		t.Fatalf("any/accepted: %v", err)
+	}
+	m = ids(got)
+	if total != 1 || m["o-accepted"] != indexer.OfferStatusAccepted {
+		t.Fatalf("any/accepted unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=receiver default, status=all → only the offer alice receives.
+	got, total, err = s.ListOffersForParty(ctx, "alice", indexer.OfferQuery{}, page)
+	if err != nil {
+		t.Fatalf("receiver/all: %v", err)
+	}
+	if total != 1 || got[0].ContractID != "o-accepted" {
+		t.Fatalf("receiver/all unexpected: total=%d got=%v", total, ids(got))
 	}
 }

@@ -351,13 +351,13 @@ func (s *InstrumentedStore) ListEvents(
 	return events, total, err
 }
 
-func (s *InstrumentedStore) ListPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+func (s *InstrumentedStore) ListOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) ([]indexer.PendingOffer, int64, error) {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingOffersForPty))
 	defer timer.ObserveDuration()
 
-	offers, total, err := s.inner.ListPendingOffersForParty(ctx, partyID, p)
+	offers, total, err := s.inner.ListOffersForParty(ctx, partyID, query, p)
 	if err != nil {
 		s.metrics.IncErrors(OpListPendingOffersForPty)
 	}

@@ -39,19 +39,19 @@ func recipientUser() *user.User {
 	}
 }
 
-// newTestService builds a TransferService wired to a fresh PendingOfferLister
+// newTestService builds a TransferService wired to a fresh IndexerReader
 // mock. The api-server now requires the indexer to be configured, so the
 // production constructor refuses to operate without an offer lister; tests
 // pass `t` so an unused mock fails cleanly if a test accidentally invokes it.
 func newTestService(t *testing.T, tok *mocks.Token, store *mocks.UserStore, cache *mocks.TransferCache) *TransferService {
-	return newTestServiceWithOffers(tok, store, cache, mocks.NewPendingOfferLister(t))
+	return newTestServiceWithOffers(tok, store, cache, mocks.NewIndexerReader(t))
 }
 
 func newTestServiceWithOffers(
 	tok *mocks.Token,
 	store *mocks.UserStore,
 	cache *mocks.TransferCache,
-	offers *mocks.PendingOfferLister,
+	offers *mocks.IndexerReader,
 ) *TransferService {
 	return &TransferService{
 		cantonToken:         tok,
@@ -504,7 +504,7 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
+	offers := mocks.NewIndexerReader(t)
 	// Sender/receiver party IDs are intentionally long-form here so the test
 	// exercises the server-side truncation that ListIncoming applies.
 	const (
@@ -512,7 +512,7 @@ func TestTransferService_ListIncoming_Success(t *testing.T) {
 		longReceiver = "party::receiverXXXXXXXXXXXXXXXXXXXXX"
 	)
 	reqPagination := indexer.Pagination{Page: 1, Limit: 50}
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, reqPagination).
+	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, indexer.OfferQuery{Role: indexer.OfferRoleReceiver, Status: indexer.OfferStatusPending}, reqPagination).
 		Return(&indexer.Page[indexer.PendingOffer]{
 			Items: []indexer.PendingOffer{
 				{
@@ -581,8 +581,8 @@ func TestTransferService_ListIncoming_HasMore(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, indexer.Pagination{Page: 1, Limit: 2}).
+	offers := mocks.NewIndexerReader(t)
+	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, indexer.OfferQuery{Role: indexer.OfferRoleReceiver, Status: indexer.OfferStatusPending}, indexer.Pagination{Page: 1, Limit: 2}).
 		Return(&indexer.Page[indexer.PendingOffer]{
 			Items: []indexer.PendingOffer{
 				{ContractID: "cid-1", Status: indexer.OfferStatusPending, InstrumentID: "DEMO"},
@@ -612,8 +612,8 @@ func TestTransferService_ListIncoming_EmptyReturnsEmptySlice(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	offers := mocks.NewPendingOfferLister(t)
-	offers.EXPECT().GetPendingOffersForParty(ctx, sender.CantonPartyID, mock.Anything).
+	offers := mocks.NewIndexerReader(t)
+	offers.EXPECT().GetOffersForParty(ctx, sender.CantonPartyID, mock.Anything, mock.Anything).
 		Return(&indexer.Page[indexer.PendingOffer]{
 			Items: []indexer.PendingOffer{},
 			Total: 0,
@@ -634,7 +634,7 @@ func TestTransferService_ListIncoming_UserNotFound(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, senderUser().EVMAddress).Return(nil, user.ErrUserNotFound).Once()
 
-	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
 
 	_, err := svc.ListIncoming(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
@@ -648,7 +648,7 @@ func TestTransferService_ListIncoming_CustodialUserRejected(t *testing.T) {
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewPendingOfferLister(t))
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
 
 	_, err := svc.ListIncoming(ctx, sender.EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)

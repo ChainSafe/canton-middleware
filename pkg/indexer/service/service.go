@@ -28,8 +28,10 @@ type Store interface {
 	ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error)
 	// GetEvent looks up a single event by its unique contract ID.
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
-	// ListPendingOffersForParty returns PENDING TransferOffers for the given receiver party.
-	ListPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]indexer.PendingOffer, int64, error)
+	// ListOffersForParty returns a party's TransferOffers filtered by role and status.
+	ListOffersForParty(
+		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
+	) ([]indexer.PendingOffer, int64, error)
 	// ListAllPendingOffers returns all PENDING TransferOffers across all parties.
 	ListAllPendingOffers(ctx context.Context, p indexer.Pagination) ([]indexer.PendingOffer, int64, error)
 }
@@ -63,8 +65,10 @@ type Service interface {
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
-	// GetPendingOffersForParty returns paginated PENDING TransferOffers for a custodial party.
-	GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
+	// GetOffersForParty returns a party's TransferOffers filtered by role and status, paginated.
+	GetOffersForParty(
+		ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
+	) (*indexer.Page[indexer.PendingOffer], error)
 	// GetAllPendingOffers returns all PENDING TransferOffers across all parties, paginated.
 	GetAllPendingOffers(ctx context.Context, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)
 }
@@ -176,10 +180,10 @@ func (s *svc) ListPartyEvents(
 	return &indexer.Page[*indexer.ParsedEvent]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
 }
 
-func (s *svc) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+func (s *svc) GetOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) (*indexer.Page[indexer.PendingOffer], error) {
-	items, total, err := s.store.ListPendingOffersForParty(ctx, partyID, p)
+	items, total, err := s.store.ListOffersForParty(ctx, partyID, query, p)
 	if err != nil {
 		return nil, err
 	}

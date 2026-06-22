@@ -201,29 +201,29 @@ func (_c *Service_GetEvent_Call) RunAndReturn(run func(context.Context, string) 
 	return _c
 }
 
-// GetPendingOffersForParty provides a mock function with given fields: ctx, partyID, p
-func (_m *Service) GetPendingOffersForParty(ctx context.Context, partyID string, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error) {
-	ret := _m.Called(ctx, partyID, p)
+// GetOffersForParty provides a mock function with given fields: ctx, partyID, query, p
+func (_m *Service) GetOffersForParty(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error) {
+	ret := _m.Called(ctx, partyID, query, p)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetPendingOffersForParty")
+		panic("no return value specified for GetOffersForParty")
 	}
 
 	var r0 *indexer.Page[indexer.PendingOffer]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)); ok {
-		return rf(ctx, partyID, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)); ok {
+		return rf(ctx, partyID, query, p)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.Pagination) *indexer.Page[indexer.PendingOffer]); ok {
-		r0 = rf(ctx, partyID, p)
+	if rf, ok := ret.Get(0).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) *indexer.Page[indexer.PendingOffer]); ok {
+		r0 = rf(ctx, partyID, query, p)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*indexer.Page[indexer.PendingOffer])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.Pagination) error); ok {
-		r1 = rf(ctx, partyID, p)
+	if rf, ok := ret.Get(1).(func(context.Context, string, indexer.OfferQuery, indexer.Pagination) error); ok {
+		r1 = rf(ctx, partyID, query, p)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -231,32 +231,33 @@ func (_m *Service) GetPendingOffersForParty(ctx context.Context, partyID string,
 	return r0, r1
 }
 
-// Service_GetPendingOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetPendingOffersForParty'
-type Service_GetPendingOffersForParty_Call struct {
+// Service_GetOffersForParty_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOffersForParty'
+type Service_GetOffersForParty_Call struct {
 	*mock.Call
 }
 
-// GetPendingOffersForParty is a helper method to define mock.On call
+// GetOffersForParty is a helper method to define mock.On call
 //   - ctx context.Context
 //   - partyID string
+//   - query indexer.OfferQuery
 //   - p indexer.Pagination
-func (_e *Service_Expecter) GetPendingOffersForParty(ctx interface{}, partyID interface{}, p interface{}) *Service_GetPendingOffersForParty_Call {
-	return &Service_GetPendingOffersForParty_Call{Call: _e.mock.On("GetPendingOffersForParty", ctx, partyID, p)}
+func (_e *Service_Expecter) GetOffersForParty(ctx interface{}, partyID interface{}, query interface{}, p interface{}) *Service_GetOffersForParty_Call {
+	return &Service_GetOffersForParty_Call{Call: _e.mock.On("GetOffersForParty", ctx, partyID, query, p)}
 }
 
-func (_c *Service_GetPendingOffersForParty_Call) Run(run func(ctx context.Context, partyID string, p indexer.Pagination)) *Service_GetPendingOffersForParty_Call {
+func (_c *Service_GetOffersForParty_Call) Run(run func(ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination)) *Service_GetOffersForParty_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(indexer.Pagination))
+		run(args[0].(context.Context), args[1].(string), args[2].(indexer.OfferQuery), args[3].(indexer.Pagination))
 	})
 	return _c
 }
 
-func (_c *Service_GetPendingOffersForParty_Call) Return(_a0 *indexer.Page[indexer.PendingOffer], _a1 error) *Service_GetPendingOffersForParty_Call {
+func (_c *Service_GetOffersForParty_Call) Return(_a0 *indexer.Page[indexer.PendingOffer], _a1 error) *Service_GetOffersForParty_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Service_GetPendingOffersForParty_Call) RunAndReturn(run func(context.Context, string, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)) *Service_GetPendingOffersForParty_Call {
+func (_c *Service_GetOffersForParty_Call) RunAndReturn(run func(context.Context, string, indexer.OfferQuery, indexer.Pagination) (*indexer.Page[indexer.PendingOffer], error)) *Service_GetOffersForParty_Call {
 	_c.Call.Return(run)
 	return _c
 }

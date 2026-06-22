@@ -294,10 +294,10 @@ func (ls *logService) ListPartyEvents(
 	return ls.svc.ListPartyEvents(ctx, partyID, f, p)
 }
 
-func (ls *logService) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
+func (ls *logService) GetOffersForParty(
+	ctx context.Context, partyID string, query indexer.OfferQuery, p indexer.Pagination,
 ) (*indexer.Page[indexer.PendingOffer], error) {
-	return ls.svc.GetPendingOffersForParty(ctx, partyID, p)
+	return ls.svc.GetOffersForParty(ctx, partyID, query, p)
 }
 
 func (ls *logService) GetAllPendingOffers(
