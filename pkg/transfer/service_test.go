@@ -165,6 +165,203 @@ func TestTransferService_Prepare_UnsupportedToken(t *testing.T) {
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
+// validExternalPartyID is a syntactically valid Canton party id (hint::hex)
+// for a party not registered in the middleware.
+const validExternalPartyID = "alice::1220abcdef0123456789"
+
+func TestTransferService_Prepare_ToPartyID_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	// Only the sender is looked up; the recipient party id is used directly,
+	// so there is no second GetUserByEVMAddress call.
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	prepared := &token.PreparedTransfer{
+		TransferID:      "txn-ext-1",
+		TransactionHash: []byte{0xbe, 0xef},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, &token.PrepareTransferRequest{
+		FromPartyID: sender.CantonPartyID,
+		ToPartyID:   validExternalPartyID,
+		Amount:      "10",
+		TokenSymbol: "DEMO",
+	}).Return(prepared, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(prepared).Return(nil).Once()
+
+	svc := newTestService(t, tok, store, cache)
+	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "txn-ext-1", resp.TransferID)
+	assert.Equal(t, sender.CantonPartyID, resp.PartyID)
+}
+
+func TestTransferService_Prepare_ToPartyID_Invalid(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID: "not-a-party-id",
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_Prepare_ToPartyID_Self(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+	sender.CantonPartyID = "sender::1220deadbeef" // valid hex so it passes party-id validation
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID: sender.CantonPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+// --- SendCustodial tests ---
+
+func custodialSender() *user.User {
+	return &user.User{
+		EVMAddress:    "0xcccccccccccccccccccccccccccccccccccccccc",
+		CantonPartyID: "sender::1220deadbeef",
+		KeyMode:       user.KeyModeCustodial,
+	}
+}
+
+func TestTransferService_SendCustodial_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	tok := mocks.NewToken(t)
+	// idempotencyKey is a freshly generated UUID, so match any string there.
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO").
+		Return(nil).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	resp, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", resp.Status)
+}
+
+func TestTransferService_SendCustodial_RequiresCustodial(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser() // key_mode=external
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_SendCustodial_InvalidPartyID(t *testing.T) {
+	// Party-id validation happens before any store lookup, so no user mock is needed.
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(context.Background(), custodialSender().EVMAddress, &CustodialTransferRequest{
+		ToPartyID: "0xdeadbeef", // missing hint::fingerprint form
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_SendCustodial_UserNotFound(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
+}
+
+func TestTransferService_SendCustodial_InsufficientBalance(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO").
+		Return(token.ErrInsufficientBalance).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID: validExternalPartyID,
+		Amount:    "10",
+		Token:     "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestValidatePartyID(t *testing.T) {
+	cases := []struct {
+		name    string
+		partyID string
+		wantErr bool
+	}{
+		{"valid", "alice::1220abcdef0123456789", false},
+		{"no separator", "alice1220abcdef", true},
+		{"empty hint", "::1220abcdef", true},
+		{"empty fingerprint", "alice::", true},
+		{"non-hex fingerprint", "alice::nothex", true},
+		{"evm address", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validatePartyID(tc.partyID)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // --- Execute tests ---
 
 func TestTransferService_Execute_Success(t *testing.T) {
