@@ -32,8 +32,11 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  build-and-deploy:
-    name: Build images and open devnet PR
+  # Builds the versioned vX.Y.Z images for manual mainnet promotion.
+  # Devnet is NOT deployed here — it tracks main via the push trigger in
+  # docker-build-release.yml (the open-devnet-pr job is skipped when tag is set).
+  build-release-images:
+    name: Build versioned release images
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/docker-build-release.yml

@@ -125,16 +125,16 @@ jobs:
     name: Open devnet deploy PR
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
+    # Devnet continuously tracks main: deploy the main-<sha> image on every
+    # direct push to main. Release builds (workflow_call with a version tag)
+    # and manual dispatches build images only — mainnet promotion is manual.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.tag == ''
     steps:
-      - name: Compute version
+      - name: Compute image tag
         id: version
-        env:
-          REF: ${{ github.ref_name }}
-          INPUT: ${{ inputs.tag }}
         run: |
-          VERSION="${INPUT:-$REF}"
-          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "Invalid version: $VERSION"; exit 1; }
+          # Must match the main-<sha> tag produced by docker/metadata-action above
+          VERSION="main-${GITHUB_SHA::7}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Checkout infra-kubernetes
@@ -146,7 +146,7 @@ jobs:
 
       # Each service maps to a Helm values file in infra-kubernetes whose
       # top-level key matches the Helm release name. Add a service here to
-      # have it bumped and deployed to devnet automatically on release.
+      # have it bumped and deployed to devnet automatically on every main push.
       - name: Update image tags for all services
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -168,14 +168,16 @@ jobs:
           GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
           DIR: definitions/canton/validator-dev1
           REPO: ChainSafe/infra-kubernetes
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           FILES=(
             canton-middleware-api-values.yml
             canton-indexer-values.yml
             canton-middleware-values.yml
           )
-          BRANCH="chore/bump-canton-services-${VERSION}"
-          COMMIT_MSG="chore: bump canton services to ${VERSION} on devnet"
+          BRANCH="cd/devnet-canton-services-${VERSION}"
+          COMMIT_MSG="chore(devnet): deploy canton services ${VERSION}"
 
           # Get current HEAD SHA of main
           HEAD_SHA=$(gh api repos/${REPO}/git/ref/heads/main --jq '.object.sha')
@@ -224,10 +226,18 @@ jobs:
             }' | gh api graphql --input -
 
           # Open PR and enable auto-merge
+          PR_BODY=$(cat <<EOF
+          Automated continuous deployment to \`validator-dev1\`.
+
+          Bumps \`canton-middleware-api\`, \`canton-indexer\` and \`canton-middleware\` image tags to \`${VERSION}\`.
+
+          Source: [${SOURCE_REPO}@${SOURCE_SHA:0:7}](https://github.com/${SOURCE_REPO}/commit/${SOURCE_SHA})
+          EOF
+          )
           gh pr create \
             --repo "${REPO}" \
             --title "${COMMIT_MSG}" \
-            --body "Automated PR: bump \`canton-middleware-api\`, \`canton-indexer\` and \`canton-middleware\` image tags to \`${VERSION}\` on \`validator-dev1\`." \
+            --body "${PR_BODY}" \
             --base main \
             --head "${BRANCH}" \
           || { echo "PR already exists for this branch, skipping"; exit 0; }
