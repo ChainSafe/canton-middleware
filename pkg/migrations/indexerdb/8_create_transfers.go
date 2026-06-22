@@ -6,7 +6,6 @@ import (
 	"context"
 	"log"
 	"sort"
-	"time"
 
 	"github.com/uptrace/bun"
 
@@ -14,21 +13,16 @@ import (
 	mghelper "github.com/chainsafe/canton-middleware/pkg/pgutil/migrations"
 )
 
-// legacyOffer mirrors the pre-migration indexer_pending_offers columns so we can
-// read existing rows after PendingOfferDao was removed from the store package.
-type legacyOffer struct {
-	bun.BaseModel   `bun:"table:indexer_pending_offers"`
-	ContractID      string     `bun:"contract_id"`
-	Status          string     `bun:"status"`
-	SenderPartyID   string     `bun:"sender_party_id"`
-	ReceiverPartyID string     `bun:"receiver_party_id"`
-	InstrumentAdmin string     `bun:"instrument_admin"`
-	InstrumentID    string     `bun:"instrument_id"`
-	Amount          string     `bun:"amount"`
-	LedgerOffset    int64      `bun:"ledger_offset"`
-	CreatedAt       time.Time  `bun:"created_at"`
-	ExpiresAt       *time.Time `bun:"expires_at"`
-}
+// Transfer kind/status literals, kept local so this historical migration stays
+// stable regardless of later changes to the indexer package's constants.
+const (
+	transferKindOffer    = "offer"
+	transferKindDirect   = "direct"
+	transferStatusPend   = "pending"
+	transferStatusDone   = "completed"
+	legacyStatusAccepted = "ACCEPTED"
+	legacyStatusPending  = "PENDING"
+)
 
 // Migration 8 introduces indexer_transfers — a single generalized table for both
 // direct (atomic CIP-56) and offer-based (2-step, e.g. USDCx) transfers — and
@@ -74,13 +68,13 @@ func init() {
 		transfers := make([]indexerstore.TransferDao, 0, len(offers)+len(events))
 		for i := range offers {
 			o := &offers[i]
-			status := "pending"
-			if o.Status == "ACCEPTED" || o.Status == "completed" {
-				status = "completed"
+			status := transferStatusPend
+			if o.Status == legacyStatusAccepted || o.Status == transferStatusDone {
+				status = transferStatusDone
 			}
 			transfers = append(transfers, indexerstore.TransferDao{
 				ContractID:      o.ContractID,
-				Kind:            "offer",
+				Kind:            transferKindOffer,
 				Status:          status,
 				FromPartyID:     o.SenderPartyID,
 				ToPartyID:       o.ReceiverPartyID,
@@ -96,8 +90,8 @@ func init() {
 			e := &events[i]
 			transfers = append(transfers, indexerstore.TransferDao{
 				ContractID:      e.ContractID,
-				Kind:            "direct",
-				Status:          "completed",
+				Kind:            transferKindDirect,
+				Status:          transferStatusDone,
 				FromPartyID:     deref(e.FromPartyID),
 				ToPartyID:       deref(e.ToPartyID),
 				InstrumentAdmin: e.InstrumentAdmin,
@@ -124,47 +118,52 @@ func init() {
 		}
 
 		// 7. Drop the retired offers table.
-		_, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS indexer_pending_offers`)
-		return err
+		return mghelper.DropTables(ctx, db, &legacyOffer{})
 	}, func(ctx context.Context, db *bun.DB) error {
 		log.Println("reverting indexer_transfers -> indexer_pending_offers...")
 		// Best-effort reverse: recreate the offers table, copy offer-kind rows back
 		// (restoring the original status casing/column names), drop the new table.
-		return execAll(ctx, db,
-			`CREATE TABLE IF NOT EXISTS indexer_pending_offers (
-				contract_id varchar(255) PRIMARY KEY,
-				status varchar(20) NOT NULL,
-				receiver_party_id varchar(255) NOT NULL,
-				sender_party_id varchar(255) NOT NULL,
-				instrument_admin varchar(255) NOT NULL,
-				instrument_id varchar(255) NOT NULL,
-				amount text NOT NULL,
-				ledger_offset bigint NOT NULL,
-				created_at timestamptz NOT NULL,
-				expires_at timestamptz
-			)`,
-			`INSERT INTO indexer_pending_offers
-				(contract_id, status, receiver_party_id, sender_party_id, instrument_admin,
-				 instrument_id, amount, ledger_offset, created_at, expires_at)
-			SELECT contract_id,
-				CASE WHEN status = 'completed' THEN 'ACCEPTED' ELSE 'PENDING' END,
-				to_party_id, from_party_id, instrument_admin, instrument_id, amount,
-				ledger_offset, created_at, expires_at
-			FROM indexer_transfers WHERE kind = 'offer'
-			ON CONFLICT (contract_id) DO NOTHING`,
-			`DROP TABLE IF EXISTS indexer_transfers`,
-		)
-	})
-}
-
-// execAll runs the given SQL statements in order, stopping at the first error.
-func execAll(ctx context.Context, db *bun.DB, stmts ...string) error {
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		if err := mghelper.CreateSchema(ctx, db, &legacyOffer{}); err != nil {
 			return err
 		}
-	}
-	return nil
+
+		var transfers []indexerstore.TransferDao
+		if err := db.NewSelect().Model(&transfers).
+			Where("kind = ?", transferKindOffer).
+			Scan(ctx); err != nil {
+			return err
+		}
+
+		offers := make([]legacyOffer, 0, len(transfers))
+		for i := range transfers {
+			t := &transfers[i]
+			status := legacyStatusPending
+			if t.Status == transferStatusDone {
+				status = legacyStatusAccepted
+			}
+			offers = append(offers, legacyOffer{
+				ContractID:      t.ContractID,
+				Status:          status,
+				ReceiverPartyID: t.ToPartyID,
+				SenderPartyID:   t.FromPartyID,
+				InstrumentAdmin: t.InstrumentAdmin,
+				InstrumentID:    t.InstrumentID,
+				Amount:          t.Amount,
+				LedgerOffset:    t.LedgerOffset,
+				CreatedAt:       t.CreatedAt,
+				ExpiresAt:       t.ExpiresAt,
+			})
+		}
+		if len(offers) > 0 {
+			if _, err := db.NewInsert().Model(&offers).
+				On("CONFLICT (contract_id) DO NOTHING").
+				Exec(ctx); err != nil {
+				return err
+			}
+		}
+
+		return mghelper.DropTables(ctx, db, &indexerstore.TransferDao{})
+	})
 }
 
 func deref(s *string) string {
