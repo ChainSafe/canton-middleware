@@ -82,11 +82,46 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute transfer: %v", err)
 	}
-	if execResp.Status != "completed" {
+	if execResp.Status != statusCompleted {
 		t.Fatalf("expected status 'completed', got %q", execResp.Status)
 	}
 
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User2.Address, transferAmount)
+}
+
+// TestTransfer_CustodialUser_ByPartyID verifies a custodial user can transfer a
+// local CIP-56 token to a recipient party id via the single-call custodial
+// endpoint. DEMO settles atomically (no offer/accept), so the recipient is
+// credited as soon as the server-signed transfer commits.
+func TestTransfer_CustodialUser_ByPartyID(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewFullStack(t)
+	ctx := context.Background()
+
+	// Sender is custodial (the middleware holds and uses its Canton key);
+	// the recipient only needs a Canton party id, so register it too.
+	senderReg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
+	recipientReg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User2)
+
+	sys.DSL.MintDEMO(ctx, t, senderReg.Party, "50")
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, "50")
+
+	resp, err := sys.APIServer.SendCustodial(ctx, &sys.Accounts.User1, &transfer.CustodialTransferRequest{
+		ToPartyID:       recipientReg.Party,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	if err != nil {
+		t.Fatalf("custodial transfer by party id: %v", err)
+	}
+	if resp.Status != "submitted" {
+		t.Fatalf("expected status 'submitted', got %q", resp.Status)
+	}
+
+	// Direct settlement: the recipient is credited without an accept step.
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User2.Address, "10")
 }
 
 // TestTransfer_CustodialUser_PrepareRejects verifies that calling PrepareTransfer

@@ -218,6 +218,59 @@ func (a *APIServerShim) ListIncomingTransfers(
 	return &resp, nil
 }
 
+// SendCustodial sends POST /api/v2/transfer/custodial with timed EIP-191 auth
+// headers. The middleware holds the custodial user's Canton key and signs the
+// transfer server-side, so this is a single call (no client prepare/execute).
+func (a *APIServerShim) SendCustodial(
+	ctx context.Context,
+	account *stack.Account,
+	req *transfer.CustodialTransferRequest,
+) (*transfer.ExecuteResponse, error) {
+	msg := fmt.Sprintf("transfer:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.ExecuteResponse
+	if err := a.post(ctx, "/api/v2/transfer/custodial", sig, msg, req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListOutgoingTransfers sends GET /api/v2/transfer/outgoing?address=<addr>&status=<status>.
+// The endpoint is unauthenticated; account is used only to derive the address query
+// parameter. An empty status omits the filter (server defaults to all).
+func (a *APIServerShim) ListOutgoingTransfers(
+	ctx context.Context,
+	account *stack.Account,
+	status string,
+) (*transfer.OutgoingTransfersList, error) {
+	q := url.Values{"address": []string{account.Address.Hex()}}
+	if status != "" {
+		q.Set("status", status)
+	}
+	var resp transfer.OutgoingTransfersList
+	if err := a.get(ctx, "/api/v2/transfer/outgoing", q, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListCompletedTransfers sends GET /api/v2/transfer/completed?address=<addr>.
+// The endpoint is unauthenticated; account is used only to derive the query parameter.
+func (a *APIServerShim) ListCompletedTransfers(
+	ctx context.Context,
+	account *stack.Account,
+) (*transfer.CompletedTransfersList, error) {
+	q := url.Values{"address": []string{account.Address.Hex()}}
+	var resp transfer.CompletedTransfersList
+	if err := a.get(ctx, "/api/v2/transfer/completed", q, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // PrepareAcceptTransfer sends POST /api/v2/transfer/incoming/{contractID}/prepare.
 func (a *APIServerShim) PrepareAcceptTransfer(
 	ctx context.Context,
