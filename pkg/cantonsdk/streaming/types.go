@@ -136,6 +136,14 @@ func (e *LedgerEvent) NestedNumericField(record, field string) string {
 	return values.Numeric(values.RecordField(e.fields[record])[field])
 }
 
+// NestedTimestampField accesses a Time sub-field inside a named DAML Record field.
+// Example: event.NestedTimestampField("transfer", "executeBefore")
+// Returns the zero time when the outer field is absent or not a Record, or the
+// inner field is missing or not a Timestamp.
+func (e *LedgerEvent) NestedTimestampField(record, field string) time.Time {
+	return values.Timestamp(values.RecordField(e.fields[record])[field])
+}
+
 // DoublyNestedPartyField accesses a Party field two records deep.
 // Example: event.DoublyNestedPartyField("transfer", "instrumentId", "admin")
 // Returns "" when any of the path segments is absent or not a Record.
