@@ -224,6 +224,48 @@ func (ls *logService) ExecuteAccept(
 	return ls.svc.ExecuteAccept(ctx, evmAddr, req)
 }
 
+// SendCustodial wraps the service method with logging.
+func (ls *logService) SendCustodial(
+	ctx context.Context,
+	senderEVMAddr string,
+	req *CustodialTransferRequest,
+) (resp *ExecuteResponse, err error) {
+	start := time.Now()
+
+	ls.logger.Info("SendCustodial started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "SendCustodial"),
+		zap.String("sender", senderEVMAddr),
+		zap.String("to_party_id", req.ToPartyID),
+		zap.String("amount", req.Amount),
+		zap.String("token", req.Token),
+	)
+
+	defer func() {
+		duration := time.Since(start)
+
+		if err != nil {
+			ls.logger.Error("SendCustodial failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "SendCustodial"),
+				zap.String("sender", senderEVMAddr),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("SendCustodial completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "SendCustodial"),
+				zap.String("sender", senderEVMAddr),
+				zap.String("status", resp.Status),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+
+	return ls.svc.SendCustodial(ctx, senderEVMAddr, req)
+}
+
 // redactSignature redacts signature data to show only metadata.
 // Signatures are sensitive and should not be logged in full.
 func redactSignature(sig string) string {
