@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math/big"
 	"testing"
+	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/token"
@@ -267,7 +268,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT").Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT", 30*24*time.Hour).Return(nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
@@ -282,7 +283,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return(nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
@@ -334,7 +335,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT").Return(errors.New("ledger down"))
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return(errors.New("ledger down"))
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)

@@ -144,6 +144,8 @@ type PrepareTransferRequest struct {
 	ToPartyID   string
 	Amount      string
 	TokenSymbol string
+	// Validity sets the on-ledger transfer offer's executeBefore window and must be positive.
+	Validity time.Duration
 }
 
 func (r *PrepareTransferRequest) validate() error {
@@ -155,6 +157,9 @@ func (r *PrepareTransferRequest) validate() error {
 	}
 	if r.TokenSymbol == "" {
 		return fmt.Errorf("token symbol is required")
+	}
+	if r.Validity <= 0 {
+		return fmt.Errorf("transfer validity must be positive")
 	}
 	return nil
 }

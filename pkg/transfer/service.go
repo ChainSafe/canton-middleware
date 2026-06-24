@@ -144,6 +144,9 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 	if !s.allowedTokenSymbols[req.Token] {
 		return nil, apperrors.BadRequestError(nil, "unsupported token")
 	}
+	if req.ValiditySeconds <= 0 {
+		return nil, apperrors.BadRequestError(nil, "validity_seconds must be a positive number")
+	}
 
 	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
 	if err != nil {
@@ -189,6 +192,7 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		ToPartyID:   toPartyID,
 		Amount:      req.Amount,
 		TokenSymbol: req.Token,
+		Validity:    time.Duration(req.ValiditySeconds) * time.Second,
 	})
 	if err != nil {
 		if errors.Is(err, token.ErrInsufficientBalance) {
@@ -220,6 +224,9 @@ func (s *TransferService) SendCustodial(
 	if !s.allowedTokenSymbols[req.Token] {
 		return nil, apperrors.BadRequestError(nil, "unsupported token")
 	}
+	if req.ValiditySeconds <= 0 {
+		return nil, apperrors.BadRequestError(nil, "validity_seconds must be a positive number")
+	}
 
 	if err := validatePartyID(req.ToPartyID); err != nil {
 		return nil, apperrors.BadRequestError(err, "invalid recipient party id")
@@ -241,7 +248,10 @@ func (s *TransferService) SendCustodial(
 
 	// The middleware signs server-side, so prepare+execute happen in one call.
 	// A fresh idempotency key is used as the Canton command id per request.
-	err = s.cantonToken.TransferByPartyID(ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token)
+	err = s.cantonToken.TransferByPartyID(
+		ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token,
+		time.Duration(req.ValiditySeconds)*time.Second,
+	)
 	if err != nil {
 		if errors.Is(err, token.ErrInsufficientBalance) {
 			return nil, apperrors.BadRequestError(err, "insufficient balance")
