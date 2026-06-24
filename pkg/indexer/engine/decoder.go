@@ -167,6 +167,9 @@ func NewOfferDecoder(
 			offer.Amount = ev.NestedNumericField("transfer", "amount")
 			offer.InstrumentAdmin = ev.DoublyNestedPartyField("transfer", "instrumentId", "admin")
 			offer.InstrumentID = ev.DoublyNestedTextField("transfer", "instrumentId", "id")
+			if exp := ev.NestedTimestampField("transfer", "executeBefore"); !exp.IsZero() {
+				offer.ExpiresAt = &exp
+			}
 			if offer.ReceiverPartyID == "" {
 				logger.Warn("TransferOffer CREATED decoded with empty receiver — field name mismatch?",
 					zap.String("contract_id", ev.ContractID),
