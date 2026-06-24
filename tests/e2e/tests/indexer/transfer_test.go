@@ -64,9 +64,10 @@ func TestIndexer_TransferEvent_AfterAPITransfer(t *testing.T) {
 	// Transfer 10 DEMO from User1 to User2 via the api-server.
 	transferAmount := "10"
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: transferAmount,
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          transferAmount,
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare transfer: %v", err)
@@ -175,9 +176,10 @@ func TestIndexer_HolderCount_Updates(t *testing.T) {
 	// Transfer User2's entire 100 DEMO to User1 via the api-server. When
 	// User2's balance reaches zero, the indexer must decrement HolderCount.
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User2, &transfer.PrepareRequest{
-		To:     sys.Accounts.User1.Address.Hex(),
-		Amount: "100",
-		Token:  "DEMO",
+		To:              sys.Accounts.User1.Address.Hex(),
+		Amount:          "100",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare transfer: %v", err)
