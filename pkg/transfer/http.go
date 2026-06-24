@@ -44,6 +44,10 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	r.Post("/api/v2/transfer/prepare", apphttp.HandleError(h.prepare))
 	r.Post("/api/v2/transfer/execute", apphttp.HandleError(h.execute))
 
+	// Custodial single-call transfer to an arbitrary recipient party id. The
+	// middleware holds the custodial user's Canton key and signs server-side.
+	r.Post("/api/v2/transfer/custodial", apphttp.HandleError(h.sendCustodial))
+
 	r.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
 	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
 	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
@@ -60,10 +64,14 @@ func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
 		return jsonErr
 	}
 
-	if req.To == "" || req.Amount == "" || req.Token == "" {
-		return apperrors.BadRequestError(nil, "to, amount, and token are required")
+	if req.Amount == "" || req.Token == "" {
+		return apperrors.BadRequestError(nil, "amount and token are required")
 	}
-	if !auth.ValidateEVMAddress(req.To) {
+	// Exactly one recipient form: a registered user's EVM address, or a raw party id.
+	if (req.To == "") == (req.ToPartyID == "") {
+		return apperrors.BadRequestError(nil, "exactly one of to or to_party_id is required")
+	}
+	if req.To != "" && !auth.ValidateEVMAddress(req.To) {
 		return apperrors.BadRequestError(nil, "invalid recipient address: must be a 0x-prefixed 40-hex-char EVM address")
 	}
 	amt, parseErr := decimal.NewFromString(req.Amount)
@@ -72,6 +80,34 @@ func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	resp, err := h.svc.Prepare(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+func (h *httpHandler) sendCustodial(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req CustodialTransferRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+
+	if req.ToPartyID == "" || req.Amount == "" || req.Token == "" {
+		return apperrors.BadRequestError(nil, "to_party_id, amount, and token are required")
+	}
+	amt, parseErr := decimal.NewFromString(req.Amount)
+	if parseErr != nil || !amt.IsPositive() {
+		return apperrors.BadRequestError(nil, "invalid amount: must be a positive decimal number")
+	}
+
+	resp, err := h.svc.SendCustodial(r.Context(), evmAddr, &req)
 	if err != nil {
 		return err
 	}

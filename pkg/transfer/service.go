@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -52,6 +53,11 @@ type PendingOfferLister interface {
 type Service interface {
 	Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error)
 	Execute(ctx context.Context, senderEVMAddr string, req *ExecuteRequest) (*ExecuteResponse, error)
+
+	// SendCustodial performs a single-call, server-signed transfer for a custodial
+	// user to an arbitrary recipient party id (the middleware holds the user's
+	// Canton key, so there is no client prepare/execute round-trip).
+	SendCustodial(ctx context.Context, senderEVMAddr string, req *CustodialTransferRequest) (*ExecuteResponse, error)
 
 	// ListIncoming returns one page of pending inbound TransferOffer details for the
 	// user with the given EVM address. This call is unauthenticated — anyone can
@@ -145,17 +151,37 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		return nil, apperrors.BadRequestError(nil, "prepare/execute API requires key_mode=external")
 	}
 
-	recipient, err := s.userStore.GetUserByEVMAddress(ctx, req.To)
-	if err != nil {
-		if errors.Is(err, user.ErrUserNotFound) {
-			return nil, apperrors.BadRequestError(err, "recipient not found")
+	// Exactly one recipient form is allowed; reject an ambiguous request rather
+	// than silently preferring one (the HTTP handler enforces this too, but the
+	// service must not resolve an ambiguous request when called directly).
+	if (req.To == "") == (req.ToPartyID == "") {
+		return nil, apperrors.BadRequestError(nil, "exactly one of to or to_party_id is required")
+	}
+
+	// Resolve the recipient party id. When the caller supplies a raw party id we
+	// use it directly (it may be a party not registered in the middleware, e.g.
+	// hosted on an external participant node); otherwise we look up the EVM
+	// address of a registered user.
+	toPartyID := req.ToPartyID
+	if toPartyID == "" {
+		recipient, lookupErr := s.userStore.GetUserByEVMAddress(ctx, req.To)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, user.ErrUserNotFound) {
+				return nil, apperrors.BadRequestError(lookupErr, "recipient not found")
+			}
+			return nil, fmt.Errorf("lookup recipient: %w", lookupErr)
 		}
-		return nil, fmt.Errorf("lookup recipient: %w", err)
+		toPartyID = recipient.CantonPartyID
+	} else if vErr := validatePartyID(toPartyID); vErr != nil {
+		return nil, apperrors.BadRequestError(vErr, "invalid recipient party id")
+	}
+	if toPartyID == sender.CantonPartyID {
+		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
 	}
 
 	pt, err := s.cantonToken.PrepareTransfer(ctx, &token.PrepareTransferRequest{
 		FromPartyID: sender.CantonPartyID,
-		ToPartyID:   recipient.CantonPartyID,
+		ToPartyID:   toPartyID,
 		Amount:      req.Amount,
 		TokenSymbol: req.Token,
 	})
@@ -176,6 +202,64 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		PartyID:         pt.PartyID,
 		ExpiresAt:       pt.ExpiresAt.Format(time.RFC3339),
 	}, nil
+}
+
+// SendCustodial performs a single-call, server-signed transfer for a custodial
+// user to an arbitrary recipient party id. The middleware holds the custodial
+// user's Canton key, so it both prepares and executes the transfer (no client
+// round-trip). The recipient must accept the resulting TransferOffer on their
+// own participant node; this call only creates and submits the offer.
+func (s *TransferService) SendCustodial(
+	ctx context.Context, senderEVMAddr string, req *CustodialTransferRequest,
+) (*ExecuteResponse, error) {
+	if !s.allowedTokenSymbols[req.Token] {
+		return nil, apperrors.BadRequestError(nil, "unsupported token")
+	}
+
+	if err := validatePartyID(req.ToPartyID); err != nil {
+		return nil, apperrors.BadRequestError(err, "invalid recipient party id")
+	}
+
+	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.UnAuthorizedError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup sender: %w", err)
+	}
+	if sender.KeyMode != user.KeyModeCustodial {
+		return nil, apperrors.BadRequestError(nil, "this endpoint requires key_mode=custodial")
+	}
+	if req.ToPartyID == sender.CantonPartyID {
+		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
+	}
+
+	// The middleware signs server-side, so prepare+execute happen in one call.
+	// A fresh idempotency key is used as the Canton command id per request.
+	err = s.cantonToken.TransferByPartyID(ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token)
+	if err != nil {
+		if errors.Is(err, token.ErrInsufficientBalance) {
+			return nil, apperrors.BadRequestError(err, "insufficient balance")
+		}
+		return nil, fmt.Errorf("transfer: %w", err)
+	}
+
+	return &ExecuteResponse{Status: "submitted"}, nil
+}
+
+// validatePartyID does a lightweight syntactic check of a Canton party id, which
+// has the form "<hint>::<fingerprint>" where the fingerprint is a hex-encoded
+// multihash. It rejects obvious garbage (e.g. an EVM address pasted by mistake);
+// an id that is well-formed but unroutable is surfaced by Canton at submission.
+func validatePartyID(partyID string) error {
+	hint, fingerprint, ok := strings.Cut(partyID, "::")
+	if !ok || hint == "" || fingerprint == "" {
+		return fmt.Errorf("party id must be of the form <hint>::<fingerprint>")
+	}
+	if _, err := hex.DecodeString(fingerprint); err != nil {
+		return fmt.Errorf("party id fingerprint must be hex-encoded")
+	}
+	return nil
 }
 
 // Execute completes a previously prepared transfer using the client's DER signature.

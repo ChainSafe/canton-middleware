@@ -4,10 +4,22 @@
 package transfer
 
 // PrepareRequest is the HTTP request body for preparing a non-custodial transfer.
+// Exactly one of To (a registered user's EVM address) or ToPartyID (an arbitrary
+// Canton party id, e.g. a party on an external participant node) must be set.
 type PrepareRequest struct {
-	To     string `json:"to"`     // Recipient EVM address (0x...)
-	Amount string `json:"amount"` // Token amount (decimal string)
-	Token  string `json:"token"`  // "DEMO" or "PROMPT"
+	To        string `json:"to,omitempty"`          // Recipient EVM address (0x...) of a registered user
+	ToPartyID string `json:"to_party_id,omitempty"` // Recipient Canton party id (<hint>::<fingerprint>)
+	Amount    string `json:"amount"`                // Token amount (decimal string)
+	Token     string `json:"token"`                 // "DEMO" or "PROMPT"
+}
+
+// CustodialTransferRequest is the HTTP request body for the custodial transfer
+// endpoint, which sends a token to an arbitrary recipient party id in a single
+// server-signed call (the middleware holds the custodial user's Canton key).
+type CustodialTransferRequest struct {
+	ToPartyID string `json:"to_party_id"` // Recipient Canton party id (<hint>::<fingerprint>)
+	Amount    string `json:"amount"`      // Token amount (decimal string)
+	Token     string `json:"token"`       // Token symbol
 }
 
 // PrepareResponse is the HTTP response body for a prepared transfer.
