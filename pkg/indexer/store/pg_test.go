@@ -27,8 +27,20 @@ func setupIndexerStore(t *testing.T) (context.Context, *PGStore) {
 	if err := mghelper.CreateSchema(ctx, db, &EventDao{}, &TokenDao{}, &BalanceDao{}, &OffsetDao{}, &TransferDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
-	if err := mghelper.CreateModelIndexes(ctx, db, &TransferDao{}, "from_party_id", "to_party_id", "status"); err != nil {
-		t.Fatalf("failed to create transfer indexes: %v", err)
+	// Mirror migration 7: a status index plus composite (party, created_at)
+	// indexes that back the list-by-party-newest-first queries.
+	if err := mghelper.CreateModelIndexes(ctx, db, &TransferDao{}, "status"); err != nil {
+		t.Fatalf("failed to create transfer status index: %v", err)
+	}
+	for _, col := range []string{"from_party_id", "to_party_id"} {
+		if _, err := db.NewCreateIndex().
+			Model(&TransferDao{}).
+			Index("idx_indexer_transfers_"+col+"_created_at").
+			Column(col, "created_at").
+			IfNotExists().
+			Exec(ctx); err != nil {
+			t.Fatalf("failed to create transfer composite index: %v", err)
+		}
 	}
 	// Mirror the indexes created by the migration files so the test schema matches
 	// production. This catches index-related issues (e.g. constraint violations) and
