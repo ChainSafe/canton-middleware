@@ -360,7 +360,7 @@ func (s *PGStore) ListTransfers(
 }
 
 // ListPendingTransfers returns all pending (not expired) offer-based transfers
-// across all parties, ordered by created_at DESC, with pagination. Drives the
+// across all parties, oldest first (created_at ASC), with pagination. Drives the
 // custodial accept worker.
 func (s *PGStore) ListPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
@@ -373,8 +373,8 @@ func (s *PGStore) ListPendingTransfers(
 			Where("kind = ?", indexer.TransferKindOffer).
 			Where("status = ?", indexer.TransferStatusPending).
 			Where("(expires_at IS NULL OR expires_at > ?)", now).
-			// Oldest first (FIFO): the accept worker should process the offers
-			// closest to expiry before newer ones.
+			// Oldest first (FIFO): the accept worker drains the longest-pending
+			// offers — those most at risk of expiring — before newer ones.
 			OrderExpr("created_at ASC")
 		var err error
 		if total, err = q.Count(ctx); err != nil {
