@@ -52,7 +52,7 @@ var (
 	tokenURLFlag = flag.String("token-url", "http://mock-oauth2:8088/oauth/token", "OAuth2 token endpoint")
 	clientIDFlag = flag.String("client-id", "local-test-client", "OAuth2 client ID")
 	clientSecFlag = flag.String("client-secret", "local-test-secret", "OAuth2 client secret")
-	cip56PkgID   = flag.String("cip56-package-id", "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2", "CIP56 package ID")
+	cip56PkgID   = flag.String("cip56-package-id", "#cip56-token", "CIP56 package ID (name-ref resolves to the deployed version, surviving DAML version bumps)")
 	// Package IDs from deployments/usdcx-dars/manifest.json
 	registryAppPkgID = flag.String("registry-app-package-id", "7a75ef6e69f69395a4e60919e228528bb8f3881150ccfde3f31bcc73864b18ab", "utility_registry_app_v0 package ID")
 	registryPkgID    = flag.String("registry-package-id", "a236e8e22a3b5f199e37d5554e82bafd2df688f901de02b00be3964bdfa8c1ab", "utility_registry_v0 package ID")
