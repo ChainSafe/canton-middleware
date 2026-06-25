@@ -5,6 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Only one release run per branch at a time; never cancel an in-flight
+# release (it may be mid-publish to the registry or opening infra PRs).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -20,14 +26,17 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  build-and-deploy:
-    name: Build images and open devnet PR
+  # Builds the versioned vX.Y.Z images for manual mainnet promotion.
+  # Devnet is NOT deployed here — it tracks main via the push trigger in
+  # docker-build-release.yml (the open-devnet-pr job is skipped when tag is set).
+  build-release-images:
+    name: Build versioned release images
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/docker-build-release.yml
