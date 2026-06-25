@@ -294,14 +294,14 @@ func (ls *logService) ListPartyEvents(
 	return ls.svc.ListPartyEvents(ctx, partyID, f, p)
 }
 
-func (ls *logService) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
-	return ls.svc.GetPendingOffersForParty(ctx, partyID, p)
+func (ls *logService) GetTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	return ls.svc.GetTransfers(ctx, partyID, query, p)
 }
 
-func (ls *logService) GetAllPendingOffers(
+func (ls *logService) GetPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
-	return ls.svc.GetAllPendingOffers(ctx, p)
+) (*indexer.Page[indexer.Transfer], error) {
+	return ls.svc.GetPendingTransfers(ctx, p)
 }

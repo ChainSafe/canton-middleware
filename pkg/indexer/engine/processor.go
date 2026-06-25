@@ -205,26 +205,13 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				if err := p.processTransferEvent(ctx, tx, item, batch.Offset); err != nil {
 					return err
 				}
-			case *indexer.PendingOffer:
-				if item.IsArchived {
+			case *indexer.Transfer:
+				if item.Archived {
 					if err := tx.CompleteTransfer(ctx, item.ContractID); err != nil {
 						return fmt.Errorf("complete transfer %s: %w", item.ContractID, err)
 					}
 				} else {
-					it := &indexer.Transfer{
-						ContractID:      item.ContractID,
-						Kind:            indexer.TransferKindOffer,
-						Status:          indexer.TransferStatusPending,
-						FromPartyID:     item.SenderPartyID,
-						ToPartyID:       item.ReceiverPartyID,
-						InstrumentAdmin: item.InstrumentAdmin,
-						InstrumentID:    item.InstrumentID,
-						Amount:          item.Amount,
-						ExpiresAt:       item.ExpiresAt,
-						LedgerOffset:    item.LedgerOffset,
-						CreatedAt:       item.CreatedAt,
-					}
-					if err := tx.InsertTransfer(ctx, it); err != nil {
+					if err := tx.InsertTransfer(ctx, item); err != nil {
 						return fmt.Errorf("insert transfer %s: %w", item.ContractID, err)
 					}
 				}
@@ -324,9 +311,8 @@ func (p *Processor) processTransferEvent(ctx context.Context, tx Store, e *index
 	// Record a settled direct transfer in indexer_transfers so the unified history
 	// view covers our atomic CIP-56 transfers alongside offer-based ones. Only
 	// TRANSFER (not MINT/BURN) produces a transfer row, and only on first insert
-	// (this point is reached only when inserted==true) so replays don't duplicate.
-	// Guard nil parties defensively — a TRANSFER always has both, but the store
-	// column is NOT NULL.
+	// (inserted==true) so replays don't duplicate. Guard nil parties defensively —
+	// a TRANSFER always has both, but the store column is NOT NULL.
 	if e.EventType == indexer.EventTransfer && e.FromPartyID != nil && e.ToPartyID != nil {
 		if err := tx.InsertTransfer(ctx, &indexer.Transfer{
 			ContractID:      e.ContractID,

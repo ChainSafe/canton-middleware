@@ -27,6 +27,21 @@ func setupIndexerStore(t *testing.T) (context.Context, *PGStore) {
 	if err := mghelper.CreateSchema(ctx, db, &EventDao{}, &TokenDao{}, &BalanceDao{}, &OffsetDao{}, &TransferDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
+	// Mirror migration 7: a status index plus composite (party, created_at)
+	// indexes that back the list-by-party-newest-first queries.
+	if err := mghelper.CreateModelIndexes(ctx, db, &TransferDao{}, "status"); err != nil {
+		t.Fatalf("failed to create transfer status index: %v", err)
+	}
+	for _, col := range []string{"from_party_id", "to_party_id"} {
+		if _, err := db.NewCreateIndex().
+			Model(&TransferDao{}).
+			Index("idx_indexer_transfers_"+col+"_created_at").
+			Column(col, "created_at").
+			IfNotExists().
+			Exec(ctx); err != nil {
+			t.Fatalf("failed to create transfer composite index: %v", err)
+		}
+	}
 	// Mirror the indexes created by the migration files so the test schema matches
 	// production. This catches index-related issues (e.g. constraint violations) and
 	// ensures query plans exercised in tests reflect real query plans.
@@ -35,9 +50,6 @@ func setupIndexerStore(t *testing.T) (context.Context, *PGStore) {
 	}
 	if err := mghelper.CreateModelIndexes(ctx, db, &BalanceDao{}, "party_id"); err != nil {
 		t.Fatalf("failed to create balance indexes: %v", err)
-	}
-	if err := mghelper.CreateModelIndexes(ctx, db, &TransferDao{}, "from_party_id", "to_party_id", "status"); err != nil {
-		t.Fatalf("failed to create transfer indexes: %v", err)
 	}
 
 	return ctx, NewStore(db)
@@ -737,167 +749,182 @@ func TestPGStore_ListEvents(t *testing.T) {
 	}
 }
 
-// ── transfer write methods + pending-offer compatibility shim ─────────────────
-
-func makeOfferTransfer(contractID, from, to string, offset int64, expires *time.Time) *indexer.Transfer {
-	now := time.Now().UTC().Truncate(time.Millisecond)
+func makeOffer(cid, sender, receiver string, offset int64, expiresAt *time.Time) *indexer.Transfer {
 	return &indexer.Transfer{
-		ContractID:      contractID,
+		ContractID:      cid,
 		Kind:            indexer.TransferKindOffer,
 		Status:          indexer.TransferStatusPending,
-		FromPartyID:     from,
-		ToPartyID:       to,
+		FromPartyID:     sender,
+		ToPartyID:       receiver,
 		InstrumentAdmin: "admin-1",
 		InstrumentID:    "DEMO",
-		Amount:          "100",
-		ExpiresAt:       expires,
+		Amount:          "10",
 		LedgerOffset:    offset,
-		CreatedAt:       now,
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
+		ExpiresAt:       expiresAt,
 	}
 }
 
-func makeDirectTransfer(contractID, from, to string, offset int64) *indexer.Transfer {
-	now := time.Now().UTC().Truncate(time.Millisecond)
+func makeDirect(cid, from, to string, offset int64) *indexer.Transfer {
 	return &indexer.Transfer{
-		ContractID:      contractID,
+		ContractID:      cid,
 		Kind:            indexer.TransferKindDirect,
 		Status:          indexer.TransferStatusCompleted,
 		FromPartyID:     from,
 		ToPartyID:       to,
 		InstrumentAdmin: "admin-1",
 		InstrumentID:    "DEMO",
-		Amount:          "50",
-		TxID:            "tx-" + contractID,
+		Amount:          "10",
+		TxID:            "tx-" + cid,
 		LedgerOffset:    offset,
-		CreatedAt:       now,
+		CreatedAt:       time.Now().UTC().Truncate(time.Millisecond),
 	}
 }
 
-// TestInsertTransfer_Offer verifies an offer/pending transfer is stored as the
-// caller specified, is idempotent by ContractID, and surfaces through the
-// pending-offer compatibility view.
-func TestInsertTransfer_Offer(t *testing.T) {
-	ctx, s := setupIndexerStore(t)
-
-	o := makeOfferTransfer("o-1", "alice", "bob", 1, nil)
-	if err := s.InsertTransfer(ctx, o); err != nil {
-		t.Fatalf("InsertTransfer: %v", err)
-	}
-	// Idempotent — second insert is a no-op, not an error.
-	if err := s.InsertTransfer(ctx, o); err != nil {
-		t.Fatalf("InsertTransfer (replay): %v", err)
-	}
-
-	offers, total, err := s.ListAllPendingOffers(ctx, indexer.Pagination{Page: 1, Limit: 10})
-	if err != nil {
-		t.Fatalf("ListAllPendingOffers: %v", err)
-	}
-	if total != 1 || len(offers) != 1 {
-		t.Fatalf("expected 1 pending offer, got total=%d len=%d", total, len(offers))
-	}
-	got := offers[0]
-	if got.ContractID != "o-1" || got.SenderPartyID != "alice" || got.ReceiverPartyID != "bob" {
-		t.Fatalf("unexpected offer mapping: %+v", got)
-	}
-	if got.Status != indexer.OfferStatusPending {
-		t.Fatalf("expected PENDING status, got %s", got.Status)
-	}
-}
-
-// TestCompleteTransfer_RemovesFromPendingShim verifies that completing a transfer
-// drops it out of the pending-offer compatibility views.
-func TestCompleteTransfer_RemovesFromPendingShim(t *testing.T) {
-	ctx, s := setupIndexerStore(t)
-
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-1", "alice", "bob", 1, nil)); err != nil {
-		t.Fatalf("InsertTransfer: %v", err)
-	}
-	if err := s.CompleteTransfer(ctx, "o-1"); err != nil {
-		t.Fatalf("CompleteTransfer: %v", err)
-	}
-
-	_, total, err := s.ListPendingOffersForParty(ctx, "bob", indexer.Pagination{Page: 1, Limit: 10})
-	if err != nil {
-		t.Fatalf("ListPendingOffersForParty: %v", err)
-	}
-	if total != 0 {
-		t.Fatalf("expected 0 pending offers after completion, got %d", total)
-	}
-}
-
-// TestInsertTransfer_Direct_NotInPendingShim verifies direct (completed)
-// transfers never surface through the offer compatibility views.
-func TestInsertTransfer_Direct_NotInPendingShim(t *testing.T) {
-	ctx, s := setupIndexerStore(t)
-
-	if err := s.InsertTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
-		t.Fatalf("InsertTransfer: %v", err)
-	}
-	// Idempotent replay.
-	if err := s.InsertTransfer(ctx, makeDirectTransfer("d-1", "alice", "bob", 1)); err != nil {
-		t.Fatalf("InsertTransfer (replay): %v", err)
-	}
-
-	_, total, err := s.ListAllPendingOffers(ctx, indexer.Pagination{Page: 1, Limit: 10})
-	if err != nil {
-		t.Fatalf("ListAllPendingOffers: %v", err)
-	}
-	if total != 0 {
-		t.Fatalf("expected direct transfer to be excluded from pending offers, got %d", total)
-	}
-}
-
-// TestPendingOfferShim_FilterAndOrder verifies the compatibility shim filters by
-// receiver, excludes expired/completed/direct rows, and preserves ledger_offset
-// ASC ordering with pagination.
-func TestPendingOfferShim_FilterAndOrder(t *testing.T) {
+func TestListTransfers(t *testing.T) {
 	ctx, s := setupIndexerStore(t)
 
 	past := time.Now().UTC().Add(-time.Hour)
 	future := time.Now().UTC().Add(time.Hour)
 
-	// alice receives three offers (offsets 3, 1, 2) plus an expired and a completed one.
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-c", "x", "alice", 3, &future)); err != nil {
-		t.Fatalf("InsertTransfer o-c: %v", err)
+	// alice sends three offers (live / expired / never-expires) and receives one completed.
+	offers := []*indexer.Transfer{
+		makeOffer("o-live", "alice", "bob", 1, &future),
+		makeOffer("o-expired", "alice", "carol", 2, &past),
+		makeOffer("o-noexp", "alice", "eve", 3, nil),
+		makeOffer("o-done", "dave", "alice", 4, &past),
 	}
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-a", "x", "alice", 1, nil)); err != nil {
-		t.Fatalf("InsertTransfer o-a: %v", err)
+	for _, o := range offers {
+		if err := s.InsertTransfer(ctx, o); err != nil {
+			t.Fatalf("InsertTransfer(%s): %v", o.ContractID, err)
+		}
 	}
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-b", "x", "alice", 2, nil)); err != nil {
-		t.Fatalf("InsertTransfer o-b: %v", err)
-	}
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-expired", "x", "alice", 4, &past)); err != nil {
-		t.Fatalf("InsertTransfer o-expired: %v", err)
-	}
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-done", "x", "alice", 5, nil)); err != nil {
-		t.Fatalf("InsertTransfer o-done: %v", err)
-	}
+	// Complete the inbound offer so it reads as a completed transfer for alice.
 	if err := s.CompleteTransfer(ctx, "o-done"); err != nil {
-		t.Fatalf("CompleteTransfer o-done: %v", err)
-	}
-	// An offer for a different receiver must not appear.
-	if err := s.InsertTransfer(ctx, makeOfferTransfer("o-other", "x", "carol", 6, nil)); err != nil {
-		t.Fatalf("InsertTransfer o-other: %v", err)
+		t.Fatalf("CompleteTransfer(o-done): %v", err)
 	}
 
-	got, total, err := s.ListPendingOffersForParty(ctx, "alice", indexer.Pagination{Page: 1, Limit: 10})
+	ids := func(list []indexer.Transfer) map[string]string {
+		m := map[string]string{}
+		for _, o := range list {
+			m[o.ContractID] = o.Status
+		}
+		return m
+	}
+	page := indexer.Pagination{Page: 1, Limit: 50}
+
+	// role=sender, status=pending → only live + never-expires (expired excluded).
+	got, total, err := s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusPending}, page)
 	if err != nil {
-		t.Fatalf("ListPendingOffersForParty: %v", err)
+		t.Fatalf("sender/pending: %v", err)
 	}
-	if total != 3 || len(got) != 3 {
-		t.Fatalf("expected 3 live pending offers for alice, got total=%d len=%d", total, len(got))
-	}
-	if got[0].ContractID != "o-a" || got[1].ContractID != "o-b" || got[2].ContractID != "o-c" {
-		t.Fatalf("expected ledger_offset ASC order [o-a o-b o-c], got [%s %s %s]",
-			got[0].ContractID, got[1].ContractID, got[2].ContractID)
+	m := ids(got)
+	if total != 2 || len(m) != 2 || m["o-live"] != indexer.TransferStatusPending || m["o-noexp"] != indexer.TransferStatusPending {
+		t.Fatalf("sender/pending unexpected: total=%d m=%v", total, m)
 	}
 
-	// Pagination: 2 per page.
-	page1, total, err := s.ListPendingOffersForParty(ctx, "alice", indexer.Pagination{Page: 1, Limit: 2})
+	// role=sender, status=expired → only the past-dated pending offer, surfaced as expired.
+	got, total, err = s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusExpired}, page)
 	if err != nil {
-		t.Fatalf("ListPendingOffersForParty(page1): %v", err)
+		t.Fatalf("sender/expired: %v", err)
 	}
-	if total != 3 || len(page1) != 2 {
-		t.Fatalf("expected total=3 len=2 on page1, got total=%d len=%d", total, len(page1))
+	m = ids(got)
+	if total != 1 || m["o-expired"] != indexer.TransferStatusExpired {
+		t.Fatalf("sender/expired unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=any, status=completed → the completed offer where alice is receiver.
+	got, total, err = s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleAny, Status: indexer.TransferStatusCompleted}, page)
+	if err != nil {
+		t.Fatalf("any/completed: %v", err)
+	}
+	m = ids(got)
+	if total != 1 || m["o-done"] != indexer.TransferStatusCompleted {
+		t.Fatalf("any/completed unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=receiver default, status=all → only the offer alice receives.
+	got, total, err = s.ListTransfers(ctx, "alice", indexer.TransferQuery{}, page)
+	if err != nil {
+		t.Fatalf("receiver/all: %v", err)
+	}
+	if total != 1 || got[0].ContractID != "o-done" {
+		t.Fatalf("receiver/all unexpected: total=%d got=%v", total, ids(got))
+	}
+}
+
+func TestListTransfers_DirectAndOffer(t *testing.T) {
+	ctx, s := setupIndexerStore(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+
+	// A direct CIP-56 transfer (alice sender) and an offer-based transfer settled
+	// to alice (alice receiver). Both are completed and live in indexer_transfers.
+	if err := s.InsertTransfer(ctx, makeDirect("ev-direct", "alice", "bob", 1)); err != nil {
+		t.Fatalf("upsert direct transfer: %v", err)
+	}
+	// Idempotent: a replay is a no-op.
+	if err := s.InsertTransfer(ctx, makeDirect("ev-direct", "alice", "bob", 1)); err != nil {
+		t.Fatalf("upsert direct transfer (replay): %v", err)
+	}
+	if err := s.InsertTransfer(ctx, makeOffer("of-usdcx", "carol", "alice", 2, nil)); err != nil {
+		t.Fatalf("insert offer: %v", err)
+	}
+	if err := s.CompleteTransfer(ctx, "of-usdcx"); err != nil {
+		t.Fatalf("complete offer: %v", err)
+	}
+
+	// completed (role=any) → both transfers.
+	got, total, err := s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleAny, Status: indexer.TransferStatusCompleted}, page)
+	if err != nil {
+		t.Fatalf("ListTransfers(completed): %v", err)
+	}
+	if total != 2 || len(got) != 2 {
+		t.Fatalf("expected 2 completed transfers, got total=%d len=%d", total, len(got))
+	}
+	byKind := map[string]indexer.Transfer{}
+	for _, c := range got {
+		byKind[c.Kind] = c
+	}
+	if byKind[indexer.TransferKindDirect].ContractID != "ev-direct" {
+		t.Fatalf("expected direct transfer ev-direct, got %+v", byKind[indexer.TransferKindDirect])
+	}
+	if byKind[indexer.TransferKindOffer].ContractID != "of-usdcx" || byKind[indexer.TransferKindOffer].FromPartyID != "carol" {
+		t.Fatalf("expected offer transfer of-usdcx from carol, got %+v", byKind[indexer.TransferKindOffer])
+	}
+}
+
+func TestListPendingTransfers(t *testing.T) {
+	ctx, s := setupIndexerStore(t)
+	page := indexer.Pagination{Page: 1, Limit: 50}
+
+	past := time.Now().UTC().Add(-time.Hour)
+	// A live pending offer, an expired one, a completed one, and a direct transfer.
+	if err := s.InsertTransfer(ctx, makeOffer("p-live", "dave", "alice", 1, nil)); err != nil {
+		t.Fatalf("insert live offer: %v", err)
+	}
+	if err := s.InsertTransfer(ctx, makeOffer("p-expired", "erin", "bob", 2, &past)); err != nil {
+		t.Fatalf("insert expired offer: %v", err)
+	}
+	if err := s.InsertTransfer(ctx, makeOffer("p-done", "fred", "carol", 3, nil)); err != nil {
+		t.Fatalf("insert done offer: %v", err)
+	}
+	if err := s.CompleteTransfer(ctx, "p-done"); err != nil {
+		t.Fatalf("complete offer: %v", err)
+	}
+	if err := s.InsertTransfer(ctx, makeDirect("p-direct", "gita", "hank", 4)); err != nil {
+		t.Fatalf("upsert direct transfer: %v", err)
+	}
+
+	// Only the live, not-yet-expired offer qualifies.
+	got, total, err := s.ListPendingTransfers(ctx, page)
+	if err != nil {
+		t.Fatalf("ListPendingTransfers: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ContractID != "p-live" {
+		t.Fatalf("expected only p-live pending, got total=%d %+v", total, got)
 	}
 }

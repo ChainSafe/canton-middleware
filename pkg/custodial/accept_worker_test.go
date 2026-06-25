@@ -28,12 +28,13 @@ func custodialUser() *user.User {
 
 const testInstrumentAdmin = "admin-party::zzz"
 
-func pendingOffer(contractID string) indexer.PendingOffer {
-	return indexer.PendingOffer{
+func pendingOffer(contractID string) indexer.Transfer {
+	return indexer.Transfer{
 		ContractID:      contractID,
-		Status:          indexer.OfferStatusPending,
-		ReceiverPartyID: "custodial-party::abc",
-		SenderPartyID:   "sender-party::xyz",
+		Kind:            indexer.TransferKindOffer,
+		Status:          indexer.TransferStatusPending,
+		ToPartyID:       "custodial-party::abc",
+		FromPartyID:     "sender-party::xyz",
 		InstrumentAdmin: testInstrumentAdmin,
 		InstrumentID:    "USDCX",
 		Amount:          "100.0",
@@ -41,8 +42,8 @@ func pendingOffer(contractID string) indexer.PendingOffer {
 	}
 }
 
-func allOffersPage(offers ...indexer.PendingOffer) *indexer.Page[indexer.PendingOffer] {
-	return &indexer.Page[indexer.PendingOffer]{
+func allOffersPage(offers ...indexer.Transfer) *indexer.Page[indexer.Transfer] {
+	return &indexer.Page[indexer.Transfer]{
 		Items: offers,
 		Total: int64(len(offers)),
 		Page:  1,
@@ -71,7 +72,7 @@ func TestAcceptWorker_AcceptsSingleOffer(t *testing.T) {
 	page := allOffersPage(offer)
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
+	ic.EXPECT().GetPendingTransfers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page, nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-1", testInstrumentAdmin).
 		Return(nil)
@@ -86,19 +87,19 @@ func TestAcceptWorker_SkipsOffersForUnregisteredParties(t *testing.T) {
 	ic := indexermocks.NewClient(t)
 
 	// Offer for a party not in our custodialParties map
-	unregisteredOffer := indexer.PendingOffer{
+	unregisteredOffer := indexer.Transfer{
 		ContractID:      "contract-unknown",
-		ReceiverPartyID: "unknown-party::xyz",
+		ToPartyID:       "unknown-party::xyz",
 		InstrumentAdmin: testInstrumentAdmin,
 	}
 	custodialOffer := pendingOffer("contract-custodial")
-	page := &indexer.Page[indexer.PendingOffer]{
-		Items: []indexer.PendingOffer{unregisteredOffer, custodialOffer},
+	page := &indexer.Page[indexer.Transfer]{
+		Items: []indexer.Transfer{unregisteredOffer, custodialOffer},
 		Total: 2, Page: 1, Limit: acceptWorkerPageLimit,
 	}
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
+	ic.EXPECT().GetPendingTransfers(mock.Anything, mock.Anything).Return(page, nil)
 	// Only the registered custodial offer should be accepted
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, "custodial-party::abc", "contract-custodial", testInstrumentAdmin).
 		Return(nil)
@@ -114,13 +115,13 @@ func TestAcceptWorker_LogsAndContinuesOnAcceptError(t *testing.T) {
 
 	offer1 := pendingOffer("contract-1")
 	offer2 := pendingOffer("contract-2")
-	page := &indexer.Page[indexer.PendingOffer]{
-		Items: []indexer.PendingOffer{offer1, offer2},
+	page := &indexer.Page[indexer.Transfer]{
+		Items: []indexer.Transfer{offer1, offer2},
 		Total: 2, Page: 1, Limit: acceptWorkerPageLimit,
 	}
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).Return(page, nil)
+	ic.EXPECT().GetPendingTransfers(mock.Anything, mock.Anything).Return(page, nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).
 		Return(errors.New("ALREADY_EXISTS"))
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).
@@ -136,7 +137,7 @@ func TestAcceptWorker_LogsAndContinuesOnIndexerError(t *testing.T) {
 	ic := indexermocks.NewClient(t)
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, mock.Anything).
+	ic.EXPECT().GetPendingTransfers(mock.Anything, mock.Anything).
 		Return(nil, errors.New("indexer unavailable"))
 
 	worker := NewAcceptWorker(tok, lister, ic, time.Hour, NewNopMetrics(), zap.NewNop())
@@ -176,13 +177,13 @@ func TestAcceptWorker_PaginatesAllOffers(t *testing.T) {
 	offer2 := pendingOffer("contract-2")
 
 	// Total is 400, limit 200 → 2 pages
-	page1 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer1}, Total: 400, Page: 1, Limit: acceptWorkerPageLimit}
-	page2 := &indexer.Page[indexer.PendingOffer]{Items: []indexer.PendingOffer{offer2}, Total: 400, Page: 2, Limit: acceptWorkerPageLimit}
+	page1 := &indexer.Page[indexer.Transfer]{Items: []indexer.Transfer{offer1}, Total: 400, Page: 1, Limit: acceptWorkerPageLimit}
+	page2 := &indexer.Page[indexer.Transfer]{Items: []indexer.Transfer{offer2}, Total: 400, Page: 2, Limit: acceptWorkerPageLimit}
 
 	lister.EXPECT().ListCustodialUsers(mock.Anything).Return([]*user.User{custodialUser()}, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
+	ic.EXPECT().GetPendingTransfers(mock.Anything, indexer.Pagination{Page: 1, Limit: acceptWorkerPageLimit}).
 		Return(page1, nil)
-	ic.EXPECT().GetAllPendingOffers(mock.Anything, indexer.Pagination{Page: 2, Limit: acceptWorkerPageLimit}).
+	ic.EXPECT().GetPendingTransfers(mock.Anything, indexer.Pagination{Page: 2, Limit: acceptWorkerPageLimit}).
 		Return(page2, nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-1", mock.Anything).Return(nil)
 	tok.EXPECT().AcceptTransferInstruction(mock.Anything, mock.Anything, "contract-2", mock.Anything).Return(nil)

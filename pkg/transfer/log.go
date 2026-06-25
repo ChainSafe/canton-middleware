@@ -121,6 +121,8 @@ func (ls *logService) Execute(
 }
 
 // ListIncoming wraps the service method with logging.
+//
+//nolint:dupl // same shape as the other list-logging wrappers by design
 func (ls *logService) ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (resp *IncomingTransfersList, err error) {
 	start := time.Now()
 	ls.logger.Info("ListIncoming started",
@@ -151,6 +153,79 @@ func (ls *logService) ListIncoming(ctx context.Context, evmAddr string, p indexe
 		}
 	}()
 	return ls.svc.ListIncoming(ctx, evmAddr, p)
+}
+
+// ListOutgoing wraps the service method with logging.
+func (ls *logService) ListOutgoing(
+	ctx context.Context, evmAddr string, status string, p indexer.Pagination,
+) (resp *OutgoingTransfersList, err error) {
+	start := time.Now()
+	ls.logger.Info("ListOutgoing started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "ListOutgoing"),
+		zap.String("evm_addr", evmAddr),
+		zap.String("status", status),
+		zap.Int("page", p.Page),
+		zap.Int("limit", p.Limit),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("ListOutgoing failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListOutgoing"),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("ListOutgoing completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListOutgoing"),
+				zap.Int("count", len(resp.Items)),
+				zap.Int64("total", resp.Total),
+				zap.Bool("has_more", resp.HasMore),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.ListOutgoing(ctx, evmAddr, status, p)
+}
+
+// ListCompleted wraps the service method with logging.
+//
+//nolint:dupl // same shape as ListOutgoing's logging wrapper by design
+func (ls *logService) ListCompleted(
+	ctx context.Context, evmAddr string, p indexer.Pagination,
+) (resp *CompletedTransfersList, err error) {
+	start := time.Now()
+	ls.logger.Info("ListCompleted started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "ListCompleted"),
+		zap.String("evm_addr", evmAddr),
+		zap.Int("page", p.Page),
+		zap.Int("limit", p.Limit),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("ListCompleted failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListCompleted"),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("ListCompleted completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "ListCompleted"),
+				zap.Int("count", len(resp.Items)),
+				zap.Int64("total", resp.Total),
+				zap.Bool("has_more", resp.HasMore),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.ListCompleted(ctx, evmAddr, p)
 }
 
 // PrepareAccept wraps the service method with logging.

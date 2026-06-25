@@ -41,8 +41,8 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/parties/{partyID}/balances", apphttp.HandleError(h.listPartyBalances))
 		r.Get("/parties/{partyID}/balances/{admin}/{id}", apphttp.HandleError(h.getPartyBalance))
 		r.Get("/parties/{partyID}/events", apphttp.HandleError(h.listPartyEvents))
-		r.Get("/parties/{partyID}/pending-offers", apphttp.HandleError(h.listPendingOffers))
-		r.Get("/pending-offers", apphttp.HandleError(h.listAllPendingOffers))
+		r.Get("/parties/{partyID}/transfers", apphttp.HandleError(h.listTransfers))
+		r.Get("/pending-transfers", apphttp.HandleError(h.listPendingTransfers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
 	})
@@ -171,13 +171,17 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *HTTP) listPendingOffers(w http.ResponseWriter, r *http.Request) error {
+func (h *HTTP) listTransfers(w http.ResponseWriter, r *http.Request) error {
 	partyID := chi.URLParam(r, "partyID")
 	p, err := parsePagination(r)
 	if err != nil {
 		return err
 	}
-	page, err := h.service.GetPendingOffersForParty(r.Context(), partyID, p)
+	query, err := parseTransferQuery(r)
+	if err != nil {
+		return err
+	}
+	page, err := h.service.GetTransfers(r.Context(), partyID, query, p)
 	if err != nil {
 		return err
 	}
@@ -185,12 +189,39 @@ func (h *HTTP) listPendingOffers(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *HTTP) listAllPendingOffers(w http.ResponseWriter, r *http.Request) error {
+// parseTransferQuery reads ?role= and ?status= into an indexer.TransferQuery.
+// role defaults to receiver (incoming); status defaults to all.
+func parseTransferQuery(r *http.Request) (indexer.TransferQuery, error) {
+	q := indexer.TransferQuery{Role: indexer.TransferRoleReceiver}
+
+	switch r.URL.Query().Get("role") {
+	case "", "receiver":
+		q.Role = indexer.TransferRoleReceiver
+	case "sender":
+		q.Role = indexer.TransferRoleSender
+	case "any":
+		q.Role = indexer.TransferRoleAny
+	default:
+		return q, apperrors.BadRequestError(nil, "role must be receiver, sender, or any")
+	}
+
+	switch s := r.URL.Query().Get("status"); s {
+	case "", "all":
+		q.Status = ""
+	case indexer.TransferStatusPending, indexer.TransferStatusExpired, indexer.TransferStatusCompleted:
+		q.Status = s
+	default:
+		return q, apperrors.BadRequestError(nil, "status must be pending, expired, completed, or all")
+	}
+	return q, nil
+}
+
+func (h *HTTP) listPendingTransfers(w http.ResponseWriter, r *http.Request) error {
 	p, err := parsePagination(r)
 	if err != nil {
 		return err
 	}
-	page, err := h.service.GetAllPendingOffers(r.Context(), p)
+	page, err := h.service.GetPendingTransfers(r.Context(), p)
 	if err != nil {
 		return err
 	}

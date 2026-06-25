@@ -351,28 +351,28 @@ func (s *InstrumentedStore) ListEvents(
 	return events, total, err
 }
 
-func (s *InstrumentedStore) ListPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingOffersForPty))
+func (s *InstrumentedStore) ListTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListTransfers))
 	defer timer.ObserveDuration()
 
-	offers, total, err := s.inner.ListPendingOffersForParty(ctx, partyID, p)
+	transfers, total, err := s.inner.ListTransfers(ctx, partyID, query, p)
 	if err != nil {
-		s.metrics.IncErrors(OpListPendingOffersForPty)
+		s.metrics.IncErrors(OpListTransfers)
 	}
-	return offers, total, err
+	return transfers, total, err
 }
 
-func (s *InstrumentedStore) ListAllPendingOffers(
+func (s *InstrumentedStore) ListPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListAllPendingOffers))
+) ([]indexer.Transfer, int64, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpListPendingTransfers))
 	defer timer.ObserveDuration()
 
-	offers, total, err := s.inner.ListAllPendingOffers(ctx, p)
+	transfers, total, err := s.inner.ListPendingTransfers(ctx, p)
 	if err != nil {
-		s.metrics.IncErrors(OpListAllPendingOffers)
+		s.metrics.IncErrors(OpListPendingTransfers)
 	}
-	return offers, total, err
+	return transfers, total, err
 }

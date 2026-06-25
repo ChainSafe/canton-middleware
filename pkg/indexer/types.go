@@ -4,46 +4,11 @@ package indexer
 
 import "time"
 
-// OfferStatus is the lifecycle state of a TransferOffer contract.
-type OfferStatus string
-
-const (
-	// OfferStatusPending is the initial state: the offer exists and awaits receiver acceptance.
-	OfferStatusPending OfferStatus = "PENDING"
-
-	// OfferStatusAccepted means the Canton ledger emitted an ARCHIVED event for the
-	// TransferOffer contract — either because the receiver exercised TransferInstruction_Accept
-	// or because the offer was rejected/expired. The row is kept for audit history.
-	OfferStatusAccepted OfferStatus = "ACCEPTED"
-)
-
-// PendingOffer represents a TransferOffer contract on the Canton ledger.
-// Rows are written on CREATED events and updated to ACCEPTED on ARCHIVED events.
-// Rows are never deleted so the full transfer history is preserved.
-type PendingOffer struct {
-	ContractID      string      `json:"contract_id"`
-	Status          OfferStatus `json:"status"`
-	ReceiverPartyID string      `json:"receiver_party_id"`
-	SenderPartyID   string      `json:"sender_party_id"`
-	InstrumentAdmin string      `json:"instrument_admin"`
-	InstrumentID    string      `json:"instrument_id"`
-	Amount          string      `json:"amount"`
-	LedgerOffset    int64       `json:"ledger_offset"`
-	CreatedAt       time.Time   `json:"created_at"`
-
-	// IsArchived is a decode-time signal only — not persisted.
-	IsArchived bool `json:"-"`
-
-	// ExpiresAt is a decode-only field carrying the offer's executeBefore from the
-	// decoder to the processor. It is never serialized in the external API response.
-	ExpiresAt *time.Time `json:"-"`
-}
-
-// Transfer status values recorded on Transfer.Status / the indexer_transfers table.
-// A transfer is "completed" once settled; an offer that hasn't settled is "pending"
-// (or "expired" once past its executeBefore). "expired" is a derived status — never
-// persisted, only computed at read time from a still-pending row whose ExpiresAt is
-// in the past.
+// Transfer status values used by ListTransfers / the /transfers endpoint.
+// A transfer is "completed" once settled; an offer that hasn't settled is
+// "pending" (or "expired" once past its executeBefore). "expired" is a derived
+// status — it is never persisted, only computed at read time from a still-pending
+// row whose ExpiresAt is in the past.
 const (
 	TransferStatusPending   = "pending"
 	TransferStatusExpired   = "expired"
@@ -60,12 +25,28 @@ const (
 	TransferKindOffer = "offer"
 )
 
+// TransferRole selects which side of a transfer a party query matches.
+type TransferRole string
+
+const (
+	TransferRoleSender   TransferRole = "sender"   // transfers sent BY the party (outgoing)
+	TransferRoleReceiver TransferRole = "receiver" // transfers sent TO the party (incoming)
+	TransferRoleAny      TransferRole = "any"      // either side
+)
+
+// TransferQuery filters a party's transfers by role and status.
+// A zero Role defaults to receiver; a zero Status means "all statuses".
+type TransferQuery struct {
+	Role   TransferRole
+	Status string // "" = all; pending / expired / completed
+}
+
 // Transfer is a token transfer, generalized across all tokens and both transfer
-// shapes. Direct transfers (Kind "direct") are our atomic CIP-56 TokenTransferEvents;
-// 2-step transfers (Kind "offer") are offer-based, e.g. USDCx. Rows live in
-// indexer_transfers with a mutable status lifecycle: offers start "pending" and become
-// "completed" on archive; direct transfers are always "completed". "expired" is derived
-// at read time and never stored.
+// shapes. Direct transfers (Kind "direct") are our atomic CIP-56
+// TokenTransferEvents; 2-step transfers (Kind "offer") are offer-based, e.g.
+// USDCx. Rows live in indexer_transfers with a mutable status lifecycle: offers
+// start "pending" and become "completed" on archive; direct transfers are always
+// "completed". "expired" is derived at read time and never stored.
 type Transfer struct {
 	ContractID      string     `json:"contract_id"`
 	Kind            string     `json:"kind"`   // "direct" | "offer"
@@ -79,6 +60,10 @@ type Transfer struct {
 	TxID            string     `json:"tx_id,omitempty"`      // ledger update id
 	LedgerOffset    int64      `json:"ledger_offset"`
 	CreatedAt       time.Time  `json:"created_at"`
+
+	// Archived is a decode-time signal only — not persisted. Set by the offer
+	// decoder on an ARCHIVED event so the processor completes the transfer.
+	Archived bool `json:"-"`
 }
 
 // EventType classifies a TokenTransferEvent as MINT, BURN, or TRANSFER.

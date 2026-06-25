@@ -111,20 +111,20 @@ func (c *InstrumentedClient) ListPartyEvents(
 	return page, err
 }
 
-func (c *InstrumentedClient) GetPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
-	defer c.observe(OpGetPendingOffersForPty)()
-	page, err := c.inner.GetPendingOffersForParty(ctx, partyID, p)
-	c.incErr(OpGetPendingOffersForPty, err)
+func (c *InstrumentedClient) GetTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) (*indexer.Page[indexer.Transfer], error) {
+	defer c.observe(OpGetTransfers)()
+	page, err := c.inner.GetTransfers(ctx, partyID, query, p)
+	c.incErr(OpGetTransfers, err)
 	return page, err
 }
 
-func (c *InstrumentedClient) GetAllPendingOffers(
+func (c *InstrumentedClient) GetPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
-) (*indexer.Page[indexer.PendingOffer], error) {
-	defer c.observe(OpGetAllPendingOffers)()
-	page, err := c.inner.GetAllPendingOffers(ctx, p)
-	c.incErr(OpGetAllPendingOffers, err)
+) (*indexer.Page[indexer.Transfer], error) {
+	defer c.observe(OpGetPendingTransfers)()
+	page, err := c.inner.GetPendingTransfers(ctx, p)
+	c.incErr(OpGetPendingTransfers, err)
 	return page, err
 }

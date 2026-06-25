@@ -269,7 +269,7 @@ func (s *PGStore) TakeHolding(ctx context.Context, contractID string) (h indexer
 	}, true, nil
 }
 
-// ─── transfer write methods ──────────────────────────────────────────────────
+// ─── transfer methods ────────────────────────────────────────────────────────
 
 // InsertTransfer records a new offer-based transfer (Kind "offer") with status
 // "pending". Idempotent by ContractID.
@@ -303,48 +303,41 @@ func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error
 	return nil
 }
 
-// ─── pending offer compatibility shim ────────────────────────────────────────
-//
-// The external indexer API (GetPendingOffersForParty / GetAllPendingOffers) is
-// unchanged: it still returns []indexer.PendingOffer. These two methods preserve
-// the base signatures but read from indexer_transfers instead of the retired
-// indexer_pending_offers table — selecting only offer-kind, still-pending,
-// not-yet-expired rows and mapping each TransferDao back to a PendingOffer.
-
-// transferDaoToPendingOffer maps a generalized transfer row back to the legacy
-// PendingOffer shape (sender/receiver naming, no kind/expires_at). Status is
-// always PENDING here since the shim only ever selects pending rows.
-func transferDaoToPendingOffer(d *TransferDao) indexer.PendingOffer {
-	t := fromTransferDao(d)
-	return indexer.PendingOffer{
-		ContractID:      t.ContractID,
-		Status:          indexer.OfferStatusPending,
-		ReceiverPartyID: t.ToPartyID,
-		SenderPartyID:   t.FromPartyID,
-		InstrumentAdmin: t.InstrumentAdmin,
-		InstrumentID:    t.InstrumentID,
-		Amount:          t.Amount,
-		LedgerOffset:    t.LedgerOffset,
-		CreatedAt:       t.CreatedAt,
-	}
-}
-
-// ListPendingOffersForParty returns pending, not-yet-expired offer transfers where
-// receiver = partyID, ordered by ledger_offset ASC, with pagination. Reads
-// indexer_transfers and maps results to the legacy PendingOffer type.
-func (s *PGStore) ListPendingOffersForParty(
-	ctx context.Context, partyID string, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
+// ListTransfers returns a party's transfers from indexer_transfers, newest first,
+// with native pagination. Role selects the matching side; status filters the
+// lifecycle. "expired" is derived (pending row whose expires_at is in the past) —
+// after scanning, rows still stored "pending" but past their expiry are surfaced
+// with Status "expired".
+func (s *PGStore) ListTransfers(
+	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
+) ([]indexer.Transfer, int64, error) {
 	now := time.Now().UTC()
 	var daos []TransferDao
 	var total int
 	err := s.runReadTx(ctx, func(ctx context.Context, db bun.IDB) error {
-		q := db.NewSelect().Model(&daos).
-			Where("to_party_id = ?", partyID).
-			Where("kind = ?", indexer.TransferKindOffer).
-			Where("status = ?", indexer.TransferStatusPending).
-			Where("(expires_at IS NULL OR expires_at > ?)", now).
-			OrderExpr("ledger_offset ASC")
+		q := db.NewSelect().Model(&daos).OrderExpr("created_at DESC")
+
+		switch query.Role {
+		case indexer.TransferRoleSender:
+			q = q.Where("from_party_id = ?", partyID)
+		case indexer.TransferRoleAny:
+			q = q.Where("(from_party_id = ? OR to_party_id = ?)", partyID, partyID)
+		default: // receiver
+			q = q.Where("to_party_id = ?", partyID)
+		}
+
+		switch query.Status {
+		case indexer.TransferStatusPending:
+			q = q.Where("status = ?", indexer.TransferStatusPending).
+				Where("(expires_at IS NULL OR expires_at > ?)", now)
+		case indexer.TransferStatusExpired:
+			q = q.Where("status = ?", indexer.TransferStatusPending).
+				Where("expires_at IS NOT NULL AND expires_at <= ?", now)
+		case indexer.TransferStatusCompleted:
+			q = q.Where("status = ?", indexer.TransferStatusCompleted)
+		default: // "" = all statuses, no filter
+		}
+
 		var err error
 		if total, err = q.Count(ctx); err != nil {
 			return fmt.Errorf("count: %w", err)
@@ -352,21 +345,26 @@ func (s *PGStore) ListPendingOffersForParty(
 		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list pending offers: %w", err)
+		return nil, 0, fmt.Errorf("list transfers: %w", err)
 	}
-	offers := make([]indexer.PendingOffer, len(daos))
+	out := make([]indexer.Transfer, len(daos))
 	for i := range daos {
-		offers[i] = transferDaoToPendingOffer(&daos[i])
+		out[i] = fromTransferDao(&daos[i])
+		// Surface the derived "expired" status so callers see it on any filter.
+		if out[i].Status == indexer.TransferStatusPending &&
+			out[i].ExpiresAt != nil && !out[i].ExpiresAt.After(now) {
+			out[i].Status = indexer.TransferStatusExpired
+		}
 	}
-	return offers, int64(total), nil
+	return out, int64(total), nil
 }
 
-// ListAllPendingOffers returns all pending, not-yet-expired offer transfers across
-// all parties, ordered by ledger_offset ASC, with pagination. Reads
-// indexer_transfers and maps results to the legacy PendingOffer type.
-func (s *PGStore) ListAllPendingOffers(
+// ListPendingTransfers returns all pending (not expired) offer-based transfers
+// across all parties, oldest first (created_at ASC), with pagination. Drives the
+// custodial accept worker.
+func (s *PGStore) ListPendingTransfers(
 	ctx context.Context, p indexer.Pagination,
-) ([]indexer.PendingOffer, int64, error) {
+) ([]indexer.Transfer, int64, error) {
 	now := time.Now().UTC()
 	var daos []TransferDao
 	var total int
@@ -375,7 +373,9 @@ func (s *PGStore) ListAllPendingOffers(
 			Where("kind = ?", indexer.TransferKindOffer).
 			Where("status = ?", indexer.TransferStatusPending).
 			Where("(expires_at IS NULL OR expires_at > ?)", now).
-			OrderExpr("ledger_offset ASC")
+			// Oldest first (FIFO): the accept worker drains the longest-pending
+			// offers — those most at risk of expiring — before newer ones.
+			OrderExpr("created_at ASC")
 		var err error
 		if total, err = q.Count(ctx); err != nil {
 			return fmt.Errorf("count: %w", err)
@@ -383,13 +383,13 @@ func (s *PGStore) ListAllPendingOffers(
 		return q.Limit(p.Limit).Offset((p.Page - 1) * p.Limit).Scan(ctx)
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("list all pending offers: %w", err)
+		return nil, 0, fmt.Errorf("list pending transfers: %w", err)
 	}
-	offers := make([]indexer.PendingOffer, len(daos))
+	out := make([]indexer.Transfer, len(daos))
 	for i := range daos {
-		offers[i] = transferDaoToPendingOffer(&daos[i])
+		out[i] = fromTransferDao(&daos[i])
 	}
-	return offers, int64(total), nil
+	return out, int64(total), nil
 }
 
 // ─── service.Store read-path methods ─────────────────────────────────────────
