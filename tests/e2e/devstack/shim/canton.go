@@ -17,17 +17,19 @@ import (
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
-// Local devnet package IDs — compiled into the DAR files, stable across devnet restarts.
+// Package references for the local devnet. Project packages use #name refs so they
+// resolve to whatever version is deployed — surviving DAML version bumps without
+// edits here. External packages (splice/utility) are pinned by hash.
 const (
-	cip56PackageID                  = "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+	cip56PackageID                  = "#cip56-token"
 	spliceTransferPackageID         = "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
 	spliceHoldingPackageID          = "718a0f77e505a8de22f188bd4c87fe74101274e9d4cb1bfac7d09aec7158d35b"
-	identityPackageID               = "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+	identityPackageID               = "#common"
 	utilityRegistryAppPackageID     = "7a75ef6e69f69395a4e60919e228528bb8f3881150ccfde3f31bcc73864b18ab"
 	utilityRegistryPackageID        = "a236e8e22a3b5f199e37d5554e82bafd2df688f901de02b00be3964bdfa8c1ab"
 	utilityRegistryHoldingPackageID = "8107899ac4723ce986bf7d27416534e576e54b92161e46150a595fb78ff3d3a1"
-	bridgePackageID                 = "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
-	bridgeCorePackageID             = "be290fc1304d9a221def6e04a291368600599c9265f58f942a2b80478c348fca"
+	bridgePackageID                 = "#bridge-wayfinder"
+	bridgeCorePackageID             = "#bridge-core"
 	bridgeModule                    = "Wayfinder.Bridge"
 
 	// cantonUserID is the JWT subject claim emitted by the mock OAuth2 server

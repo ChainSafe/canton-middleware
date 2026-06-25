@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/ChainSafe/canton-middleware/compare/v0.6.0...v0.7.0) (2026-06-22)
+
+
+### Features
+
+* verify and log TokenTransferEvent in ProcessDepositAndMint ([#325](https://github.com/ChainSafe/canton-middleware/issues/325)) ([d94e679](https://github.com/ChainSafe/canton-middleware/commit/d94e679cfffd4c2e665fbf9bf342fdaf8ca194b2))
+
 ## [0.6.0](https://github.com/ChainSafe/canton-middleware/compare/v0.5.3...v0.6.0) (2026-06-17)
 
 
