@@ -181,6 +181,20 @@ func TestTransferService_Prepare_RequiresValidity(t *testing.T) {
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
+func TestTransferService_Prepare_ValidityTooLarge(t *testing.T) {
+	// A validity_seconds large enough to overflow the nanosecond time.Duration is
+	// rejected before any store lookup rather than silently wrapping to a small
+	// (early-expiring) duration.
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	_, err := svc.Prepare(context.Background(), senderUser().EVMAddress, &PrepareRequest{
+		To:              "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: maxValiditySeconds + 1,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
 // validExternalPartyID is a syntactically valid Canton party id (hint::hex)
 // for a party not registered in the middleware.
 const validExternalPartyID = "alice::1220abcdef0123456789"

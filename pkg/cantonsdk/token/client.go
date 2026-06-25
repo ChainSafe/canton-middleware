@@ -542,6 +542,10 @@ func (c *Client) TransferInternalByPartyID(
 
 func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
 	toFingerprint, amount, tokenSymbol string, validity time.Duration) error {
+	// Fail fast before the two identity-mapping lookups below.
+	if validity <= 0 {
+		return fmt.Errorf("transfer validity must be positive")
+	}
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
@@ -1446,7 +1450,7 @@ func (c *Client) PrepareAcceptTransfer(
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 		PartyID:              partyID,
-		ExpiresAt:            time.Now().Add(preparedTxCacheTTL),
+		ExpiresAt:            time.Now().UTC().Add(preparedTxCacheTTL),
 	}
 
 	c.logger.Info("prepared non-custodial accept",
