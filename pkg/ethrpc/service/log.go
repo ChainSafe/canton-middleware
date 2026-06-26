@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"go.uber.org/zap"
 
+	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 )
 
@@ -29,6 +30,32 @@ func NewLog(svc Service, logger *zap.Logger) Service {
 		return svc
 	}
 	return &logService{svc: svc, logger: logger}
+}
+
+// logErr emits a method's failure log line at a severity chosen by error kind,
+// so routine client-side rejections don't masquerade as server failures. Wallets
+// like MetaMask constantly probe the facade — polling stale imported tokens,
+// calling unsupported methods, sending contract-creation-shaped calls — and
+// every such probe surfaces here as a client-category error (bad request,
+// not-supported, forbidden, …). Logging those at ERROR buries the genuine faults
+// among noise.
+//
+//	server/internal → Error (store, Canton, or other downstream failure)
+//	client error    → Warn when warnOnClientErr, else Debug
+//
+// SendRawTransaction passes warnOnClientErr=true: a rejected transfer attempt
+// (e.g. a non-whitelisted sender) is worth an operator's attention without being
+// an Error, whereas read-path probes (Call) stay at Debug.
+func (l *logService) logErr(failedMsg string, warnOnClientErr bool, err error, fields []zap.Field) {
+	fields = append(fields, zap.Error(err))
+	switch {
+	case apperr.IsInternalError(err):
+		l.logger.Error(failedMsg, fields...)
+	case warnOnClientErr:
+		l.logger.Warn(failedMsg, fields...)
+	default:
+		l.logger.Debug(failedMsg, fields...)
+	}
 }
 
 func (l *logService) ChainID(ctx context.Context) (chainID hexutil.Uint64) {
@@ -55,7 +82,7 @@ func (l *logService) BlockNumber(ctx context.Context) (n hexutil.Uint64, err err
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("BlockNumber failed", append(fields, zap.Error(err))...)
+			l.logErr("BlockNumber failed", false, err, fields)
 			return
 		}
 		l.logger.Info("BlockNumber completed", fields...)
@@ -73,7 +100,7 @@ func (l *logService) GasPrice(ctx context.Context) (price *hexutil.Big, err erro
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GasPrice failed", append(fields, zap.Error(err))...)
+			l.logErr("GasPrice failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GasPrice completed", fields...)
@@ -91,7 +118,7 @@ func (l *logService) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("MaxPriorityFeePerGas failed", append(fields, zap.Error(err))...)
+			l.logErr("MaxPriorityFeePerGas failed", false, err, fields)
 			return
 		}
 		l.logger.Info("MaxPriorityFeePerGas completed", fields...)
@@ -115,7 +142,7 @@ func (l *logService) EstimateGas(ctx context.Context, args *ethrpc.CallArgs) (ga
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("EstimateGas failed", append(fields, zap.Error(err))...)
+			l.logErr("EstimateGas failed", false, err, fields)
 			return
 		}
 		l.logger.Info("EstimateGas completed", fields...)
@@ -133,7 +160,7 @@ func (l *logService) GetBalance(ctx context.Context, address common.Address) (ba
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetBalance failed", append(fields, zap.Error(err))...)
+			l.logErr("GetBalance failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetBalance completed", fields...)
@@ -152,7 +179,7 @@ func (l *logService) GetTransactionCount(ctx context.Context, address common.Add
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetTransactionCount failed", append(fields, zap.Error(err))...)
+			l.logErr("GetTransactionCount failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetTransactionCount completed", fields...)
@@ -171,7 +198,7 @@ func (l *logService) GetCode(ctx context.Context, address common.Address) (code 
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetCode failed", append(fields, zap.Error(err))...)
+			l.logErr("GetCode failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetCode completed", fields...)
@@ -204,7 +231,9 @@ func (l *logService) SendRawTransaction(ctx context.Context, data hexutil.Bytes)
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("SendRawTransaction failed", append(fields, zap.Error(err))...)
+			// warnOnClientErr: a rejected transfer (e.g. non-whitelisted sender)
+			// is operator-relevant but not a server fault, so it logs at Warn.
+			l.logErr("SendRawTransaction failed", true, err, fields)
 			return
 		}
 		l.logger.Info("SendRawTransaction completed", fields...)
@@ -224,7 +253,7 @@ func (l *logService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetTransactionReceipt failed", append(fields, zap.Error(err))...)
+			l.logErr("GetTransactionReceipt failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetTransactionReceipt completed", fields...)
@@ -243,7 +272,7 @@ func (l *logService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetTransactionByHash failed", append(fields, zap.Error(err))...)
+			l.logErr("GetTransactionByHash failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetTransactionByHash completed", fields...)
@@ -267,7 +296,9 @@ func (l *logService) Call(ctx context.Context, args *ethrpc.CallArgs) (result he
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("Call failed", append(fields, zap.Error(err))...)
+			// Read-path probe failures (unknown method, unsupported/stale token)
+			// are routine wallet behavior, not faults — keep them at Debug.
+			l.logErr("Call failed", false, err, fields)
 			return
 		}
 		l.logger.Info("Call completed", fields...)
@@ -286,7 +317,7 @@ func (l *logService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) (log
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetLogs failed", append(fields, zap.Error(err))...)
+			l.logErr("GetLogs failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetLogs completed", fields...)
@@ -315,7 +346,7 @@ func (l *logService) GetBlockByNumber(
 			fields = append(fields, zap.String("block_hash", blockNr.BlockHash.Hex()))
 		}
 		if err != nil {
-			l.logger.Error("GetBlockByNumber failed", append(fields, zap.Error(err))...)
+			l.logErr("GetBlockByNumber failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetBlockByNumber completed", fields...)
@@ -339,7 +370,7 @@ func (l *logService) GetBlockByHash(
 			zap.Duration("duration", time.Since(start)),
 		}
 		if err != nil {
-			l.logger.Error("GetBlockByHash failed", append(fields, zap.Error(err))...)
+			l.logErr("GetBlockByHash failed", false, err, fields)
 			return
 		}
 		l.logger.Info("GetBlockByHash completed", fields...)
