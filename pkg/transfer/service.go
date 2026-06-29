@@ -592,6 +592,10 @@ func (s *TransferService) claimableTransfer(
 		// propagate it (and any other lookup failure) as-is.
 		return nil, err
 	}
+	if t == nil {
+		// Defensive: the interface permits (nil, nil); treat as not found.
+		return nil, apperrors.ResourceNotFoundError(nil, "no claimable offer found for this contract id")
+	}
 	// Ownership: only the sender may claim back. Report a missing/foreign offer as
 	// not-found so callers can't probe other parties' offers by contract id.
 	if t.FromPartyID != callerParty {
