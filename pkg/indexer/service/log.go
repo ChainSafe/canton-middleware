@@ -225,6 +225,31 @@ func (ls *logService) GetEvent(ctx context.Context, contractID string) (e *index
 	return ls.svc.GetEvent(ctx, contractID)
 }
 
+func (ls *logService) GetTransfer(ctx context.Context, contractID string) (t *indexer.Transfer, err error) {
+	start := time.Now()
+	ls.logger.Info("GetTransfer started",
+		zap.String("service", indexerServiceName),
+		zap.String("contract_id", contractID),
+	)
+	defer func() {
+		if err != nil {
+			ls.logger.Error("GetTransfer failed",
+				zap.String("service", indexerServiceName),
+				zap.String("contract_id", contractID),
+				zap.Duration("duration", time.Since(start)),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("GetTransfer completed",
+				zap.String("service", indexerServiceName),
+				zap.String("contract_id", contractID),
+				zap.Duration("duration", time.Since(start)),
+			)
+		}
+	}()
+	return ls.svc.GetTransfer(ctx, contractID)
+}
+
 func (ls *logService) ListTokenEvents(
 	ctx context.Context,
 	admin, id string,

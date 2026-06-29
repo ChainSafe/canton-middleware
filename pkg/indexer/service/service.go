@@ -28,6 +28,9 @@ type Store interface {
 	ListEvents(ctx context.Context, f indexer.EventFilter, p indexer.Pagination) ([]*indexer.ParsedEvent, int64, error)
 	// GetEvent looks up a single event by its unique contract ID.
 	GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error)
+	// GetTransfer looks up a single transfer by its contract ID. Returns (nil, nil)
+	// when not found.
+	GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error)
 	// ListTransfers returns a party's transfers filtered by role and status.
 	ListTransfers(
 		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
@@ -65,6 +68,8 @@ type Service interface {
 		p indexer.Pagination,
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
+	// GetTransfer returns a single transfer by its contract ID (404 when not found).
+	GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error)
 	// GetTransfers returns a party's transfers filtered by role and status, paginated.
 	GetTransfers(
 		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
@@ -138,6 +143,17 @@ func (s *svc) ListBalancesForToken(ctx context.Context, admin, id string, p inde
 		return nil, err
 	}
 	return &indexer.Page[*indexer.Balance]{Items: items, Total: total, Page: p.Page, Limit: p.Limit}, nil
+}
+
+func (s *svc) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	t, err := s.store.GetTransfer(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, apperrors.ResourceNotFoundError(nil, "transfer not found")
+	}
+	return t, nil
 }
 
 func (s *svc) GetEvent(ctx context.Context, contractID string) (*indexer.ParsedEvent, error) {

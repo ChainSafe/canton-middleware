@@ -934,3 +934,144 @@ func TestTransferService_ListCompleted_UserNotFound(t *testing.T) {
 	_, err := svc.ListCompleted(ctx, senderUser().EVMAddress, indexer.Pagination{Page: 1, Limit: 50})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
+
+// --- Withdraw (claim back) tests ---
+
+const withdrawCID = "offer-cid-1"
+
+// withdrawableOffer is an offer-kind transfer the given sender owns, in a state that
+// can be claimed back. The claim-back lookup queries by sender role, so ownership is
+// implied by the party the mock is keyed on.
+func withdrawableOffer(sender *user.User) indexer.Transfer {
+	return indexer.Transfer{
+		ContractID:      withdrawCID,
+		Kind:            indexer.TransferKindOffer,
+		Status:          indexer.TransferStatusExpired,
+		FromPartyID:     sender.CantonPartyID,
+		ToPartyID:       "external::1220abcd",
+		InstrumentAdmin: "usdc::admin",
+		InstrumentID:    "USDCx",
+		Amount:          "10",
+	}
+}
+
+func expectGetTransfer(offers *mocks.IndexerReader, ctx context.Context, offer *indexer.Transfer) {
+	offers.EXPECT().GetTransfer(ctx, withdrawCID).Return(offer, nil).Once()
+}
+
+func TestTransferService_PrepareWithdraw_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser() // external key mode
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offer := withdrawableOffer(sender)
+	offers := mocks.NewIndexerReader(t)
+	expectGetTransfer(offers, ctx, &offer)
+
+	prepared := &token.PreparedTransfer{
+		TransferID: "wd-1", TransactionHash: []byte{0x01, 0x02},
+		PartyID: sender.CantonPartyID, ExpiresAt: time.Now().Add(time.Hour),
+	}
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareWithdrawTransfer(ctx, sender.CantonPartyID, withdrawCID, "usdc::admin").
+		Return(prepared, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(prepared).Return(nil).Once()
+
+	svc := newTestServiceWithOffers(tok, store, cache, offers)
+	resp, err := svc.PrepareWithdraw(ctx, sender.EVMAddress, withdrawCID)
+	require.NoError(t, err)
+	assert.Equal(t, "wd-1", resp.TransferID)
+	assert.Equal(t, sender.CantonPartyID, resp.PartyID)
+}
+
+func TestTransferService_WithdrawCustodial_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offer := withdrawableOffer(sender)
+	offer.Status = indexer.TransferStatusPending // a still-pending offer is claimable too
+	offers := mocks.NewIndexerReader(t)
+	expectGetTransfer(offers, ctx, &offer)
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().WithdrawTransferInstruction(ctx, sender.CantonPartyID, withdrawCID, "usdc::admin").
+		Return(nil).Once()
+
+	svc := newTestServiceWithOffers(tok, store, mocks.NewTransferCache(t), offers)
+	resp, err := svc.WithdrawCustodial(ctx, sender.EVMAddress, withdrawCID)
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", resp.Status)
+}
+
+func TestTransferService_PrepareWithdraw_NotFound(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	offers := mocks.NewIndexerReader(t)
+	offers.EXPECT().GetTransfer(ctx, "missing-cid").
+		Return(nil, apperrors.ResourceNotFoundError(nil, "transfer not found")).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	_, err := svc.PrepareWithdraw(ctx, sender.EVMAddress, "missing-cid")
+	assertServiceErrorCategory(t, err, apperrors.CategoryResourceNotFound)
+}
+
+func TestTransferService_PrepareWithdraw_ForeignOffer(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	// An offer sent by a different party must not be claimable by this caller; it is
+	// reported as not-found so callers can't probe foreign offers by contract id.
+	foreign := withdrawableOffer(sender)
+	foreign.FromPartyID = "party::someone-else"
+	offers := mocks.NewIndexerReader(t)
+	expectGetTransfer(offers, ctx, &foreign)
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	_, err := svc.PrepareWithdraw(ctx, sender.EVMAddress, withdrawCID)
+	assertServiceErrorCategory(t, err, apperrors.CategoryResourceNotFound)
+}
+
+func TestTransferService_PrepareWithdraw_RequiresExternal(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender() // custodial cannot use the prepare/execute withdraw
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), mocks.NewIndexerReader(t))
+	_, err := svc.PrepareWithdraw(ctx, sender.EVMAddress, withdrawCID)
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_WithdrawCustodial_NotAnOffer(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	// A direct (CIP-56) transfer is not an offer and cannot be claimed back.
+	direct := withdrawableOffer(sender)
+	direct.Kind = indexer.TransferKindDirect
+	direct.Status = indexer.TransferStatusCompleted
+	offers := mocks.NewIndexerReader(t)
+	expectGetTransfer(offers, ctx, &direct)
+
+	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
+	_, err := svc.WithdrawCustodial(ctx, sender.EVMAddress, withdrawCID)
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}

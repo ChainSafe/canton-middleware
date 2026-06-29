@@ -47,6 +47,7 @@ const (
 	spliceTransferFactory = "TransferFactory"
 	transferInstrEntity   = "TransferInstruction"
 	acceptChoice          = "TransferInstruction_Accept"
+	withdrawChoice        = "TransferInstruction_Withdraw"
 
 	spliceHoldingModule = "Splice.Api.Token.HoldingV1"
 	spliceHoldingEntity = "Holding"
@@ -139,6 +140,17 @@ type Token interface {
 	// transfer instruction and returns the hash that the client must sign externally.
 	// Use ExecuteTransfer to complete the accept once the client has signed.
 	PrepareAcceptTransfer(
+		ctx context.Context, partyID, instructionCID, instrumentAdmin string,
+	) (*PreparedTransfer, error)
+
+	// WithdrawTransferInstruction reclaims a pending/expired offer-based transfer for a
+	// custodial sender by exercising TransferInstruction_Withdraw server-side.
+	WithdrawTransferInstruction(ctx context.Context, partyID, instructionCID, instrumentAdmin string) error
+
+	// PrepareWithdrawTransfer builds a Canton transaction for a non-custodial sender to
+	// reclaim a pending/expired offer and returns the hash to sign externally. Use
+	// ExecuteTransfer to complete it.
+	PrepareWithdrawTransfer(
 		ctx context.Context, partyID, instructionCID, instrumentAdmin string,
 	) (*PreparedTransfer, error)
 }
@@ -1285,22 +1297,66 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
 		return fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
 	}
+	cmd, disclosed, err := c.buildInstructionChoiceCommand(ctx, instructionCID, instrumentAdmin, "accept", acceptChoice)
+	if err != nil {
+		return err
+	}
+	if err := c.exerciseInstructionAsCustodial(ctx, partyID, cmd, disclosed); err != nil {
+		return fmt.Errorf("accept transfer instruction: %w", err)
+	}
+	return nil
+}
+
+// WithdrawTransferInstruction reclaims a pending or expired offer-based transfer for a
+// custodial sender: the middleware holds the user's key and exercises
+// TransferInstruction_Withdraw server-side, returning the locked holding to the sender.
+// Mirrors AcceptTransferInstruction but for the sender side.
+func (c *Client) WithdrawTransferInstruction(ctx context.Context, partyID, instructionCID, instrumentAdmin string) error {
+	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
+		return fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
+	}
+	cmd, disclosed, err := c.buildInstructionChoiceCommand(ctx, instructionCID, instrumentAdmin, "withdraw", withdrawChoice)
+	if err != nil {
+		return err
+	}
+	if err := c.exerciseInstructionAsCustodial(ctx, partyID, cmd, disclosed); err != nil {
+		return fmt.Errorf("withdraw transfer instruction: %w", err)
+	}
+	return nil
+}
+
+// buildInstructionChoiceCommand fetches the registrar's choice-context for the given
+// action ("accept"/"withdraw") on a TransferInstruction and builds the exercise command
+// plus its disclosed contracts. Shared by the accept and withdraw (claim-back) flows,
+// which differ only in the registry endpoint and the on-ledger choice name.
+func (c *Client) buildInstructionChoiceCommand(
+	ctx context.Context, instructionCID, instrumentAdmin, action, choice string,
+) (*lapiv2.Command, []*lapiv2.DisclosedContract, error) {
 	if c.registryClient == nil {
-		return fmt.Errorf("no registry client configured for accept")
+		return nil, nil, fmt.Errorf("no registry client configured for %s", action)
 	}
 	extCfg, ok := c.cfg.ExternalTokens[instrumentAdmin]
 	if !ok {
-		return fmt.Errorf("unsupported external token issuer: %s", instrumentAdmin)
+		return nil, nil, fmt.Errorf("unsupported external token issuer: %s", instrumentAdmin)
 	}
 
-	acceptResp, err := c.registryClient.GetAcceptChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	var ctxResp *AcceptContextResponse
+	var err error
+	switch action {
+	case "accept":
+		ctxResp, err = c.registryClient.GetAcceptChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	case "withdraw":
+		ctxResp, err = c.registryClient.GetWithdrawChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	default:
+		return nil, nil, fmt.Errorf("unsupported instruction action: %s", action)
+	}
 	if err != nil {
-		return fmt.Errorf("get accept choice context: %w", err)
+		return nil, nil, fmt.Errorf("get %s choice context: %w", action, err)
 	}
 
-	ctxValue, err := encodeChoiceContextRecord(acceptResp.ChoiceContextData)
+	ctxValue, err := encodeChoiceContextRecord(ctxResp.ChoiceContextData)
 	if err != nil {
-		return fmt.Errorf("encode choice context: %w", err)
+		return nil, nil, fmt.Errorf("encode choice context: %w", err)
 	}
 
 	extraArgs := &lapiv2.Value{
@@ -1314,9 +1370,9 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 		},
 	}
 
-	disclosed, err := convertDisclosedContractSlice(acceptResp.DisclosedContracts, c.cfg.DomainID)
+	disclosed, err := convertDisclosedContractSlice(ctxResp.DisclosedContracts, c.cfg.DomainID)
 	if err != nil {
-		return fmt.Errorf("convert disclosed contracts: %w", err)
+		return nil, nil, fmt.Errorf("convert disclosed contracts: %w", err)
 	}
 
 	cmd := &lapiv2.Command{
@@ -1328,7 +1384,7 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 					EntityName: transferInstrEntity,
 				},
 				ContractId: instructionCID,
-				Choice:     acceptChoice,
+				Choice:     choice,
 				ChoiceArgument: &lapiv2.Value{
 					Sum: &lapiv2.Value_Record{
 						Record: &lapiv2.Record{
@@ -1341,19 +1397,23 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 			},
 		},
 	}
+	return cmd, disclosed, nil
+}
 
-	// External parties (the only kind this api-server creates for custodial users)
-	// can't be submitted as via plain SubmitAndWait — the participant doesn't hold
-	// the signing key. Use Interactive Submission with the user's stored key.
+// exerciseInstructionAsCustodial submits a TransferInstruction choice on behalf of a
+// custodial party via Interactive Submission with the user's middleware-held key.
+// External parties can't use plain SubmitAndWait (the participant doesn't hold the key).
+func (c *Client) exerciseInstructionAsCustodial(
+	ctx context.Context, partyID string, cmd *lapiv2.Command, disclosed []*lapiv2.DisclosedContract,
+) error {
 	if c.keyResolver == nil {
-		return fmt.Errorf("accept transfer instruction: no key resolver configured " +
-			"(custodial accept requires the api-server to hold the user's signing key)")
+		return fmt.Errorf("no key resolver configured " +
+			"(custodial instruction exercise requires the api-server to hold the user's signing key)")
 	}
 	signerKey, err := c.keyResolver(partyID)
 	if err != nil {
-		return fmt.Errorf("accept transfer instruction: resolve signing key for %s: %w", partyID, err)
+		return fmt.Errorf("resolve signing key for %s: %w", partyID, err)
 	}
-
 	commands := &lapiv2.Commands{
 		SynchronizerId:     c.cfg.DomainID,
 		CommandId:          uuid.NewString(),
@@ -1362,10 +1422,7 @@ func (c *Client) AcceptTransferInstruction(ctx context.Context, partyID, instruc
 		Commands:           []*lapiv2.Command{cmd},
 		DisclosedContracts: disclosed,
 	}
-	if err := c.prepareAndExecuteAsUser(ctx, commands, signerKey, partyID); err != nil {
-		return fmt.Errorf("accept transfer instruction: %w", err)
-	}
-	return nil
+	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, partyID)
 }
 
 func (c *Client) PrepareAcceptTransfer(
@@ -1374,63 +1431,35 @@ func (c *Client) PrepareAcceptTransfer(
 	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
 		return nil, fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
 	}
-	if c.registryClient == nil {
-		return nil, fmt.Errorf("no registry client configured for accept")
-	}
-	extCfg, ok := c.cfg.ExternalTokens[instrumentAdmin]
-	if !ok {
-		return nil, fmt.Errorf("unsupported external token issuer: %s", instrumentAdmin)
-	}
-
-	acceptResp, err := c.registryClient.GetAcceptChoiceContext(ctx, extCfg.RegistryURL, instrumentAdmin, instructionCID)
+	cmd, disclosed, err := c.buildInstructionChoiceCommand(ctx, instructionCID, instrumentAdmin, "accept", acceptChoice)
 	if err != nil {
-		return nil, fmt.Errorf("get accept choice context: %w", err)
+		return nil, err
 	}
+	return c.prepareInstructionTx(ctx, partyID, instructionCID, cmd, disclosed)
+}
 
-	ctxValue, err := encodeChoiceContextRecord(acceptResp.ChoiceContextData)
+// PrepareWithdrawTransfer builds a Canton transaction for a non-custodial sender to
+// reclaim a pending or expired offer-based transfer (TransferInstruction_Withdraw) and
+// returns the hash the sender signs externally. Use ExecuteTransfer to complete it.
+func (c *Client) PrepareWithdrawTransfer(
+	ctx context.Context, partyID, instructionCID, instrumentAdmin string,
+) (*PreparedTransfer, error) {
+	if partyID == "" || instructionCID == "" || instrumentAdmin == "" {
+		return nil, fmt.Errorf("partyID, instructionCID, and instrumentAdmin are required")
+	}
+	cmd, disclosed, err := c.buildInstructionChoiceCommand(ctx, instructionCID, instrumentAdmin, "withdraw", withdrawChoice)
 	if err != nil {
-		return nil, fmt.Errorf("encode choice context: %w", err)
+		return nil, err
 	}
+	return c.prepareInstructionTx(ctx, partyID, instructionCID, cmd, disclosed)
+}
 
-	extraArgs := &lapiv2.Value{
-		Sum: &lapiv2.Value_Record{
-			Record: &lapiv2.Record{
-				Fields: []*lapiv2.RecordField{
-					{Label: "context", Value: ctxValue},
-					{Label: "meta", Value: values.EmptyMetadata()},
-				},
-			},
-		},
-	}
-
-	disclosed, err := convertDisclosedContractSlice(acceptResp.DisclosedContracts, c.cfg.DomainID)
-	if err != nil {
-		return nil, fmt.Errorf("convert disclosed contracts: %w", err)
-	}
-
-	cmd := &lapiv2.Command{
-		Command: &lapiv2.Command_Exercise{
-			Exercise: &lapiv2.ExerciseCommand{
-				TemplateId: &lapiv2.Identifier{
-					PackageId:  c.cfg.SpliceTransferPackageID,
-					ModuleName: spliceTransferModule,
-					EntityName: transferInstrEntity,
-				},
-				ContractId: instructionCID,
-				Choice:     acceptChoice,
-				ChoiceArgument: &lapiv2.Value{
-					Sum: &lapiv2.Value_Record{
-						Record: &lapiv2.Record{
-							Fields: []*lapiv2.RecordField{
-								{Label: "extraArgs", Value: extraArgs},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
+// prepareInstructionTx prepares a TransferInstruction-choice exercise for external
+// (non-custodial) signing and returns the hash to sign. Shared by the accept and
+// withdraw prepare flows.
+func (c *Client) prepareInstructionTx(
+	ctx context.Context, partyID, instructionCID string, cmd *lapiv2.Command, disclosed []*lapiv2.DisclosedContract,
+) (*PreparedTransfer, error) {
 	authCtx := c.ledger.AuthContext(ctx)
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
 		UserId:             c.cfg.UserID,
@@ -1441,7 +1470,7 @@ func (c *Client) PrepareAcceptTransfer(
 		DisclosedContracts: disclosed,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("prepare accept submission: %w", err)
+		return nil, fmt.Errorf("prepare submission: %w", err)
 	}
 
 	pt := &PreparedTransfer{
@@ -1453,7 +1482,7 @@ func (c *Client) PrepareAcceptTransfer(
 		ExpiresAt:            time.Now().UTC().Add(preparedTxCacheTTL),
 	}
 
-	c.logger.Info("prepared non-custodial accept",
+	c.logger.Info("prepared non-custodial instruction tx",
 		zap.String("transfer_id", pt.TransferID),
 		zap.String("party_id", partyID),
 		zap.String("contract_id", instructionCID),

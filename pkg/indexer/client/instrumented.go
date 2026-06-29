@@ -87,6 +87,13 @@ func (c *InstrumentedClient) GetEvent(ctx context.Context, contractID string) (*
 	return e, err
 }
 
+func (c *InstrumentedClient) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	defer c.observe(OpGetTransfer)()
+	t, err := c.inner.GetTransfer(ctx, contractID)
+	c.incErr(OpGetTransfer, err)
+	return t, err
+}
+
 func (c *InstrumentedClient) ListTokenEvents(
 	ctx context.Context,
 	admin, id string,
