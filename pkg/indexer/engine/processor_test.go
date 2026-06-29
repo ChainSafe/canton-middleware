@@ -106,6 +106,18 @@ func makeOfferBatch(offset int64, offers ...*indexer.Transfer) *streaming.Batch[
 	}
 }
 
+func makeHoldingBatch(offset int64, holdings ...*indexer.HoldingChange) *streaming.Batch[any] {
+	items := make([]any, len(holdings))
+	for i, h := range holdings {
+		items[i] = h
+	}
+	return &streaming.Batch[any]{
+		Offset:   offset,
+		UpdateID: "update-" + string(rune('0'+offset)),
+		Items:    items,
+	}
+}
+
 func pendingOffer() *indexer.Transfer {
 	return &indexer.Transfer{
 		ContractID:      "offer-contract-1",
@@ -415,6 +427,60 @@ func TestProcessor_Run_OfferArchived_CompletesTransfer(t *testing.T) {
 	setupRunInTx(store)
 	store.EXPECT().CompleteTransfer(mock.Anything, archived.ContractID).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_LockedHoldingCreated_SkippedFromBalance(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	// A locked holding is escrowed by an outstanding offer; it must not be stored or
+	// counted toward balances (so the sender's balance reflects the offered amount as
+	// already deducted from offer creation).
+	locked := &indexer.HoldingChange{
+		ContractID:      "holding-locked-1",
+		Owner:           testSender,
+		InstrumentAdmin: testInstrumentAdmin,
+		InstrumentID:    testInstrumentID,
+		Amount:          testAmount,
+		LedgerOffset:    12,
+		Locked:          true,
+	}
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeHoldingBatch(12, locked)))
+
+	setupRunInTx(store)
+	// No InsertHolding / ApplyBalanceDelta expected: the strict mock fails if either
+	// is called. Only the offset advances.
+	store.EXPECT().SaveOffset(mock.Anything, int64(12)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_UnlockedHoldingCreated_Tracked(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	// An unlocked (spendable) holding is stored and credited to the owner's balance.
+	h := &indexer.HoldingChange{
+		ContractID:      "holding-1",
+		Owner:           testRecipient,
+		InstrumentAdmin: testInstrumentAdmin,
+		InstrumentID:    testInstrumentID,
+		Amount:          testAmount,
+		LedgerOffset:    13,
+		Locked:          false,
+	}
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeHoldingBatch(13, h)))
+
+	setupRunInTx(store)
+	store.EXPECT().InsertHolding(mock.Anything, h).Return(nil)
+	store.EXPECT().ApplyBalanceDelta(mock.Anything, testRecipient, testInstrumentAdmin, testInstrumentID, testAmount).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(13)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }

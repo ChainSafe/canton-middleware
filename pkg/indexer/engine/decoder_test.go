@@ -75,6 +75,29 @@ func decodeAll(decode func(*streaming.LedgerTransaction, *streaming.LedgerEvent)
 // Decoder tests
 // ---------------------------------------------------------------------------
 
+func makeHoldingEvent(contractID string, lock streaming.FieldValue) *streaming.LedgerEvent {
+	return streaming.NewLedgerEvent(contractID, "pkg-id", holdingModule, holdingEntity, true,
+		map[string]streaming.FieldValue{
+			"owner":      streaming.MakePartyField("alice::1220"),
+			"registrar":  streaming.MakePartyField("admin::1220"),
+			"instrument": streaming.MakeRecordField(map[string]streaming.FieldValue{"id": streaming.MakeTextField("USDCx")}),
+			"amount":     streaming.MakeNumericField("10"),
+			"lock":       lock,
+		})
+}
+
+func TestHoldingDecoder_LockField(t *testing.T) {
+	dec := NewHoldingDecoder("pkg-id", zap.NewNop())
+
+	unlocked, ok := dec(makeTx(1), makeHoldingEvent("h-unlocked", streaming.MakeNoneField()))
+	require.True(t, ok)
+	assert.False(t, unlocked.Locked, "None lock => spendable")
+
+	locked, ok := dec(makeTx(2), makeHoldingEvent("h-locked", streaming.MakeSomeRecordField(map[string]streaming.FieldValue{})))
+	require.True(t, ok)
+	assert.True(t, locked.Locked, "Some lock => escrowed")
+}
+
 func TestDecoder_FilterModeAll_Mint(t *testing.T) {
 	decode := NewTokenTransferDecoder(indexer.FilterModeAll, nil, zap.NewNop())
 
