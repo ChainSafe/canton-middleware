@@ -141,9 +141,10 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 
 	// Prepare a same-participant transfer of 10 USDCx from User1 to User2.
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "10",
-		Token:  "USDCx",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare USDCx P1→P1 transfer: %v", err)

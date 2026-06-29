@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -33,6 +34,11 @@ type Provider interface {
 }
 
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
+
+// ethRPCTransferValidity is the on-ledger transfer offer validity used for
+// EVM JSON-RPC transfers. The ethrpc path has no request field to carry a
+// per-call validity, so it defaults to one month.
+const ethRPCTransferValidity = 30 * 24 * time.Hour
 
 // Service provides token operations shared by API and EthRPC endpoints.
 type Service struct {
@@ -144,6 +150,7 @@ func (s *Service) transfer(ctx context.Context, idempotencyKey string, contract,
 		toUser.Fingerprint,
 		amount,
 		tkn.Symbol,
+		ethRPCTransferValidity,
 	)
 	if err != nil {
 		if errors.Is(err, canton.ErrInsufficientBalance) {

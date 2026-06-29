@@ -250,7 +250,7 @@ func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientP
 	const maxAttempts = 5
 	var lastErr error
 	for attempt := range maxAttempts {
-		err := c.tokenCli.TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
+		err := c.tokenCli.TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol, time.Hour)
 		if err == nil {
 			return nil
 		}

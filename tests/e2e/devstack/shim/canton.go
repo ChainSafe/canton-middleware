@@ -286,5 +286,7 @@ func (c *CantonShim) ProcessWithdrawal(ctx context.Context, withdrawalRequestCID
 // senderParty, then exercises TransferFactory_Transfer to move amount of
 // tokenSymbol to recipientParty on the P1 ledger.
 func (c *CantonShim) TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error {
-	return c.tokenClientFor(tokenSymbol).TransferInternalByPartyID(ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol)
+	return c.tokenClientFor(tokenSymbol).TransferInternalByPartyID(
+		ctx, uuid.NewString(), senderParty, recipientParty, amount, tokenSymbol, time.Hour,
+	)
 }

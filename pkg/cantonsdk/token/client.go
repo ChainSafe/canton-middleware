@@ -29,7 +29,11 @@ var ErrInsufficientBalance = errors.New("insufficient balance")
 var ErrTransferFactoryNotFound = errors.New("no active CIP56TransferFactory found")
 
 const (
-	defaultTransferValidity = time.Hour
+	// preparedTxCacheTTL bounds how long a prepared (but not-yet-executed)
+	// non-custodial transaction stays valid for client signing. It is a local
+	// cache deadline, unrelated to the on-ledger transfer validity (executeBefore),
+	// which is supplied per-call by the caller.
+	preparedTxCacheTTL = time.Hour
 
 	moduleConfig          = "CIP56.Config"
 	entityTokenConfig     = "TokenConfig"
@@ -86,19 +90,26 @@ type Token interface {
 
 	// TransferByFingerprint transfers tokens by resolving fingerprints to parties.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
-	TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string) error
+	// validity sets the on-ledger transfer offer's executeBefore window and must be positive.
+	TransferByFingerprint(
+		ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string, validity time.Duration,
+	) error
 
 	// TransferByPartyID transfers tokens by party IDs using Interactive Submission.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
 	// Requires a KeyResolver configured via WithKeyResolver (external/secp256k1 parties only).
-	TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error
+	// validity sets the on-ledger transfer offer's executeBefore window and must be positive.
+	TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration) error
 
 	// TransferInternalByPartyID transfers tokens for an internal Canton party using
 	// regular command submission (SubmitAndWaitForTransaction). Unlike TransferByPartyID,
 	// no KeyResolver is required — the Canton node holds the signing key. Use this for
 	// issuer or bridge parties that are not registered with an external secp256k1 key.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
-	TransferInternalByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error
+	// validity sets the on-ledger transfer offer's executeBefore window and must be positive.
+	TransferInternalByPartyID(
+		ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration,
+	) error
 
 	// GetTokenTransferEvents returns all active CIP56.Events.TokenTransferEvent contracts visible to relayerParty.
 	GetTokenTransferEvents(ctx context.Context) ([]*TokenTransferEvent, error)
@@ -446,7 +457,9 @@ func (c *Client) GetTotalSupply(ctx context.Context, tokenSymbol string) (string
 	return total, nil
 }
 
-func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
+func (c *Client) TransferInternalByPartyID(
+	ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration,
+) error {
 	if idempotencyKey == "" {
 		return fmt.Errorf("idempotencyKey is required")
 	}
@@ -458,6 +471,9 @@ func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, 
 	}
 	if tokenSymbol == "" {
 		return fmt.Errorf("token symbol is required")
+	}
+	if validity <= 0 {
+		return fmt.Errorf("transfer validity must be positive")
 	}
 
 	holdings, err := c.GetHoldings(ctx, fromParty, tokenSymbol)
@@ -503,6 +519,7 @@ func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, 
 		InputHoldingCIDs: selected.CIDs,
 		FactoryCID:       factoryCID,
 		AnyValueContext:  anyValueCtx,
+		Validity:         validity,
 	}
 
 	cmd, err := c.buildTransferCommand(req)
@@ -524,7 +541,11 @@ func (c *Client) TransferInternalByPartyID(ctx context.Context, idempotencyKey, 
 }
 
 func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
-	toFingerprint, amount, tokenSymbol string) error {
+	toFingerprint, amount, tokenSymbol string, validity time.Duration) error {
+	// Fail fast before the two identity-mapping lookups below.
+	if validity <= 0 {
+		return fmt.Errorf("transfer validity must be positive")
+	}
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
 		return fmt.Errorf("sender not found: %w", err)
@@ -534,10 +555,12 @@ func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, from
 		return fmt.Errorf("recipient not found: %w", err)
 	}
 
-	return c.TransferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol)
+	return c.TransferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol, validity)
 }
 
-func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string) error {
+func (c *Client) TransferByPartyID(
+	ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration,
+) error {
 	if idempotencyKey == "" {
 		return fmt.Errorf("idempotencyKey is required")
 	}
@@ -549,6 +572,9 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 	}
 	if tokenSymbol == "" {
 		return fmt.Errorf("token symbol is required")
+	}
+	if validity <= 0 {
+		return fmt.Errorf("transfer validity must be positive")
 	}
 
 	holdings, err := c.GetHoldings(ctx, fromParty, tokenSymbol)
@@ -568,6 +594,7 @@ func (c *Client) TransferByPartyID(ctx context.Context, idempotencyKey, fromPart
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
+		Validity:         validity,
 	}
 
 	if err := c.resolveTransferFactory(ctx, req); err != nil {
@@ -601,6 +628,9 @@ type transferFactoryRequest struct {
 	// where both representations are derived from the same time.Time.
 	RequestedAt   time.Time
 	ExecuteBefore time.Time
+	// Validity is the offer's executeBefore window (executeBefore = requestedAt +
+	// Validity). It is supplied by the caller and must be positive.
+	Validity time.Duration
 }
 
 func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
@@ -649,7 +679,7 @@ func (c *Client) buildTransferCommand(req *transferFactoryRequest) (*lapiv2.Comm
 		requestedAt = time.Now().UTC().Add(-5 * time.Second)
 	}
 	if executeBefore.IsZero() {
-		executeBefore = requestedAt.Add(defaultTransferValidity)
+		executeBefore = requestedAt.Add(req.Validity)
 	}
 
 	// For AllocationFactory tokens the choice context must be encoded as TextMap AnyValue.
@@ -890,7 +920,7 @@ func (c *Client) resolveTransferFactory(ctx context.Context, req *transferFactor
 	// `requestedAt < ledger time`, and Canton's ledger time can lag wall-clock by
 	// up to ~mediator-reaction-timeout on busy stacks.
 	req.RequestedAt = time.Now().UTC().Add(-5 * time.Second)
-	req.ExecuteBefore = req.RequestedAt.Add(defaultTransferValidity)
+	req.ExecuteBefore = req.RequestedAt.Add(req.Validity)
 
 	if req.InstrumentAdmin == c.cfg.IssuerParty {
 		cid, err := c.getTransferFactoryCID(ctx)
@@ -1116,6 +1146,7 @@ func (c *Client) PrepareTransfer(ctx context.Context, req *PrepareTransferReques
 		InstrumentAdmin:  selected.InstrumentAdmin,
 		InstrumentID:     selected.InstrumentID,
 		InputHoldingCIDs: selected.CIDs,
+		Validity:         req.Validity,
 	}
 
 	if resolveErr := c.resolveTransferFactory(ctx, factoryReq); resolveErr != nil {
@@ -1419,7 +1450,7 @@ func (c *Client) PrepareAcceptTransfer(
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 		PartyID:              partyID,
-		ExpiresAt:            time.Now().Add(defaultTransferValidity),
+		ExpiresAt:            time.Now().UTC().Add(preparedTxCacheTTL),
 	}
 
 	c.logger.Info("prepared non-custodial accept",

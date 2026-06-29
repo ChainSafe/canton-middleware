@@ -148,9 +148,10 @@ func TestWithdrawal_AfterCantonTransfer(t *testing.T) {
 
 	// Transfer 1 PROMPT from sender to receiver via the api-server.
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sender, &transfer.PrepareRequest{
-		To:     receiver.Address.Hex(),
-		Amount: "1",
-		Token:  "PROMPT",
+		To:              receiver.Address.Hex(),
+		Amount:          "1",
+		Token:           "PROMPT",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare transfer: %v", err)

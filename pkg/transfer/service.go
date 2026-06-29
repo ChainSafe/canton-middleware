@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -139,10 +140,32 @@ func NewTransferService(
 	}
 }
 
+// maxValiditySeconds bounds validity_seconds so that converting it to a
+// time.Duration (nanoseconds, int64) cannot overflow. Above this, the
+// multiplication by time.Second would wrap and could yield a small/negative
+// duration, silently expiring the offer early.
+const maxValiditySeconds = math.MaxInt64 / int64(time.Second)
+
+// validityDuration validates the request's validity_seconds and converts it to a
+// time.Duration. It rejects non-positive and overflow-prone values with a 400.
+func validityDuration(seconds int64) (time.Duration, error) {
+	if seconds <= 0 {
+		return 0, apperrors.BadRequestError(nil, "validity_seconds must be a positive number")
+	}
+	if seconds > maxValiditySeconds {
+		return 0, apperrors.BadRequestError(nil, "validity_seconds is too large")
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
 // Prepare builds a Canton transaction and returns the hash for external signing.
 func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req *PrepareRequest) (*PrepareResponse, error) {
 	if !s.allowedTokenSymbols[req.Token] {
 		return nil, apperrors.BadRequestError(nil, "unsupported token")
+	}
+	validity, err := validityDuration(req.ValiditySeconds)
+	if err != nil {
+		return nil, err
 	}
 
 	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
@@ -189,6 +212,7 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		ToPartyID:   toPartyID,
 		Amount:      req.Amount,
 		TokenSymbol: req.Token,
+		Validity:    validity,
 	})
 	if err != nil {
 		if errors.Is(err, token.ErrInsufficientBalance) {
@@ -220,8 +244,12 @@ func (s *TransferService) SendCustodial(
 	if !s.allowedTokenSymbols[req.Token] {
 		return nil, apperrors.BadRequestError(nil, "unsupported token")
 	}
+	validity, err := validityDuration(req.ValiditySeconds)
+	if err != nil {
+		return nil, err
+	}
 
-	if err := validatePartyID(req.ToPartyID); err != nil {
+	if err = validatePartyID(req.ToPartyID); err != nil {
 		return nil, apperrors.BadRequestError(err, "invalid recipient party id")
 	}
 
@@ -241,7 +269,9 @@ func (s *TransferService) SendCustodial(
 
 	// The middleware signs server-side, so prepare+execute happen in one call.
 	// A fresh idempotency key is used as the Canton command id per request.
-	err = s.cantonToken.TransferByPartyID(ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token)
+	err = s.cantonToken.TransferByPartyID(
+		ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token, validity,
+	)
 	if err != nil {
 		if errors.Is(err, token.ErrInsufficientBalance) {
 			return nil, apperrors.BadRequestError(err, "insufficient balance")

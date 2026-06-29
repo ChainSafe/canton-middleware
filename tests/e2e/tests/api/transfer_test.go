@@ -63,9 +63,10 @@ func TestTransfer_DEMO_BetweenExternalUsers(t *testing.T) {
 
 	transferAmount := "10"
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: transferAmount,
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          transferAmount,
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare transfer: %v", err)
@@ -99,9 +100,10 @@ func TestTransfer_CustodialUser_PrepareRejects(t *testing.T) {
 	sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
 	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "1",
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "1",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	var he *shim.HTTPError
 	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
@@ -162,9 +164,10 @@ func TestTransfer_UnknownRecipient_Fails(t *testing.T) {
 	sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
 
 	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     "0x000000000000000000000000000000000000dead",
-		Amount: "1",
-		Token:  "DEMO",
+		To:              "0x000000000000000000000000000000000000dead",
+		Amount:          "1",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	var he *shim.HTTPError
 	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
@@ -190,9 +193,10 @@ func TestTransfer_InvalidSignature_Fails(t *testing.T) {
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.DEMO, sys.Accounts.User1.Address, "10")
 
 	prepResp, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "1",
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "1",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("prepare transfer: %v", err)
@@ -239,9 +243,10 @@ func TestTransfer_InsufficientBalance_Fails(t *testing.T) {
 
 	// Try to transfer more than the minted balance.
 	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "999999999",
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "999999999",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	var he *shim.HTTPError
 	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {
@@ -259,9 +264,10 @@ func TestTransfer_MissingAuthHeaders_Returns401(t *testing.T) {
 	ctx := context.Background()
 
 	body, err := json.Marshal(&transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "1",
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "1",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -304,9 +310,10 @@ func TestTransfer_ExpiredTimestamp_Returns401(t *testing.T) {
 	}
 
 	body, err := json.Marshal(&transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "1",
-		Token:  "DEMO",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "1",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -367,9 +374,10 @@ func TestTransfer_PROMPT_InsufficientBalance_Fails(t *testing.T) {
 
 	// User1 has zero PROMPT Canton balance (no deposit + relayer flow run).
 	_, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
-		To:     sys.Accounts.User2.Address.Hex(),
-		Amount: "1",
-		Token:  "PROMPT",
+		To:              sys.Accounts.User2.Address.Hex(),
+		Amount:          "1",
+		Token:           "PROMPT",
+		ValiditySeconds: 3600,
 	})
 	var he *shim.HTTPError
 	if !errors.As(err, &he) || he.Code != http.StatusBadRequest {

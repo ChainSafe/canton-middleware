@@ -100,6 +100,7 @@ func TestTransferService_Prepare_Success(t *testing.T) {
 		ToPartyID:   recipient.CantonPartyID,
 		Amount:      "100.5",
 		TokenSymbol: "DEMO",
+		Validity:    time.Hour,
 	}).Return(prepared, nil).Once()
 
 	cache := mocks.NewTransferCache(t)
@@ -107,9 +108,10 @@ func TestTransferService_Prepare_Success(t *testing.T) {
 
 	svc := newTestService(t, tok, store, cache)
 	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		To:     recipient.EVMAddress,
-		Amount: "100.5",
-		Token:  "DEMO",
+		To:              recipient.EVMAddress,
+		Amount:          "100.5",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 
 	require.NoError(t, err)
@@ -129,9 +131,10 @@ func TestTransferService_Prepare_SenderNotFound(t *testing.T) {
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.Prepare(ctx, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &PrepareRequest{
-		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		Amount: "10",
-		Token:  "DEMO",
+		To:              "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
 }
@@ -147,9 +150,10 @@ func TestTransferService_Prepare_SenderNotExternal(t *testing.T) {
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		Amount: "10",
-		Token:  "DEMO",
+		To:              "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -161,6 +165,32 @@ func TestTransferService_Prepare_UnsupportedToken(t *testing.T) {
 		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		Amount: "10",
 		Token:  "BOGUS",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_Prepare_RequiresValidity(t *testing.T) {
+	// validity_seconds is mandatory; a zero/negative value is rejected before any
+	// store lookup, so no user mock is needed.
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	_, err := svc.Prepare(context.Background(), senderUser().EVMAddress, &PrepareRequest{
+		To:     "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Amount: "10",
+		Token:  "DEMO",
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_Prepare_ValidityTooLarge(t *testing.T) {
+	// A validity_seconds large enough to overflow the nanosecond time.Duration is
+	// rejected before any store lookup rather than silently wrapping to a small
+	// (early-expiring) duration.
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	_, err := svc.Prepare(context.Background(), senderUser().EVMAddress, &PrepareRequest{
+		To:              "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: maxValiditySeconds + 1,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -191,6 +221,7 @@ func TestTransferService_Prepare_ToPartyID_Success(t *testing.T) {
 		ToPartyID:   validExternalPartyID,
 		Amount:      "10",
 		TokenSymbol: "DEMO",
+		Validity:    time.Hour,
 	}).Return(prepared, nil).Once()
 
 	cache := mocks.NewTransferCache(t)
@@ -198,9 +229,10 @@ func TestTransferService_Prepare_ToPartyID_Success(t *testing.T) {
 
 	svc := newTestService(t, tok, store, cache)
 	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 
 	require.NoError(t, err)
@@ -217,9 +249,10 @@ func TestTransferService_Prepare_ToPartyID_Invalid(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		ToPartyID: "not-a-party-id",
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       "not-a-party-id",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -234,9 +267,10 @@ func TestTransferService_Prepare_ToPartyID_Self(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		ToPartyID: sender.CantonPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       sender.CantonPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -250,10 +284,11 @@ func TestTransferService_Prepare_BothRecipientForms_Rejected(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		To:        recipientUser().EVMAddress,
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		To:              recipientUser().EVMAddress,
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -267,8 +302,9 @@ func TestTransferService_Prepare_NoRecipient_Rejected(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
-		Amount: "10",
-		Token:  "DEMO",
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -292,14 +328,15 @@ func TestTransferService_SendCustodial_Success(t *testing.T) {
 
 	tok := mocks.NewToken(t)
 	// idempotencyKey is a freshly generated UUID, so match any string there.
-	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO").
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO", time.Hour).
 		Return(nil).Once()
 
 	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
 	resp, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 
 	require.NoError(t, err)
@@ -315,9 +352,10 @@ func TestTransferService_SendCustodial_RequiresCustodial(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
@@ -326,7 +364,19 @@ func TestTransferService_SendCustodial_InvalidPartyID(t *testing.T) {
 	// Party-id validation happens before any store lookup, so no user mock is needed.
 	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
 	_, err := svc.SendCustodial(context.Background(), custodialSender().EVMAddress, &CustodialTransferRequest{
-		ToPartyID: "0xdeadbeef", // missing hint::fingerprint form
+		ToPartyID:       "0xdeadbeef", // missing hint::fingerprint form
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_SendCustodial_RequiresValidity(t *testing.T) {
+	// validity_seconds is mandatory; rejected before any store lookup.
+	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(context.Background(), custodialSender().EVMAddress, &CustodialTransferRequest{
+		ToPartyID: validExternalPartyID,
 		Amount:    "10",
 		Token:     "DEMO",
 	})
@@ -342,9 +392,10 @@ func TestTransferService_SendCustodial_UserNotFound(t *testing.T) {
 
 	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
 	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryUnauthorized)
 }
@@ -357,14 +408,15 @@ func TestTransferService_SendCustodial_InsufficientBalance(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	tok := mocks.NewToken(t)
-	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO").
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO", time.Hour).
 		Return(token.ErrInsufficientBalance).Once()
 
 	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
 	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
-		ToPartyID: validExternalPartyID,
-		Amount:    "10",
-		Token:     "DEMO",
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
