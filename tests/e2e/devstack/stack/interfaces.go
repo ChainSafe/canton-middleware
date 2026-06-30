@@ -189,10 +189,27 @@ type APIServer interface {
 	// discovery.
 	TransferFactory(ctx context.Context) (*registry.TransferFactoryResponse, error)
 
+	// SendCustodial performs a single-call, server-signed transfer from a
+	// custodial user to an arbitrary recipient party id via
+	// POST /api/v2/transfer/custodial. account supplies the timed EIP-191 auth
+	// headers; req carries the recipient party id, amount, token and validity.
+	SendCustodial(ctx context.Context, account *Account, req *transfer.CustodialTransferRequest) (*transfer.ExecuteResponse, error)
+
 	// ListIncomingTransfers returns pending inbound TransferOffer details for the
 	// given account via GET /api/v2/transfer/incoming?address=…. The endpoint is
 	// unauthenticated; account is used only to derive the query parameter.
 	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.IncomingTransfersList, error)
+
+	// ListOutgoingTransfers returns the account's outbound transfers via
+	// GET /api/v2/transfer/outgoing?address=…&status=…. status filters by
+	// pending|expired|completed|all (empty string = all). Unauthenticated.
+	ListOutgoingTransfers(
+		ctx context.Context, account *Account, status string,
+	) (*transfer.OutgoingTransfersList, error)
+
+	// ListCompletedTransfers returns the account's settled transfers across all
+	// tokens via GET /api/v2/transfer/completed?address=…. Unauthenticated.
+	ListCompletedTransfers(ctx context.Context, account *Account) (*transfer.CompletedTransfersList, error)
 
 	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
 	// via POST /api/v2/transfer/incoming/{contractID}/prepare. Returns the

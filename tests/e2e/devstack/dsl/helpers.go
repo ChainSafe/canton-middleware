@@ -20,6 +20,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 )
 
@@ -83,6 +84,67 @@ func (d *DSL) WaitForIncomingTransferOffer(ctx context.Context, t *testing.T, ac
 	}
 	t.Fatalf("timeout waiting for incoming TransferOffer for %s", account.Address.Hex())
 	return ""
+}
+
+// WaitForOutgoingTransfer polls the api-server's GET /api/v2/transfer/outgoing
+// (filtered by status) until an item satisfying match appears for account, then
+// returns it. Fails the test after the standard 60s timeout. Use status "" for
+// all statuses, or "pending"/"expired"/"completed" to wait for a lifecycle state.
+func (d *DSL) WaitForOutgoingTransfer(
+	ctx context.Context, t *testing.T, account stack.Account, status string,
+	match func(transfer.OutgoingTransfer) bool,
+) transfer.OutgoingTransfer {
+	t.Helper()
+	deadline := time.Now().Add(cantonBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		resp, err := d.apiServer.ListOutgoingTransfers(ctx, &account, status)
+		if err == nil {
+			for i := range resp.Items {
+				if match(resp.Items[i]) {
+					return resp.Items[i]
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for outgoing transfer")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for outgoing transfer (status=%q) for %s", status, account.Address.Hex())
+	return transfer.OutgoingTransfer{}
+}
+
+// WaitForCompletedTransfer polls the api-server's GET /api/v2/transfer/completed
+// until an item satisfying match appears for account, then returns it. Fails the
+// test after the standard 60s timeout.
+func (d *DSL) WaitForCompletedTransfer(
+	ctx context.Context, t *testing.T, account stack.Account,
+	match func(transfer.CompletedTransfer) bool,
+) transfer.CompletedTransfer {
+	t.Helper()
+	deadline := time.Now().Add(cantonBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		resp, err := d.apiServer.ListCompletedTransfers(ctx, &account)
+		if err == nil {
+			for i := range resp.Items {
+				if match(resp.Items[i]) {
+					return resp.Items[i]
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for completed transfer")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for completed transfer for %s", account.Address.Hex())
+	return transfer.CompletedTransfer{}
 }
 
 // WaitForCantonBalance polls the indexer until partyID holds at least

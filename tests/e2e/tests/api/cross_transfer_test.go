@@ -6,9 +6,30 @@ import (
 	"context"
 	"testing"
 
+	"github.com/shopspring/decimal"
+
+	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 )
+
+// statusCompleted is the api-server's terminal status for a settled transfer.
+const statusCompleted = "completed"
+
+// amountEq reports whether two decimal-string amounts are numerically equal,
+// tolerating Canton's fixed-scale rendering (e.g. "20" vs "20.0000000000").
+func amountEq(t *testing.T, got, want string) bool {
+	t.Helper()
+	g, err := decimal.NewFromString(got)
+	if err != nil {
+		return false
+	}
+	w, err := decimal.NewFromString(want)
+	if err != nil {
+		t.Fatalf("amountEq: invalid want amount %q: %v", want, err)
+	}
+	return g.Equal(w)
+}
 
 // TestUSDCx_CrossParticipantTransfer_CustodialReceiver verifies that when
 // USDCxIssuer (P2) transfers USDCx to a custodial P1 user, the accept worker
@@ -158,7 +179,7 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute USDCx P1→P1 transfer: %v", err)
 	}
-	if execResp.Status != "completed" {
+	if execResp.Status != statusCompleted {
 		t.Fatalf("expected status 'completed', got %q", execResp.Status)
 	}
 
@@ -179,4 +200,228 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 	// Verify final balances: User2 received 10, User1 retained 5.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User2.Address, "10")
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+}
+
+// TestUSDCx_CustodialTransfer_ByPartyID_ToExternalParty verifies a custodial P1
+// user can send USDCx to an EXTERNAL party (the USDCx issuer on P2, which is not
+// registered in the middleware) via the custodial endpoint, and validates the
+// outgoing and completed read APIs.
+//
+// USDCx is offer-based, and the external receiver is not a custodial party, so
+// the accept worker never accepts the outbound offer — it stays pending and is
+// visible on the outgoing list. The inbound funding transfer (auto-accepted
+// because User1 is custodial) provides the completed-list assertion.
+func TestUSDCx_CustodialTransfer_ByPartyID_ToExternalParty(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+	external := sys.Manifest.USDCxInstrumentAdmin
+
+	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
+
+	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "30"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "20"); err != nil {
+		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
+	}
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "20")
+
+	resp, err := sys.APIServer.SendCustodial(ctx, &sys.Accounts.User1, &transfer.CustodialTransferRequest{
+		ToPartyID:       external,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+	if err != nil {
+		t.Fatalf("custodial send to external party: %v", err)
+	}
+	if resp.Status != "submitted" {
+		t.Fatalf("expected status 'submitted', got %q", resp.Status)
+	}
+
+	// Outgoing API: the pending offer to the external party surfaces with USDCx
+	// metadata and an expiry derived from the validity window.
+	pending := sys.DSL.WaitForOutgoingTransfer(ctx, t, sys.Accounts.User1, indexer.TransferStatusPending,
+		func(o transfer.OutgoingTransfer) bool {
+			return o.InstrumentAdmin == external && amountEq(t, o.Amount, "10")
+		})
+	if pending.Symbol != sys.Tokens.USDCx.Symbol {
+		t.Fatalf("expected USDCx symbol on outgoing offer, got %q", pending.Symbol)
+	}
+	if pending.ExpiresAt == "" {
+		t.Fatal("expected a non-empty expires_at on the pending offer")
+	}
+
+	// Completed API: the inbound funding transfer settled (offer auto-accepted
+	// then archived), so it appears in the unified completed history.
+	completed := sys.DSL.WaitForCompletedTransfer(ctx, t, sys.Accounts.User1,
+		func(c transfer.CompletedTransfer) bool {
+			return c.InstrumentAdmin == external && amountEq(t, c.Amount, "20")
+		})
+	if completed.Status != indexer.TransferStatusCompleted {
+		t.Fatalf("expected completed status, got %q", completed.Status)
+	}
+	if completed.Kind != indexer.TransferKindOffer {
+		t.Fatalf("expected offer-kind completed transfer, got %q", completed.Kind)
+	}
+}
+
+// TestUSDCx_NonCustodialTransfer_ByPartyID_ToExternalParty verifies a
+// non-custodial (external-key) P1 user can send USDCx to an external party by
+// party id through the prepare/execute flow, and that the resulting offer shows
+// up on the outgoing list as pending.
+func TestUSDCx_NonCustodialTransfer_ByPartyID_ToExternalParty(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+	external := sys.Manifest.USDCxInstrumentAdmin
+
+	// Register User1 with an external key so it can sign the prepared transfers.
+	reg, kp := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+
+	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "20"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "15"); err != nil {
+		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
+	}
+
+	// A non-custodial receiver must accept the inbound funding offer manually.
+	fundCID := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
+	prepAccept, err := sys.APIServer.PrepareAcceptTransfer(ctx, &sys.Accounts.User1, fundCID,
+		&transfer.PrepareAcceptRequest{InstrumentAdmin: external})
+	if err != nil {
+		t.Fatalf("prepare accept funding: %v", err)
+	}
+	sigA, fpA := signTransferHash(t, kp, prepAccept.TransactionHash)
+	if _, err = sys.APIServer.ExecuteAcceptTransfer(ctx, &sys.Accounts.User1, fundCID,
+		&transfer.ExecuteRequest{TransferID: prepAccept.TransferID, Signature: sigA, SignedBy: fpA}); err != nil {
+		t.Fatalf("execute accept funding: %v", err)
+	}
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "15")
+
+	// Outbound transfer to the external party by party id (prepare → sign → execute).
+	prep, err := sys.APIServer.PrepareTransfer(ctx, &sys.Accounts.User1, &transfer.PrepareRequest{
+		ToPartyID:       external,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+	if err != nil {
+		t.Fatalf("prepare transfer to external party: %v", err)
+	}
+	sig, fp := signTransferHash(t, kp, prep.TransactionHash)
+	execResp, err := sys.APIServer.ExecuteTransfer(ctx, &sys.Accounts.User1, &transfer.ExecuteRequest{
+		TransferID: prep.TransferID,
+		Signature:  sig,
+		SignedBy:   fp,
+	})
+	if err != nil {
+		t.Fatalf("execute transfer to external party: %v", err)
+	}
+	if execResp.Status != statusCompleted {
+		t.Fatalf("expected status 'completed', got %q", execResp.Status)
+	}
+
+	// Outgoing API: the offer to the external party is pending.
+	pending := sys.DSL.WaitForOutgoingTransfer(ctx, t, sys.Accounts.User1, indexer.TransferStatusPending,
+		func(o transfer.OutgoingTransfer) bool {
+			return o.InstrumentAdmin == external && amountEq(t, o.Amount, "10")
+		})
+	if pending.Symbol != sys.Tokens.USDCx.Symbol {
+		t.Fatalf("expected USDCx symbol on outgoing offer, got %q", pending.Symbol)
+	}
+	if pending.ExpiresAt == "" {
+		t.Fatal("expected a non-empty expires_at on the pending offer")
+	}
+}
+
+// TestUSDCx_OutgoingOffer_ExpiresAfterValidity verifies the expired filter of the
+// outgoing API: an outbound offer to an external party with a short validity
+// window flips from pending to expired once the window elapses.
+//
+// The SDK backdates requestedAt by ~5s for ledger-time-lag safety, so
+// executeBefore = now-5s + validity. The validity must comfortably exceed that
+// backdate or the offer is born already-expired and Canton rejects it; 15s
+// clears the backdate yet still expires well within the poll window.
+func TestUSDCx_OutgoingOffer_ExpiresAfterValidity(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+	external := sys.Manifest.USDCxInstrumentAdmin
+
+	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
+
+	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "5"); err != nil {
+		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
+	}
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+
+	const shortValiditySeconds = 15
+	if _, err := sys.APIServer.SendCustodial(ctx, &sys.Accounts.User1, &transfer.CustodialTransferRequest{
+		ToPartyID:       external,
+		Amount:          "1",
+		Token:           "USDCx",
+		ValiditySeconds: shortValiditySeconds,
+	}); err != nil {
+		t.Fatalf("custodial send (short validity) to external party: %v", err)
+	}
+
+	expired := sys.DSL.WaitForOutgoingTransfer(ctx, t, sys.Accounts.User1, indexer.TransferStatusExpired,
+		func(o transfer.OutgoingTransfer) bool {
+			return o.InstrumentAdmin == external && amountEq(t, o.Amount, "1")
+		})
+	if expired.Status != indexer.TransferStatusExpired {
+		t.Fatalf("expected expired status, got %q", expired.Status)
+	}
+}
+
+// TestUSDCx_ListIncoming_PendingOffer verifies the incoming API surfaces a
+// pending inbound offer for a non-custodial receiver (whose offers are not
+// auto-accepted by the worker, so they remain pending and listable).
+func TestUSDCx_ListIncoming_PendingOffer(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+	external := sys.Manifest.USDCxInstrumentAdmin
+
+	reg, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
+
+	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "10"); err != nil {
+		t.Fatalf("transfer USDCx P2→P1: %v", err)
+	}
+
+	// Wait for the offer to be indexed, then assert the incoming list reflects it.
+	sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
+	incoming, err := sys.APIServer.ListIncomingTransfers(ctx, &sys.Accounts.User1)
+	if err != nil {
+		t.Fatalf("list incoming: %v", err)
+	}
+	var found bool
+	for i := range incoming.Items {
+		it := incoming.Items[i]
+		if it.InstrumentAdmin == external && amountEq(t, it.Amount, "10") {
+			found = true
+			if it.Symbol != sys.Tokens.USDCx.Symbol {
+				t.Fatalf("expected USDCx symbol on incoming offer, got %q", it.Symbol)
+			}
+			if it.ContractID == "" {
+				t.Fatal("expected a contract id on the incoming offer")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a pending incoming USDCx offer for 10, got %+v", incoming.Items)
+	}
 }
