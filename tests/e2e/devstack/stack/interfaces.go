@@ -195,6 +195,11 @@ type APIServer interface {
 	// headers; req carries the recipient party id, amount, token and validity.
 	SendCustodial(ctx context.Context, account *Account, req *transfer.CustodialTransferRequest) (*transfer.ExecuteResponse, error)
 
+	// WithdrawCustodial claims back (withdraws) a pending or expired offer the
+	// custodial account sent, via POST
+	// /api/v2/transfer/outgoing/{contractID}/withdraw/custodial.
+	WithdrawCustodial(ctx context.Context, account *Account, contractID string) (*transfer.ExecuteResponse, error)
+
 	// ListIncomingTransfers returns pending inbound TransferOffer details for the
 	// given account via GET /api/v2/transfer/incoming?address=…. The endpoint is
 	// unauthenticated; account is used only to derive the query parameter.
