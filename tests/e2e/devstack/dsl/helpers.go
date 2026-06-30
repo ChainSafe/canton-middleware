@@ -86,6 +86,40 @@ func (d *DSL) WaitForIncomingTransferOffer(ctx context.Context, t *testing.T, ac
 	return ""
 }
 
+// WaitForOutgoingTransferGone polls the outgoing list (filtered by status) until no
+// item with contractID remains, then returns. Used to confirm an offer left a state
+// (e.g. an expired offer that was claimed back / archived). Fails after the timeout.
+func (d *DSL) WaitForOutgoingTransferGone(
+	ctx context.Context, t *testing.T, account stack.Account, status, contractID string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(cantonBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for time.Now().Before(deadline) {
+		resp, err := d.apiServer.ListOutgoingTransfers(ctx, &account, status)
+		if err == nil {
+			present := false
+			for i := range resp.Items {
+				if resp.Items[i].ContractID == contractID {
+					present = true
+					break
+				}
+			}
+			if !present {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for outgoing transfer to clear")
+		case <-ticker.C:
+		}
+	}
+	t.Fatalf("timeout waiting for outgoing transfer %s to leave status=%q for %s",
+		contractID, status, account.Address.Hex())
+}
+
 // WaitForOutgoingTransfer polls the api-server's GET /api/v2/transfer/outgoing
 // (filtered by status) until an item satisfying match appears for account, then
 // returns it. Fails the test after the standard 60s timeout. Use status "" for

@@ -303,6 +303,28 @@ func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error
 	return nil
 }
 
+// GetTransfer looks up a single transfer by its contract ID. Returns (nil, nil)
+// when no such row exists. A pending offer whose expires_at is in the past is
+// surfaced with the derived "expired" status, matching ListTransfers.
+func (s *PGStore) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	dao := new(TransferDao)
+	err := s.db.NewSelect().Model(dao).
+		Where("contract_id = ?", contractID).
+		Limit(1).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get transfer: %w", err)
+	}
+	t := fromTransferDao(dao)
+	now := time.Now().UTC()
+	if t.Status == indexer.TransferStatusPending && t.ExpiresAt != nil && !t.ExpiresAt.After(now) {
+		t.Status = indexer.TransferStatusExpired
+	}
+	return &t, nil
+}
+
 // ListTransfers returns a party's transfers from indexer_transfers, newest first,
 // with native pagination. Role selects the matching side; status filters the
 // lifecycle. "expired" is derived (pending row whose expires_at is in the past) —

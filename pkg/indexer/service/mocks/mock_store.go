@@ -202,6 +202,65 @@ func (_c *Store_GetToken_Call) RunAndReturn(run func(context.Context, string, st
 	return _c
 }
 
+// GetTransfer provides a mock function with given fields: ctx, contractID
+func (_m *Store) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTransfer")
+	}
+
+	var r0 *indexer.Transfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*indexer.Transfer, error)); ok {
+		return rf(ctx, contractID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *indexer.Transfer); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexer.Transfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, contractID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTransfer'
+type Store_GetTransfer_Call struct {
+	*mock.Call
+}
+
+// GetTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *Store_Expecter) GetTransfer(ctx interface{}, contractID interface{}) *Store_GetTransfer_Call {
+	return &Store_GetTransfer_Call{Call: _e.mock.On("GetTransfer", ctx, contractID)}
+}
+
+func (_c *Store_GetTransfer_Call) Run(run func(ctx context.Context, contractID string)) *Store_GetTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Store_GetTransfer_Call) Return(_a0 *indexer.Transfer, _a1 error) *Store_GetTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetTransfer_Call) RunAndReturn(run func(context.Context, string) (*indexer.Transfer, error)) *Store_GetTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListBalancesForParty provides a mock function with given fields: ctx, partyID, p
 func (_m *Store) ListBalancesForParty(ctx context.Context, partyID string, p indexer.Pagination) ([]*indexer.Balance, int64, error) {
 	ret := _m.Called(ctx, partyID, p)

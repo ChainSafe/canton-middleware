@@ -323,7 +323,9 @@ func (s *server) routeRegistrar(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 5 && parts[4] == "transfer-factory":
 		s.handleTransferFactory(w, r)
-	case len(parts) == 7 && parts[5] == "choice-contexts" && parts[6] == "accept":
+	case len(parts) == 7 && parts[5] == "choice-contexts" && (parts[6] == "accept" || parts[6] == "withdraw"):
+		// Accept (receiver) and Withdraw (sender claim-back) both need the same
+		// instrument-level choice context (TransferRule + InstrumentConfiguration).
 		s.handleAcceptContext(w, r)
 	default:
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})

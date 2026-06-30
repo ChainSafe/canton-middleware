@@ -51,6 +51,7 @@ type Client interface {
 	) (*indexer.Page[*indexer.ParsedEvent], error)
 
 	// Transfers
+	GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error)
 	GetTransfers(
 		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.Transfer], error)
@@ -193,6 +194,17 @@ func (c *HTTP) ListPartyEvents(
 		return nil, fmt.Errorf("list events for party %s: %w", partyID, err)
 	}
 	return &page, nil
+}
+
+// GetTransfer calls GET /indexer/v1/admin/transfers/{contractID}. A 404 is mapped
+// to a not-found app error by getJSON.
+func (c *HTTP) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	u := c.baseURL + "/indexer/v1/admin/transfers/" + url.PathEscape(contractID)
+	var t indexer.Transfer
+	if err := c.getJSON(ctx, u, &t); err != nil {
+		return nil, fmt.Errorf("get transfer %s: %w", contractID, err)
+	}
+	return &t, nil
 }
 
 // GetTransfers calls GET /indexer/v1/admin/parties/{partyID}/transfers,

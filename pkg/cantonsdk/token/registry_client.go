@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	registryPathFmt      = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/transfer-factory"
-	acceptContextPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/%s/choice-contexts/accept"
+	registryPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/transfer-factory"
+	// choiceContextPathFmt is the registrar's per-instruction choice-context
+	// endpoint. The final %s is the action ("accept" or "withdraw").
+	choiceContextPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/%s/choice-contexts/%s"
 )
 
 // RegistryClient calls the Splice Transfer Factory Registry API to discover
@@ -294,35 +296,54 @@ func ConvertAnyValueChoiceContext(raw json.RawMessage) (AcceptChoiceContext, err
 func (rc *RegistryClient) GetAcceptChoiceContext(
 	ctx context.Context, registryBaseURL, registrarParty, instructionCID string,
 ) (*AcceptContextResponse, error) {
-	path := fmt.Sprintf(acceptContextPathFmt, registrarParty, instructionCID)
+	return rc.getChoiceContext(ctx, registryBaseURL, registrarParty, instructionCID, "accept")
+}
+
+// GetWithdrawChoiceContext calls the registrar's withdraw choice-context endpoint for a
+// TransferInstruction. Returns the choiceContextData and disclosed contracts needed to
+// exercise TransferInstruction_Withdraw (sender reclaims a pending/expired offer).
+func (rc *RegistryClient) GetWithdrawChoiceContext(
+	ctx context.Context, registryBaseURL, registrarParty, instructionCID string,
+) (*AcceptContextResponse, error) {
+	return rc.getChoiceContext(ctx, registryBaseURL, registrarParty, instructionCID, "withdraw")
+}
+
+// getChoiceContext fetches a per-instruction choice-context for the given action
+// ("accept" or "withdraw"). The response shape is identical across actions, so both
+// the accept and withdraw flows share this. action is interpolated into the registrar
+// endpoint path and the error messages.
+func (rc *RegistryClient) getChoiceContext(
+	ctx context.Context, registryBaseURL, registrarParty, instructionCID, action string,
+) (*AcceptContextResponse, error) {
+	path := fmt.Sprintf(choiceContextPathFmt, registrarParty, instructionCID, action)
 	url := strings.TrimRight(registryBaseURL, "/") + path
 	body := []byte(`{"meta":{},"excludeDebugFields":false}`)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create accept context request: %w", err)
+		return nil, fmt.Errorf("create %s context request: %w", action, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := rc.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("accept context request failed: %w", err)
+		return nil, fmt.Errorf("%s context request failed: %w", action, err)
 	}
 	defer resp.Body.Close()
 
 	const maxResponseBytes = 1 << 20
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read accept context response: %w", err)
+		return nil, fmt.Errorf("read %s context response: %w", action, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("accept context returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("%s context returned %d: %s", action, resp.StatusCode, string(respBody))
 	}
 
 	var result AcceptContextResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("parse accept context response: %w", err)
+		return nil, fmt.Errorf("parse %s context response: %w", action, err)
 	}
 	return &result, nil
 }

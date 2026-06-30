@@ -341,6 +341,74 @@ func (ls *logService) SendCustodial(
 	return ls.svc.SendCustodial(ctx, senderEVMAddr, req)
 }
 
+// PrepareWithdraw wraps the service method with logging.
+func (ls *logService) PrepareWithdraw(
+	ctx context.Context, evmAddr, contractID string,
+) (resp *PrepareResponse, err error) {
+	start := time.Now()
+	ls.logger.Info("PrepareWithdraw started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "PrepareWithdraw"),
+		zap.String("evm_addr", evmAddr),
+		zap.String("contract_id", contractID),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("PrepareWithdraw failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "PrepareWithdraw"),
+				zap.String("contract_id", contractID),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("PrepareWithdraw completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "PrepareWithdraw"),
+				zap.String("transfer_id", resp.TransferID),
+				zap.String("party_id", resp.PartyID),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.PrepareWithdraw(ctx, evmAddr, contractID)
+}
+
+// WithdrawCustodial wraps the service method with logging.
+func (ls *logService) WithdrawCustodial(
+	ctx context.Context, evmAddr, contractID string,
+) (resp *ExecuteResponse, err error) {
+	start := time.Now()
+	ls.logger.Info("WithdrawCustodial started",
+		zap.String("service", transferServiceName),
+		zap.String("method", "WithdrawCustodial"),
+		zap.String("evm_addr", evmAddr),
+		zap.String("contract_id", contractID),
+	)
+	defer func() {
+		duration := time.Since(start)
+		if err != nil {
+			ls.logger.Error("WithdrawCustodial failed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "WithdrawCustodial"),
+				zap.String("contract_id", contractID),
+				zap.Duration("duration", duration),
+				zap.Error(err),
+			)
+		} else {
+			ls.logger.Info("WithdrawCustodial completed",
+				zap.String("service", transferServiceName),
+				zap.String("method", "WithdrawCustodial"),
+				zap.String("contract_id", contractID),
+				zap.String("status", resp.Status),
+				zap.Duration("duration", duration),
+			)
+		}
+	}()
+	return ls.svc.WithdrawCustodial(ctx, evmAddr, contractID)
+}
+
 // redactSignature redacts signature data to show only metadata.
 // Signatures are sensitive and should not be logged in full.
 func redactSignature(sig string) string {

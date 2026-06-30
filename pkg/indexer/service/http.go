@@ -45,6 +45,7 @@ func RegisterPrivateRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 		r.Get("/pending-transfers", apphttp.HandleError(h.listPendingTransfers))
 
 		r.Get("/events/{contractID}", apphttp.HandleError(h.getEvent))
+		r.Get("/transfers/{contractID}", apphttp.HandleError(h.getTransfer))
 	})
 }
 
@@ -168,6 +169,16 @@ func (h *HTTP) getEvent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	h.writeJSON(w, e)
+	return nil
+}
+
+func (h *HTTP) getTransfer(w http.ResponseWriter, r *http.Request) error {
+	contractID := chi.URLParam(r, "contractID")
+	t, err := h.service.GetTransfer(r.Context(), contractID)
+	if err != nil {
+		return err
+	}
+	h.writeJSON(w, t)
 	return nil
 }
 
