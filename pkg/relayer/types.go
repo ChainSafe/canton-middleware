@@ -76,4 +76,10 @@ type Event struct {
 	Recipient         string
 	Nonce             int64
 	SourceBlockNumber uint64
+
+	// Checkpoint marks a progress watermark rather than a real transfer: the source
+	// has scanned through SourceBlockNumber and emitted every event up to it. The
+	// processor persists the offset and skips transfer processing. Emitted in-order
+	// after a slice's events so persisting it cannot skip an unprocessed event.
+	Checkpoint bool
 }

@@ -234,7 +234,16 @@ func chunkRange(start, end, maxRange uint64) []blockRange {
 // config.MaxBlockRange blocks so requests stay under the provider's per-call cap.
 // On a slice failure, currentBlock advances only through the last successful
 // slice and the failing range is retried on the next tick.
-func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*DepositEvent) error) error {
+// After each fully scanned slice — including slices with no deposits — the handler
+// is also invoked with a checkpoint event (DepositEvent{Checkpoint: true}) carrying
+// the last scanned block, so the caller can persist scan progress and avoid
+// re-scanning from the start on restart. The checkpoint rides the same in-order
+// handler path as deposits, so it is only delivered after that slice's deposits.
+func (c *Client) WatchDepositEvents(
+	ctx context.Context,
+	fromBlock uint64,
+	handler func(*DepositEvent) error,
+) error {
 	c.logger.Info("Starting deposit event poller",
 		zap.Uint64("from_block", fromBlock),
 		zap.Uint64("max_block_range", c.config.MaxBlockRange))
@@ -286,6 +295,13 @@ func (c *Client) WatchDepositEvents(ctx context.Context, fromBlock uint64, handl
 					}
 					currentBlock = r.end
 					c.setLastScannedBlock(currentBlock)
+					// Emit a scan-progress checkpoint after this slice's deposits were
+					// handed to the handler (in order), so a restart resumes near here
+					// instead of re-scanning from the start. On failure, stop advancing so
+					// the same range is re-checkpointed on the next tick.
+					if err := handler(&DepositEvent{BlockNumber: currentBlock, Checkpoint: true}); err != nil {
+						return
+					}
 				}
 			}()
 		}
