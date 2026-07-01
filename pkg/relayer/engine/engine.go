@@ -43,7 +43,12 @@ type EthereumBridgeClient interface {
 		nonce *big.Int,
 		cantonTxHash [32]byte,
 	) (common.Hash, error)
-	WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error
+	WatchDepositEvents(
+		ctx context.Context,
+		fromBlock uint64,
+		handler func(*ethereum.DepositEvent) error,
+		onProgress func(block uint64) error,
+	) error
 	IsWithdrawalProcessed(ctx context.Context, cantonTxHash [32]byte) (bool, error)
 	GetLastScannedBlock() uint64
 }

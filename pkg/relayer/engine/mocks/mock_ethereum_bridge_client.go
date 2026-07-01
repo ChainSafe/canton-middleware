@@ -184,17 +184,17 @@ func (_c *EthereumBridgeClient_IsWithdrawalProcessed_Call) RunAndReturn(run func
 	return _c
 }
 
-// WatchDepositEvents provides a mock function with given fields: ctx, fromBlock, handler
-func (_m *EthereumBridgeClient) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error) error {
-	ret := _m.Called(ctx, fromBlock, handler)
+// WatchDepositEvents provides a mock function with given fields: ctx, fromBlock, handler, onProgress
+func (_m *EthereumBridgeClient) WatchDepositEvents(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error, onProgress func(uint64) error) error {
+	ret := _m.Called(ctx, fromBlock, handler, onProgress)
 
 	if len(ret) == 0 {
 		panic("no return value specified for WatchDepositEvents")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64, func(*ethereum.DepositEvent) error) error); ok {
-		r0 = rf(ctx, fromBlock, handler)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, func(*ethereum.DepositEvent) error, func(uint64) error) error); ok {
+		r0 = rf(ctx, fromBlock, handler, onProgress)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -211,13 +211,14 @@ type EthereumBridgeClient_WatchDepositEvents_Call struct {
 //   - ctx context.Context
 //   - fromBlock uint64
 //   - handler func(*ethereum.DepositEvent) error
-func (_e *EthereumBridgeClient_Expecter) WatchDepositEvents(ctx interface{}, fromBlock interface{}, handler interface{}) *EthereumBridgeClient_WatchDepositEvents_Call {
-	return &EthereumBridgeClient_WatchDepositEvents_Call{Call: _e.mock.On("WatchDepositEvents", ctx, fromBlock, handler)}
+//   - onProgress func(uint64) error
+func (_e *EthereumBridgeClient_Expecter) WatchDepositEvents(ctx interface{}, fromBlock interface{}, handler interface{}, onProgress interface{}) *EthereumBridgeClient_WatchDepositEvents_Call {
+	return &EthereumBridgeClient_WatchDepositEvents_Call{Call: _e.mock.On("WatchDepositEvents", ctx, fromBlock, handler, onProgress)}
 }
 
-func (_c *EthereumBridgeClient_WatchDepositEvents_Call) Run(run func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error)) *EthereumBridgeClient_WatchDepositEvents_Call {
+func (_c *EthereumBridgeClient_WatchDepositEvents_Call) Run(run func(ctx context.Context, fromBlock uint64, handler func(*ethereum.DepositEvent) error, onProgress func(uint64) error)) *EthereumBridgeClient_WatchDepositEvents_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64), args[2].(func(*ethereum.DepositEvent) error))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(func(*ethereum.DepositEvent) error), args[3].(func(uint64) error))
 	})
 	return _c
 }
@@ -227,7 +228,7 @@ func (_c *EthereumBridgeClient_WatchDepositEvents_Call) Return(_a0 error) *Ether
 	return _c
 }
 
-func (_c *EthereumBridgeClient_WatchDepositEvents_Call) RunAndReturn(run func(context.Context, uint64, func(*ethereum.DepositEvent) error) error) *EthereumBridgeClient_WatchDepositEvents_Call {
+func (_c *EthereumBridgeClient_WatchDepositEvents_Call) RunAndReturn(run func(context.Context, uint64, func(*ethereum.DepositEvent) error, func(uint64) error) error) *EthereumBridgeClient_WatchDepositEvents_Call {
 	_c.Call.Return(run)
 	return _c
 }

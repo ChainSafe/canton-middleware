@@ -127,10 +127,19 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 			fromBlock = n
 		}
 
+		emit := func(ev *relayer.Event) error {
+			select {
+			case outCh <- ev:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
 		err := s.client.WatchDepositEvents(ctx, fromBlock, func(event *ethereum.DepositEvent) error {
 			s.metrics.IncEventsDetected(relayer.ChainEthereum, EventTypeDeposit)
 
-			relayerEvent := &relayer.Event{
+			return emit(&relayer.Event{
 				ID:                fmt.Sprintf("%s-%d", event.TxHash.Hex(), event.LogIndex),
 				TransactionID:     event.TxHash.Hex(),
 				SourceChain:       relayer.ChainEthereum,
@@ -142,14 +151,16 @@ func (s *ethereumSource) StreamEvents(ctx context.Context, offset string) (<-cha
 				Recipient:         fmt.Sprintf("%x", event.CantonRecipient),
 				Nonce:             event.Nonce.Int64(),
 				SourceBlockNumber: event.BlockNumber,
-			}
-
-			select {
-			case outCh <- relayerEvent:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			})
+		}, func(block uint64) error {
+			// Emit a scan-progress checkpoint after each slice. It rides the same
+			// ordered channel behind that slice's deposits, so the processor persists
+			// the block only once those deposits are processed.
+			return emit(&relayer.Event{
+				SourceChain:       relayer.ChainEthereum,
+				SourceBlockNumber: block,
+				Checkpoint:        true,
+			})
 		})
 
 		if err != nil && ctx.Err() == nil {

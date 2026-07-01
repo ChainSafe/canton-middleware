@@ -70,7 +70,7 @@ func TestEngine_StartAndStop_WithMockedDependencies(t *testing.T) {
 	cantonClient.EXPECT().GetLatestLedgerOffset(mock.Anything).Return(int64(100), nil).Maybe()
 
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	ethClient.EXPECT().WatchDepositEvents(mock.Anything, uint64(20), mock.Anything).Return(nil).Maybe()
+	ethClient.EXPECT().WatchDepositEvents(mock.Anything, uint64(20), mock.Anything, mock.Anything).Return(nil).Maybe()
 	ethClient.EXPECT().GetLatestBlockNumber(mock.Anything).Return(uint64(20), nil).Maybe()
 	ethClient.EXPECT().GetLastScannedBlock().Return(uint64(20)).Maybe()
 
@@ -112,7 +112,7 @@ func TestEngine_Start_RestartsCantonProcessorOnUnexpectedStreamClose(t *testing.
 		Times(2)
 
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
-	ethClient.EXPECT().WatchDepositEvents(mock.Anything, uint64(20), mock.Anything).Return(nil).Maybe()
+	ethClient.EXPECT().WatchDepositEvents(mock.Anything, uint64(20), mock.Anything, mock.Anything).Return(nil).Maybe()
 	ethClient.EXPECT().GetLatestBlockNumber(mock.Anything).Return(uint64(20), nil).Maybe()
 	ethClient.EXPECT().GetLastScannedBlock().Return(uint64(20)).Maybe()
 
