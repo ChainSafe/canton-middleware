@@ -24,8 +24,12 @@ import (
 )
 
 const (
-	streamReconnectDelay      = 5 * time.Second
-	streamMaxReconnectDelay   = 60 * time.Second
+	streamReconnectDelay    = 5 * time.Second
+	streamMaxReconnectDelay = 60 * time.Second
+	// streamHealthyThreshold is the minimum time a stream must stay connected for it
+	// to count as healthy, resetting the reconnect backoff. This keeps a routine
+	// stream end after hours of stable operation from inheriting a maxed-out delay.
+	streamHealthyThreshold    = 30 * time.Second
 	withdrawalEventChannelCap = 10
 
 	bridgeContractsModule = "Bridge.Contracts"
@@ -498,9 +502,17 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-ch
 			default:
 			}
 
+			streamStart := time.Now()
 			err := c.streamWithdrawalEventsOnce(ctx, currentOffset, outCh, &currentOffset)
 			if ctx.Err() != nil {
 				return
+			}
+
+			// A stream that stayed connected for a healthy duration is treated as a
+			// fresh start, so a routine end after stable operation reconnects promptly
+			// instead of inheriting a backoff grown by earlier transient failures.
+			if time.Since(streamStart) >= streamHealthyThreshold {
+				reconnectDelay = streamReconnectDelay
 			}
 
 			// A live GetUpdates subscription is open-ended, so any stream end —
