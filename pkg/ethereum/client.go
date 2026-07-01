@@ -269,8 +269,10 @@ func (c *Client) WatchDepositEvents(
 					c.metrics.EventPollDuration.Observe(time.Since(pollStart).Seconds())
 				}()
 
-				// Get latest block
-				latestBlock, err := c.GetLatestBlockNumber(ctx)
+				// Get latest block (bounded by the per-call RPC timeout).
+				headCtx, headCancel := c.rpcContext(ctx)
+				latestBlock, err := c.GetLatestBlockNumber(headCtx)
+				headCancel()
 				if err != nil {
 					c.metrics.EventPollFailuresTotal.WithLabelValues("get_latest_block").Inc()
 					c.logger.Warn("Failed to get latest block", zap.Error(err))
@@ -309,15 +311,27 @@ func (c *Client) WatchDepositEvents(
 	}
 }
 
+// rpcContext derives a per-call context bounded by config.RPCTimeout so a single
+// slow/hung JSON-RPC call can't stall the poll loop. A non-positive timeout returns
+// the parent context unchanged with a no-op cancel.
+func (c *Client) rpcContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.config.RPCTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.config.RPCTimeout)
+}
+
 // scanDepositRange filters DepositToCanton events for a single inclusive block
 // range and dispatches each to handler. A filter, iterator, or handler error is
 // returned so the caller can stop advancing scan progress and retry the range
 // on the next tick.
 func (c *Client) scanDepositRange(ctx context.Context, r blockRange, handler func(*DepositEvent) error) error {
+	callCtx, cancel := c.rpcContext(ctx)
+	defer cancel()
 	opts := &bind.FilterOpts{
 		Start:   r.start,
 		End:     &r.end,
-		Context: ctx,
+		Context: callCtx,
 	}
 
 	filterStart := time.Now()

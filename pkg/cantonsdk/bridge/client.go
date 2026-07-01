@@ -8,9 +8,7 @@ package bridge
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"time"
 
@@ -501,9 +499,19 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-ch
 			}
 
 			err := c.streamWithdrawalEventsOnce(ctx, currentOffset, outCh, &currentOffset)
-			if err == nil || errors.Is(err, io.EOF) || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
+
+			// A live GetUpdates subscription is open-ended, so any stream end —
+			// including io.EOF from a server-side/load-balancer idle timeout or a
+			// Canton node rollout — is transient. Reconnect from the last processed
+			// offset with backoff rather than closing the channel, which would make
+			// the relayer's Canton source report a fatal error and exit the process.
+			c.logger.Warn("withdrawal stream ended; reconnecting",
+				zap.String("from_offset", currentOffset),
+				zap.Duration("backoff", reconnectDelay),
+				zap.Error(err))
 
 			if isAuthError(err) {
 				c.ledger.InvalidateToken()

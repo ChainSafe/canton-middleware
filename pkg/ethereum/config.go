@@ -19,4 +19,8 @@ type Config struct {
 	StartBlock         int64         `yaml:"start_block" default:"0"`
 	LookbackBlocks     int64         `yaml:"lookback_blocks" default:"1000"`
 	MaxBlockRange      uint64        `yaml:"max_block_range" default:"100" validate:"required,gt=0"`
+	// RPCTimeout bounds each individual JSON-RPC call (eth_getLogs, eth_blockNumber)
+	// so a hung or slow provider fails that call — which is logged and retried on the
+	// next poll tick — instead of stalling the poll loop. <=0 disables the timeout.
+	RPCTimeout time.Duration `yaml:"rpc_timeout" default:"30s"`
 }
