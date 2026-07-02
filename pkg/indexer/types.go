@@ -141,6 +141,12 @@ type HoldingChange struct {
 	InstrumentAdmin string
 	InstrumentID    string
 	Amount          string
+	// Locked is true when the holding carries a lock (DAML `lock` is Some) — i.e. it
+	// is escrowed by an outstanding transfer offer rather than spendable. Locked
+	// holdings are excluded from indexed balances so a sender's balance reflects the
+	// offered amount as deducted from offer creation until accept or claim-back.
+	// Only meaningful for CREATED events.
+	Locked bool
 }
 
 // InstrumentKey is the Canton equivalent of an ERC-20 contract address.

@@ -369,6 +369,15 @@ func (p *Processor) processHoldingChange(ctx context.Context, tx Store, h *index
 		// Malformed CREATED event already logged by decoder; skip silently.
 		return nil
 	}
+	if h.Locked {
+		// Escrowed by an outstanding transfer offer — not spendable, so excluded from
+		// balances. We also don't store it: its archive (on accept or claim-back) then
+		// finds no row and is skipped, and the matching unlocked holding created for
+		// the receiver (accept) or returned to the sender (claim-back) drives the
+		// balance change. Net effect: the sender's balance drops when the offer locks
+		// the funds and is restored only if the offer is claimed back.
+		return nil
+	}
 	if err := tx.InsertHolding(ctx, h); err != nil {
 		return fmt.Errorf("insert holding %s: %w", h.ContractID, err)
 	}

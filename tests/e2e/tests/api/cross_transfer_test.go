@@ -183,6 +183,12 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 		t.Fatalf("expected status 'completed', got %q", execResp.Status)
 	}
 
+	// Offering locks User1's 10 USDCx: the indexer excludes the escrowed (locked)
+	// holding from balances, so User1's spendable balance drops 15 → 5 immediately at
+	// offer time — before User2 accepts. (Without offer-locked accounting it would
+	// still read 15 here and only drop on accept.)
+	sys.DSL.WaitForAPIBalanceExact(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+
 	// User2 accepts the inbound offer via the api-server incoming accept flow.
 	cid2 := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User2)
 	prepAccept2, err := sys.APIServer.PrepareAcceptTransfer(ctx, &sys.Accounts.User2, cid2,
