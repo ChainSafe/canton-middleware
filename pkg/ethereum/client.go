@@ -293,15 +293,17 @@ func (c *Client) WatchDepositEvents(
 					if err := c.scanDepositRange(ctx, r, handler); err != nil {
 						return
 					}
-					currentBlock = r.end
-					c.setLastScannedBlock(currentBlock)
 					// Emit a scan-progress checkpoint after this slice's deposits were
 					// handed to the handler (in order), so a restart resumes near here
-					// instead of re-scanning from the start. On failure, stop advancing so
-					// the same range is re-checkpointed on the next tick.
-					if err := handler(&DepositEvent{BlockNumber: currentBlock, Checkpoint: true}); err != nil {
+					// instead of re-scanning from the start. Advance currentBlock only
+					// once the checkpoint is accepted, so on failure the same range is
+					// re-scanned and re-checkpointed on the next tick rather than having
+					// its watermark silently skipped.
+					if err := handler(&DepositEvent{BlockNumber: r.end, Checkpoint: true}); err != nil {
 						return
 					}
+					currentBlock = r.end
+					c.setLastScannedBlock(currentBlock)
 				}
 			}()
 		}
