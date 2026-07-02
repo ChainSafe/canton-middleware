@@ -175,3 +175,30 @@ func TestEthereumSource_StreamEvents_MapsDepositEvent(t *testing.T) {
 		t.Fatal("timed out waiting for mapped ethereum event")
 	}
 }
+
+func TestEthereumSource_StreamEvents_EmitsScanCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	ethClient := relayermocks.NewEthereumBridgeClient(t)
+
+	// The poller reports scan progress via a checkpoint event even with no deposits.
+	ethClient.EXPECT().
+		WatchDepositEvents(ctx, uint64(12), mock.Anything).
+		RunAndReturn(func(_ context.Context, _ uint64, handler func(*ethereum.DepositEvent) error) error {
+			return handler(&ethereum.DepositEvent{BlockNumber: 200, Checkpoint: true})
+		})
+
+	source := engine.NewEthereumSource(ethClient, relayer.ChainEthereum, engine.NewNopMetrics())
+	eventCh, _ := source.StreamEvents(ctx, "12")
+
+	select {
+	case event, ok := <-eventCh:
+		if !ok {
+			t.Fatal("expected a checkpoint event, channel closed")
+		}
+		if !event.Checkpoint || event.SourceBlockNumber != 200 {
+			t.Fatalf("expected checkpoint at block 200, got %+v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for scan checkpoint event")
+	}
+}

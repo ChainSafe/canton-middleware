@@ -80,6 +80,47 @@ func TestProcessor_Start_ProcessesEventSuccess(t *testing.T) {
 	}
 }
 
+func TestProcessor_Start_CheckpointPersistsOffsetWithoutProcessing(t *testing.T) {
+	ctx := context.Background()
+	source := relayermocks.NewSource(t)
+	destination := relayermocks.NewDestination(t)
+	store := relayermocks.NewBridgeStore(t)
+
+	eventCh := make(chan *relayer.Event, 1)
+	errCh := make(chan error)
+
+	// A scan-progress checkpoint (no transfer payload).
+	eventCh <- &relayer.Event{
+		SourceChain:       relayer.ChainEthereum,
+		SourceBlockNumber: 150,
+		Checkpoint:        true,
+	}
+	close(eventCh)
+
+	source.EXPECT().GetChainID().Return(relayer.ChainEthereum).Maybe()
+	destination.EXPECT().GetChainID().Return(relayer.ChainCanton).Maybe()
+	source.EXPECT().StreamEvents(ctx, "100").Return((<-chan *relayer.Event)(eventCh), (<-chan error)(errCh)).Once()
+	source.EXPECT().ExtractOffset(mock.AnythingOfType("*relayer.Event")).Return("150").Once()
+	// No CreateTransfer / SubmitTransfer / UpdateTransferStatus expected — a
+	// checkpoint must only advance the offset. The strict mocks fail the test if any
+	// transfer-processing call is made.
+
+	var persistedChain, persistedOffset string
+	processor := engine.NewProcessor(source, destination, store, engine.NewNopMetrics(), zap.NewNop(), "processor_test", relayer.DirectionEthereumToCanton).
+		WithOffsetUpdate(func(_ context.Context, chainID string, offset string) error {
+			persistedChain = chainID
+			persistedOffset = offset
+			return nil
+		})
+
+	if err := processor.Start(ctx, "100"); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	if persistedChain != relayer.ChainEthereum || persistedOffset != "150" {
+		t.Fatalf("expected checkpoint to persist ethereum offset 150, got chain=%s offset=%s", persistedChain, persistedOffset)
+	}
+}
+
 func TestProcessor_Start_DuplicateTransferPersistsOffsetOnce(t *testing.T) {
 	ctx := context.Background()
 	source := relayermocks.NewSource(t)

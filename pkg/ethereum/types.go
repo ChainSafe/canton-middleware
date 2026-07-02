@@ -21,6 +21,13 @@ type DepositEvent struct {
 	BlockNumber     uint64
 	TxHash          common.Hash
 	LogIndex        uint
+
+	// Checkpoint marks a scan-progress signal rather than a real deposit: the poller
+	// emits one (with only BlockNumber set) after each fully scanned block range —
+	// including ranges with no deposits — so the consumer can persist scan progress.
+	// It rides the same in-order handler path as deposits, so it is only observed
+	// after every deposit in the range it covers.
+	Checkpoint bool
 }
 
 // WithdrawalEvent represents a withdrawal from Canton event on Ethereum

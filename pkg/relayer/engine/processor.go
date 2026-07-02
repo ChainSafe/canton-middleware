@@ -104,6 +104,13 @@ func (p *Processor) Start(ctx context.Context, startOffset string) error {
 			if !ok {
 				return nil
 			}
+			if event.Checkpoint {
+				// Scan-progress watermark, not a transfer: advance the persisted
+				// offset only. It arrives in order after the events it covers, so
+				// everything up to it has already been processed by this loop.
+				p.persistOffset(ctx, event)
+				continue
+			}
 			if err := p.processEvent(ctx, event); err != nil {
 				p.logger.Error("Failed to process event",
 					zap.String("event_id", event.ID),
