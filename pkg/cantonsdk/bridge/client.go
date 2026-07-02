@@ -8,9 +8,7 @@ package bridge
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"strconv"
 	"time"
 
@@ -26,8 +24,12 @@ import (
 )
 
 const (
-	streamReconnectDelay      = 5 * time.Second
-	streamMaxReconnectDelay   = 60 * time.Second
+	streamReconnectDelay    = 5 * time.Second
+	streamMaxReconnectDelay = 60 * time.Second
+	// streamHealthyThreshold is the minimum time a stream must stay connected for it
+	// to count as healthy, resetting the reconnect backoff. This keeps a routine
+	// stream end after hours of stable operation from inheriting a maxed-out delay.
+	streamHealthyThreshold    = 30 * time.Second
 	withdrawalEventChannelCap = 10
 
 	bridgeContractsModule = "Bridge.Contracts"
@@ -500,10 +502,28 @@ func (c *Client) StreamWithdrawalEvents(ctx context.Context, offset string) <-ch
 			default:
 			}
 
+			streamStart := time.Now()
 			err := c.streamWithdrawalEventsOnce(ctx, currentOffset, outCh, &currentOffset)
-			if err == nil || errors.Is(err, io.EOF) || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return
 			}
+
+			// A stream that stayed connected for a healthy duration is treated as a
+			// fresh start, so a routine end after stable operation reconnects promptly
+			// instead of inheriting a backoff grown by earlier transient failures.
+			if time.Since(streamStart) >= streamHealthyThreshold {
+				reconnectDelay = streamReconnectDelay
+			}
+
+			// A live GetUpdates subscription is open-ended, so any stream end —
+			// including io.EOF from a server-side/load-balancer idle timeout or a
+			// Canton node rollout — is transient. Reconnect from the last processed
+			// offset with backoff rather than closing the channel, which would make
+			// the relayer's Canton source report a fatal error and exit the process.
+			c.logger.Warn("withdrawal stream ended; reconnecting",
+				zap.String("from_offset", currentOffset),
+				zap.Duration("backoff", reconnectDelay),
+				zap.Error(err))
 
 			if isAuthError(err) {
 				c.ledger.InvalidateToken()
