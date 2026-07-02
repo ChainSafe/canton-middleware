@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/ChainSafe/canton-middleware/compare/v0.7.0...v0.8.0) (2026-07-02)
+
+
+### Features
+
+* **api:** transfer history + outgoing/expired endpoints ([#331](https://github.com/ChainSafe/canton-middleware/issues/331)) ([1cd3f5f](https://github.com/ChainSafe/canton-middleware/commit/1cd3f5f0c6c97563b4194e388410b5cf2aed6879))
+* **api:** transfer to external party via party id ([#324](https://github.com/ChainSafe/canton-middleware/issues/324)) ([a0268a0](https://github.com/ChainSafe/canton-middleware/commit/a0268a012c0e728a8d6a1a05ffe7dc4741de456c))
+* configurable transfer validity ([#334](https://github.com/ChainSafe/canton-middleware/issues/334)) ([2115077](https://github.com/ChainSafe/canton-middleware/commit/211507756121e6bdcf671742a6be0f4b217a484e))
+* **indexer:** generalized transfers table ([#330](https://github.com/ChainSafe/canton-middleware/issues/330)) ([ccb5d76](https://github.com/ChainSafe/canton-middleware/commit/ccb5d76922d3ab946d563f588ac7806327eafb51))
+* **relayer:** persist eth scan progress ([#344](https://github.com/ChainSafe/canton-middleware/issues/344)) ([123a84a](https://github.com/ChainSafe/canton-middleware/commit/123a84a433664f6fd58fa3a545b51fe7b89c568d))
+
+
+### Bug Fixes
+
+* **relayer:** reconnect Canton stream on EOF ([#343](https://github.com/ChainSafe/canton-middleware/issues/343)) ([b20e2dc](https://github.com/ChainSafe/canton-middleware/commit/b20e2dc1690ede0fe0c5394332452cf494699a30))
+
 ## [0.7.0](https://github.com/ChainSafe/canton-middleware/compare/v0.6.0...v0.7.0) (2026-06-22)
 
 
