@@ -243,9 +243,10 @@ func (c *Canton2Shim) GetHoldings(ctx context.Context, ownerParty, tokenSymbol s
 //
 // Parallel e2e tests share the same USDCx issuer party and contend on its
 // Holding set. Canton may reject with LOCAL_VERDICT_LOCKED_CONTRACTS (another
-// transfer holds the lock right now) or LOCAL_VERDICT_INACTIVE_CONTRACTS (the
-// Holding we selected was archived between GetHoldings and submit). Both are
-// transient — refetch holdings on the next attempt and try again.
+// transfer holds the lock right now), LOCAL_VERDICT_INACTIVE_CONTRACTS, or
+// CONTRACT_NOT_FOUND (the Holding we selected was archived between GetHoldings
+// and submit). All are transient — refetch holdings on the next attempt and
+// try again.
 func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error {
 	const maxAttempts = 5
 	var lastErr error
@@ -270,7 +271,8 @@ func (c *Canton2Shim) TransferToken(ctx context.Context, senderParty, recipientP
 func isHoldingContention(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "LOCAL_VERDICT_LOCKED_CONTRACTS") ||
-		strings.Contains(msg, "LOCAL_VERDICT_INACTIVE_CONTRACTS")
+		strings.Contains(msg, "LOCAL_VERDICT_INACTIVE_CONTRACTS") ||
+		strings.Contains(msg, "CONTRACT_NOT_FOUND")
 }
 
 // GetFingerprintMapping is not supported on Participant 2.

@@ -46,6 +46,9 @@ type IndexerReader interface {
 	GetTransfers(
 		ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
 	) (*indexer.Page[indexer.Transfer], error)
+	// GetTransfer returns a single transfer by its contract id (used to validate a
+	// claim-back request directly, without scanning a party's transfer list).
+	GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error)
 }
 
 // Service is the interface for the non-custodial prepare/execute transfer flow.
@@ -76,6 +79,12 @@ type Service interface {
 	) (*PrepareResponse, error)
 	// ExecuteAccept completes a previously prepared accept using the client's DER signature.
 	ExecuteAccept(ctx context.Context, evmAddr string, req *ExecuteRequest) (*ExecuteResponse, error)
+	// PrepareWithdraw builds a Canton transaction for a non-custodial sender to claim
+	// back (withdraw) a pending/expired offer they sent. Complete it via Execute.
+	PrepareWithdraw(ctx context.Context, evmAddr, contractID string) (*PrepareResponse, error)
+	// WithdrawCustodial claims back a pending/expired offer for a custodial sender in a
+	// single server-signed call.
+	WithdrawCustodial(ctx context.Context, evmAddr, contractID string) (*ExecuteResponse, error)
 }
 
 // TransferService implements the non-custodial prepare/execute transfer flow.
@@ -566,4 +575,112 @@ func (s *TransferService) PrepareAccept(
 // ExecuteAccept completes a previously prepared accept using the client's DER signature.
 func (s *TransferService) ExecuteAccept(ctx context.Context, evmAddr string, req *ExecuteRequest) (*ExecuteResponse, error) {
 	return s.Execute(ctx, evmAddr, req)
+}
+
+// claimableTransfer validates a claim-back request against the indexer before any
+// Canton call. It looks the offer up directly by contract id and confirms the caller
+// owns it (is the sender), it is an offer (not a direct CIP-56 transfer), and it is
+// still withdrawable (pending or expired, not already completed). Returns the offer so
+// callers can use its InstrumentAdmin for the on-ledger withdraw. Errors: 404 when no
+// such offer exists for the caller, 400 when it is not a withdrawable offer.
+func (s *TransferService) claimableTransfer(
+	ctx context.Context, callerParty, contractID string,
+) (*indexer.Transfer, error) {
+	t, err := s.offerLister.GetTransfer(ctx, contractID)
+	if err != nil {
+		// The indexer client maps a missing contract id to a not-found app error;
+		// propagate it (and any other lookup failure) as-is.
+		return nil, err
+	}
+	if t == nil {
+		// Defensive: the interface permits (nil, nil); treat as not found.
+		return nil, apperrors.ResourceNotFoundError(nil, "no claimable offer found for this contract id")
+	}
+	// Ownership: only the sender may claim back. Report a missing/foreign offer as
+	// not-found so callers can't probe other parties' offers by contract id.
+	if t.FromPartyID != callerParty {
+		return nil, apperrors.ResourceNotFoundError(nil, "no claimable offer found for this contract id")
+	}
+	if t.Kind != indexer.TransferKindOffer {
+		return nil, apperrors.BadRequestError(nil, "only offer-based transfers can be claimed back")
+	}
+	if t.Status == indexer.TransferStatusCompleted {
+		return nil, apperrors.BadRequestError(nil, "transfer already completed; nothing to claim back")
+	}
+	return t, nil
+}
+
+// PrepareWithdraw builds a Canton transaction for a non-custodial sender to claim back
+// (withdraw) a pending or expired offer they sent. Returns the hash to sign; complete
+// it via the standard Execute endpoint.
+func (s *TransferService) PrepareWithdraw(ctx context.Context, evmAddr, contractID string) (*PrepareResponse, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.UnAuthorizedError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+	if u.KeyMode != user.KeyModeExternal {
+		return nil, apperrors.BadRequestError(nil, "withdraw prepare/execute API requires key_mode=external")
+	}
+
+	offer, err := s.claimableTransfer(ctx, u.CantonPartyID, contractID)
+	if err != nil {
+		return nil, err
+	}
+
+	pt, err := s.cantonToken.PrepareWithdrawTransfer(ctx, u.CantonPartyID, contractID, offer.InstrumentAdmin)
+	if err != nil {
+		return nil, mapWithdrawErr(err)
+	}
+
+	if err := s.cache.Put(pt); err != nil {
+		return nil, apperrors.GeneralError(fmt.Errorf("too many pending transfers: %w", err))
+	}
+
+	return &PrepareResponse{
+		TransferID:      pt.TransferID,
+		TransactionHash: "0x" + hex.EncodeToString(pt.TransactionHash),
+		PartyID:         pt.PartyID,
+		ExpiresAt:       pt.ExpiresAt.Format(time.RFC3339),
+	}, nil
+}
+
+// WithdrawCustodial claims back a pending or expired offer for a custodial sender in a
+// single server-signed call (the middleware holds the user's Canton key).
+func (s *TransferService) WithdrawCustodial(ctx context.Context, evmAddr, contractID string) (*ExecuteResponse, error) {
+	u, err := s.userStore.GetUserByEVMAddress(ctx, evmAddr)
+	if err != nil {
+		if errors.Is(err, user.ErrUserNotFound) {
+			return nil, apperrors.UnAuthorizedError(err, "user not found")
+		}
+		return nil, fmt.Errorf("lookup user: %w", err)
+	}
+	if u.KeyMode != user.KeyModeCustodial {
+		return nil, apperrors.BadRequestError(nil, "this endpoint requires key_mode=custodial")
+	}
+
+	offer, err := s.claimableTransfer(ctx, u.CantonPartyID, contractID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.cantonToken.WithdrawTransferInstruction(ctx, u.CantonPartyID, contractID, offer.InstrumentAdmin); err != nil {
+		return nil, mapWithdrawErr(err)
+	}
+	return &ExecuteResponse{Status: "submitted"}, nil
+}
+
+// mapWithdrawErr maps a Canton/registry withdraw failure to an HTTP-shaped error.
+// A receiver who accepted first (or any state where the instruction is no longer
+// active) surfaces as 409 Conflict; everything else is a generic dependency error.
+func mapWithdrawErr(err error) error {
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.NotFound, codes.FailedPrecondition, codes.Aborted, codes.AlreadyExists:
+			return apperrors.ConflictError(err, "offer is no longer claimable (it may have been accepted or already withdrawn)")
+		}
+	}
+	return fmt.Errorf("withdraw transfer: %w", err)
 }

@@ -53,6 +53,13 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	r.Get("/api/v2/transfer/completed", apphttp.HandleError(h.listCompleted))
 	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
 	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
+
+	// Claim back (withdraw) an offer the caller sent — pending or expired. Two-step
+	// prepare/execute for non-custodial (external-key) senders; a single server-signed
+	// call for custodial senders. Validated against the indexer before touching Canton.
+	r.Post("/api/v2/transfer/outgoing/{contractID}/withdraw/prepare", apphttp.HandleError(h.prepareWithdraw))
+	r.Post("/api/v2/transfer/outgoing/{contractID}/withdraw/execute", apphttp.HandleError(h.executeWithdraw))
+	r.Post("/api/v2/transfer/outgoing/{contractID}/withdraw/custodial", apphttp.HandleError(h.withdrawCustodial))
 }
 
 func (h *httpHandler) prepare(w http.ResponseWriter, r *http.Request) error {
@@ -314,6 +321,74 @@ func (h *httpHandler) executeAccept(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	resp, err := h.svc.ExecuteAccept(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// prepareWithdraw builds a claim-back (withdraw) transaction for a non-custodial sender
+// to reclaim a pending/expired offer they sent. The offer is identified solely by the
+// {contractID} path param; instrument routing is resolved from the indexer server-side.
+func (h *httpHandler) prepareWithdraw(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+	contractID := chi.URLParam(r, "contractID")
+	if contractID == "" {
+		return apperrors.BadRequestError(nil, "contractID path parameter is required")
+	}
+
+	resp, err := h.svc.PrepareWithdraw(r.Context(), evmAddr, contractID)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// executeWithdraw completes a previously prepared withdraw using the client's DER
+// signature. The cached prepared transaction is generic, so this reuses Execute.
+func (h *httpHandler) executeWithdraw(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req ExecuteRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.TransferID == "" || req.Signature == "" || req.SignedBy == "" {
+		return apperrors.BadRequestError(nil, "transfer_id, signature, and signed_by are required")
+	}
+
+	resp, err := h.svc.Execute(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, resp)
+	return nil
+}
+
+// withdrawCustodial claims back a pending/expired offer for a custodial sender in a
+// single server-signed call.
+func (h *httpHandler) withdrawCustodial(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+	contractID := chi.URLParam(r, "contractID")
+	if contractID == "" {
+		return apperrors.BadRequestError(nil, "contractID path parameter is required")
+	}
+
+	resp, err := h.svc.WithdrawCustodial(r.Context(), evmAddr, contractID)
 	if err != nil {
 		return err
 	}

@@ -22,6 +22,65 @@ func (_m *IndexerReader) EXPECT() *IndexerReader_Expecter {
 	return &IndexerReader_Expecter{mock: &_m.Mock}
 }
 
+// GetTransfer provides a mock function with given fields: ctx, contractID
+func (_m *IndexerReader) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	ret := _m.Called(ctx, contractID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTransfer")
+	}
+
+	var r0 *indexer.Transfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*indexer.Transfer, error)); ok {
+		return rf(ctx, contractID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *indexer.Transfer); ok {
+		r0 = rf(ctx, contractID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*indexer.Transfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, contractID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// IndexerReader_GetTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTransfer'
+type IndexerReader_GetTransfer_Call struct {
+	*mock.Call
+}
+
+// GetTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - contractID string
+func (_e *IndexerReader_Expecter) GetTransfer(ctx interface{}, contractID interface{}) *IndexerReader_GetTransfer_Call {
+	return &IndexerReader_GetTransfer_Call{Call: _e.mock.On("GetTransfer", ctx, contractID)}
+}
+
+func (_c *IndexerReader_GetTransfer_Call) Run(run func(ctx context.Context, contractID string)) *IndexerReader_GetTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *IndexerReader_GetTransfer_Call) Return(_a0 *indexer.Transfer, _a1 error) *IndexerReader_GetTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *IndexerReader_GetTransfer_Call) RunAndReturn(run func(context.Context, string) (*indexer.Transfer, error)) *IndexerReader_GetTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetTransfers provides a mock function with given fields: ctx, partyID, query, p
 func (_m *IndexerReader) GetTransfers(ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination) (*indexer.Page[indexer.Transfer], error) {
 	ret := _m.Called(ctx, partyID, query, p)

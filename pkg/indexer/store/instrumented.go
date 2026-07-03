@@ -338,6 +338,17 @@ func (s *InstrumentedStore) GetEvent(ctx context.Context, contractID string) (*i
 	return event, err
 }
 
+func (s *InstrumentedStore) GetTransfer(ctx context.Context, contractID string) (*indexer.Transfer, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetTransfer))
+	defer timer.ObserveDuration()
+
+	transfer, err := s.inner.GetTransfer(ctx, contractID)
+	if err != nil {
+		s.metrics.IncErrors(OpGetTransfer)
+	}
+	return transfer, err
+}
+
 func (s *InstrumentedStore) ListEvents(
 	ctx context.Context, f indexer.EventFilter, p indexer.Pagination,
 ) ([]*indexer.ParsedEvent, int64, error) {

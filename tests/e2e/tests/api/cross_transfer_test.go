@@ -16,6 +16,10 @@ import (
 // statusCompleted is the api-server's terminal status for a settled transfer.
 const statusCompleted = "completed"
 
+// statusSubmitted is the api-server's response status for an accepted single-call
+// (server-signed) submission, e.g. custodial transfer / withdraw.
+const statusSubmitted = "submitted"
+
 // amountEq reports whether two decimal-string amounts are numerically equal,
 // tolerating Canton's fixed-scale rendering (e.g. "20" vs "20.0000000000").
 func amountEq(t *testing.T, got, want string) bool {
@@ -243,7 +247,7 @@ func TestUSDCx_CustodialTransfer_ByPartyID_ToExternalParty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("custodial send to external party: %v", err)
 	}
-	if resp.Status != "submitted" {
+	if resp.Status != statusSubmitted {
 		t.Fatalf("expected status 'submitted', got %q", resp.Status)
 	}
 
@@ -387,6 +391,62 @@ func TestUSDCx_OutgoingOffer_ExpiresAfterValidity(t *testing.T) {
 	if expired.Status != indexer.TransferStatusExpired {
 		t.Fatalf("expected expired status, got %q", expired.Status)
 	}
+}
+
+// TestUSDCx_ClaimBackExpiredOffer_ToExternalParty verifies a custodial sender can
+// reclaim a USDCx offer that expired unaccepted. The external recipient never accepts;
+// the offer expires; the sender claims it back via the custodial withdraw endpoint; the
+// offer then leaves the expired set (archived on-ledger) and the sender's USDCx balance
+// is whole again (the locked funds are reclaimed).
+func TestUSDCx_ClaimBackExpiredOffer_ToExternalParty(t *testing.T) {
+	t.Parallel()
+
+	sys := presets.NewMultiParticipantStack(t)
+	ctx := context.Background()
+	external := sys.Manifest.USDCxInstrumentAdmin
+
+	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
+
+	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "5"); err != nil {
+		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
+	}
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+
+	// Offer 2 USDCx to the external party with a short validity — it is never accepted
+	// (the recipient is unregistered) and expires. 15s clears the SDK's ~5s requestedAt
+	// backdate while still expiring within the poll window.
+	const shortValiditySeconds = 15
+	if _, err := sys.APIServer.SendCustodial(ctx, &sys.Accounts.User1, &transfer.CustodialTransferRequest{
+		ToPartyID:       external,
+		Amount:          "2",
+		Token:           "USDCx",
+		ValiditySeconds: shortValiditySeconds,
+	}); err != nil {
+		t.Fatalf("custodial send (short validity) to external party: %v", err)
+	}
+
+	// Wait for it to flip to expired, capturing its contract id for the claim-back.
+	expired := sys.DSL.WaitForOutgoingTransfer(ctx, t, sys.Accounts.User1, indexer.TransferStatusExpired,
+		func(o transfer.OutgoingTransfer) bool {
+			return o.InstrumentAdmin == external && amountEq(t, o.Amount, "2")
+		})
+
+	// Claim back the expired offer (single-call custodial withdraw).
+	resp, err := sys.APIServer.WithdrawCustodial(ctx, &sys.Accounts.User1, expired.ContractID)
+	if err != nil {
+		t.Fatalf("custodial withdraw (claim back) expired offer: %v", err)
+	}
+	if resp.Status != statusSubmitted {
+		t.Fatalf("expected withdraw status 'submitted', got %q", resp.Status)
+	}
+
+	// The withdraw archives the offer on-ledger: it leaves the expired set, and the
+	// sender's USDCx balance is whole again (locked funds reclaimed).
+	sys.DSL.WaitForOutgoingTransferGone(ctx, t, sys.Accounts.User1, indexer.TransferStatusExpired, expired.ContractID)
+	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
 }
 
 // TestUSDCx_ListIncoming_PendingOffer verifies the incoming API surfaces a

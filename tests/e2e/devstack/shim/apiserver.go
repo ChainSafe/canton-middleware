@@ -238,6 +238,27 @@ func (a *APIServerShim) SendCustodial(
 	return &resp, nil
 }
 
+// WithdrawCustodial claims back (withdraws) a pending or expired offer the custodial
+// account sent, via POST /api/v2/transfer/outgoing/{contractID}/withdraw/custodial.
+// account supplies the timed EIP-191 auth headers; the offer is identified by contractID.
+func (a *APIServerShim) WithdrawCustodial(
+	ctx context.Context,
+	account *stack.Account,
+	contractID string,
+) (*transfer.ExecuteResponse, error) {
+	msg := fmt.Sprintf("transfer:%d", time.Now().Unix())
+	sig, err := util.SignEIP191(account.PrivateKey, msg)
+	if err != nil {
+		return nil, err
+	}
+	var resp transfer.ExecuteResponse
+	path := "/api/v2/transfer/outgoing/" + contractID + "/withdraw/custodial"
+	if err := a.post(ctx, path, sig, msg, nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 // ListOutgoingTransfers sends GET /api/v2/transfer/outgoing?address=<addr>&status=<status>.
 // The endpoint is unauthenticated; account is used only to derive the address query
 // parameter. An empty status omits the filter (server defaults to all).
