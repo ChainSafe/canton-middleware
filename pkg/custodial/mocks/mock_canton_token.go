@@ -927,6 +927,67 @@ func (_c *Token_PrepareTransfer_Call) RunAndReturn(run func(context.Context, *to
 	return _c
 }
 
+// PrepareWithdrawTransfer provides a mock function with given fields: ctx, partyID, instructionCID, instrumentAdmin
+func (_m *Token) PrepareWithdrawTransfer(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, partyID, instructionCID, instrumentAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareWithdrawTransfer")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, partyID, instructionCID, instrumentAdmin)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_PrepareWithdrawTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareWithdrawTransfer'
+type Token_PrepareWithdrawTransfer_Call struct {
+	*mock.Call
+}
+
+// PrepareWithdrawTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - instructionCID string
+//   - instrumentAdmin string
+func (_e *Token_Expecter) PrepareWithdrawTransfer(ctx interface{}, partyID interface{}, instructionCID interface{}, instrumentAdmin interface{}) *Token_PrepareWithdrawTransfer_Call {
+	return &Token_PrepareWithdrawTransfer_Call{Call: _e.mock.On("PrepareWithdrawTransfer", ctx, partyID, instructionCID, instrumentAdmin)}
+}
+
+func (_c *Token_PrepareWithdrawTransfer_Call) Run(run func(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string)) *Token_PrepareWithdrawTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareWithdrawTransfer_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareWithdrawTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareWithdrawTransfer_Call) RunAndReturn(run func(context.Context, string, string, string) (*token.PreparedTransfer, error)) *Token_PrepareWithdrawTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // TransferByFingerprint provides a mock function with given fields: ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity
 func (_m *Token) TransferByFingerprint(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string, validity time.Duration) error {
 	ret := _m.Called(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity)
@@ -1079,6 +1140,55 @@ func (_c *Token_TransferInternalByPartyID_Call) Return(_a0 error) *Token_Transfe
 }
 
 func (_c *Token_TransferInternalByPartyID_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, time.Duration) error) *Token_TransferInternalByPartyID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WithdrawTransferInstruction provides a mock function with given fields: ctx, partyID, instructionCID, instrumentAdmin
+func (_m *Token) WithdrawTransferInstruction(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string) error {
+	ret := _m.Called(ctx, partyID, instructionCID, instrumentAdmin)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WithdrawTransferInstruction")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, partyID, instructionCID, instrumentAdmin)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_WithdrawTransferInstruction_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithdrawTransferInstruction'
+type Token_WithdrawTransferInstruction_Call struct {
+	*mock.Call
+}
+
+// WithdrawTransferInstruction is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+//   - instructionCID string
+//   - instrumentAdmin string
+func (_e *Token_Expecter) WithdrawTransferInstruction(ctx interface{}, partyID interface{}, instructionCID interface{}, instrumentAdmin interface{}) *Token_WithdrawTransferInstruction_Call {
+	return &Token_WithdrawTransferInstruction_Call{Call: _e.mock.On("WithdrawTransferInstruction", ctx, partyID, instructionCID, instrumentAdmin)}
+}
+
+func (_c *Token_WithdrawTransferInstruction_Call) Run(run func(ctx context.Context, partyID string, instructionCID string, instrumentAdmin string)) *Token_WithdrawTransferInstruction_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Token_WithdrawTransferInstruction_Call) Return(_a0 error) *Token_WithdrawTransferInstruction_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_WithdrawTransferInstruction_Call) RunAndReturn(run func(context.Context, string, string, string) error) *Token_WithdrawTransferInstruction_Call {
 	_c.Call.Return(run)
 	return _c
 }

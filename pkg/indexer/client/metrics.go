@@ -20,6 +20,7 @@ const (
 	OpGetEvent             ClientOperation = "get_event"
 	OpListTokenEvents      ClientOperation = "list_token_events"
 	OpListPartyEvents      ClientOperation = "list_party_events"
+	OpGetTransfer          ClientOperation = "get_transfer"
 	OpGetTransfers         ClientOperation = "get_transfers"
 	OpGetPendingTransfers  ClientOperation = "get_pending_transfers"
 )

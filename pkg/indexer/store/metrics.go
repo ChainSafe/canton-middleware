@@ -70,6 +70,7 @@ const (
 	OpListBalancesForToken StoreOperation = "list_balances_for_token"
 	OpGetEvent             StoreOperation = "get_event"
 	OpListEvents           StoreOperation = "list_events"
+	OpGetTransfer          StoreOperation = "get_transfer"
 	OpListTransfers        StoreOperation = "list_transfers"
 	OpListPendingTransfers StoreOperation = "list_pending_transfers"
 )
