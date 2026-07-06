@@ -208,7 +208,19 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				}
 			case *indexer.Transfer:
 				if item.Archived {
-					if err := tx.FinalizeTransfer(ctx, item.ContractID, item.Status); err != nil {
+					status := item.Status
+					if status == "" {
+						// Defensive: the offer decoder always derives a terminal status
+						// for archives; an empty one is a decoder bug. Fall back to the
+						// historical any-archive-settles behavior rather than persisting
+						// an empty status.
+						p.logger.Warn("archived transfer with empty status — defaulting to completed",
+							zap.String("contract_id", item.ContractID),
+							zap.Int64("offset", batch.Offset),
+						)
+						status = indexer.TransferStatusCompleted
+					}
+					if err := tx.FinalizeTransfer(ctx, item.ContractID, status); err != nil {
 						return fmt.Errorf("finalize transfer %s: %w", item.ContractID, err)
 					}
 				} else {

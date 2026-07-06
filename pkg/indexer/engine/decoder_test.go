@@ -95,7 +95,7 @@ func makeOfferArchiveEvent(contractID, choice string) *streaming.LedgerEvent {
 }
 
 func TestOfferDecoder_ArchiveChoiceMapsTerminalStatus(t *testing.T) {
-	dec := NewOfferDecoder("pkg-id", zap.NewNop())
+	dec := NewOfferDecoder("pkg-id", NewNopMetrics(), zap.NewNop())
 
 	cases := []struct {
 		choice string

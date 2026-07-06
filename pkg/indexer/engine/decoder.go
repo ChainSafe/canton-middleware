@@ -152,7 +152,7 @@ func NewTokenTransferDecoder(
 // (derived from the archiving choice) are set — the processor uses ContractID to
 // finalize the existing row.
 func NewOfferDecoder(
-	packageID string, logger *zap.Logger,
+	packageID string, metrics *Metrics, logger *zap.Logger,
 ) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
 	if packageID == "" {
 		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
@@ -176,7 +176,7 @@ func NewOfferDecoder(
 			CreatedAt:    tx.EffectiveTime,
 		}
 		if !ev.IsCreated {
-			transfer.Status = offerTerminalStatus(ev.Choice, ev.ContractID, logger)
+			transfer.Status = offerTerminalStatus(ev.Choice, ev.ContractID, metrics, logger)
 		}
 		if ev.IsCreated {
 			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
@@ -205,14 +205,18 @@ func NewOfferDecoder(
 // transfer's terminal status: accept settles ("completed"); withdraw and reject
 // cancel ("canceled"). Unknown choices — including "" from a stream that does
 // not carry choice names — fall back to "completed", preserving the historical
-// any-archive-settles behavior, and are logged for visibility.
-func offerTerminalStatus(choice, contractID string, logger *zap.Logger) string {
+// any-archive-settles behavior. Each fallback increments the
+// OfferUnknownArchiveChoices counter (alertable) and logs a warning, since it
+// may mean a registry archives offers via a choice this mapping doesn't know
+// (e.g. TransferInstruction_Update) and statuses could be mislabeled.
+func offerTerminalStatus(choice, contractID string, metrics *Metrics, logger *zap.Logger) string {
 	switch choice {
 	case choiceInstructionAccept:
 		return indexer.TransferStatusCompleted
 	case choiceInstructionWithdraw, choiceInstructionReject:
 		return indexer.TransferStatusCanceled
 	default:
+		metrics.OfferUnknownArchiveChoices.Inc()
 		logger.Warn("TransferOffer archived by unrecognized choice — defaulting to completed",
 			zap.String("choice", choice),
 			zap.String("contract_id", contractID),
