@@ -221,6 +221,9 @@ func NewHoldingDecoder(
 			change.InstrumentAdmin = ev.PartyField("registrar")
 			change.InstrumentID = ev.NestedTextField("instrument", "id")
 			change.Amount = ev.NumericField("amount")
+			// `lock` is Optional Lock: Some => the holding is escrowed by an
+			// outstanding offer (not spendable), None => freely spendable.
+			change.Locked = !ev.IsNone("lock")
 			if change.Owner == "" || change.InstrumentID == "" {
 				logger.Warn("Holding CREATED decoded with empty owner or instrument — field-name mismatch?",
 					zap.String("contract_id", ev.ContractID),

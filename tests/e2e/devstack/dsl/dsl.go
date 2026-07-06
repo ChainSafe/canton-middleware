@@ -232,6 +232,46 @@ func (d *DSL) WaitForAPIBalance(ctx context.Context, t *testing.T, tok *stack.To
 		minTokens, tok.Symbol, minWei, ownerAddr.Hex())
 }
 
+// WaitForAPIBalanceExact polls the api-server until ownerAddr's balance of tok equals
+// exactly tokens (scaled by the token's decimals), or the timeout is reached. Unlike
+// WaitForAPIBalance (>=), this detects a decrease — e.g. funds becoming unspendable
+// when an offer locks them — so it converges on the exact expected value.
+func (d *DSL) WaitForAPIBalanceExact(ctx context.Context, t *testing.T, tok *stack.Token, ownerAddr common.Address, tokens string) {
+	t.Helper()
+	exp := new(big.Int).Exp(big.NewInt(decimalBase), big.NewInt(int64(tok.Decimals)), nil)
+	wantF, ok := new(big.Float).SetString(tokens)
+	if !ok {
+		t.Fatalf("WaitForAPIBalanceExact: invalid amount %q", tokens)
+	}
+	wantF.Mul(wantF, new(big.Float).SetInt(exp))
+	wantWei, _ := wantF.Int(nil)
+
+	deadline := time.Now().Add(waitForAPIBalanceTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	var lastBal *big.Int
+	for time.Now().Before(deadline) {
+		bal, err := d.apiServer.ERC20Balance(ctx, tok.Address, ownerAddr)
+		if err == nil {
+			lastBal = bal
+			if bal.Cmp(wantWei) == 0 {
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("context canceled waiting for exact API balance")
+		case <-ticker.C:
+		}
+	}
+	last := "<none>"
+	if lastBal != nil {
+		last = lastBal.String()
+	}
+	t.Fatalf("WaitForAPIBalanceExact: timed out waiting for %s %s balance == %s (owner %s): last seen %s",
+		tokens, tok.Symbol, wantWei, ownerAddr.Hex(), last)
+}
+
 // ERC20Balance returns the on-chain ERC-20 balance of account for tokenAddr.
 func (d *DSL) ERC20Balance(ctx context.Context, t *testing.T, tokenAddr common.Address, account stack.Account) *big.Int {
 	t.Helper()
