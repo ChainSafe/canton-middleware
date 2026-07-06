@@ -21,6 +21,15 @@ const (
 	transferOfferModule = "Utility.Registry.App.V0.Model.Transfer"
 	transferOfferEntity = "TransferOffer"
 
+	// Splice token-standard TransferInstruction choices that archive a
+	// TransferOffer. The choice name arrives on the consuming exercised event
+	// (LEDGER_EFFECTS stream shape) and decides the offer's terminal status:
+	// accept settles it, withdraw (sender claim-back) and reject (receiver
+	// decline) cancel it.
+	choiceInstructionAccept   = "TransferInstruction_Accept"
+	choiceInstructionWithdraw = "TransferInstruction_Withdraw"
+	choiceInstructionReject   = "TransferInstruction_Reject"
+
 	holdingModule = "Utility.Registry.Holding.V0.Holding"
 	holdingEntity = "Holding"
 )
@@ -139,8 +148,9 @@ func NewTokenTransferDecoder(
 // packageID is empty (feature disabled).
 //
 // On CREATED the transfer is "pending" with all fields populated; on ARCHIVED only
-// ContractID/LedgerOffset/CreatedAt and the Archived flag are set — the processor
-// uses ContractID to complete the existing row.
+// ContractID/LedgerOffset/CreatedAt, the Archived flag, and the terminal Status
+// (derived from the archiving choice) are set — the processor uses ContractID to
+// finalize the existing row.
 func NewOfferDecoder(
 	packageID string, logger *zap.Logger,
 ) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
@@ -165,6 +175,9 @@ func NewOfferDecoder(
 			LedgerOffset: tx.Offset,
 			CreatedAt:    tx.EffectiveTime,
 		}
+		if !ev.IsCreated {
+			transfer.Status = offerTerminalStatus(ev.Choice, ev.ContractID, logger)
+		}
 		if ev.IsCreated {
 			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
 			// Receiver/sender/amount/instrumentId all live inside the nested transfer record.
@@ -185,6 +198,26 @@ func NewOfferDecoder(
 			}
 		}
 		return transfer, true
+	}
+}
+
+// offerTerminalStatus maps the choice that archived a TransferOffer to the
+// transfer's terminal status: accept settles ("completed"); withdraw and reject
+// cancel ("canceled"). Unknown choices — including "" from a stream that does
+// not carry choice names — fall back to "completed", preserving the historical
+// any-archive-settles behavior, and are logged for visibility.
+func offerTerminalStatus(choice, contractID string, logger *zap.Logger) string {
+	switch choice {
+	case choiceInstructionAccept:
+		return indexer.TransferStatusCompleted
+	case choiceInstructionWithdraw, choiceInstructionReject:
+		return indexer.TransferStatusCanceled
+	default:
+		logger.Warn("TransferOffer archived by unrecognized choice — defaulting to completed",
+			zap.String("choice", choice),
+			zap.String("contract_id", contractID),
+		)
+		return indexer.TransferStatusCompleted
 	}
 }
 

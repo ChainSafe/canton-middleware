@@ -177,7 +177,7 @@ func TestProcessor_Run_StreamClosed_ReturnsNil(t *testing.T) {
 	assert.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
-func TestProcessor_Run_ContextCancelled(t *testing.T) {
+func TestProcessor_Run_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	store := mocks.NewStore(t)
 	fetcher := mocks.NewEventFetcher(t)
@@ -373,7 +373,7 @@ func TestProcessor_Run_StoreError_Retries(t *testing.T) {
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
-func TestProcessor_Run_ContextCancelledDuringRetry(t *testing.T) {
+func TestProcessor_Run_ContextCanceledDuringRetry(t *testing.T) {
 	engine.SetRetryBaseDelay(t, time.Hour)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -414,19 +414,38 @@ func TestProcessor_Run_PendingOfferCreated_Inserted(t *testing.T) {
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }
 
-func TestProcessor_Run_OfferArchived_CompletesTransfer(t *testing.T) {
+func TestProcessor_Run_OfferArchived_FinalizesTransfer(t *testing.T) {
 	store := mocks.NewStore(t)
 	fetcher := mocks.NewEventFetcher(t)
-	// Archive event carries only the contract id; the existing row is completed by id.
-	archived := &indexer.Transfer{ContractID: "offer-contract-1", Kind: indexer.TransferKindOffer, Archived: true, LedgerOffset: 11, CreatedAt: time.Unix(1_700_000_500, 0)}
+	// Archive event carries only the contract id and the terminal status the decoder
+	// derived from the archiving choice; the existing row is finalized by id.
+	archived := &indexer.Transfer{ContractID: "offer-contract-1", Kind: indexer.TransferKindOffer, Status: indexer.TransferStatusCompleted, Archived: true, LedgerOffset: 11, CreatedAt: time.Unix(1_700_000_500, 0)}
 
 	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
 	fetcher.EXPECT().Start(mock.Anything, int64(0))
 	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(11, archived)))
 
 	setupRunInTx(store)
-	store.EXPECT().CompleteTransfer(mock.Anything, archived.ContractID).Return(nil)
+	store.EXPECT().FinalizeTransfer(mock.Anything, archived.ContractID, indexer.TransferStatusCompleted).Return(nil)
 	store.EXPECT().SaveOffset(mock.Anything, int64(11)).Return(nil)
+
+	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
+}
+
+func TestProcessor_Run_OfferWithdrawn_CancelsTransfer(t *testing.T) {
+	store := mocks.NewStore(t)
+	fetcher := mocks.NewEventFetcher(t)
+	// A withdraw/reject archive decodes with Status "canceled"; the processor must
+	// finalize the row with that status rather than blanket-completing it.
+	canceled := &indexer.Transfer{ContractID: "offer-contract-2", Kind: indexer.TransferKindOffer, Status: indexer.TransferStatusCanceled, Archived: true, LedgerOffset: 12, CreatedAt: time.Unix(1_700_000_600, 0)}
+
+	store.EXPECT().LatestOffset(mock.Anything).Return(int64(0), nil)
+	fetcher.EXPECT().Start(mock.Anything, int64(0))
+	fetcher.EXPECT().Events().Return(feedCh(makeOfferBatch(12, canceled)))
+
+	setupRunInTx(store)
+	store.EXPECT().FinalizeTransfer(mock.Anything, canceled.ContractID, indexer.TransferStatusCanceled).Return(nil)
+	store.EXPECT().SaveOffset(mock.Anything, int64(12)).Return(nil)
 
 	require.NoError(t, engine.NewProcessor(fetcher, store, engine.NewNopMetrics(), zap.NewNop()).Run(context.Background()))
 }

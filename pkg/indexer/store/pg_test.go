@@ -800,8 +800,16 @@ func TestListTransfers(t *testing.T) {
 		}
 	}
 	// Complete the inbound offer so it reads as a completed transfer for alice.
-	if err := s.CompleteTransfer(ctx, "o-done"); err != nil {
-		t.Fatalf("CompleteTransfer(o-done): %v", err)
+	if err := s.FinalizeTransfer(ctx, "o-done", indexer.TransferStatusCompleted); err != nil {
+		t.Fatalf("FinalizeTransfer(o-done): %v", err)
+	}
+	// Cancel the never-expires outbound offer (sender claim-back / withdraw).
+	if err := s.FinalizeTransfer(ctx, "o-noexp", indexer.TransferStatusCanceled); err != nil {
+		t.Fatalf("FinalizeTransfer(o-noexp): %v", err)
+	}
+	// A replayed archive must not overwrite an already-finalized row.
+	if err := s.FinalizeTransfer(ctx, "o-noexp", indexer.TransferStatusCompleted); err != nil {
+		t.Fatalf("FinalizeTransfer(o-noexp, replay): %v", err)
 	}
 
 	ids := func(list []indexer.Transfer) map[string]string {
@@ -813,15 +821,27 @@ func TestListTransfers(t *testing.T) {
 	}
 	page := indexer.Pagination{Page: 1, Limit: 50}
 
-	// role=sender, status=pending → only live + never-expires (expired excluded).
+	// role=sender, status=pending → only the live offer (expired and canceled excluded).
 	got, total, err := s.ListTransfers(ctx, "alice",
 		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusPending}, page)
 	if err != nil {
 		t.Fatalf("sender/pending: %v", err)
 	}
 	m := ids(got)
-	if total != 2 || len(m) != 2 || m["o-live"] != indexer.TransferStatusPending || m["o-noexp"] != indexer.TransferStatusPending {
+	if total != 1 || m["o-live"] != indexer.TransferStatusPending {
 		t.Fatalf("sender/pending unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=sender, status=canceled → the withdrawn offer, still canceled after the
+	// replayed finalize (the pending-only guard kept the first terminal status).
+	got, total, err = s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusCanceled}, page)
+	if err != nil {
+		t.Fatalf("sender/canceled: %v", err)
+	}
+	m = ids(got)
+	if total != 1 || m["o-noexp"] != indexer.TransferStatusCanceled {
+		t.Fatalf("sender/canceled unexpected: total=%d m=%v", total, m)
 	}
 
 	// role=sender, status=expired → only the past-dated pending offer, surfaced as expired.
@@ -872,7 +892,7 @@ func TestListTransfers_DirectAndOffer(t *testing.T) {
 	if err := s.InsertTransfer(ctx, makeOffer("of-usdcx", "carol", "alice", 2, nil)); err != nil {
 		t.Fatalf("insert offer: %v", err)
 	}
-	if err := s.CompleteTransfer(ctx, "of-usdcx"); err != nil {
+	if err := s.FinalizeTransfer(ctx, "of-usdcx", indexer.TransferStatusCompleted); err != nil {
 		t.Fatalf("complete offer: %v", err)
 	}
 
@@ -912,7 +932,7 @@ func TestListPendingTransfers(t *testing.T) {
 	if err := s.InsertTransfer(ctx, makeOffer("p-done", "fred", "carol", 3, nil)); err != nil {
 		t.Fatalf("insert done offer: %v", err)
 	}
-	if err := s.CompleteTransfer(ctx, "p-done"); err != nil {
+	if err := s.FinalizeTransfer(ctx, "p-done", indexer.TransferStatusCompleted); err != nil {
 		t.Fatalf("complete offer: %v", err)
 	}
 	if err := s.InsertTransfer(ctx, makeDirect("p-direct", "gita", "hank", 4)); err != nil {

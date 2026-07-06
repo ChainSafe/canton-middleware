@@ -49,6 +49,12 @@ type LedgerEvent struct {
 	// IsCreated is true for contract create events, false for archive events.
 	IsCreated bool
 
+	// Choice is the DAML choice that consumed the contract (e.g.
+	// "TransferInstruction_Withdraw"). Only set on archive events, and only when
+	// the stream delivers archives as consuming exercises (LEDGER_EFFECTS shape);
+	// "" otherwise.
+	Choice string
+
 	// fields holds the pre-decoded DAML record from CreateArguments, keyed by field label.
 	// Only populated for created events; nil for archived events.
 	fields map[string]*lapiv2.Value

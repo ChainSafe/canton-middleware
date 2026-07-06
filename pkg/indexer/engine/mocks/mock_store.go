@@ -123,17 +123,17 @@ func (_c *Store_ApplySupplyDelta_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
-// CompleteTransfer provides a mock function with given fields: ctx, contractID
-func (_m *Store) CompleteTransfer(ctx context.Context, contractID string) error {
-	ret := _m.Called(ctx, contractID)
+// FinalizeTransfer provides a mock function with given fields: ctx, contractID, status
+func (_m *Store) FinalizeTransfer(ctx context.Context, contractID string, status string) error {
+	ret := _m.Called(ctx, contractID, status)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CompleteTransfer")
+		panic("no return value specified for FinalizeTransfer")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, contractID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, contractID, status)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -141,31 +141,32 @@ func (_m *Store) CompleteTransfer(ctx context.Context, contractID string) error 
 	return r0
 }
 
-// Store_CompleteTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteTransfer'
-type Store_CompleteTransfer_Call struct {
+// Store_FinalizeTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FinalizeTransfer'
+type Store_FinalizeTransfer_Call struct {
 	*mock.Call
 }
 
-// CompleteTransfer is a helper method to define mock.On call
+// FinalizeTransfer is a helper method to define mock.On call
 //   - ctx context.Context
 //   - contractID string
-func (_e *Store_Expecter) CompleteTransfer(ctx interface{}, contractID interface{}) *Store_CompleteTransfer_Call {
-	return &Store_CompleteTransfer_Call{Call: _e.mock.On("CompleteTransfer", ctx, contractID)}
+//   - status string
+func (_e *Store_Expecter) FinalizeTransfer(ctx interface{}, contractID interface{}, status interface{}) *Store_FinalizeTransfer_Call {
+	return &Store_FinalizeTransfer_Call{Call: _e.mock.On("FinalizeTransfer", ctx, contractID, status)}
 }
 
-func (_c *Store_CompleteTransfer_Call) Run(run func(ctx context.Context, contractID string)) *Store_CompleteTransfer_Call {
+func (_c *Store_FinalizeTransfer_Call) Run(run func(ctx context.Context, contractID string, status string)) *Store_FinalizeTransfer_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *Store_CompleteTransfer_Call) Return(_a0 error) *Store_CompleteTransfer_Call {
+func (_c *Store_FinalizeTransfer_Call) Return(_a0 error) *Store_FinalizeTransfer_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Store_CompleteTransfer_Call) RunAndReturn(run func(context.Context, string) error) *Store_CompleteTransfer_Call {
+func (_c *Store_FinalizeTransfer_Call) RunAndReturn(run func(context.Context, string, string) error) *Store_FinalizeTransfer_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -134,13 +134,13 @@ func (s *instrumentedWriteStore) InsertTransfer(ctx context.Context, t *indexer.
 	return err
 }
 
-func (s *instrumentedWriteStore) CompleteTransfer(ctx context.Context, contractID string) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCompleteTransfer))
+func (s *instrumentedWriteStore) FinalizeTransfer(ctx context.Context, contractID, status string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpFinalizeTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.CompleteTransfer(ctx, contractID)
+	err := s.inner.FinalizeTransfer(ctx, contractID, status)
 	if err != nil {
-		s.metrics.IncErrors(OpCompleteTransfer)
+		s.metrics.IncErrors(OpFinalizeTransfer)
 	}
 	return err
 }
@@ -233,13 +233,13 @@ func (s *InstrumentedStore) InsertTransfer(ctx context.Context, t *indexer.Trans
 	return err
 }
 
-func (s *InstrumentedStore) CompleteTransfer(ctx context.Context, contractID string) error {
-	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCompleteTransfer))
+func (s *InstrumentedStore) FinalizeTransfer(ctx context.Context, contractID, status string) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpFinalizeTransfer))
 	defer timer.ObserveDuration()
 
-	err := s.inner.CompleteTransfer(ctx, contractID)
+	err := s.inner.FinalizeTransfer(ctx, contractID, status)
 	if err != nil {
-		s.metrics.IncErrors(OpCompleteTransfer)
+		s.metrics.IncErrors(OpFinalizeTransfer)
 	}
 	return err
 }

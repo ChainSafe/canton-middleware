@@ -88,10 +88,11 @@ type Store interface {
 	// (direct/completed). Idempotent by ContractID, so stream replays are no-ops.
 	InsertTransfer(ctx context.Context, t *indexer.Transfer) error
 
-	// CompleteTransfer transitions a transfer to "completed" when the Canton ledger
-	// emits an ARCHIVED event for the offer contract (receiver exercised Accept, or
-	// the offer was rejected/expired). The row is kept for history; no-op when not found.
-	CompleteTransfer(ctx context.Context, contractID string) error
+	// FinalizeTransfer transitions a still-pending transfer to the given terminal
+	// status ("completed" on accept, "canceled" on withdraw/reject) when the Canton
+	// ledger archives the offer contract. Rows already finalized are left untouched,
+	// so replays are no-ops. The row is kept for history; no-op when not found.
+	FinalizeTransfer(ctx context.Context, contractID, status string) error
 
 	// InsertHolding records an active Utility.Registry.Holding contract so its amount
 	// and owner can be recovered when the contract is later archived (archive events
@@ -207,8 +208,8 @@ func (p *Processor) processBatch(ctx context.Context, batch *streaming.Batch[any
 				}
 			case *indexer.Transfer:
 				if item.Archived {
-					if err := tx.CompleteTransfer(ctx, item.ContractID); err != nil {
-						return fmt.Errorf("complete transfer %s: %w", item.ContractID, err)
+					if err := tx.FinalizeTransfer(ctx, item.ContractID, item.Status); err != nil {
+						return fmt.Errorf("finalize transfer %s: %w", item.ContractID, err)
 					}
 				} else {
 					if err := tx.InsertTransfer(ctx, item); err != nil {

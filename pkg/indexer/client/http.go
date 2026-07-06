@@ -208,8 +208,8 @@ func (c *HTTP) GetTransfer(ctx context.Context, contractID string) (*indexer.Tra
 }
 
 // GetTransfers calls GET /indexer/v1/admin/parties/{partyID}/transfers,
-// filtering by role (receiver/sender/any) and status (pending/expired/completed;
-// "" = all).
+// filtering by role (receiver/sender/any) and status
+// (pending/expired/completed/canceled; "" = all).
 func (c *HTTP) GetTransfers(
 	ctx context.Context, partyID string, query indexer.TransferQuery, p indexer.Pagination,
 ) (*indexer.Page[indexer.Transfer], error) {

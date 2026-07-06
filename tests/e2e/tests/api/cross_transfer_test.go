@@ -398,6 +398,11 @@ func TestUSDCx_OutgoingOffer_ExpiresAfterValidity(t *testing.T) {
 // the offer expires; the sender claims it back via the custodial withdraw endpoint; the
 // offer then leaves the expired set (archived on-ledger) and the sender's USDCx balance
 // is whole again (the locked funds are reclaimed).
+//
+// It also pins down the withdrawn offer's terminal status: the indexer reads the
+// archiving choice (TransferInstruction_Withdraw) from the ledger stream and marks the
+// row "canceled" — the offer must surface under the outgoing canceled filter and must
+// NOT appear in the completed history as if it had settled.
 func TestUSDCx_ClaimBackExpiredOffer_ToExternalParty(t *testing.T) {
 	t.Parallel()
 
@@ -447,6 +452,27 @@ func TestUSDCx_ClaimBackExpiredOffer_ToExternalParty(t *testing.T) {
 	// sender's USDCx balance is whole again (locked funds reclaimed).
 	sys.DSL.WaitForOutgoingTransferGone(ctx, t, sys.Accounts.User1, indexer.TransferStatusExpired, expired.ContractID)
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
+
+	// The withdrawn offer is marked canceled (not completed): it surfaces under the
+	// outgoing canceled filter with its terminal status set.
+	canceled := sys.DSL.WaitForOutgoingTransfer(ctx, t, sys.Accounts.User1, indexer.TransferStatusCanceled,
+		func(o transfer.OutgoingTransfer) bool { return o.ContractID == expired.ContractID })
+	if canceled.Status != indexer.TransferStatusCanceled {
+		t.Fatalf("expected canceled status on withdrawn offer, got %q", canceled.Status)
+	}
+
+	// And it must not show up in the completed history as a settled transfer.
+	// (The indexer has already processed the archive — the canceled row above —
+	// so a single read is race-free.)
+	completed, err := sys.APIServer.ListCompletedTransfers(ctx, &sys.Accounts.User1)
+	if err != nil {
+		t.Fatalf("list completed: %v", err)
+	}
+	for _, c := range completed.Items {
+		if c.ContractID == expired.ContractID {
+			t.Fatalf("withdrawn offer %s must not appear in completed history: %+v", expired.ContractID, c)
+		}
+	}
 }
 
 // TestUSDCx_ListIncoming_PendingOffer verifies the incoming API surfaces a

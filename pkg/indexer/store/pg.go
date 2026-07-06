@@ -289,16 +289,19 @@ func (s *PGStore) InsertTransfer(ctx context.Context, t *indexer.Transfer) error
 	return nil
 }
 
-// CompleteTransfer sets a transfer's status to "completed" (offer archived).
+// FinalizeTransfer sets an archived offer's terminal status ("completed" on
+// accept, "canceled" on withdraw/reject). Only still-pending rows are updated —
+// an already-finalized row keeps its status, making stream replays no-ops.
 // No-op when not found.
-func (s *PGStore) CompleteTransfer(ctx context.Context, contractID string) error {
+func (s *PGStore) FinalizeTransfer(ctx context.Context, contractID, status string) error {
 	_, err := s.db.NewUpdate().
 		Model((*TransferDao)(nil)).
-		Set("status = ?", indexer.TransferStatusCompleted).
+		Set("status = ?", status).
 		Where("contract_id = ?", contractID).
+		Where("status = ?", indexer.TransferStatusPending).
 		Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("complete transfer: %w", err)
+		return fmt.Errorf("finalize transfer: %w", err)
 	}
 	return nil
 }
@@ -357,6 +360,8 @@ func (s *PGStore) ListTransfers(
 				Where("expires_at IS NOT NULL AND expires_at <= ?", now)
 		case indexer.TransferStatusCompleted:
 			q = q.Where("status = ?", indexer.TransferStatusCompleted)
+		case indexer.TransferStatusCanceled:
+			q = q.Where("status = ?", indexer.TransferStatusCanceled)
 		default: // "" = all statuses, no filter
 		}
 
