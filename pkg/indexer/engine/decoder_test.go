@@ -103,7 +103,7 @@ func TestOfferDecoder_ArchiveChoiceMapsTerminalStatus(t *testing.T) {
 	}{
 		{choiceInstructionAccept, indexer.TransferStatusCompleted},
 		{choiceInstructionWithdraw, indexer.TransferStatusCanceled},
-		{choiceInstructionReject, indexer.TransferStatusCanceled},
+		{choiceInstructionReject, indexer.TransferStatusRejected},
 		{"Archive", indexer.TransferStatusCompleted}, // unknown choice → historical fallback
 		{"", indexer.TransferStatusCompleted},        // no choice info (ACS_DELTA) → fallback
 	}

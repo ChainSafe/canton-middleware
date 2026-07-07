@@ -220,10 +220,11 @@ func parseTransferQuery(r *http.Request) (indexer.TransferQuery, error) {
 	case "", "all":
 		q.Status = ""
 	case indexer.TransferStatusPending, indexer.TransferStatusExpired,
-		indexer.TransferStatusCompleted, indexer.TransferStatusCanceled:
+		indexer.TransferStatusCompleted, indexer.TransferStatusCanceled,
+		indexer.TransferStatusRejected:
 		q.Status = s
 	default:
-		return q, apperrors.BadRequestError(nil, "status must be pending, expired, completed, canceled, or all")
+		return q, apperrors.BadRequestError(nil, "status must be pending, expired, completed, canceled, rejected, or all")
 	}
 	return q, nil
 }

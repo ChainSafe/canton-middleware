@@ -76,8 +76,8 @@ type IncomingTransfersList struct {
 }
 
 // OutgoingTransfer is a single TransferOffer the queried party sent. Mirrors
-// IncomingTransfer but adds Status (pending/expired/completed/canceled) and
-// ExpiresAt so callers can track an outbound offer through its lifecycle.
+// IncomingTransfer but adds Status (pending/expired/completed/canceled/rejected)
+// and ExpiresAt so callers can track an outbound offer through its lifecycle.
 type OutgoingTransfer struct {
 	ContractID      string `json:"contract_id"`
 	SenderPartyID   string `json:"sender_party_id"`

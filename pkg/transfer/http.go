@@ -184,7 +184,7 @@ func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error
 
 // listOutgoing returns the queried address's outbound TransferOffers. Like
 // listIncoming it is unauthenticated and takes the EVM address as a query param;
-// ?status= filters by pending|expired|accepted|canceled|all (default all).
+// ?status= filters by pending|expired|accepted|canceled|rejected|all (default all).
 func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error {
 	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
 	if evmAddr == "" {
@@ -252,8 +252,10 @@ func parseOutgoingStatus(r *http.Request) (string, error) {
 		return indexer.TransferStatusCompleted, nil
 	case "canceled":
 		return indexer.TransferStatusCanceled, nil
+	case "rejected":
+		return indexer.TransferStatusRejected, nil
 	default:
-		return "", apperrors.BadRequestError(nil, "status must be pending, expired, completed, canceled, or all")
+		return "", apperrors.BadRequestError(nil, "status must be pending, expired, completed, canceled, rejected, or all")
 	}
 }
 

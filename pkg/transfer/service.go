@@ -610,6 +610,10 @@ func (s *TransferService) claimableTransfer(
 	if t.Status == indexer.TransferStatusCanceled {
 		return nil, apperrors.BadRequestError(nil, "transfer already canceled; nothing to claim back")
 	}
+	if t.Status == indexer.TransferStatusRejected {
+		// The receiver's reject already returned the escrowed funds to the sender.
+		return nil, apperrors.BadRequestError(nil, "transfer was rejected by the receiver; nothing to claim back")
+	}
 	return t, nil
 }
 

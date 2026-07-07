@@ -787,12 +787,14 @@ func TestListTransfers(t *testing.T) {
 	past := time.Now().UTC().Add(-time.Hour)
 	future := time.Now().UTC().Add(time.Hour)
 
-	// alice sends three offers (live / expired / never-expires) and receives one completed.
+	// alice sends four offers (live / expired / never-expires / to-be-rejected)
+	// and receives one completed.
 	offers := []*indexer.Transfer{
 		makeOffer("o-live", "alice", "bob", 1, &future),
 		makeOffer("o-expired", "alice", "carol", 2, &past),
 		makeOffer("o-noexp", "alice", "eve", 3, nil),
 		makeOffer("o-done", "dave", "alice", 4, &past),
+		makeOffer("o-rejected", "alice", "frank", 5, &future),
 	}
 	for _, o := range offers {
 		if err := s.InsertTransfer(ctx, o); err != nil {
@@ -810,6 +812,10 @@ func TestListTransfers(t *testing.T) {
 	// A replayed archive must not overwrite an already-finalized row.
 	if err := s.FinalizeTransfer(ctx, "o-noexp", indexer.TransferStatusCompleted); err != nil {
 		t.Fatalf("FinalizeTransfer(o-noexp, replay): %v", err)
+	}
+	// Reject the last outbound offer (receiver declined).
+	if err := s.FinalizeTransfer(ctx, "o-rejected", indexer.TransferStatusRejected); err != nil {
+		t.Fatalf("FinalizeTransfer(o-rejected): %v", err)
 	}
 
 	ids := func(list []indexer.Transfer) map[string]string {
@@ -842,6 +848,19 @@ func TestListTransfers(t *testing.T) {
 	m = ids(got)
 	if total != 1 || m["o-noexp"] != indexer.TransferStatusCanceled {
 		t.Fatalf("sender/canceled unexpected: total=%d m=%v", total, m)
+	}
+
+	// role=sender, status=rejected → only the receiver-declined offer; it is not
+	// conflated with canceled (and vice versa — the canceled filter above found
+	// exactly one row).
+	got, total, err = s.ListTransfers(ctx, "alice",
+		indexer.TransferQuery{Role: indexer.TransferRoleSender, Status: indexer.TransferStatusRejected}, page)
+	if err != nil {
+		t.Fatalf("sender/rejected: %v", err)
+	}
+	m = ids(got)
+	if total != 1 || m["o-rejected"] != indexer.TransferStatusRejected {
+		t.Fatalf("sender/rejected unexpected: total=%d m=%v", total, m)
 	}
 
 	// role=sender, status=expired → only the past-dated pending offer, surfaced as expired.

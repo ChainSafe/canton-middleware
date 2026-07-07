@@ -362,6 +362,8 @@ func (s *PGStore) ListTransfers(
 			q = q.Where("status = ?", indexer.TransferStatusCompleted)
 		case indexer.TransferStatusCanceled:
 			q = q.Where("status = ?", indexer.TransferStatusCanceled)
+		case indexer.TransferStatusRejected:
+			q = q.Where("status = ?", indexer.TransferStatusRejected)
 		default: // "" = all statuses, no filter
 		}
 

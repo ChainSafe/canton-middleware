@@ -8,13 +8,16 @@ import "time"
 // A transfer is "completed" once settled; an offer that hasn't settled is
 // "pending" (or "expired" once past its executeBefore). "expired" is a derived
 // status — it is never persisted, only computed at read time from a still-pending
-// row whose ExpiresAt is in the past. "canceled" is persisted when the offer is
-// archived by a withdraw (sender claim-back) or reject instead of an accept.
+// row whose ExpiresAt is in the past. "canceled" is persisted when the sender
+// withdraws (claims back) the offer; "rejected" when the receiver declines it.
+// Both mean the offer did not settle and the escrowed funds returned to the
+// sender — they differ only in who ended it.
 const (
 	TransferStatusPending   = "pending"
 	TransferStatusExpired   = "expired"
 	TransferStatusCompleted = "completed"
 	TransferStatusCanceled  = "canceled"
+	TransferStatusRejected  = "rejected"
 )
 
 // Transfer kind values, recorded on Transfer.Kind / the indexer_transfers table.
@@ -24,7 +27,7 @@ const (
 	TransferKindDirect = "direct"
 	// TransferKindOffer is a 2-step (offer-based) transfer, e.g. USDCx. It starts
 	// "pending" on the TransferOffer CREATE and on its ARCHIVE becomes "completed"
-	// (accepted) or "canceled" (withdrawn/rejected).
+	// (accepted), "canceled" (sender withdrew), or "rejected" (receiver declined).
 	TransferKindOffer = "offer"
 )
 

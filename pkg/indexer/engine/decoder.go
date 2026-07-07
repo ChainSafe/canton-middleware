@@ -24,8 +24,8 @@ const (
 	// Splice token-standard TransferInstruction choices that archive a
 	// TransferOffer. The choice name arrives on the consuming exercised event
 	// (LEDGER_EFFECTS stream shape) and decides the offer's terminal status:
-	// accept settles it, withdraw (sender claim-back) and reject (receiver
-	// decline) cancel it.
+	// accept settles it ("completed"), withdraw is the sender claiming it back
+	// ("canceled"), reject is the receiver declining it ("rejected").
 	choiceInstructionAccept   = "TransferInstruction_Accept"
 	choiceInstructionWithdraw = "TransferInstruction_Withdraw"
 	choiceInstructionReject   = "TransferInstruction_Reject"
@@ -202,9 +202,10 @@ func NewOfferDecoder(
 }
 
 // offerTerminalStatus maps the choice that archived a TransferOffer to the
-// transfer's terminal status: accept settles ("completed"); withdraw and reject
-// cancel ("canceled"). Unknown choices — including "" from a stream that does
-// not carry choice names — fall back to "completed", preserving the historical
+// transfer's terminal status: accept settles ("completed"), withdraw is the
+// sender claiming the offer back ("canceled"), reject is the receiver declining
+// it ("rejected"). Unknown choices — including "" from a stream that does not
+// carry choice names — fall back to "completed", preserving the historical
 // any-archive-settles behavior. Each fallback increments the
 // OfferUnknownArchiveChoices counter (alertable) and logs a warning, since it
 // may mean a registry archives offers via a choice this mapping doesn't know
@@ -213,8 +214,10 @@ func offerTerminalStatus(choice, contractID string, metrics *Metrics, logger *za
 	switch choice {
 	case choiceInstructionAccept:
 		return indexer.TransferStatusCompleted
-	case choiceInstructionWithdraw, choiceInstructionReject:
+	case choiceInstructionWithdraw:
 		return indexer.TransferStatusCanceled
+	case choiceInstructionReject:
+		return indexer.TransferStatusRejected
 	default:
 		metrics.OfferUnknownArchiveChoices.Inc()
 		logger.Warn("TransferOffer archived by unrecognized choice — defaulting to completed",
