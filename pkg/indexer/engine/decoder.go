@@ -219,7 +219,9 @@ func offerTerminalStatus(choice, contractID string, metrics *Metrics, logger *za
 	case choiceInstructionReject:
 		return indexer.TransferStatusRejected
 	default:
-		metrics.OfferUnknownArchiveChoices.Inc()
+		if metrics != nil {
+			metrics.OfferUnknownArchiveChoices.Inc()
+		}
 		logger.Warn("TransferOffer archived by unrecognized choice — defaulting to completed",
 			zap.String("choice", choice),
 			zap.String("contract_id", contractID),

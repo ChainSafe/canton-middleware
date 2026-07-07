@@ -44,7 +44,7 @@ const (
 // A zero Role defaults to receiver; a zero Status means "all statuses".
 type TransferQuery struct {
 	Role   TransferRole
-	Status string // "" = all; pending / expired / completed / canceled
+	Status string // "" = all; pending / expired / completed / canceled / rejected
 }
 
 // Transfer is a token transfer, generalized across all tokens and both transfer
