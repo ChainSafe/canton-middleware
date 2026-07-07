@@ -150,8 +150,11 @@ func (c *Client) runStream(
 		BeginExclusive: fromOffset,
 		UpdateFormat: &lapiv2.UpdateFormat{
 			IncludeTransactions: &lapiv2.TransactionFormat{
-				EventFormat:      eventFormat,
-				TransactionShape: lapiv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
+				EventFormat: eventFormat,
+				// LEDGER_EFFECTS (rather than ACS_DELTA) so archives arrive as
+				// consuming ExercisedEvents carrying the choice name — consumers
+				// need it to tell an accepted offer from a withdrawn one.
+				TransactionShape: lapiv2.TransactionShape_TRANSACTION_SHAPE_LEDGER_EFFECTS,
 			},
 		},
 	})
@@ -237,9 +240,23 @@ func decodeLedgerTransaction(tx *lapiv2.Transaction) *LedgerTransaction {
 // decodeLedgerEvent converts a proto Event to a LedgerEvent.
 // For created events the DAML CreateArguments are pre-decoded into LedgerEvent.fields
 // so that callers never need to import lapiv2 directly.
-// Returns nil for event kinds the indexer does not process (e.g. exercised events).
+// With the LEDGER_EFFECTS transaction shape a contract archive arrives as a consuming
+// ExercisedEvent; it is decoded as an archive-shaped LedgerEvent carrying the Choice
+// name.
+//
+// Only events with AcsDelta set are decoded. LEDGER_EFFECTS delivers every event the
+// subscribing parties are informees of — including witnessed events on contracts where
+// no subscribed party is a stakeholder, and transient contracts (created and consumed
+// in the same transaction). Consumers derive balances from create/archive pairs and
+// assume both ends of a contract's lifecycle are visible; a witnessed create whose
+// archive is never delivered would corrupt that accounting. The AcsDelta flag marks
+// exactly the events an ACS_DELTA stream would have delivered, so gating on it keeps
+// the pre-LEDGER_EFFECTS visibility semantics while still carrying the choice name.
+//
+// Returns nil for everything else (witnessed-only events, transient contracts,
+// non-consuming exercises, plain ArchivedEvents from ACS_DELTA streams).
 func decodeLedgerEvent(ev *lapiv2.Event) *LedgerEvent {
-	if created := ev.GetCreated(); created != nil {
+	if created := ev.GetCreated(); created != nil && created.GetAcsDelta() {
 		le := &LedgerEvent{
 			ContractID: created.GetContractId(),
 			IsCreated:  true,
@@ -253,12 +270,13 @@ func decodeLedgerEvent(ev *lapiv2.Event) *LedgerEvent {
 		return le
 	}
 
-	if archived := ev.GetArchived(); archived != nil {
+	if exercised := ev.GetExercised(); exercised != nil && exercised.GetConsuming() && exercised.GetAcsDelta() {
 		le := &LedgerEvent{
-			ContractID: archived.GetContractId(),
+			ContractID: exercised.GetContractId(),
 			IsCreated:  false,
+			Choice:     exercised.GetChoice(),
 		}
-		if tid := archived.GetTemplateId(); tid != nil {
+		if tid := exercised.GetTemplateId(); tid != nil {
 			le.PackageID = tid.GetPackageId()
 			le.ModuleName = tid.GetModuleName()
 			le.TemplateName = tid.GetEntityName()

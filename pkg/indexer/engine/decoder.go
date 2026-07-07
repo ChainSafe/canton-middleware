@@ -21,6 +21,15 @@ const (
 	transferOfferModule = "Utility.Registry.App.V0.Model.Transfer"
 	transferOfferEntity = "TransferOffer"
 
+	// Splice token-standard TransferInstruction choices that archive a
+	// TransferOffer. The choice name arrives on the consuming exercised event
+	// (LEDGER_EFFECTS stream shape) and decides the offer's terminal status:
+	// accept settles it ("completed"), withdraw is the sender claiming it back
+	// ("canceled"), reject is the receiver declining it ("rejected").
+	choiceInstructionAccept   = "TransferInstruction_Accept"
+	choiceInstructionWithdraw = "TransferInstruction_Withdraw"
+	choiceInstructionReject   = "TransferInstruction_Reject"
+
 	holdingModule = "Utility.Registry.Holding.V0.Holding"
 	holdingEntity = "Holding"
 )
@@ -139,10 +148,11 @@ func NewTokenTransferDecoder(
 // packageID is empty (feature disabled).
 //
 // On CREATED the transfer is "pending" with all fields populated; on ARCHIVED only
-// ContractID/LedgerOffset/CreatedAt and the Archived flag are set — the processor
-// uses ContractID to complete the existing row.
+// ContractID/LedgerOffset/CreatedAt, the Archived flag, and the terminal Status
+// (derived from the archiving choice) are set — the processor uses ContractID to
+// finalize the existing row.
 func NewOfferDecoder(
-	packageID string, logger *zap.Logger,
+	packageID string, metrics *Metrics, logger *zap.Logger,
 ) func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
 	if packageID == "" {
 		return func(*streaming.LedgerTransaction, *streaming.LedgerEvent) (*indexer.Transfer, bool) {
@@ -165,6 +175,9 @@ func NewOfferDecoder(
 			LedgerOffset: tx.Offset,
 			CreatedAt:    tx.EffectiveTime,
 		}
+		if !ev.IsCreated {
+			transfer.Status = offerTerminalStatus(ev.Choice, ev.ContractID, metrics, logger)
+		}
 		if ev.IsCreated {
 			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
 			// Receiver/sender/amount/instrumentId all live inside the nested transfer record.
@@ -185,6 +198,35 @@ func NewOfferDecoder(
 			}
 		}
 		return transfer, true
+	}
+}
+
+// offerTerminalStatus maps the choice that archived a TransferOffer to the
+// transfer's terminal status: accept settles ("completed"), withdraw is the
+// sender claiming the offer back ("canceled"), reject is the receiver declining
+// it ("rejected"). Unknown choices — including "" from a stream that does not
+// carry choice names — fall back to "completed", preserving the historical
+// any-archive-settles behavior. Each fallback increments the
+// OfferUnknownArchiveChoices counter (alertable) and logs a warning, since it
+// may mean a registry archives offers via a choice this mapping doesn't know
+// (e.g. TransferInstruction_Update) and statuses could be mislabeled.
+func offerTerminalStatus(choice, contractID string, metrics *Metrics, logger *zap.Logger) string {
+	switch choice {
+	case choiceInstructionAccept:
+		return indexer.TransferStatusCompleted
+	case choiceInstructionWithdraw:
+		return indexer.TransferStatusCanceled
+	case choiceInstructionReject:
+		return indexer.TransferStatusRejected
+	default:
+		if metrics != nil {
+			metrics.OfferUnknownArchiveChoices.Inc()
+		}
+		logger.Warn("TransferOffer archived by unrecognized choice — defaulting to completed",
+			zap.String("choice", choice),
+			zap.String("contract_id", contractID),
+		)
+		return indexer.TransferStatusCompleted
 	}
 }
 

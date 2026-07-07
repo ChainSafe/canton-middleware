@@ -67,8 +67,8 @@ type Service interface {
 	// (party IDs truncated) to keep that from leaking counterparties.
 	ListIncoming(ctx context.Context, evmAddr string, p indexer.Pagination) (*IncomingTransfersList, error)
 	// ListOutgoing returns one page of the user's outbound transfers filtered
-	// by status (pending / expired / completed / all). Like ListIncoming it is
-	// unauthenticated and truncates party IDs.
+	// by status (pending / expired / completed / canceled / rejected / all).
+	// Like ListIncoming it is unauthenticated and truncates party IDs.
 	ListOutgoing(ctx context.Context, evmAddr string, status string, p indexer.Pagination) (*OutgoingTransfersList, error)
 	// ListCompleted returns one page of the user's settled transfers across all
 	// tokens (TokenTransferEvents and accepted TransferOffers), newest first.
@@ -452,6 +452,7 @@ func (s *TransferService) ListOutgoing(
 			InstrumentAdmin: o.InstrumentAdmin,
 			InstrumentID:    o.InstrumentID,
 			Status:          o.Status,
+			CreatedAt:       o.CreatedAt.Format(time.RFC3339),
 		}
 		if o.ExpiresAt != nil {
 			item.ExpiresAt = o.ExpiresAt.Format(time.RFC3339)
@@ -606,6 +607,13 @@ func (s *TransferService) claimableTransfer(
 	}
 	if t.Status == indexer.TransferStatusCompleted {
 		return nil, apperrors.BadRequestError(nil, "transfer already completed; nothing to claim back")
+	}
+	if t.Status == indexer.TransferStatusCanceled {
+		return nil, apperrors.BadRequestError(nil, "transfer already canceled; nothing to claim back")
+	}
+	if t.Status == indexer.TransferStatusRejected {
+		// The receiver's reject already returned the escrowed funds to the sender.
+		return nil, apperrors.BadRequestError(nil, "transfer was rejected by the receiver; nothing to claim back")
 	}
 	return t, nil
 }

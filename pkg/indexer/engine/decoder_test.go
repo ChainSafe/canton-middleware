@@ -86,6 +86,35 @@ func makeHoldingEvent(contractID string, lock streaming.FieldValue) *streaming.L
 		})
 }
 
+// makeOfferArchiveEvent builds a TransferOffer archive event as delivered by the
+// LEDGER_EFFECTS stream: no create arguments, just the consuming choice name.
+func makeOfferArchiveEvent(contractID, choice string) *streaming.LedgerEvent {
+	ev := streaming.NewLedgerEvent(contractID, "pkg-id", transferOfferModule, transferOfferEntity, false, nil)
+	ev.Choice = choice
+	return ev
+}
+
+func TestOfferDecoder_ArchiveChoiceMapsTerminalStatus(t *testing.T) {
+	dec := NewOfferDecoder("pkg-id", NewNopMetrics(), zap.NewNop())
+
+	cases := []struct {
+		choice string
+		want   string
+	}{
+		{choiceInstructionAccept, indexer.TransferStatusCompleted},
+		{choiceInstructionWithdraw, indexer.TransferStatusCanceled},
+		{choiceInstructionReject, indexer.TransferStatusRejected},
+		{"Archive", indexer.TransferStatusCompleted}, // unknown choice → historical fallback
+		{"", indexer.TransferStatusCompleted},        // no choice info (ACS_DELTA) → fallback
+	}
+	for _, tc := range cases {
+		tr, ok := dec(makeTx(1), makeOfferArchiveEvent("offer-1", tc.choice))
+		require.True(t, ok, "choice %q", tc.choice)
+		assert.True(t, tr.Archived, "choice %q", tc.choice)
+		assert.Equal(t, tc.want, tr.Status, "choice %q", tc.choice)
+	}
+}
+
 func TestHoldingDecoder_LockField(t *testing.T) {
 	dec := NewHoldingDecoder("pkg-id", zap.NewNop())
 

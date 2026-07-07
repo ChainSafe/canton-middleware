@@ -8,11 +8,16 @@ import "time"
 // A transfer is "completed" once settled; an offer that hasn't settled is
 // "pending" (or "expired" once past its executeBefore). "expired" is a derived
 // status — it is never persisted, only computed at read time from a still-pending
-// row whose ExpiresAt is in the past.
+// row whose ExpiresAt is in the past. "canceled" is persisted when the sender
+// withdraws (claims back) the offer; "rejected" when the receiver declines it.
+// Both mean the offer did not settle and the escrowed funds returned to the
+// sender — they differ only in who ended it.
 const (
 	TransferStatusPending   = "pending"
 	TransferStatusExpired   = "expired"
 	TransferStatusCompleted = "completed"
+	TransferStatusCanceled  = "canceled"
+	TransferStatusRejected  = "rejected"
 )
 
 // Transfer kind values, recorded on Transfer.Kind / the indexer_transfers table.
@@ -21,7 +26,8 @@ const (
 	// settled transfer. Always Status "completed".
 	TransferKindDirect = "direct"
 	// TransferKindOffer is a 2-step (offer-based) transfer, e.g. USDCx. It starts
-	// "pending" on the TransferOffer CREATE and becomes "completed" on its ARCHIVE.
+	// "pending" on the TransferOffer CREATE and on its ARCHIVE becomes "completed"
+	// (accepted), "canceled" (sender withdrew), or "rejected" (receiver declined).
 	TransferKindOffer = "offer"
 )
 
@@ -38,19 +44,20 @@ const (
 // A zero Role defaults to receiver; a zero Status means "all statuses".
 type TransferQuery struct {
 	Role   TransferRole
-	Status string // "" = all; pending / expired / completed
+	Status string // "" = all; pending / expired / completed / canceled / rejected
 }
 
 // Transfer is a token transfer, generalized across all tokens and both transfer
 // shapes. Direct transfers (Kind "direct") are our atomic CIP-56
 // TokenTransferEvents; 2-step transfers (Kind "offer") are offer-based, e.g.
 // USDCx. Rows live in indexer_transfers with a mutable status lifecycle: offers
-// start "pending" and become "completed" on archive; direct transfers are always
-// "completed". "expired" is derived at read time and never stored.
+// start "pending" and on archive become "completed" (accepted) or "canceled"
+// (withdrawn/rejected); direct transfers are always "completed". "expired" is
+// derived at read time and never stored.
 type Transfer struct {
 	ContractID      string     `json:"contract_id"`
 	Kind            string     `json:"kind"`   // "direct" | "offer"
-	Status          string     `json:"status"` // "pending" | "expired" | "completed"
+	Status          string     `json:"status"` // "pending" | "expired" | "completed" | "canceled"
 	FromPartyID     string     `json:"from_party_id"`
 	ToPartyID       string     `json:"to_party_id"`
 	InstrumentAdmin string     `json:"instrument_admin"`
@@ -62,7 +69,8 @@ type Transfer struct {
 	CreatedAt       time.Time  `json:"created_at"`
 
 	// Archived is a decode-time signal only — not persisted. Set by the offer
-	// decoder on an ARCHIVED event so the processor completes the transfer.
+	// decoder on an ARCHIVED event so the processor finalizes the transfer with
+	// the terminal Status the decoder derived from the archiving choice.
 	Archived bool `json:"-"`
 }
 

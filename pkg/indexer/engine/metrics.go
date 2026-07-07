@@ -21,6 +21,12 @@ type Metrics struct {
 	// retry. Each increment represents one failed attempt, not one lost batch.
 	BatchProcessingErrors prometheus.Counter
 
+	// OfferUnknownArchiveChoices counts TransferOffer archives whose consuming
+	// choice was not one of the recognized TransferInstruction choices. Each of
+	// these falls back to the "completed" status, so a non-zero value means
+	// offers may be mislabeled — alert on it and extend the decoder's mapping.
+	OfferUnknownArchiveChoices prometheus.Counter
+
 	// ── Sync state ───────────────────────────────────────────────────────────
 
 	// SyncLagSeconds reports how far behind real-time the indexer is, measured
@@ -49,6 +55,12 @@ func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 			Namespace: ns, Subsystem: sub,
 			Name: "batch_processing_errors_total",
 			Help: "Total number of batch processing failures that triggered a retry",
+		}),
+
+		OfferUnknownArchiveChoices: f.NewCounter(prometheus.CounterOpts{
+			Namespace: ns, Subsystem: sub,
+			Name: "offer_unknown_archive_choices_total",
+			Help: "TransferOffer archives via an unrecognized choice (fell back to completed status)",
 		}),
 
 		SyncLagSeconds: f.NewGauge(prometheus.GaugeOpts{

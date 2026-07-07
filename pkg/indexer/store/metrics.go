@@ -58,7 +58,7 @@ const (
 	OpApplyBalanceDelta StoreOperation = "apply_balance_delta"
 	OpApplySupplyDelta  StoreOperation = "apply_supply_delta"
 	OpInsertTransfer    StoreOperation = "insert_transfer"
-	OpCompleteTransfer  StoreOperation = "complete_transfer"
+	OpFinalizeTransfer  StoreOperation = "finalize_transfer"
 	OpInsertHolding     StoreOperation = "insert_holding"
 	OpTakeHolding       StoreOperation = "take_holding"
 
