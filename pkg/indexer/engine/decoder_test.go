@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -45,9 +46,7 @@ func makeTransferEvent(contractID string, fromParty, toParty streaming.FieldValu
 		"timestamp": streaming.MakeTimestampField(time.Unix(1_700_000_000, 0)),
 		"meta":      streaming.MakeNoneField(),
 	}
-	for k, v := range extra {
-		fields[k] = v
-	}
+	maps.Copy(fields, extra)
 	return streaming.NewLedgerEvent(contractID, "pkg-id", tokenTransferEventModule, tokenTransferEventEntity, true, fields)
 }
 
@@ -113,6 +112,30 @@ func TestOfferDecoder_ArchiveChoiceMapsTerminalStatus(t *testing.T) {
 		assert.True(t, tr.Archived, "choice %q", tc.choice)
 		assert.Equal(t, tc.want, tr.Status, "choice %q", tc.choice)
 	}
+}
+
+func TestOfferDecoder_CreateCarriesLedgerTxID(t *testing.T) {
+	dec := NewOfferDecoder("pkg-id", NewNopMetrics(), zap.NewNop())
+
+	ev := streaming.NewLedgerEvent("offer-1", "pkg-id", transferOfferModule, transferOfferEntity, true,
+		map[string]streaming.FieldValue{
+			"transfer": streaming.MakeRecordField(map[string]streaming.FieldValue{
+				"sender":   streaming.MakePartyField(testSender),
+				"receiver": streaming.MakePartyField(testRecipient),
+				"amount":   streaming.MakeNumericField(testAmount),
+				"instrumentId": streaming.MakeRecordField(map[string]streaming.FieldValue{
+					"admin": streaming.MakePartyField(testInstrumentAdmin),
+					"id":    streaming.MakeTextField(testInstrumentID),
+				}),
+			}),
+		})
+
+	tr, ok := dec(makeTx(1), ev)
+	require.True(t, ok)
+	assert.Equal(t, indexer.TransferStatusPending, tr.Status)
+	assert.Equal(t, "update-1", tr.TxID)
+	assert.Equal(t, testSender, tr.FromPartyID)
+	assert.Equal(t, testRecipient, tr.ToPartyID)
 }
 
 func TestHoldingDecoder_LockField(t *testing.T) {
