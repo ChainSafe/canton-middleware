@@ -452,6 +452,7 @@ func (s *TransferService) ListOutgoing(
 			InstrumentAdmin: o.InstrumentAdmin,
 			InstrumentID:    o.InstrumentID,
 			Status:          o.Status,
+			CreatedAt:       o.CreatedAt.Format(time.RFC3339),
 		}
 		if o.ExpiresAt != nil {
 			item.ExpiresAt = o.ExpiresAt.Format(time.RFC3339)

@@ -86,6 +86,7 @@ type OutgoingTransfer struct {
 	InstrumentAdmin string `json:"instrument_admin"`
 	InstrumentID    string `json:"instrument_id"`
 	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`           // RFC3339; ledger effective time of the offer's creation
 	ExpiresAt       string `json:"expires_at,omitempty"` // RFC3339; omitted when the offer never expires
 	Symbol          string `json:"symbol,omitempty"`
 	Decimals        int    `json:"decimals,omitempty"`

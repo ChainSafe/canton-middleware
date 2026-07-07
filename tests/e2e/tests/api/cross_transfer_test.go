@@ -460,6 +460,10 @@ func TestUSDCx_ClaimBackExpiredOffer_ToExternalParty(t *testing.T) {
 	if canceled.Status != indexer.TransferStatusCanceled {
 		t.Fatalf("expected canceled status on withdrawn offer, got %q", canceled.Status)
 	}
+	// created_at is what history UIs sort/group canceled rows by — must be set.
+	if canceled.CreatedAt == "" {
+		t.Fatal("expected a non-empty created_at on the canceled offer")
+	}
 
 	// And it must not show up in the completed history as a settled transfer.
 	// (The indexer has already processed the archive — the canceled row above —
