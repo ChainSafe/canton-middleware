@@ -297,7 +297,12 @@ func initServices(
 		g.Go(func() error { return sub.Start(gCtx) })
 	}
 
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient)
+	// wl gates outbound party-id transfers (#318); cfg.Canton.IssuerParty doubles
+	// as the bridge-operator party and is rejected as a transfer recipient.
+	transferSvc := transfer.NewTransferService(
+		cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient,
+		wl, cfg.Canton.IssuerParty,
+	)
 	return &services{
 		evmStore:     evmStore,
 		tokenService: tokenService,
