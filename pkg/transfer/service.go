@@ -98,11 +98,6 @@ type Service interface {
 }
 
 // TransferService implements the non-custodial prepare/execute transfer flow.
-//
-// Outbound policy (#318): party-id-addressed transfers can leave the system, so
-// they require a whitelisted sender in both key modes (see checkSenderWhitelisted)
-// and pass the recipient guards in validateRecipient. EVM-addressed transfers stay
-// between registered users and are not gated.
 type TransferService struct {
 	cantonToken         token.Token
 	userStore           UserStore
