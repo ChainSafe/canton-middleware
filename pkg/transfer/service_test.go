@@ -24,8 +24,7 @@ import (
 
 // --- helpers ---
 
-// Fixture party ids use the real hint::<hex-fingerprint> shape because every
-// recipient — including ones resolved from the user store — now passes through
+// Fixture party ids use the real hint::<hex-fingerprint> shape so they pass
 // the syntactic check in validateRecipient.
 func senderUser() *user.User {
 	return &user.User{
@@ -52,8 +51,7 @@ func newTestService(t *testing.T, tok *mocks.Token, store *mocks.UserStore, cach
 	return newTestServiceWithOffers(tok, store, cache, mocks.NewIndexerReader(t))
 }
 
-// testIssuerParty is the reserved issuer/bridge-operator party wired into the
-// test service; recipient-guard tests transfer to it and expect rejection.
+// testIssuerParty is the issuer/bridge-operator party wired into the test service.
 const testIssuerParty = "issuer::1220aaaa"
 
 func newTestServiceWithOffers(
@@ -67,8 +65,7 @@ func newTestServiceWithOffers(
 		userStore:   store,
 		cache:       cache,
 		offerLister: offers,
-		// Allow-all gate (skip mode) so tests not about authorization pass
-		// unchanged; whitelist-gate tests swap in a wlmocks.Checker.
+		// Allow-all gate; whitelist-gate tests swap in a wlmocks.Checker.
 		whitelist:           whitelist.New(nil, true),
 		issuerParty:         testIssuerParty,
 		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true},
@@ -374,8 +371,6 @@ func TestTransferService_SendCustodial_RequiresCustodial(t *testing.T) {
 }
 
 func TestTransferService_SendCustodial_InvalidPartyID(t *testing.T) {
-	// Recipient validation is centralized in validateRecipient, which runs after
-	// the sender is authenticated, so the sender lookup is expected.
 	ctx := context.Background()
 	sender := custodialSender()
 
@@ -525,9 +520,7 @@ func TestTransferService_Prepare_ToPartyID_WhitelistCheckError(t *testing.T) {
 }
 
 func TestTransferService_Prepare_EVMRecipient_NotWhitelistGated(t *testing.T) {
-	// A transfer addressed by recipient EVM address stays between registered
-	// local users, so the whitelist gate must not fire: the Checker mock has
-	// no expectations and would fail the test if consulted.
+	// The Checker mock has no expectations and fails the test if consulted.
 	ctx := context.Background()
 	sender := senderUser()
 	recipient := recipientUser()
