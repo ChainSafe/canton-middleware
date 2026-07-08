@@ -297,9 +297,8 @@ func initServices(
 		g.Go(func() error { return sub.Start(gCtx) })
 	}
 
-	// cantonClient.Identity backs the recipient party-existence check; wl gates
-	// outbound party-id transfers (#318); cfg.Canton.IssuerParty doubles as the
-	// bridge-operator party and is rejected as a transfer recipient.
+	// cantonClient.Identity backs the recipient party check; wl gates outbound
+	// party-id transfers; cfg.Canton.IssuerParty is rejected as a recipient.
 	transferSvc := transfer.NewTransferService(
 		cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient,
 		cantonClient.Identity, wl, cfg.Canton.IssuerParty,
