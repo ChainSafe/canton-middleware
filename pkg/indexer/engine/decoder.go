@@ -182,6 +182,7 @@ func NewOfferDecoder(
 			// TransferOffer CreateArguments: {operator, provider, transfer{...}}.
 			// Receiver/sender/amount/instrumentId all live inside the nested transfer record.
 			transfer.Status = indexer.TransferStatusPending
+			transfer.TxID = tx.UpdateID
 			transfer.ToPartyID = ev.NestedPartyField("transfer", "receiver")
 			transfer.FromPartyID = ev.NestedPartyField("transfer", "sender")
 			transfer.Amount = ev.NestedNumericField("transfer", "amount")
