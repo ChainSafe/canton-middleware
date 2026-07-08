@@ -129,9 +129,6 @@ func NewTransferService(
 	wl whitelist.Checker,
 	issuerParty string,
 ) *TransferService {
-	if wl == nil {
-		panic("transfer: whitelist checker is required (use whitelist.New to construct one)")
-	}
 	allowed := map[string]bool{}
 	byInstrument := map[instrumentKey]instrumentMeta{}
 	if tokenCfg != nil {
