@@ -14,6 +14,9 @@ import (
 
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/auth/jwt"
+	authservice "github.com/chainsafe/canton-middleware/pkg/auth/service"
+	nonceprovider "github.com/chainsafe/canton-middleware/pkg/auth/service/nonce_provider"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -160,17 +163,16 @@ func (s *Server) Run() error {
 		)
 	}
 
-	// Admin config is optional (nil when the `admin` block is omitted). The token
-	// is resolved by the config loader (api_key: "${ADMIN_API_KEY}") and validated
-	// as required when enabled, so setupRouter can read it straight off the value.
-	var adminCfg config.AdminAPI
-	if cfg.Admin != nil {
-		adminCfg = *cfg.Admin
+	loginSvc, readAuth, err := s.buildReadAuth(userStore, logger)
+	if err != nil {
+		stop()
+		_ = g.Wait()
+		return err
 	}
 
 	router := s.setupRouter(
 		svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc,
-		adminCfg, metrics, logger,
+		loginSvc, readAuth, metrics, logger,
 	)
 
 	s.registerServers(g, gCtx, router, logger)
@@ -309,6 +311,49 @@ func initServices(
 	}, nil
 }
 
+// buildReadAuth constructs the SIWE login handler and the middleware that guards
+// the read endpoints.
+// passthrough is a no-op middleware used when read authentication is disabled.
+func passthrough(next http.Handler) http.Handler { return next }
+
+// buildReadAuth constructs the SIWE login service and the middleware guarding the
+// read endpoints. Auth is optional: when the `auth` config block is absent it
+// returns a nil service (login/JWKS routes are not mounted) and a passthrough
+// middleware, so the read endpoints fall back to resolving the caller from the
+// ?address= query parameter and are not access-controlled.
+func (s *Server) buildReadAuth(
+	userStore authservice.UserLookup,
+	logger *zap.Logger,
+) (authservice.Service, func(http.Handler) http.Handler, error) {
+	if s.cfg.Auth == nil {
+		logger.Warn("read-endpoint authentication is DISABLED: no `auth` config block; " +
+			"transfer read endpoints and /profile resolve the caller from ?address= and are not access-controlled")
+		return nil, passthrough, nil
+	}
+
+	cfg := s.cfg.Auth
+
+	key, err := jwt.ParseRSAPrivateKey(cfg.PrivateKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid JWT signing key: %w", err)
+	}
+
+	nonces := nonceprovider.NewInMemory(cfg.NonceTTL)
+	issuer := jwt.NewIssuer(key, cfg.KeyID, cfg.Issuer, cfg.Audience, cfg.TokenTTL)
+	verifier := jwt.NewSIWEVerifier(cfg.Domain, cfg.URI, cfg.ChainID)
+	loginSvc := authservice.NewLog(authservice.New(verifier, issuer, nonces, userStore), logger)
+
+	validator := jwt.NewValidatorWithKey(issuer.KeyID(), issuer.PublicKey(), cfg.Issuer)
+	readAuthMW := jwt.RequireAuth(validator, cfg.Audience)
+
+	logger.Info("read-endpoint authentication enabled",
+		zap.String("issuer", cfg.Issuer),
+		zap.String("audience", cfg.Audience),
+		zap.Duration("token_ttl", cfg.TokenTTL),
+	)
+	return loginSvc, readAuthMW, nil
+}
+
 func (s *Server) getMasterKey() ([]byte, error) {
 	masterKeyStr := os.Getenv(s.cfg.KeyManagement.MasterKeyEnv)
 	if masterKeyStr == "" {
@@ -383,7 +428,8 @@ func (s *Server) setupRouter(
 	tokenService *token.Service,
 	userService userservice.Service,
 	transferSvc transfer.Service,
-	adminCfg config.AdminAPI,
+	loginSvc authservice.Service,
+	readAuth func(http.Handler) http.Handler,
 	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
@@ -406,16 +452,24 @@ func (s *Server) setupRouter(
 	// Supported tokens metadata
 	token.RegisterRoutes(r, tokenService, logger)
 
-	// Registration endpoints
-	userservice.RegisterRoutes(r, userService, logger)
-
-	// Admin endpoints (whitelist management), gated by a static bearer token.
-	if adminCfg.Enabled {
-		whitelist.RegisterAdminRoutes(r, wl, adminCfg.APIKey, logger)
+	// SIWE login + JWKS endpoints (only when read auth is configured).
+	if loginSvc != nil {
+		authservice.RegisterRoutes(r, loginSvc, logger)
 	}
 
-	// Non-custodial transfer endpoints (prepare/execute)
-	transfer.RegisterRoutes(r, transferSvc, logger)
+	// Registration endpoints (registration is self-authenticating; /profile is
+	// guarded by readAuth).
+	userservice.RegisterRoutes(r, userService, readAuth, logger)
+
+	// Admin endpoints (whitelist management), gated by a static bearer token. The
+	// admin block is optional (nil when omitted); the api_key is resolved and
+	// validated by the config loader (api_key: "${ADMIN_API_KEY}").
+	if s.cfg.Admin != nil && s.cfg.Admin.Enabled {
+		whitelist.RegisterAdminRoutes(r, wl, s.cfg.Admin.APIKey, logger)
+	}
+
+	// Non-custodial transfer endpoints (prepare/execute); read endpoints guarded by readAuth.
+	transfer.RegisterRoutes(r, transferSvc, readAuth, logger)
 
 	registryHandler := registry.NewHandler(cantonClient.Token, logger)
 	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)

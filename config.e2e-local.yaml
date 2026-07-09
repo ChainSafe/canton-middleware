@@ -94,10 +94,6 @@ eth_rpc:
   chain_id: 31337
   request_timeout: "30s"
 
-jwks:
-  url: ""
-  issuer: ""
-
 monitoring:
   enabled: false
 

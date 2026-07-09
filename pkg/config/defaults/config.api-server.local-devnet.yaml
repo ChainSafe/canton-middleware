@@ -91,9 +91,17 @@ eth_rpc:
   chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton local
   request_timeout: "60s"
 
-jwks:
-  url: ""
-  issuer: ""
+# The signing key is a base64-encoded PEM supplied via ${JWT_PRIVATE_KEY} (base64 < key.pem).
+auth:
+  private_key: "${JWT_PRIVATE_KEY}"
+  kid: "default"
+  issuer: "canton-middleware"
+  audience: "canton-middleware-api"
+  token_ttl: "6h"
+  nonce_ttl: "1m"
+  domain: "dapp-dev1.01.chainsafe.dev"
+  uri: "https://dapp-dev1.01.chainsafe.dev"
+  chain_id: 1155111101
 
 monitoring:
   enabled: true

@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
@@ -24,7 +26,7 @@ type HTTP struct {
 }
 
 // RegisterRoutes registers HTTP endpoints for registration service on the given chi router
-func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
+func RegisterRoutes(r chi.Router, service Service, readAuth func(http.Handler) http.Handler, logger *zap.Logger) {
 	h := &HTTP{
 		service: service,
 		logger:  logger,
@@ -32,7 +34,7 @@ func RegisterRoutes(r chi.Router, service Service, logger *zap.Logger) {
 
 	r.Post("/register", apphttp.HandleError(h.register))
 	r.Post("/register/prepare-topology", apphttp.HandleError(h.prepareTopology))
-	r.Get("/profile", apphttp.HandleError(h.getUser))
+	r.With(readAuth).Get("/profile", apphttp.HandleError(h.getUser))
 }
 
 // register handles HTTP requests
@@ -118,24 +120,20 @@ func (h *HTTP) prepareTopology(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// getUser handles GET /user?address=0x... and returns the registered user profile.
-// The caller must provide an EIP-191 signature over the message via X-Signature and
-// X-Message headers. Credentials are kept out of query params to avoid leaking them
-// into server access logs, CDN logs, and browser history.
-// Returns 404 if the address is not registered.
+// getUser handles GET /profile and returns the caller's registered profile. With
+// read auth enabled the caller's address comes from the bearer token (context);
+// with auth disabled it falls back to the ?address= query parameter.
 func (h *HTTP) getUser(w http.ResponseWriter, r *http.Request) error {
-	address := r.URL.Query().Get("address")
-	if address == "" {
-		return apperrors.BadRequestError(nil, "address query parameter required")
+	address, ok := auth.EVMAddressFromContext(r.Context())
+	if !ok || address == "" {
+		address = strings.TrimSpace(r.URL.Query().Get("address"))
+		if !auth.ValidateEVMAddress(address) {
+			return apperrors.BadRequestError(nil, "address query parameter is required")
+		}
+		address = auth.NormalizeAddress(address)
 	}
 
-	signature := r.Header.Get("X-Signature")
-	message := r.Header.Get("X-Message")
-	if signature == "" || message == "" {
-		return apperrors.UnAuthorizedError(nil, "X-Signature and X-Message headers required")
-	}
-
-	resp, err := h.service.GetUser(r.Context(), address, message, signature)
+	resp, err := h.service.GetUser(r.Context(), address)
 	if err != nil {
 		return err
 	}
