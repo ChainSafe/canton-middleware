@@ -137,6 +137,11 @@ setup: deps db-up
 CANTON_MASTER_KEY := $(or $(CANTON_MASTER_KEY),$(shell openssl rand -base64 32))
 export CANTON_MASTER_KEY
 
+# JWT signing key for read-endpoint auth: a base64-encoded RSA PEM (single line so
+# it survives env substitution into a YAML scalar). Generated per run unless set.
+JWT_PRIVATE_KEY := $(or $(JWT_PRIVATE_KEY),$(shell openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | openssl base64 -A))
+export JWT_PRIVATE_KEY
+
 build-dars:
 	./scripts/setup/build-dars.sh
 
