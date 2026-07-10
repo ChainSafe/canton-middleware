@@ -125,7 +125,9 @@ func (h *HTTP) prepareTopology(w http.ResponseWriter, r *http.Request) error {
 // with auth disabled it falls back to the ?address= query parameter.
 func (h *HTTP) getUser(w http.ResponseWriter, r *http.Request) error {
 	address, ok := auth.EVMAddressFromContext(r.Context())
-	if !ok || address == "" {
+	if ok && address != "" {
+		address = auth.NormalizeAddress(address)
+	} else {
 		address = strings.TrimSpace(r.URL.Query().Get("address"))
 		if !auth.ValidateEVMAddress(address) {
 			return apperrors.BadRequestError(nil, "address query parameter is required")

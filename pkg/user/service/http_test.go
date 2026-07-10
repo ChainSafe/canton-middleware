@@ -201,11 +201,12 @@ func TestGetUserHTTP_AuthDisabled_UsesQueryAddress(t *testing.T) {
 }
 
 func TestGetUserHTTP_Authenticated_ReturnsUser(t *testing.T) {
+	addr := auth.NormalizeAddress("0x00000000000000000000000000000000000000ab")
 	svc := mocks.NewService(t)
 	svc.EXPECT().
-		GetUser(mock.Anything, "0xabc").
-		Return(&user.User{EVMAddress: "0xabc", CantonParty: "party::xyz"}, nil)
-	handler := newRegisterTestServerWithAuth(svc, authAs("0xabc"))
+		GetUser(mock.Anything, addr).
+		Return(&user.User{EVMAddress: addr, CantonParty: "party::xyz"}, nil)
+	handler := newRegisterTestServerWithAuth(svc, authAs(addr))
 
 	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
 	rec := httptest.NewRecorder()
@@ -219,17 +220,18 @@ func TestGetUserHTTP_Authenticated_ReturnsUser(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("failed to decode response JSON: %v", err)
 	}
-	if got.EVMAddress != "0xabc" {
-		t.Fatalf("expected evm_address %q, got %q", "0xabc", got.EVMAddress)
+	if got.EVMAddress != addr {
+		t.Fatalf("expected evm_address %q, got %q", addr, got.EVMAddress)
 	}
 }
 
 func TestGetUserHTTP_ServiceReturnsNotFound_Returns404(t *testing.T) {
+	addr := auth.NormalizeAddress("0x00000000000000000000000000000000000000ab")
 	svc := mocks.NewService(t)
 	svc.EXPECT().
-		GetUser(mock.Anything, "0xabc").
+		GetUser(mock.Anything, addr).
 		Return(nil, apperrors.ResourceNotFoundError(nil, "user not found"))
-	handler := newRegisterTestServerWithAuth(svc, authAs("0xabc"))
+	handler := newRegisterTestServerWithAuth(svc, authAs(addr))
 
 	req := httptest.NewRequest(http.MethodGet, "/profile", nil)
 	rec := httptest.NewRecorder()

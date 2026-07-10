@@ -237,7 +237,9 @@ func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) erro
 // ?address= query parameter (not access-controlled — the disabled-auth posture).
 func callerAddress(r *http.Request) (string, error) {
 	if addr, ok := auth.EVMAddressFromContext(r.Context()); ok && addr != "" {
-		return addr, nil
+		// Normalize here too: the transfer service looks the address up verbatim
+		// and does not normalize, so both branches must yield a canonical address.
+		return auth.NormalizeAddress(addr), nil
 	}
 
 	addr := strings.TrimSpace(r.URL.Query().Get("address"))
