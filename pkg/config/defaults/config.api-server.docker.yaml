@@ -98,6 +98,20 @@ eth_rpc:
   chain_id: 31337  # Anvil local chain ID
   request_timeout: "30s"
 
+# Read-endpoint authentication (SIWE login + RS256 JWT). domain/uri/chain_id are
+# localhost here so the e2e suite can sign a matching EIP-4361 message. The signing
+# key is a base64-encoded PEM supplied via ${JWT_PRIVATE_KEY}.
+auth:
+  private_key: "${JWT_PRIVATE_KEY}"
+  kid: "default"
+  issuer: "canton-middleware"
+  audience: "canton-middleware-api"
+  token_ttl: "6h"
+  nonce_ttl: "5m"
+  domain: "localhost"
+  uri: "http://localhost"
+  chain_id: 31337
+
 monitoring:
   enabled: true
   server:
