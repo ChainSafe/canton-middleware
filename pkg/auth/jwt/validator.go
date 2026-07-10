@@ -20,11 +20,12 @@ const jwksFetchTimeout = 10 * time.Second
 // key (NewValidatorWithKey) or from a remote JWKS endpoint fetched on demand and
 // cached by key id (NewValidator).
 type Validator struct {
-	jwksURL string
-	issuer  string
-	keys    map[string]any
-	keysMu  sync.RWMutex
-	client  *http.Client
+	jwksURL   string
+	issuer    string
+	keys      map[string]any
+	keysMu    sync.RWMutex
+	refreshMu sync.Mutex // serializes JWKS refreshes so a burst of misses triggers one fetch
+	client    *http.Client
 }
 
 // NewValidator creates a Validator that fetches signing keys from a JWKS endpoint.
@@ -93,9 +94,21 @@ func (v *Validator) IsConfigured() bool {
 }
 
 // getKey returns the cached key for kid, refreshing from JWKS once on a miss.
+// refreshMu serializes the refresh so concurrent misses trigger a single fetch;
+// after acquiring it we re-check the cache in case another goroutine just filled it.
 func (v *Validator) getKey(kid string) (any, error) {
 	v.keysMu.RLock()
 	key, exists := v.keys[kid]
+	v.keysMu.RUnlock()
+	if exists {
+		return key, nil
+	}
+
+	v.refreshMu.Lock()
+	defer v.refreshMu.Unlock()
+
+	v.keysMu.RLock()
+	key, exists = v.keys[kid]
 	v.keysMu.RUnlock()
 	if exists {
 		return key, nil
@@ -143,8 +156,9 @@ func (v *Validator) refreshKeys() error {
 		return fmt.Errorf("decode JWKS: %w", err)
 	}
 
-	v.keysMu.Lock()
-	defer v.keysMu.Unlock()
+	// Replace the cache wholesale (rather than merging) so keys that were rotated
+	// out of the JWKS stop being trusted instead of lingering forever.
+	newKeys := make(map[string]any, len(set.Keys))
 	for _, key := range set.Keys {
 		if key.Kty != "RSA" {
 			continue
@@ -153,7 +167,11 @@ func (v *Validator) refreshKeys() error {
 		if err != nil {
 			continue // skip invalid keys
 		}
-		v.keys[key.Kid] = pubKey
+		newKeys[key.Kid] = pubKey
 	}
+
+	v.keysMu.Lock()
+	v.keys = newKeys
+	v.keysMu.Unlock()
 	return nil
 }
