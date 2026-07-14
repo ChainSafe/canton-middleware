@@ -58,7 +58,11 @@ func newTestServiceWithOffers(
 		userStore:           store,
 		cache:               cache,
 		offerLister:         offers,
-		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true},
+		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true, "USDCx": true},
+		// USDCx is the externally transferable token, mirroring the deploy
+		// configs; DEMO/PROMPT are internal-only. Tests that exercise the
+		// external path assign svc.partyRegistry themselves.
+		externalTokenSymbols: map[string]bool{"USDCx": true},
 		tokensByInstrument: map[instrumentKey]instrumentMeta{
 			{id: "DEMO"}: {
 				contractAddress: "0x1111111111111111111111111111111111111111",
@@ -203,10 +207,11 @@ func TestTransferService_Prepare_ToPartyID_Success(t *testing.T) {
 	ctx := context.Background()
 	sender := senderUser()
 
-	// Only the sender is looked up; the recipient party id is used directly,
-	// so there is no second GetUserByEVMAddress call.
+	// The recipient party id resolves to a registered user, so an internal-only
+	// token like DEMO may be sent to it.
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
 
 	prepared := &token.PreparedTransfer{
 		TransferID:      "txn-ext-1",
@@ -275,6 +280,141 @@ func TestTransferService_Prepare_ToPartyID_Self(t *testing.T) {
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
+func TestTransferService_Prepare_InternalToken_UnregisteredParty_Rejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	// DEMO is internal-only: a party id that is not a registered user is rejected
+	// before any Canton call.
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+	assert.Contains(t, err.Error(), "does not support transfers to external parties")
+}
+
+func TestTransferService_Prepare_ExternalToken_ExternalParty_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	// USDCx allows unregistered recipients as long as the party is known to the
+	// participant's topology.
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	registry := mocks.NewPartyRegistry(t)
+	registry.EXPECT().PartyExists(ctx, validExternalPartyID).Return(true, nil).Once()
+
+	prepared := &token.PreparedTransfer{
+		TransferID:      "txn-usdcx-1",
+		TransactionHash: []byte{0xbe, 0xef},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, &token.PrepareTransferRequest{
+		FromPartyID: sender.CantonPartyID,
+		ToPartyID:   validExternalPartyID,
+		Amount:      "10",
+		TokenSymbol: "USDCx",
+		Validity:    time.Hour,
+	}).Return(prepared, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(prepared).Return(nil).Once()
+
+	svc := newTestService(t, tok, store, cache)
+	svc.partyRegistry = registry
+	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "txn-usdcx-1", resp.TransferID)
+}
+
+func TestTransferService_Prepare_ExternalToken_UnknownParty_Rejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	registry := mocks.NewPartyRegistry(t)
+	registry.EXPECT().PartyExists(ctx, validExternalPartyID).Return(false, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc.partyRegistry = registry
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+	assert.Contains(t, err.Error(), "not known on the network")
+}
+
+func TestTransferService_Prepare_ExternalToken_PartyLookupFailure(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	registry := mocks.NewPartyRegistry(t)
+	registry.EXPECT().PartyExists(ctx, validExternalPartyID).
+		Return(false, grpcstatus.Error(codes.Unavailable, "participant down")).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc.partyRegistry = registry
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDependencyFailure)
+}
+
+func TestTransferService_Prepare_LedgerRejection_NotInternalError(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
+
+	// A ledger NOT_FOUND (e.g. party disappeared between validation and
+	// submission) must map to a 400-shaped error, not a 500.
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).
+		Return(nil, grpcstatus.Error(codes.NotFound, "unknown informee party")).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
 func TestTransferService_Prepare_BothRecipientForms_Rejected(t *testing.T) {
 	ctx := context.Background()
 	sender := senderUser()
@@ -325,6 +465,7 @@ func TestTransferService_SendCustodial_Success(t *testing.T) {
 
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
 
 	tok := mocks.NewToken(t)
 	// idempotencyKey is a freshly generated UUID, so match any string there.
@@ -406,6 +547,7 @@ func TestTransferService_SendCustodial_InsufficientBalance(t *testing.T) {
 
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
 
 	tok := mocks.NewToken(t)
 	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO", time.Hour).
@@ -419,6 +561,53 @@ func TestTransferService_SendCustodial_InsufficientBalance(t *testing.T) {
 		ValiditySeconds: 3600,
 	})
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_SendCustodial_InternalToken_UnregisteredParty_Rejected(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "PROMPT",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+	assert.Contains(t, err.Error(), "does not support transfers to external parties")
+}
+
+func TestTransferService_SendCustodial_ExternalToken_ExternalParty_Success(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(nil, user.ErrUserNotFound).Once()
+
+	registry := mocks.NewPartyRegistry(t)
+	registry.EXPECT().PartyExists(ctx, validExternalPartyID).Return(true, nil).Once()
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "USDCx", time.Hour).
+		Return(nil).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	svc.partyRegistry = registry
+	resp, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "USDCx",
+		ValiditySeconds: 3600,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", resp.Status)
 }
 
 func TestValidatePartyID(t *testing.T) {

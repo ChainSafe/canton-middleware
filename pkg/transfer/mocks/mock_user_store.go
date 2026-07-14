@@ -23,6 +23,65 @@ func (_m *UserStore) EXPECT() *UserStore_Expecter {
 	return &UserStore_Expecter{mock: &_m.Mock}
 }
 
+// GetUserByCantonPartyID provides a mock function with given fields: ctx, partyID
+func (_m *UserStore) GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error) {
+	ret := _m.Called(ctx, partyID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUserByCantonPartyID")
+	}
+
+	var r0 *user.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*user.User, error)); ok {
+		return rf(ctx, partyID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *user.User); ok {
+		r0 = rf(ctx, partyID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*user.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, partyID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// UserStore_GetUserByCantonPartyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUserByCantonPartyID'
+type UserStore_GetUserByCantonPartyID_Call struct {
+	*mock.Call
+}
+
+// GetUserByCantonPartyID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - partyID string
+func (_e *UserStore_Expecter) GetUserByCantonPartyID(ctx interface{}, partyID interface{}) *UserStore_GetUserByCantonPartyID_Call {
+	return &UserStore_GetUserByCantonPartyID_Call{Call: _e.mock.On("GetUserByCantonPartyID", ctx, partyID)}
+}
+
+func (_c *UserStore_GetUserByCantonPartyID_Call) Run(run func(ctx context.Context, partyID string)) *UserStore_GetUserByCantonPartyID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *UserStore_GetUserByCantonPartyID_Call) Return(_a0 *user.User, _a1 error) *UserStore_GetUserByCantonPartyID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *UserStore_GetUserByCantonPartyID_Call) RunAndReturn(run func(context.Context, string) (*user.User, error)) *UserStore_GetUserByCantonPartyID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetUserByEVMAddress provides a mock function with given fields: ctx, evmAddress
 func (_m *UserStore) GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error) {
 	ret := _m.Called(ctx, evmAddress)

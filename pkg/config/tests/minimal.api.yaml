@@ -36,6 +36,7 @@ token:
       symbol: "USDCx"
       decimals: 6
       instrument_id: "USDCx"
+      external_transfer: true
 
 eth_rpc:
   chain_id: 31337

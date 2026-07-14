@@ -297,7 +297,9 @@ func initServices(
 		g.Go(func() error { return sub.Start(gCtx) })
 	}
 
-	transferSvc := transfer.NewTransferService(cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient)
+	transferSvc := transfer.NewTransferService(
+		cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient, cantonClient.Identity,
+	)
 	return &services{
 		evmStore:     evmStore,
 		tokenService: tokenService,

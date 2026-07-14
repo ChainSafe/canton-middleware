@@ -14,6 +14,10 @@ type ERC20Token struct {
 	Symbol       string `yaml:"symbol" validate:"required"`
 	Decimals     int    `yaml:"decimals" validate:"gte=0,lte=18"`
 	InstrumentID string `yaml:"instrument_id" validate:"required"`
+	// ExternalTransfer marks a token that can be transferred to parties hosted on
+	// external participant nodes (e.g. USDCx). Tokens without it can only be
+	// transferred between parties registered with this middleware.
+	ExternalTransfer bool `yaml:"external_transfer"`
 }
 
 // Config holds token metadata indexed by contract address.

@@ -25,11 +25,20 @@ import (
 //go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
 //go:generate mockery --name TransferCache --output mocks --outpkg mocks --filename mock_transfer_cache.go --with-expecter
 //go:generate mockery --name IndexerReader --output mocks --outpkg mocks --filename mock_indexer_reader.go --with-expecter
+//go:generate mockery --name PartyRegistry --output mocks --outpkg mocks --filename mock_party_registry.go --with-expecter
 //go:generate mockery --srcpkg github.com/chainsafe/canton-middleware/pkg/cantonsdk/token --name Token --output mocks --outpkg mocks --filename mock_canton_token.go --with-expecter
 
 // UserStore is the narrow interface for looking up users.
 type UserStore interface {
 	GetUserByEVMAddress(ctx context.Context, evmAddress string) (*user.User, error)
+	GetUserByCantonPartyID(ctx context.Context, partyID string) (*user.User, error)
+}
+
+// PartyRegistry checks whether a party id is known to the participant's
+// topology. Implemented by the Canton identity client; used to reject
+// external-token transfers to nonexistent parties before submission.
+type PartyRegistry interface {
+	PartyExists(ctx context.Context, partyID string) (bool, error)
 }
 
 // TransferCache is the interface for caching prepared transfers.
@@ -93,8 +102,12 @@ type TransferService struct {
 	userStore           UserStore
 	cache               TransferCache
 	offerLister         IndexerReader
+	partyRegistry       PartyRegistry
 	allowedTokenSymbols map[string]bool
-	tokensByInstrument  map[instrumentKey]instrumentMeta
+	// externalTokenSymbols marks tokens transferable to parties not registered
+	// with the middleware (hosted on external participant nodes), per token config.
+	externalTokenSymbols map[string]bool
+	tokensByInstrument   map[instrumentKey]instrumentMeta
 }
 
 // instrumentKey identifies a token by its on-ledger id. Admin is intentionally
@@ -121,12 +134,17 @@ func NewTransferService(
 	cache TransferCache,
 	tokenCfg *pkgtoken.Config,
 	offerLister IndexerReader,
+	partyRegistry PartyRegistry,
 ) *TransferService {
 	allowed := map[string]bool{}
+	external := map[string]bool{}
 	byInstrument := map[instrumentKey]instrumentMeta{}
 	if tokenCfg != nil {
 		for addr, tkn := range tokenCfg.SupportedTokens {
 			allowed[tkn.Symbol] = true
+			if tkn.ExternalTransfer {
+				external[tkn.Symbol] = true
+			}
 			// We don't know the InstrumentAdmin from token config alone, so the lookup key
 			// uses only InstrumentID. The Canton ledger may report multiple admins for the
 			// same id; in that case the first one wins, which matches the practical case
@@ -140,12 +158,14 @@ func NewTransferService(
 		}
 	}
 	return &TransferService{
-		cantonToken:         cantonToken,
-		userStore:           userStore,
-		cache:               cache,
-		offerLister:         offerLister,
-		allowedTokenSymbols: allowed,
-		tokensByInstrument:  byInstrument,
+		cantonToken:          cantonToken,
+		userStore:            userStore,
+		cache:                cache,
+		offerLister:          offerLister,
+		partyRegistry:        partyRegistry,
+		allowedTokenSymbols:  allowed,
+		externalTokenSymbols: external,
+		tokensByInstrument:   byInstrument,
 	}
 }
 
@@ -215,6 +235,14 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 	if toPartyID == sender.CantonPartyID {
 		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
 	}
+	// A caller-supplied party id may point anywhere, so it gets the full
+	// registration/topology check; a party resolved from a registered user's
+	// EVM address is trusted as-is.
+	if req.ToPartyID != "" {
+		if vErr := s.checkRecipientParty(ctx, req.Token, toPartyID); vErr != nil {
+			return nil, vErr
+		}
+	}
 
 	pt, err := s.cantonToken.PrepareTransfer(ctx, &token.PrepareTransferRequest{
 		FromPartyID: sender.CantonPartyID,
@@ -224,10 +252,7 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 		Validity:    validity,
 	})
 	if err != nil {
-		if errors.Is(err, token.ErrInsufficientBalance) {
-			return nil, apperrors.BadRequestError(err, "insufficient balance")
-		}
-		return nil, fmt.Errorf("prepare transfer: %w", err)
+		return nil, mapTransferErr(err, "prepare transfer")
 	}
 
 	if err := s.cache.Put(pt); err != nil {
@@ -275,6 +300,9 @@ func (s *TransferService) SendCustodial(
 	if req.ToPartyID == sender.CantonPartyID {
 		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
 	}
+	if err = s.checkRecipientParty(ctx, req.Token, req.ToPartyID); err != nil {
+		return nil, err
+	}
 
 	// The middleware signs server-side, so prepare+execute happen in one call.
 	// A fresh idempotency key is used as the Canton command id per request.
@@ -282,13 +310,64 @@ func (s *TransferService) SendCustodial(
 		ctx, uuid.NewString(), sender.CantonPartyID, req.ToPartyID, req.Amount, req.Token, validity,
 	)
 	if err != nil {
-		if errors.Is(err, token.ErrInsufficientBalance) {
-			return nil, apperrors.BadRequestError(err, "insufficient balance")
-		}
-		return nil, fmt.Errorf("transfer: %w", err)
+		return nil, mapTransferErr(err, "transfer")
 	}
 
 	return &ExecuteResponse{Status: "submitted"}, nil
+}
+
+// checkRecipientParty validates a caller-supplied recipient party id beyond
+// syntax. A party registered with this middleware may receive any supported
+// token. An unregistered party may only receive tokens marked external_transfer
+// in token config (e.g. USDCx), and must be known to the participant's topology
+// so a bad party id fails here instead of surfacing as a ledger submission error.
+func (s *TransferService) checkRecipientParty(ctx context.Context, tokenSymbol, toPartyID string) error {
+	if err := validatePartyID(toPartyID); err != nil {
+		return apperrors.BadRequestError(err, "invalid recipient party id")
+	}
+
+	_, err := s.userStore.GetUserByCantonPartyID(ctx, toPartyID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, user.ErrUserNotFound) {
+		return fmt.Errorf("lookup recipient party: %w", err)
+	}
+
+	if !s.externalTokenSymbols[tokenSymbol] {
+		return apperrors.BadRequestError(nil, fmt.Sprintf(
+			"recipient party is not registered with this service and %s does not support transfers to external parties",
+			tokenSymbol,
+		))
+	}
+
+	known, err := s.partyRegistry.PartyExists(ctx, toPartyID)
+	if err != nil {
+		return apperrors.DependencyError(err, "could not verify recipient party id")
+	}
+	if !known {
+		return apperrors.BadRequestError(nil, "recipient party id is not known on the network")
+	}
+	return nil
+}
+
+// mapTransferErr maps a transfer preparation/submission failure to an
+// HTTP-shaped error. Ledger rejections that indicate a bad request (unknown
+// party or contract, failed precondition) surface as 400s rather than opaque
+// 500s — a safety net for anything the pre-submission checks miss.
+func mapTransferErr(err error, op string) error {
+	if errors.Is(err, token.ErrInsufficientBalance) {
+		return apperrors.BadRequestError(err, "insufficient balance")
+	}
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.InvalidArgument, codes.NotFound, codes.FailedPrecondition:
+			return apperrors.BadRequestError(err, "transfer rejected by the ledger: verify the recipient party id and amount")
+		case codes.Unavailable, codes.DeadlineExceeded:
+			return apperrors.DependencyError(err, "ledger temporarily unavailable, try again later")
+		}
+	}
+	return fmt.Errorf("%s: %w", op, err)
 }
 
 // validatePartyID does a lightweight syntactic check of a Canton party id, which
