@@ -317,15 +317,12 @@ func (s *TransferService) SendCustodial(
 }
 
 // checkRecipientParty validates a caller-supplied recipient party id beyond
-// syntax. A party registered with this middleware may receive any supported
-// token. An unregistered party may only receive tokens marked external_transfer
+// syntax (callers run validatePartyID first, before their cheaper checks).
+// A party registered with this middleware may receive any supported token.
+// An unregistered party may only receive tokens marked external_transfer
 // in token config (e.g. USDCx), and must be known to the participant's topology
 // so a bad party id fails here instead of surfacing as a ledger submission error.
 func (s *TransferService) checkRecipientParty(ctx context.Context, tokenSymbol, toPartyID string) error {
-	if err := validatePartyID(toPartyID); err != nil {
-		return apperrors.BadRequestError(err, "invalid recipient party id")
-	}
-
 	_, err := s.userStore.GetUserByCantonPartyID(ctx, toPartyID)
 	if err == nil {
 		return nil
@@ -356,21 +353,27 @@ func (s *TransferService) checkRecipientParty(ctx context.Context, tokenSymbol, 
 
 // mapTransferErr maps a transfer preparation/submission failure to an
 // HTTP-shaped error. Ledger rejections that indicate a bad request (unknown
-// party or contract, failed precondition) surface as 400s rather than opaque
-// 500s — a safety net for anything the pre-submission checks miss.
+// party or contract, failed precondition) surface as 400s and contention as
+// 409 rather than opaque 500s — a safety net for anything the pre-submission
+// checks miss.
 func mapTransferErr(err error, op string) error {
 	if errors.Is(err, token.ErrInsufficientBalance) {
 		return apperrors.BadRequestError(err, "insufficient balance")
 	}
+	// Wrap first so the op context ("prepare transfer" vs "transfer") survives
+	// into every branch's logged error; status.FromError unwraps to classify.
+	err = fmt.Errorf("%s: %w", op, err)
 	if st, ok := status.FromError(err); ok {
 		switch st.Code() {
 		case codes.InvalidArgument, codes.NotFound, codes.FailedPrecondition:
 			return apperrors.BadRequestError(err, "transfer rejected by the ledger: verify the recipient party id and amount")
+		case codes.Aborted:
+			return apperrors.ConflictError(err, "transfer conflicted with a concurrent operation, try again")
 		case codes.Unavailable, codes.DeadlineExceeded:
 			return apperrors.DependencyError(err, "ledger temporarily unavailable, try again later")
 		}
 	}
-	return fmt.Errorf("%s: %w", op, err)
+	return err
 }
 
 // validatePartyID does a lightweight syntactic check of a Canton party id, which

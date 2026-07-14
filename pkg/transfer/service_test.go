@@ -418,6 +418,30 @@ func TestTransferService_Prepare_LedgerRejection_NotInternalError(t *testing.T) 
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
 }
 
+func TestTransferService_Prepare_LedgerContention_MapsToConflict(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
+
+	// Canton contention (e.g. LOCKED_CONTRACTS when two transfers race for the
+	// same holdings) surfaces as ABORTED and must map to 409, not 500.
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).
+		Return(nil, grpcstatus.Error(codes.Aborted, "contracts are locked")).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataConflict)
+}
+
 func TestTransferService_Prepare_BothRecipientForms_Rejected(t *testing.T) {
 	ctx := context.Background()
 	sender := senderUser()
