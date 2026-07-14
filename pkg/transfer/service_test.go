@@ -4,6 +4,7 @@ package transfer
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -400,10 +401,12 @@ func TestTransferService_Prepare_LedgerRejection_NotInternalError(t *testing.T) 
 	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
 
 	// A ledger NOT_FOUND (e.g. party disappeared between validation and
-	// submission) must map to a 400-shaped error, not a 500.
+	// submission) must map to a 400-shaped error, not a 500 — including when
+	// the SDK has wrapped the gRPC error (status.FromError unwraps via
+	// errors.As since grpc-go v1.54).
+	wrapped := fmt.Errorf("submit transfer: %w", grpcstatus.Error(codes.NotFound, "unknown informee party"))
 	tok := mocks.NewToken(t)
-	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).
-		Return(nil, grpcstatus.Error(codes.NotFound, "unknown informee party")).Once()
+	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).Return(nil, wrapped).Once()
 
 	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
 	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{

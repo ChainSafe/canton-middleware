@@ -341,6 +341,9 @@ func (s *TransferService) checkRecipientParty(ctx context.Context, tokenSymbol, 
 		))
 	}
 
+	if s.partyRegistry == nil {
+		return apperrors.DependencyError(nil, "could not verify recipient party id")
+	}
 	known, err := s.partyRegistry.PartyExists(ctx, toPartyID)
 	if err != nil {
 		return apperrors.DependencyError(err, "could not verify recipient party id")
