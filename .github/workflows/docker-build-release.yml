@@ -132,6 +132,9 @@ jobs:
     # is opened WITHOUT auto-merge and must be merged manually after checking
     # the Helm values against the config diff posted as a PR comment.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.tag == ''
+    env:
+      # Directory in infra-kubernetes holding the devnet Helm values files
+      DIR: definitions/canton/validator-dev1
     steps:
       - name: Compute image tag
         id: version
@@ -161,99 +164,8 @@ jobs:
       - name: Detect config changes since deployed
         id: config
         env:
-          DIR: definitions/canton/validator-dev1
-        run: |
-          set -euo pipefail
-          CHANGED=false
-          REASON=""
-          DEPLOYED_SHA=""
-          COMMENT_FILE="${RUNNER_TEMP}/config-comment.md"
-
-          DEPLOYED_TAG=$(yq e '.["canton-middleware-api"].image.tag' "${DIR}/canton-middleware-api-values.yml")
-          echo "Deployed devnet tag: ${DEPLOYED_TAG}"
-
-          # Paths that can break a deploy when the Helm values are stale:
-          # per-package config structs and the default YAMLs baked into images.
-          CONFIG_PATHS=(pkg/config 'pkg/*config.go' 'cmd/*config*.go' ':!*_test.go' ':!pkg/config/tests')
-
-          if [[ "${DEPLOYED_TAG}" != main-* ]]; then
-            CHANGED=true
-            REASON="Deployed tag \`${DEPLOYED_TAG}\` is not a \`main-<sha>\` tag, so the config diff against the deployed version cannot be computed. Holding for manual review."
-          else
-            DEPLOYED_SHA="${DEPLOYED_TAG#main-}"
-            if ! git -C .src cat-file -e "${DEPLOYED_SHA}^{commit}" 2>/dev/null; then
-              CHANGED=true
-              REASON="Deployed commit \`${DEPLOYED_SHA}\` was not found in the repository history, so the config diff cannot be computed. Holding for manual review."
-              DEPLOYED_SHA=""
-            else
-              CHANGED_FILES=$(git -C .src diff --name-only "${DEPLOYED_SHA}..${GITHUB_SHA}" -- "${CONFIG_PATHS[@]}")
-              if [ -n "${CHANGED_FILES}" ]; then
-                CHANGED=true
-                REASON="Config files changed since deployed \`${DEPLOYED_TAG}\`."
-                echo "Changed config files since ${DEPLOYED_TAG}:"
-                echo "${CHANGED_FILES}"
-              fi
-            fi
-          fi
-
-          if [ "${CHANGED}" = "true" ]; then
-            # Best-effort headline: diff the yaml:"..." struct tags between the
-            # deployed and new trees. The raw diff below is the source of truth.
-            keys_with_files() {
-              git -C .src grep -o -E 'yaml:"[a-zA-Z0-9_]+' "$1" -- 'pkg/*config.go' 'cmd/*config*.go' ':!*_test.go' 2>/dev/null \
-                | sed -E 's|^[^:]+:([^:]+):yaml:"(.+)$|\2\t\1|' \
-                | sort -u
-            }
-            {
-              echo "## Config changed since deployed (\`${DEPLOYED_TAG}\`) — auto-merge disabled"
-              echo
-              echo "${REASON}"
-              echo
-              if [ -n "${DEPLOYED_SHA}" ]; then
-                keys_with_files "${DEPLOYED_SHA}" > "${RUNNER_TEMP}/old_keys.tsv" || true
-                keys_with_files "${GITHUB_SHA}" > "${RUNNER_TEMP}/new_keys.tsv" || true
-                cut -f1 "${RUNNER_TEMP}/old_keys.tsv" | sort -u > "${RUNNER_TEMP}/old_keys.txt"
-                cut -f1 "${RUNNER_TEMP}/new_keys.tsv" | sort -u > "${RUNNER_TEMP}/new_keys.txt"
-                ADDED=$(comm -13 "${RUNNER_TEMP}/old_keys.txt" "${RUNNER_TEMP}/new_keys.txt")
-                REMOVED=$(comm -23 "${RUNNER_TEMP}/old_keys.txt" "${RUNNER_TEMP}/new_keys.txt")
-                if [ -n "${ADDED}" ]; then
-                  echo "**Schema keys added** (verify the Helm values cover these):"
-                  while IFS= read -r k; do
-                    f=$(awk -F'\t' -v k="$k" '$1==k {print $2; exit}' "${RUNNER_TEMP}/new_keys.tsv")
-                    echo "- \`${k}\` (${f})"
-                  done <<< "${ADDED}"
-                  echo
-                fi
-                if [ -n "${REMOVED}" ]; then
-                  echo "**Schema keys removed:**"
-                  while IFS= read -r k; do
-                    f=$(awk -F'\t' -v k="$k" '$1==k {print $2; exit}' "${RUNNER_TEMP}/old_keys.tsv")
-                    echo "- \`${k}\` (${f})"
-                  done <<< "${REMOVED}"
-                  echo
-                fi
-                git -C .src diff "${DEPLOYED_SHA}..${GITHUB_SHA}" -- "${CONFIG_PATHS[@]}" > "${RUNNER_TEMP}/config.diff"
-                echo "<details><summary>Config diff since <code>${DEPLOYED_TAG}</code></summary>"
-                echo
-                echo '```diff'
-                head -400 "${RUNNER_TEMP}/config.diff"
-                if [ "$(wc -l < "${RUNNER_TEMP}/config.diff")" -gt 400 ]; then
-                  echo "... (diff truncated at 400 lines)"
-                fi
-                echo '```'
-                echo
-                echo "</details>"
-                echo
-                echo "**Commits touching config:**"
-                git -C .src log --oneline --no-decorate "${DEPLOYED_SHA}..${GITHUB_SHA}" -- "${CONFIG_PATHS[@]}" | sed 's/^/- /'
-                echo
-              fi
-              echo "- [ ] Verify the Helm values files cover the added/changed config, then merge manually."
-            } > "${COMMENT_FILE}"
-          fi
-
-          echo "config_changed=${CHANGED}" >> "$GITHUB_OUTPUT"
-          echo "comment_file=${COMMENT_FILE}" >> "$GITHUB_OUTPUT"
+          SRC: .src
+        run: .src/.github/scripts/detect-config-changes.sh
 
       # Each service maps to a Helm values file in infra-kubernetes whose
       # top-level key matches the Helm release name. Add a service here to
@@ -261,7 +173,6 @@ jobs:
       - name: Update image tags for all services
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          DIR: definitions/canton/validator-dev1
         run: |
           while IFS='|' read -r key file; do
             [ -z "$key" ] && continue
@@ -277,7 +188,6 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
-          DIR: definitions/canton/validator-dev1
           REPO: ChainSafe/infra-kubernetes
           SOURCE_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.sha }}
@@ -304,7 +214,9 @@ jobs:
           # Get current branch HEAD SHA
           BRANCH_SHA=$(gh api repos/${REPO}/git/ref/heads/${BRANCH} --jq '.object.sha')
 
-          # Skip if every file on the branch already has this version (idempotent re-run)
+          # Commit the bumps unless the branch already has them (idempotent
+          # re-run). Everything after this block always runs, so a re-run
+          # repairs a missing PR, label, or comment instead of exiting early.
           ALL_MATCH=true
           for f in "${FILES[@]}"; do
             KEY="${f%-values.yml}"
@@ -313,38 +225,29 @@ jobs:
               | yq e ".[\"${KEY}\"].image.tag" - 2>/dev/null || echo "")
             [ "$BRANCH_TAG" = "$VERSION" ] || ALL_MATCH=false
           done
-          # Re-runs must not undo a config hold: only re-enable auto-merge
-          # when the config gate is clear.
           if [ "$ALL_MATCH" = "true" ]; then
-            if [ "${CONFIG_CHANGED}" = "true" ]; then
-              echo "Branch already at tag ${VERSION} for all services; config changed — leaving auto-merge disabled"
-            else
-              echo "Branch already at tag ${VERSION} for all services, ensuring auto-merge"
-              gh pr merge --auto --squash --repo "${REPO}" "${BRANCH}" 2>/dev/null || true
-            fi
-            exit 0
+            echo "Branch already at tag ${VERSION} for all services, skipping commit"
+          else
+            # Build the GraphQL additions array: one entry per file, base64-encoded
+            # (no line wrapping, Linux base64). Commits via createCommitOnBranch are
+            # automatically signed by GitHub (Verified).
+            ADDITIONS="[]"
+            for f in "${FILES[@]}"; do
+              CONTENTS=$(base64 -w0 "${DIR}/${f}")
+              ADDITIONS=$(jq -nc --argjson acc "$ADDITIONS" \
+                --arg path "${DIR}/${f}" --arg contents "$CONTENTS" \
+                '$acc + [{path: $path, contents: $contents}]')
+            done
+
+            jq -nc \
+              --arg repo "$REPO" --arg branch "$BRANCH" --arg oid "$BRANCH_SHA" \
+              --arg msg "$COMMIT_MSG" --argjson additions "$ADDITIONS" \
+              '{
+                query: "mutation($repo: String!, $branch: String!, $oid: GitObjectID!, $msg: String!, $additions: [FileAddition!]!) { createCommitOnBranch(input: { branch: { repositoryNameWithOwner: $repo, branchName: $branch }, message: { headline: $msg }, fileChanges: { additions: $additions }, expectedHeadOid: $oid }) { commit { url } } }",
+                variables: { repo: $repo, branch: $branch, oid: $oid, msg: $msg, additions: $additions }
+              }' | gh api graphql --input -
           fi
 
-          # Build the GraphQL additions array: one entry per file, base64-encoded
-          # (no line wrapping, Linux base64). Commits via createCommitOnBranch are
-          # automatically signed by GitHub (Verified).
-          ADDITIONS="[]"
-          for f in "${FILES[@]}"; do
-            CONTENTS=$(base64 -w0 "${DIR}/${f}")
-            ADDITIONS=$(jq -nc --argjson acc "$ADDITIONS" \
-              --arg path "${DIR}/${f}" --arg contents "$CONTENTS" \
-              '$acc + [{path: $path, contents: $contents}]')
-          done
-
-          jq -nc \
-            --arg repo "$REPO" --arg branch "$BRANCH" --arg oid "$BRANCH_SHA" \
-            --arg msg "$COMMIT_MSG" --argjson additions "$ADDITIONS" \
-            '{
-              query: "mutation($repo: String!, $branch: String!, $oid: GitObjectID!, $msg: String!, $additions: [FileAddition!]!) { createCommitOnBranch(input: { branch: { repositoryNameWithOwner: $repo, branchName: $branch }, message: { headline: $msg }, fileChanges: { additions: $additions }, expectedHeadOid: $oid }) { commit { url } } }",
-              variables: { repo: $repo, branch: $branch, oid: $oid, msg: $msg, additions: $additions }
-            }' | gh api graphql --input -
-
-          # Open PR; auto-merge only when config is unchanged since deployed
           HOLD_NOTE=""
           if [ "${CONFIG_CHANGED}" = "true" ]; then
             HOLD_NOTE="**Auto-merge disabled:** config changed since the deployed version. See the config diff comment and merge manually after verifying the Helm values."
@@ -358,22 +261,40 @@ jobs:
           ${HOLD_NOTE}
           EOF
           )
-          gh pr create \
-            --repo "${REPO}" \
-            --title "${COMMIT_MSG}" \
-            --body "${PR_BODY}" \
-            --base main \
-            --head "${BRANCH}" \
-          || echo "PR already exists for this branch, continuing"
+
+          # Ensure the deploy PR exists. Create failures are fatal: a missing
+          # PR must surface as a red job, not a silently skipped deploy.
+          PR_NUM=$(gh pr list --repo "${REPO}" --head "${BRANCH}" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -z "${PR_NUM}" ]; then
+            gh pr create \
+              --repo "${REPO}" \
+              --title "${COMMIT_MSG}" \
+              --body "${PR_BODY}" \
+              --base main \
+              --head "${BRANCH}"
+          else
+            echo "PR #${PR_NUM} already open for ${BRANCH}"
+          fi
 
           if [ "${CONFIG_CHANGED}" = "true" ]; then
             echo "Config changed since deployed version — holding for manual merge"
+            # An earlier run may have armed auto-merge before the baseline moved
+            gh pr merge --disable-auto --repo "${REPO}" "${BRANCH}" 2>/dev/null || true
             gh label create config-change --repo "${REPO}" \
               --color D93F0B \
               --description "Config changed since deployed version; manual review required" \
-              2>/dev/null || true
+              --force 2>/dev/null || true
             gh pr edit "${BRANCH}" --repo "${REPO}" --add-label config-change || true
-            gh pr comment "${BRANCH}" --repo "${REPO}" --body-file "${COMMENT_FILE}" || true
+            # Post the config report once; re-runs repair a missing comment.
+            # Comment failures are fatal — a held PR without the report gives
+            # the operator nothing to review. The startswith marker must match
+            # the heading written by detect-config-changes.sh.
+            EXISTING=$(gh pr view "${BRANCH}" --repo "${REPO}" --json comments \
+              --jq '[.comments[].body | select(startswith("## Config changed since deployed"))] | length')
+            if [ "${EXISTING}" = "0" ]; then
+              gh pr comment "${BRANCH}" --repo "${REPO}" --body-file "${COMMENT_FILE}"
+            fi
           else
             gh pr merge --auto --squash --repo "${REPO}" "${BRANCH}"
           fi
