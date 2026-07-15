@@ -30,13 +30,12 @@ VALUES_FILES=(
 )
 
 # Paths that can break a deploy when the Helm values are stale: per-package
-# config structs, the default YAMLs baked into the images, and yaml-tagged
-# types embedded in config (indexer InstrumentKey).
+# config structs (repo convention: yaml-tagged structs live in config.go
+# files) and the default YAMLs baked into the images.
 CONFIG_PATHS=(
   pkg/config
   'pkg/*config.go'
   'cmd/*config*.go'
-  pkg/indexer/types.go
   ':!*_test.go'
   ':!pkg/config/tests'
 )
@@ -158,7 +157,7 @@ write_report() {
       echo "</details>"
     else
       echo "_Raw config diff omitted (too large for a PR comment). Run locally:_"
-      echo '`git diff '"${DEPLOYED_SHA}..${GITHUB_SHA}"' -- pkg/config "pkg/*config.go" "cmd/*config*.go" pkg/indexer/types.go`'
+      echo '`git diff '"${DEPLOYED_SHA}..${GITHUB_SHA}"' -- pkg/config "pkg/*config.go" "cmd/*config*.go"`'
     fi
     echo
 
