@@ -40,9 +40,6 @@ type Config struct {
 // instrumentId.id alone is NOT unique — two different issuers can both deploy
 // a token with id="DEMO". The full {Admin, ID} pair IS unique and is the correct
 // key for whitelisting specific token deployments.
-//
-// It is part of the deployed YAML config schema (Config.Instruments), so it
-// lives in config.go where the CI config gate watches for schema changes.
 type InstrumentKey struct {
 	Admin string `yaml:"admin"` // instrumentId.admin — the token admin/issuer party
 	ID    string `yaml:"id"`    // instrumentId.id   — the token identifier (e.g. "DEMO")
