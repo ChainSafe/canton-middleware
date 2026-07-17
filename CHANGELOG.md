@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.8.0](https://github.com/ChainSafe/canton-middleware/compare/v0.7.0...v0.8.0) (2026-07-15)
+
+
+### Features
+
+* **api:** transfer history + outgoing/expired endpoints ([#331](https://github.com/ChainSafe/canton-middleware/issues/331)) ([1cd3f5f](https://github.com/ChainSafe/canton-middleware/commit/1cd3f5f0c6c97563b4194e388410b5cf2aed6879))
+* **api:** transfer to external party via party id ([#324](https://github.com/ChainSafe/canton-middleware/issues/324)) ([a0268a0](https://github.com/ChainSafe/canton-middleware/commit/a0268a012c0e728a8d6a1a05ffe7dc4741de456c))
+* canceled status for withdrawn transfer offers ([#346](https://github.com/ChainSafe/canton-middleware/issues/346)) ([428e725](https://github.com/ChainSafe/canton-middleware/commit/428e725352ae6ae1c04966163da6fd19d850d4d1))
+* claim back expired offers ([#339](https://github.com/ChainSafe/canton-middleware/issues/339)) ([b1e6361](https://github.com/ChainSafe/canton-middleware/commit/b1e6361f82a9865f459aa3d8fe9d39db40a1cb3a))
+* configurable transfer validity ([#334](https://github.com/ChainSafe/canton-middleware/issues/334)) ([2115077](https://github.com/ChainSafe/canton-middleware/commit/211507756121e6bdcf671742a6be0f4b217a484e))
+* exclude offer-locked holdings from indexed balances ([#340](https://github.com/ChainSafe/canton-middleware/issues/340)) ([8a39cc8](https://github.com/ChainSafe/canton-middleware/commit/8a39cc807b71da9c51f8a60e85219193fcc2c9b9))
+* **indexer:** generalized transfers table ([#330](https://github.com/ChainSafe/canton-middleware/issues/330)) ([ccb5d76](https://github.com/ChainSafe/canton-middleware/commit/ccb5d76922d3ab946d563f588ac7806327eafb51))
+* ledger tx id on offer-based transfers ([#347](https://github.com/ChainSafe/canton-middleware/issues/347)) ([83d4116](https://github.com/ChainSafe/canton-middleware/commit/83d4116f21aa3923ecb547eb42cd741dfb83c5a6))
+* **relayer:** persist eth scan progress ([#344](https://github.com/ChainSafe/canton-middleware/issues/344)) ([123a84a](https://github.com/ChainSafe/canton-middleware/commit/123a84a433664f6fd58fa3a545b51fe7b89c568d))
+* validate transfer recipient party ([#362](https://github.com/ChainSafe/canton-middleware/issues/362)) ([924c9d3](https://github.com/ChainSafe/canton-middleware/commit/924c9d32033d479b4b53c713822f8f73f0bd6850))
+
+
+### Bug Fixes
+
+* **relayer:** reconnect Canton stream on EOF ([#343](https://github.com/ChainSafe/canton-middleware/issues/343)) ([b20e2dc](https://github.com/ChainSafe/canton-middleware/commit/b20e2dc1690ede0fe0c5394332452cf494699a30))
+
 ## [0.7.0](https://github.com/ChainSafe/canton-middleware/compare/v0.6.0...v0.7.0) (2026-06-22)
 
 
