@@ -33,6 +33,18 @@ type Config struct {
 	UtilityRegistryHoldingPackageID string `yaml:"utility_registry_holding_package_id"`
 }
 
+// InstrumentKey is the Canton equivalent of an ERC-20 contract address.
+// It uniquely identifies a CIP56 token deployment.
+// Corresponds to the DAML InstrumentId{admin: Party, id: Text} record.
+//
+// instrumentId.id alone is NOT unique — two different issuers can both deploy
+// a token with id="DEMO". The full {Admin, ID} pair IS unique and is the correct
+// key for whitelisting specific token deployments.
+type InstrumentKey struct {
+	Admin string `yaml:"admin"` // instrumentId.admin — the token admin/issuer party
+	ID    string `yaml:"id"`    // instrumentId.id   — the token identifier (e.g. "DEMO")
+}
+
 // FilterModeAndKeys converts the config into the domain FilterMode and instrument
 // key slice expected by engine.NewTokenTransferDecoder.
 func (c *Config) FilterModeAndKeys() (FilterMode, []InstrumentKey) {
