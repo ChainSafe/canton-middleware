@@ -19,14 +19,18 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	"github.com/chainsafe/canton-middleware/pkg/transfer/mocks"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
+	wlmocks "github.com/chainsafe/canton-middleware/pkg/user/whitelist/mocks"
 )
 
 // --- helpers ---
 
+// Fixture party ids use the real hint::<hex-fingerprint> shape so they pass
+// the syntactic check in validateRecipient.
 func senderUser() *user.User {
 	return &user.User{
 		EVMAddress:                 "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		CantonPartyID:              "party::sender",
+		CantonPartyID:              "sender::1220aa01",
 		KeyMode:                    user.KeyModeExternal,
 		CantonPublicKeyFingerprint: "fingerprint-sender",
 	}
@@ -35,7 +39,7 @@ func senderUser() *user.User {
 func recipientUser() *user.User {
 	return &user.User{
 		EVMAddress:    "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		CantonPartyID: "party::recipient",
+		CantonPartyID: "recipient::1220bb02",
 		KeyMode:       user.KeyModeExternal,
 	}
 }
@@ -48,6 +52,9 @@ func newTestService(t *testing.T, tok *mocks.Token, store *mocks.UserStore, cach
 	return newTestServiceWithOffers(tok, store, cache, mocks.NewIndexerReader(t))
 }
 
+// testIssuerParty is the issuer/bridge-operator party wired into the test service.
+const testIssuerParty = "issuer::1220aaaa"
+
 func newTestServiceWithOffers(
 	tok *mocks.Token,
 	store *mocks.UserStore,
@@ -55,10 +62,13 @@ func newTestServiceWithOffers(
 	offers *mocks.IndexerReader,
 ) *TransferService {
 	return &TransferService{
-		cantonToken:         tok,
-		userStore:           store,
-		cache:               cache,
-		offerLister:         offers,
+		cantonToken: tok,
+		userStore:   store,
+		cache:       cache,
+		offerLister: offers,
+		// Allow-all gate; whitelist-gate tests swap in a wlmocks.Checker.
+		whitelist:           whitelist.New(nil, true),
+		issuerParty:         testIssuerParty,
 		allowedTokenSymbols: map[string]bool{"DEMO": true, "PROMPT": true, "USDCx": true},
 		// USDCx is the externally transferable token, mirroring the deploy
 		// configs; DEMO/PROMPT are internal-only. Tests that exercise the
@@ -529,9 +539,14 @@ func TestTransferService_SendCustodial_RequiresCustodial(t *testing.T) {
 }
 
 func TestTransferService_SendCustodial_InvalidPartyID(t *testing.T) {
-	// Party-id validation happens before any store lookup, so no user mock is needed.
-	svc := newTestService(t, mocks.NewToken(t), mocks.NewUserStore(t), mocks.NewTransferCache(t))
-	_, err := svc.SendCustodial(context.Background(), custodialSender().EVMAddress, &CustodialTransferRequest{
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
 		ToPartyID:       "0xdeadbeef", // missing hint::fingerprint form
 		Amount:          "10",
 		Token:           "DEMO",
@@ -637,6 +652,238 @@ func TestTransferService_SendCustodial_ExternalToken_ExternalParty_Success(t *te
 	assert.Equal(t, "submitted", resp.Status)
 }
 
+// --- outbound authorization & recipient-guard tests (#318) ---
+
+func TestTransferService_Prepare_ToPartyID_WhitelistedSenderAllowed(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	// The recipient party resolves to a registered user, so an internal-only
+	// token (DEMO) is allowed once the sender clears the whitelist gate.
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
+
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(ctx, sender.EVMAddress).Return(true, nil).Once()
+
+	prepared := &token.PreparedTransfer{
+		TransferID:      "txn-wl-1",
+		TransactionHash: []byte{0x01},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).Return(prepared, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(prepared).Return(nil).Once()
+
+	svc := newTestService(t, tok, store, cache)
+	svc.whitelist = wl
+
+	resp, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "txn-wl-1", resp.TransferID)
+}
+
+func TestTransferService_Prepare_ToPartyID_SenderNotWhitelisted(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(ctx, sender.EVMAddress).Return(false, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc.whitelist = wl
+
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
+}
+
+func TestTransferService_Prepare_ToPartyID_WhitelistCheckError(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(ctx, sender.EVMAddress).
+		Return(false, grpcstatus.Error(codes.Unavailable, "db down")).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc.whitelist = wl
+
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDependencyFailure)
+}
+
+func TestTransferService_Prepare_EVMRecipient_NotWhitelistGated(t *testing.T) {
+	// The Checker mock has no expectations and fails the test if consulted.
+	ctx := context.Background()
+	sender := senderUser()
+	recipient := recipientUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByEVMAddress(ctx, recipient.EVMAddress).Return(recipient, nil).Once()
+
+	prepared := &token.PreparedTransfer{
+		TransferID:      "txn-local-1",
+		TransactionHash: []byte{0x02},
+		PartyID:         sender.CantonPartyID,
+		ExpiresAt:       time.Now().Add(2 * time.Minute),
+	}
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().PrepareTransfer(ctx, mock.Anything).Return(prepared, nil).Once()
+
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().Put(prepared).Return(nil).Once()
+
+	svc := newTestService(t, tok, store, cache)
+	svc.whitelist = wlmocks.NewChecker(t)
+
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		To:              recipient.EVMAddress,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	require.NoError(t, err)
+}
+
+func TestTransferService_Prepare_ToPartyID_IssuerRecipientRejected(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.Prepare(ctx, sender.EVMAddress, &PrepareRequest{
+		ToPartyID:       testIssuerParty,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestTransferService_SendCustodial_SenderNotWhitelisted(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(ctx, sender.EVMAddress).Return(false, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	svc.whitelist = wl
+
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
+}
+
+func TestTransferService_SendCustodial_WhitelistedSenderAllowed(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	// The recipient party resolves to a registered user, so an internal-only
+	// token (DEMO) is allowed once the sender clears the whitelist gate.
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+	store.EXPECT().GetUserByCantonPartyID(ctx, validExternalPartyID).Return(recipientUser(), nil).Once()
+
+	wl := wlmocks.NewChecker(t)
+	wl.EXPECT().IsWhitelisted(ctx, sender.EVMAddress).Return(true, nil).Once()
+
+	tok := mocks.NewToken(t)
+	tok.EXPECT().TransferByPartyID(ctx, mock.Anything, sender.CantonPartyID, validExternalPartyID, "10", "DEMO", time.Hour).
+		Return(nil).Once()
+
+	svc := newTestService(t, tok, store, mocks.NewTransferCache(t))
+	svc.whitelist = wl
+
+	resp, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID:       validExternalPartyID,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", resp.Status)
+}
+
+func TestTransferService_SendCustodial_IssuerRecipientRejected(t *testing.T) {
+	ctx := context.Background()
+	sender := custodialSender()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	svc := newTestService(t, mocks.NewToken(t), store, mocks.NewTransferCache(t))
+	_, err := svc.SendCustodial(ctx, sender.EVMAddress, &CustodialTransferRequest{
+		ToPartyID:       testIssuerParty,
+		Amount:          "10",
+		Token:           "DEMO",
+		ValiditySeconds: 3600,
+	})
+	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+func TestValidateRecipient(t *testing.T) {
+	svc := &TransferService{issuerParty: testIssuerParty}
+	const senderParty = "sender::1220deadbeef"
+
+	cases := []struct {
+		name      string
+		toPartyID string
+		wantErr   bool
+	}{
+		{"external party allowed", validExternalPartyID, false},
+		{"malformed party id", "not-a-party-id", true},
+		{"self transfer", senderParty, true},
+		{"issuer/bridge-operator party", testIssuerParty, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.validateRecipient(senderParty, tc.toPartyID)
+			if tc.wantErr {
+				assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 func TestValidatePartyID(t *testing.T) {
 	cases := []struct {
 		name    string
