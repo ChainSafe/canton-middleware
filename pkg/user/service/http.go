@@ -121,12 +121,18 @@ func (h *HTTP) prepareTopology(w http.ResponseWriter, r *http.Request) error {
 }
 
 // getUser handles GET /profile and returns the caller's registered profile. With
-// read auth enabled the caller's address comes from the bearer token (context);
-// with auth disabled it falls back to the ?address= query parameter.
+// read auth enabled the caller's address comes from the bearer token (context); a
+// ?address= that does not match the token is rejected with a 403 rather than silently
+// ignored, so a misdirected client fails loudly instead of quietly receiving its own
+// profile. With auth disabled it falls back to the ?address= query parameter.
 func (h *HTTP) getUser(w http.ResponseWriter, r *http.Request) error {
 	address, ok := auth.EVMAddressFromContext(r.Context())
 	if ok && address != "" {
 		address = auth.NormalizeAddress(address)
+		if q := strings.TrimSpace(r.URL.Query().Get("address")); q != "" &&
+			(!auth.ValidateEVMAddress(q) || auth.NormalizeAddress(q) != address) {
+			return apperrors.ForbiddenError(nil, "address query parameter does not match the authenticated identity")
+		}
 	} else {
 		address = strings.TrimSpace(r.URL.Query().Get("address"))
 		if !auth.ValidateEVMAddress(address) {

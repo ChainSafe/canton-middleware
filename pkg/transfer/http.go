@@ -232,14 +232,22 @@ func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) erro
 //
 // When read authentication is enabled, the auth middleware has placed the
 // authenticated address (from the JWT, already normalized) in the request context,
-// and it is used verbatim — a caller can only read their own data. When auth is
-// disabled, the middleware is a passthrough and the address falls back to the
-// ?address= query parameter (not access-controlled — the disabled-auth posture).
+// and it is used verbatim — a caller can only read their own data. A ?address= that
+// does not match the token is rejected with a 403 rather than silently ignored, so a
+// client wrongly targeting another address fails loudly instead of quietly receiving
+// its own data. When auth is disabled, the middleware is a passthrough and the address
+// falls back to the ?address= query parameter (not access-controlled — the
+// disabled-auth posture).
 func callerAddress(r *http.Request) (string, error) {
 	if addr, ok := auth.EVMAddressFromContext(r.Context()); ok && addr != "" {
 		// Normalize here too: the transfer service looks the address up verbatim
 		// and does not normalize, so both branches must yield a canonical address.
-		return auth.NormalizeAddress(addr), nil
+		authenticated := auth.NormalizeAddress(addr)
+		if q := strings.TrimSpace(r.URL.Query().Get("address")); q != "" &&
+			(!auth.ValidateEVMAddress(q) || auth.NormalizeAddress(q) != authenticated) {
+			return "", apperrors.ForbiddenError(nil, "address query parameter does not match the authenticated identity")
+		}
+		return authenticated, nil
 	}
 
 	addr := strings.TrimSpace(r.URL.Query().Get("address"))

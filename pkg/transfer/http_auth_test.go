@@ -39,9 +39,9 @@ func authAs(evmAddress string) func(http.Handler) http.Handler {
 	}
 }
 
-// TestListIncoming_UsesTokenIdentityNotQuery verifies the read endpoint derives the
-// address from the authenticated context and ignores any ?address= query param.
-func TestListIncoming_UsesTokenIdentityNotQuery(t *testing.T) {
+// TestListIncoming_UsesTokenIdentity verifies the read endpoint derives the address
+// from the authenticated context (no ?address= supplied).
+func TestListIncoming_UsesTokenIdentity(t *testing.T) {
 	// The address in context is already checksummed at token issuance; the handler
 	// passes it through unchanged.
 	authed := auth.NormalizeAddress("0x000000000000000000000000000000000000dead")
@@ -51,8 +51,7 @@ func TestListIncoming_UsesTokenIdentityNotQuery(t *testing.T) {
 	RegisterRoutes(r, svc, authAs(authed), zap.NewNop())
 
 	rec := httptest.NewRecorder()
-	// A different address in the query must be ignored.
-	req := httptest.NewRequest(http.MethodGet, "/api/v2/transfer/incoming?address=0x0000000000000000000000000000000000000001", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/transfer/incoming", nil)
 	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -60,6 +59,50 @@ func TestListIncoming_UsesTokenIdentityNotQuery(t *testing.T) {
 	}
 	if svc.gotAddr != authed {
 		t.Fatalf("service received %q, want authenticated address %q", svc.gotAddr, authed)
+	}
+}
+
+// TestListIncoming_MatchingQueryAddressAllowed verifies that a ?address= equal to the
+// token identity (case-insensitively) is accepted and resolves to the token address.
+func TestListIncoming_MatchingQueryAddressAllowed(t *testing.T) {
+	authed := auth.NormalizeAddress("0x000000000000000000000000000000000000dead")
+	svc := &stubService{}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, svc, authAs(authed), zap.NewNop())
+
+	rec := httptest.NewRecorder()
+	// Lowercased form of the same address must still be accepted.
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/transfer/incoming?address=0x000000000000000000000000000000000000dead", nil)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.gotAddr != authed {
+		t.Fatalf("service received %q, want authenticated address %q", svc.gotAddr, authed)
+	}
+}
+
+// TestListIncoming_MismatchedQueryAddressForbidden verifies that a ?address= that does
+// not match the token is rejected with a 403 (instead of silently returning the
+// caller's own data), and the service is never reached.
+func TestListIncoming_MismatchedQueryAddressForbidden(t *testing.T) {
+	authed := auth.NormalizeAddress("0x000000000000000000000000000000000000dead")
+	svc := &stubService{}
+
+	r := chi.NewRouter()
+	RegisterRoutes(r, svc, authAs(authed), zap.NewNop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/transfer/incoming?address=0x0000000000000000000000000000000000000001", nil)
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body = %s", rec.Code, rec.Body.String())
+	}
+	if svc.gotAddr != "" {
+		t.Fatalf("service must not be called on a mismatched address, got %q", svc.gotAddr)
 	}
 }
 

@@ -225,6 +225,39 @@ func TestGetUserHTTP_Authenticated_ReturnsUser(t *testing.T) {
 	}
 }
 
+func TestGetUserHTTP_Authenticated_MatchingQueryAddress_ReturnsUser(t *testing.T) {
+	addr := auth.NormalizeAddress("0x00000000000000000000000000000000000000ab")
+	svc := mocks.NewService(t)
+	svc.EXPECT().
+		GetUser(mock.Anything, addr).
+		Return(&user.User{EVMAddress: addr, CantonParty: "party::xyz"}, nil)
+	handler := newRegisterTestServerWithAuth(svc, authAs(addr))
+
+	// Lowercased form of the authenticated address must be accepted.
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0x00000000000000000000000000000000000000ab", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestGetUserHTTP_Authenticated_MismatchedQueryAddress_Returns403(t *testing.T) {
+	addr := auth.NormalizeAddress("0x00000000000000000000000000000000000000ab")
+	// The mock has no expectations: a mismatch must be rejected before the service.
+	svc := mocks.NewService(t)
+	handler := newRegisterTestServerWithAuth(svc, authAs(addr))
+
+	req := httptest.NewRequest(http.MethodGet, "/profile?address=0x0000000000000000000000000000000000000001", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d; body = %s", http.StatusForbidden, rec.Code, rec.Body.String())
+	}
+}
+
 func TestGetUserHTTP_ServiceReturnsNotFound_Returns404(t *testing.T) {
 	addr := auth.NormalizeAddress("0x00000000000000000000000000000000000000ab")
 	svc := mocks.NewService(t)
