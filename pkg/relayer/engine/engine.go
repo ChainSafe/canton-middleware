@@ -71,6 +71,16 @@ type BridgeStore interface {
 	SetChainState(ctx context.Context, chainID string, blockNumber uint64, offset string) error
 	GetPendingTransfers(ctx context.Context, direction relayer.TransferDirection) ([]*relayer.Transfer, error)
 	ListTransfers(ctx context.Context, limit int) ([]*relayer.Transfer, error)
+
+	// GetSteppableTransfers returns non-terminal transfers owned by the given
+	// bridge keys that are due for a step (next_step_at unset or elapsed).
+	GetSteppableTransfers(ctx context.Context, bridgeKeys []string, limit int) ([]*relayer.Transfer, error)
+	// ApplyStep persists the outcome of a successful TokenBridge.Step call.
+	// nextStepAt is ignored for terminal statuses.
+	ApplyStep(ctx context.Context, id string, res relayer.StepResult, nextStepAt time.Time) error
+	// RecordStepError increments retry_count, stores the error message, and
+	// schedules the next step attempt.
+	RecordStepError(ctx context.Context, id string, errMsg string, nextStepAt time.Time) error
 }
 
 // Engine orchestrates the bridge relayer operations.
