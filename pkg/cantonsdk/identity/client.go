@@ -34,6 +34,10 @@ type Identity interface {
 	AllocateParty(ctx context.Context, hint string) (*Party, error)
 	AllocateExternalParty(ctx context.Context, hint string, spkiPublicKey []byte, signer ExternalPartyKey) (*Party, error)
 	ListParties(ctx context.Context) ([]*Party, error) // TODO: add iterator
+	// PartyExists reports whether the party id is known to the participant's
+	// topology (which includes parties hosted on other participants connected
+	// to the same synchronizer).
+	PartyExists(ctx context.Context, partyID string) (bool, error)
 	GetParticipantID(ctx context.Context) (string, error)
 
 	CreateFingerprintMapping(ctx context.Context, req CreateFingerprintMappingRequest) (*FingerprintMapping, error)
@@ -248,6 +252,32 @@ func (c *Client) ListParties(ctx context.Context) ([]*Party, error) {
 	}
 
 	return out, nil
+}
+
+// PartyExists reports whether the party id is known to the participant's
+// topology. GetParties omits unknown parties from the response rather than
+// erroring, so existence is a match in the returned details.
+func (c *Client) PartyExists(ctx context.Context, partyID string) (bool, error) {
+	authCtx := c.ledger.AuthContext(ctx)
+
+	resp, err := c.ledger.PartyAdmin().GetParties(authCtx, &adminv2.GetPartiesRequest{
+		Parties: []string{partyID},
+	})
+	if err != nil {
+		// A malformed party id string is rejected with InvalidArgument; report it
+		// as non-existent rather than a lookup failure.
+		if st, ok := status.FromError(err); ok && st.Code() == codes.InvalidArgument {
+			return false, nil
+		}
+		return false, fmt.Errorf("error getting party %s: %w", partyID, err)
+	}
+
+	for _, p := range resp.PartyDetails {
+		if p.Party == partyID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *Client) GetParticipantID(ctx context.Context) (string, error) {
