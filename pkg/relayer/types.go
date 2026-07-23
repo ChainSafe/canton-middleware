@@ -72,6 +72,32 @@ type Transfer struct {
 	NextStepAt *time.Time `json:"next_step_at,omitempty"`
 }
 
+// RegisterTransferRequest registers an externally-initiated transfer for
+// observer-mechanism tracking (e.g. an xreserve deposit the dapp just sent).
+type RegisterTransferRequest struct {
+	// ID uniquely identifies the transfer; defaults to SourceTxHash.
+	ID          string            `json:"id"`
+	BridgeKey   string            `json:"bridge_key"`
+	TokenSymbol string            `json:"token_symbol"`
+	Direction   TransferDirection `json:"direction"`
+	// SourceTxHash is the initiating transaction (EVM tx hash for deposits,
+	// burn identifier for withdrawals).
+	SourceTxHash string `json:"source_tx_hash"`
+	TokenAddress string `json:"token_address"`
+	// Amount is a decimal string in token units (not base units).
+	Amount    string            `json:"amount"`
+	Sender    string            `json:"sender"`
+	Recipient string            `json:"recipient"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+}
+
+// RegisterTransferResponse reports the registered transfer and whether this
+// call created it (false when the registration was an idempotent replay).
+type RegisterTransferResponse struct {
+	Transfer *Transfer `json:"transfer"`
+	Created  bool      `json:"created"`
+}
+
 // ChainState tracks the last processed offset for a chain.
 type ChainState struct {
 	ChainID   string
