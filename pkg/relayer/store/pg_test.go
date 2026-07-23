@@ -341,3 +341,189 @@ func TestPGStore_ChainState(t *testing.T) {
 		t.Fatalf("unexpected chain state after update: got {LastBlock:%d Offset:%s}", state.LastBlock, state.Offset)
 	}
 }
+
+func TestPGStore_SteppableTransfers(t *testing.T) {
+	ctx, store := setupRelayerStore(t)
+
+	seed := func(id, bridgeKey string, status relayer.TransferStatus, nextStepAt *time.Time) {
+		t.Helper()
+		inserted, err := store.CreateTransfer(ctx, &relayer.Transfer{
+			ID:               id,
+			BridgeKey:        bridgeKey,
+			TokenSymbol:      "USDCX",
+			Direction:        relayer.DirectionEthereumToCanton,
+			Status:           status,
+			SourceChain:      relayer.ChainEthereum,
+			DestinationChain: relayer.ChainCanton,
+			SourceTxHash:     "0x" + id,
+			TokenAddress:     "0xtoken",
+			Amount:           "1",
+			Sender:           "s",
+			Recipient:        "r",
+			NextStepAt:       nextStepAt,
+		})
+		if err != nil || !inserted {
+			t.Fatalf("seed %s failed: inserted=%v err=%v", id, inserted, err)
+		}
+	}
+
+	past := time.Now().Add(-time.Minute)
+	future := time.Now().Add(time.Hour)
+
+	seed("due-nil", "xreserve", relayer.TransferStatusPending, nil)
+	seed("due-past", "xreserve", relayer.TransferStatusInProgress, &past)
+	seed("not-due", "xreserve", relayer.TransferStatusInProgress, &future)
+	seed("terminal", "xreserve", relayer.TransferStatusCompleted, nil)
+	seed("other-bridge", "wayfinder", relayer.TransferStatusPending, nil)
+
+	got, err := store.GetSteppableTransfers(ctx, []string{"xreserve"}, 10)
+	if err != nil {
+		t.Fatalf("GetSteppableTransfers failed: %v", err)
+	}
+	if len(got) != 2 {
+		ids := make([]string, 0, len(got))
+		for _, tr := range got {
+			ids = append(ids, tr.ID)
+		}
+		t.Fatalf("got %d steppable transfers (%v), want 2", len(got), ids)
+	}
+	for _, tr := range got {
+		if tr.ID != "due-nil" && tr.ID != "due-past" {
+			t.Fatalf("unexpected steppable transfer %q", tr.ID)
+		}
+	}
+
+	// Empty key list is a no-op, not a full-table scan.
+	got, err = store.GetSteppableTransfers(ctx, nil, 10)
+	if err != nil {
+		t.Fatalf("GetSteppableTransfers(nil keys) failed: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("GetSteppableTransfers(nil keys) returned %d transfers, want 0", len(got))
+	}
+}
+
+func TestPGStore_ApplyStep(t *testing.T) {
+	ctx, store := setupRelayerStore(t)
+
+	inserted, err := store.CreateTransfer(ctx, &relayer.Transfer{
+		ID:               "step-1",
+		BridgeKey:        "xreserve",
+		Direction:        relayer.DirectionEthereumToCanton,
+		Status:           relayer.TransferStatusPending,
+		SourceChain:      relayer.ChainEthereum,
+		DestinationChain: relayer.ChainCanton,
+		SourceTxHash:     "0xstep1",
+		TokenAddress:     "0xtoken",
+		Amount:           "1",
+		Sender:           "s",
+		Recipient:        "r",
+		Metadata:         map[string]string{"deposit_nonce": "7"},
+	})
+	if err != nil || !inserted {
+		t.Fatalf("seed failed: inserted=%v err=%v", inserted, err)
+	}
+
+	next := time.Now().Add(time.Minute)
+	err = store.ApplyStep(ctx, "step-1", relayer.StepResult{
+		Status:   relayer.TransferStatusInProgress,
+		Stage:    "awaiting_attestation",
+		Metadata: map[string]string{"attestation_id": "att-9"},
+	}, next)
+	if err != nil {
+		t.Fatalf("ApplyStep(in_progress) failed: %v", err)
+	}
+
+	tr, err := store.GetTransfer(ctx, "step-1")
+	if err != nil || tr == nil {
+		t.Fatalf("GetTransfer failed: %v", err)
+	}
+	if tr.Status != relayer.TransferStatusInProgress || tr.Stage != "awaiting_attestation" {
+		t.Fatalf("status/stage = %s/%s, want in_progress/awaiting_attestation", tr.Status, tr.Stage)
+	}
+	// Metadata is merged, not replaced.
+	if tr.Metadata["deposit_nonce"] != "7" || tr.Metadata["attestation_id"] != "att-9" {
+		t.Fatalf("metadata merge failed: %+v", tr.Metadata)
+	}
+	if tr.NextStepAt == nil {
+		t.Fatalf("NextStepAt should be set for non-terminal status")
+	}
+
+	destTx := "0xminted"
+	err = store.ApplyStep(ctx, "step-1", relayer.StepResult{
+		Status:     relayer.TransferStatusCompleted,
+		Stage:      "minted",
+		DestTxHash: &destTx,
+	}, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ApplyStep(completed) failed: %v", err)
+	}
+
+	tr, err = store.GetTransfer(ctx, "step-1")
+	if err != nil || tr == nil {
+		t.Fatalf("GetTransfer failed: %v", err)
+	}
+	if tr.Status != relayer.TransferStatusCompleted {
+		t.Fatalf("status = %s, want completed", tr.Status)
+	}
+	if tr.DestinationTxHash == nil || *tr.DestinationTxHash != destTx {
+		t.Fatalf("destination tx hash not persisted")
+	}
+	if tr.CompletedAt == nil {
+		t.Fatalf("CompletedAt should be set on completion")
+	}
+	if tr.NextStepAt != nil {
+		t.Fatalf("NextStepAt should be cleared for terminal status")
+	}
+
+	if err = store.ApplyStep(ctx, "missing", relayer.StepResult{Status: relayer.TransferStatusCompleted}, time.Now()); err == nil {
+		t.Fatalf("ApplyStep on missing transfer should fail")
+	}
+}
+
+func TestPGStore_RecordStepError(t *testing.T) {
+	ctx, store := setupRelayerStore(t)
+
+	inserted, err := store.CreateTransfer(ctx, &relayer.Transfer{
+		ID:               "err-1",
+		BridgeKey:        "xreserve",
+		Direction:        relayer.DirectionEthereumToCanton,
+		Status:           relayer.TransferStatusPending,
+		SourceChain:      relayer.ChainEthereum,
+		DestinationChain: relayer.ChainCanton,
+		SourceTxHash:     "0xerr1",
+		TokenAddress:     "0xtoken",
+		Amount:           "1",
+		Sender:           "s",
+		Recipient:        "r",
+	})
+	if err != nil || !inserted {
+		t.Fatalf("seed failed: inserted=%v err=%v", inserted, err)
+	}
+
+	next := time.Now().Add(time.Minute)
+	if err = store.RecordStepError(ctx, "err-1", "boom", next); err != nil {
+		t.Fatalf("RecordStepError failed: %v", err)
+	}
+	if err = store.RecordStepError(ctx, "err-1", "boom again", next); err != nil {
+		t.Fatalf("RecordStepError(second) failed: %v", err)
+	}
+
+	tr, err := store.GetTransfer(ctx, "err-1")
+	if err != nil || tr == nil {
+		t.Fatalf("GetTransfer failed: %v", err)
+	}
+	if tr.RetryCount != 2 {
+		t.Fatalf("RetryCount = %d, want 2", tr.RetryCount)
+	}
+	if tr.ErrorMessage == nil || *tr.ErrorMessage != "boom again" {
+		t.Fatalf("ErrorMessage not persisted: %v", tr.ErrorMessage)
+	}
+	if tr.NextStepAt == nil {
+		t.Fatalf("NextStepAt should be scheduled after a step error")
+	}
+
+	if err = store.RecordStepError(ctx, "missing", "x", next); err == nil {
+		t.Fatalf("RecordStepError on missing transfer should fail")
+	}
+}

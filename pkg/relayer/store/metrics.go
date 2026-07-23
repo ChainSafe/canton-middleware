@@ -59,6 +59,10 @@ const (
 	OpSetChainState        StoreOperation = "set_chain_state"
 	OpGetPendingTransfers  StoreOperation = "get_pending_transfers"
 	OpListTransfers        StoreOperation = "list_transfers"
+
+	OpGetSteppableTransfers StoreOperation = "get_steppable_transfers"
+	OpApplyStep             StoreOperation = "apply_step"
+	OpRecordStepError       StoreOperation = "record_step_error"
 )
 
 // ── Helper methods ───────────────────────────────────────────────────────────

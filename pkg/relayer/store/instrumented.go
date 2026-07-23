@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -89,6 +90,39 @@ func (s *InstrumentedStore) SetChainState(ctx context.Context, chainID string, b
 	err := s.inner.SetChainState(ctx, chainID, blockNumber, offset)
 	if err != nil {
 		s.metrics.IncErrors(OpSetChainState)
+	}
+	return err
+}
+
+func (s *InstrumentedStore) GetSteppableTransfers(ctx context.Context, bridgeKeys []string, limit int) ([]*relayer.Transfer, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetSteppableTransfers))
+	defer timer.ObserveDuration()
+
+	transfers, err := s.inner.GetSteppableTransfers(ctx, bridgeKeys, limit)
+	if err != nil {
+		s.metrics.IncErrors(OpGetSteppableTransfers)
+	}
+	return transfers, err
+}
+
+func (s *InstrumentedStore) ApplyStep(ctx context.Context, id string, res relayer.StepResult, nextStepAt time.Time) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpApplyStep))
+	defer timer.ObserveDuration()
+
+	err := s.inner.ApplyStep(ctx, id, res, nextStepAt)
+	if err != nil {
+		s.metrics.IncErrors(OpApplyStep)
+	}
+	return err
+}
+
+func (s *InstrumentedStore) RecordStepError(ctx context.Context, id string, errMsg string, nextStepAt time.Time) error {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpRecordStepError))
+	defer timer.ObserveDuration()
+
+	err := s.inner.RecordStepError(ctx, id, errMsg, nextStepAt)
+	if err != nil {
+		s.metrics.IncErrors(OpRecordStepError)
 	}
 	return err
 }
