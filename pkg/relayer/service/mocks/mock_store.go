@@ -22,6 +22,63 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
+// CreateTransfer provides a mock function with given fields: ctx, transfer
+func (_m *Store) CreateTransfer(ctx context.Context, transfer *relayer.Transfer) (bool, error) {
+	ret := _m.Called(ctx, transfer)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateTransfer")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *relayer.Transfer) (bool, error)); ok {
+		return rf(ctx, transfer)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *relayer.Transfer) bool); ok {
+		r0 = rf(ctx, transfer)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *relayer.Transfer) error); ok {
+		r1 = rf(ctx, transfer)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_CreateTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateTransfer'
+type Store_CreateTransfer_Call struct {
+	*mock.Call
+}
+
+// CreateTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - transfer *relayer.Transfer
+func (_e *Store_Expecter) CreateTransfer(ctx interface{}, transfer interface{}) *Store_CreateTransfer_Call {
+	return &Store_CreateTransfer_Call{Call: _e.mock.On("CreateTransfer", ctx, transfer)}
+}
+
+func (_c *Store_CreateTransfer_Call) Run(run func(ctx context.Context, transfer *relayer.Transfer)) *Store_CreateTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*relayer.Transfer))
+	})
+	return _c
+}
+
+func (_c *Store_CreateTransfer_Call) Return(_a0 bool, _a1 error) *Store_CreateTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_CreateTransfer_Call) RunAndReturn(run func(context.Context, *relayer.Transfer) (bool, error)) *Store_CreateTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetTransfer provides a mock function with given fields: ctx, id
 func (_m *Store) GetTransfer(ctx context.Context, id string) (*relayer.Transfer, error) {
 	ret := _m.Called(ctx, id)

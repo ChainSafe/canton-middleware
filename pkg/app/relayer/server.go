@@ -15,11 +15,13 @@ import (
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
+	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
 	relayerpkg "github.com/chainsafe/canton-middleware/pkg/relayer"
+	"github.com/chainsafe/canton-middleware/pkg/relayer/bridges/xreserve"
 	relayerengine "github.com/chainsafe/canton-middleware/pkg/relayer/engine"
 	relayersvc "github.com/chainsafe/canton-middleware/pkg/relayer/service"
 	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
@@ -100,7 +102,7 @@ func (s *Server) Run() error {
 
 	// TokenBridge adapter pipelines (multi-token, #356) run alongside the
 	// legacy single-token engine above until its port to an adapter (#372).
-	registry, err := buildBridgeRegistry(cfg.Bridge)
+	registry, err := buildBridgeRegistry(cfg.Bridge, cantonClient.Token, logger)
 	if err != nil {
 		return err
 	}
@@ -112,7 +114,7 @@ func (s *Server) Run() error {
 		defer driver.Stop()
 	}
 
-	router := s.newRouter(store, engine, httpMetrics, logger)
+	router := s.newRouter(store, engine, registry.Keys(), httpMetrics, logger)
 
 	g, gCtx := errgroup.WithContext(ctx)
 	s.registerServers(g, gCtx, router, logger)
@@ -121,14 +123,32 @@ func (s *Server) Run() error {
 
 // buildBridgeRegistry constructs the TokenBridge adapter registry from the
 // per-token config. Each mechanism registers a case here as it lands
-// (xreserve: #357, wayfinder: #372).
-func buildBridgeRegistry(cfg *relayerpkg.Config) (*relayerpkg.Registry, error) {
+// (wayfinder: #372).
+func buildBridgeRegistry(
+	cfg *relayerpkg.Config, cantonToken cantontkn.Token, logger *zap.Logger,
+) (*relayerpkg.Registry, error) {
 	registry := relayerpkg.NewRegistry()
+
+	xreserveTokens := make(map[string]relayerpkg.TokenConfig)
 	for symbol, tc := range cfg.Tokens {
-		// No adapter mechanisms are implemented yet, so any configured token
-		// is rejected until its adapter lands and adds a dispatch case here.
-		return nil, fmt.Errorf("token %s: unknown bridge mechanism %q", symbol, tc.Mechanism)
+		switch tc.Mechanism {
+		case xreserve.Mechanism:
+			xreserveTokens[symbol] = tc
+		default:
+			return nil, fmt.Errorf("token %s: unknown bridge mechanism %q", symbol, tc.Mechanism)
+		}
 	}
+
+	if len(xreserveTokens) > 0 {
+		bridge, err := xreserve.New(xreserveTokens, cantonToken, logger)
+		if err != nil {
+			return nil, fmt.Errorf("build xreserve adapter: %w", err)
+		}
+		if err = registry.Register(bridge); err != nil {
+			return nil, err
+		}
+	}
+
 	return registry, nil
 }
 
@@ -155,7 +175,11 @@ func (s *Server) registerServers(g *errgroup.Group, gCtx context.Context, router
 }
 
 func (s *Server) newRouter(
-	store relayersvc.Store, engine *relayerengine.Engine, metrics *apphttp.HTTPMetrics, logger *zap.Logger,
+	store relayersvc.Store,
+	engine *relayerengine.Engine,
+	bridgeKeys []string,
+	metrics *apphttp.HTTPMetrics,
+	logger *zap.Logger,
 ) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -169,7 +193,7 @@ func (s *Server) newRouter(
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	svc := relayersvc.NewLog(relayersvc.NewService(store), logger)
+	svc := relayersvc.NewLog(relayersvc.NewService(store, bridgeKeys), logger)
 	relayersvc.RegisterRoutes(r, svc, engine, logger)
 
 	return r
