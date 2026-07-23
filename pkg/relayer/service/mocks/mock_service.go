@@ -140,6 +140,65 @@ func (_c *Service_ListTransfers_Call) RunAndReturn(run func(context.Context, int
 	return _c
 }
 
+// RegisterTransfer provides a mock function with given fields: ctx, req
+func (_m *Service) RegisterTransfer(ctx context.Context, req *relayer.RegisterTransferRequest) (*relayer.RegisterTransferResponse, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RegisterTransfer")
+	}
+
+	var r0 *relayer.RegisterTransferResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *relayer.RegisterTransferRequest) (*relayer.RegisterTransferResponse, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *relayer.RegisterTransferRequest) *relayer.RegisterTransferResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*relayer.RegisterTransferResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *relayer.RegisterTransferRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_RegisterTransfer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RegisterTransfer'
+type Service_RegisterTransfer_Call struct {
+	*mock.Call
+}
+
+// RegisterTransfer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *relayer.RegisterTransferRequest
+func (_e *Service_Expecter) RegisterTransfer(ctx interface{}, req interface{}) *Service_RegisterTransfer_Call {
+	return &Service_RegisterTransfer_Call{Call: _e.mock.On("RegisterTransfer", ctx, req)}
+}
+
+func (_c *Service_RegisterTransfer_Call) Run(run func(ctx context.Context, req *relayer.RegisterTransferRequest)) *Service_RegisterTransfer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*relayer.RegisterTransferRequest))
+	})
+	return _c
+}
+
+func (_c *Service_RegisterTransfer_Call) Return(_a0 *relayer.RegisterTransferResponse, _a1 error) *Service_RegisterTransfer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_RegisterTransfer_Call) RunAndReturn(run func(context.Context, *relayer.RegisterTransferRequest) (*relayer.RegisterTransferResponse, error)) *Service_RegisterTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

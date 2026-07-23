@@ -4,6 +4,7 @@ package service
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -11,9 +12,13 @@ import (
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
-const defaultLimitForListTransfer = 100
+const (
+	defaultLimitForListTransfer = 100
+	maxRequestBodyBytes         = 1 << 20 // 1MB
+)
 
 // Engine is the interface for checking relayer readiness.
 type Engine interface {
@@ -34,6 +39,9 @@ func RegisterRoutes(r chi.Router, svc Service, engine Engine, logger *zap.Logger
 	r.Get("/ready", h.ready)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/transfers", apphttp.HandleError(h.listTransfers))
+		// Internal registration endpoint for observer-mechanism transfers
+		// (called by the api-server at initiation time, not by end users).
+		r.Post("/transfers", apphttp.HandleError(h.registerTransfer))
 		r.Get("/transfers/{id}", apphttp.HandleError(h.getTransfer))
 		r.Get("/status", apphttp.HandleError(h.getStatus))
 	})
@@ -72,6 +80,25 @@ func (h *HTTP) getTransfer(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	h.writeJSON(w, http.StatusOK, transfer)
+	return nil
+}
+
+func (h *HTTP) registerTransfer(w http.ResponseWriter, r *http.Request) error {
+	var req relayer.RegisterTransferRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodyBytes)).Decode(&req); err != nil {
+		return apperrors.BadRequestError(err, "invalid JSON")
+	}
+
+	resp, err := h.service.RegisterTransfer(r.Context(), &req)
+	if err != nil {
+		return err
+	}
+
+	status := http.StatusOK
+	if resp.Created {
+		status = http.StatusCreated
+	}
+	h.writeJSON(w, status, resp)
 	return nil
 }
 
