@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/ChainSafe/canton-middleware/compare/v0.8.0...v0.9.0) (2026-07-23)
+
+
+### Features
+
+* auth primitives - JWT/SIWE (pkg/auth/jwt) ([#352](https://github.com/ChainSafe/canton-middleware/issues/352)) ([9da74c3](https://github.com/ChainSafe/canton-middleware/commit/9da74c3180bc308dedb4d7338deee6b7048568ce))
+* auth SIWE login service + config ([#353](https://github.com/ChainSafe/canton-middleware/issues/353)) ([1aea1e5](https://github.com/ChainSafe/canton-middleware/commit/1aea1e5b1d6dfc9d46175c51f8cc89483181a5f4))
+
 ## [0.8.0](https://github.com/ChainSafe/canton-middleware/compare/v0.7.0...v0.8.0) (2026-07-15)
 
 
