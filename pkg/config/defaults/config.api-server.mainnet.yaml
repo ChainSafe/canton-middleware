@@ -74,10 +74,6 @@ eth_rpc:
   chain_id: 1337
   request_timeout: "60s"
 
-jwks:
-  url: ""
-  issuer: ""
-
 monitoring:
   enabled: true
   server:

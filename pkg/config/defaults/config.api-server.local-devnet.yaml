@@ -92,10 +92,6 @@ eth_rpc:
   chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton local
   request_timeout: "60s"
 
-jwks:
-  url: ""
-  issuer: ""
-
 monitoring:
   enabled: true
   server:
