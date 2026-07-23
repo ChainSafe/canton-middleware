@@ -201,19 +201,19 @@ type APIServer interface {
 	WithdrawCustodial(ctx context.Context, account *Account, contractID string) (*transfer.ExecuteResponse, error)
 
 	// ListIncomingTransfers returns pending inbound TransferOffer details for the
-	// given account via GET /api/v2/transfer/incoming?address=…. The endpoint is
-	// unauthenticated; account is used only to derive the query parameter.
+	// given account via GET /api/v2/transfer/incoming. The caller is authenticated
+	// with account's SIWE-issued bearer token, so it returns only account's data.
 	ListIncomingTransfers(ctx context.Context, account *Account) (*transfer.IncomingTransfersList, error)
 
 	// ListOutgoingTransfers returns the account's outbound transfers via
-	// GET /api/v2/transfer/outgoing?address=…&status=…. status filters by
-	// pending|expired|completed|all (empty string = all). Unauthenticated.
+	// GET /api/v2/transfer/outgoing[?status=…]. status filters by
+	// pending|expired|completed|all (empty string = all). Authenticated as account.
 	ListOutgoingTransfers(
 		ctx context.Context, account *Account, status string,
 	) (*transfer.OutgoingTransfersList, error)
 
 	// ListCompletedTransfers returns the account's settled transfers across all
-	// tokens via GET /api/v2/transfer/completed?address=…. Unauthenticated.
+	// tokens via GET /api/v2/transfer/completed. Authenticated as account.
 	ListCompletedTransfers(ctx context.Context, account *Account) (*transfer.CompletedTransfersList, error)
 
 	// PrepareAcceptTransfer prepares a non-custodial accept of an inbound offer
