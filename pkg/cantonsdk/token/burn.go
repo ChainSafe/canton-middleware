@@ -11,14 +11,11 @@ import (
 )
 
 // xReserve burn (USDCx outbound): the user party exercises
-// BridgeUserAgreement_Burn on their own BridgeUserAgreement contract; Circle
-// validates the burn and releases the asset on the destination chain. The
-// factory contract id, choice context, and disclosed contracts come from the
-// registrar's burn-mint registry endpoint.
+// BridgeUserAgreement_Burn on its agreement; Circle then releases on the
+// destination chain. Factory + choice context come from the burn-mint registry.
 //
-// The choice name and argument field names follow DA's devnet xReserve
-// documentation and the devstack stub; they must be confirmed against the
-// production utility-bridge DAR before mainnet enablement (#360).
+// Choice/arg names follow the devstack stub; confirm against the production
+// utility-bridge DAR before mainnet (#360).
 const (
 	burnChoice          = "BridgeUserAgreement_Burn"
 	burnAgreementEntity = "BridgeUserAgreement"
@@ -46,6 +43,10 @@ func (c *Client) findBridgeUserAgreement(ctx context.Context, partyID string) (s
 	}
 	if len(events) == 0 {
 		return "", fmt.Errorf("party %s has no BridgeUserAgreement (bridge onboarding required)", partyID)
+	}
+	if len(events) > 1 {
+		// Don't guess which agreement to burn against.
+		return "", fmt.Errorf("party %s has %d BridgeUserAgreements; expected exactly one", partyID, len(events))
 	}
 	return events[0].ContractId, nil
 }
@@ -77,7 +78,15 @@ func (c *Client) buildBurnCommand(
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("list holdings: %w", err)
 	}
-	selected, err := selectHoldingsForTransfer(holdings, req.Amount)
+	// GetHoldings matches instrument id only; scope to the admin too so we
+	// don't pick a same-id instrument from another issuer.
+	scoped := make([]*Holding, 0, len(holdings))
+	for _, h := range holdings {
+		if h.InstrumentAdmin == req.InstrumentAdmin {
+			scoped = append(scoped, h)
+		}
+	}
+	selected, err := selectHoldingsForTransfer(scoped, req.Amount)
 	if err != nil {
 		return nil, nil, "", err
 	}

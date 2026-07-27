@@ -47,7 +47,8 @@ const (
 const (
 	metaBaselineBalance = "baseline_balance"
 	metaAttestationID   = "attestation_id"
-	metaBurnRequestID   = "burn_request_id"
+	// mirror the key the api-server writes, so the two can't drift
+	metaBurnRequestID = relayer.MetaBurnRequestID
 )
 
 const (
@@ -165,11 +166,20 @@ func (b *Bridge) Step(ctx context.Context, t *relayer.Transfer) (relayer.StepRes
 	}
 }
 
-// stepWithdrawal tracks a burn's destination-chain release. The burn itself
-// was already exercised by the api-server (BridgeUserAgreement_Burn is a
-// user-party choice); Circle controls the release timing, so this adapter
-// only observes.
+// stepWithdrawal tracks a burn's release. The api-server already exercised the
+// burn (a user-party choice) and Circle controls release timing, so we only observe.
 func (b *Bridge) stepWithdrawal(ctx context.Context, rt *tokenRuntime, t *relayer.Transfer) (relayer.StepResult, error) {
+	// Reap withdrawals that never release instead of polling forever.
+	if !t.CreatedAt.IsZero() && time.Since(t.CreatedAt) > depositCompletionDeadline {
+		b.logger.Warn("Withdrawal exceeded completion deadline, failing",
+			zap.String("id", t.ID), zap.String("token", rt.symbol), zap.String("stage", t.Stage))
+		return relayer.StepResult{
+			Status: relayer.TransferStatusFailed,
+			Stage:  t.Stage,
+			Reason: fmt.Sprintf("release not observed within %s", depositCompletionDeadline),
+		}, nil
+	}
+
 	switch t.Stage {
 	case "", StageAwaitingRelease:
 		requestID := t.Metadata[metaBurnRequestID]

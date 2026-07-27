@@ -33,15 +33,29 @@ func (f *fakeUserStore) GetUserByEVMAddress(_ context.Context, evmAddress string
 type fakeRelayer struct {
 	registered *relayer.RegisterTransferRequest
 	transfer   *relayer.Transfer
+	// seen models the relayer's idempotent CreateTransfer: a repeated id
+	// returns created=false, as the real ON CONFLICT DO NOTHING would.
+	seen         map[string]bool
+	registerErr  error
+	registerHits int
 }
 
 func (f *fakeRelayer) RegisterTransfer(
 	_ context.Context, req *relayer.RegisterTransferRequest,
 ) (*relayer.RegisterTransferResponse, error) {
+	f.registerHits++
+	if f.registerErr != nil {
+		return nil, f.registerErr
+	}
 	f.registered = req
+	if f.seen == nil {
+		f.seen = map[string]bool{}
+	}
+	created := !f.seen[req.ID]
+	f.seen[req.ID] = true
 	return &relayer.RegisterTransferResponse{
 		Transfer: &relayer.Transfer{ID: req.ID, Status: relayer.TransferStatusPending},
-		Created:  true,
+		Created:  created,
 	}, nil
 }
 

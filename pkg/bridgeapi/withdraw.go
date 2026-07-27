@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
@@ -20,10 +19,6 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
-
-// metaBurnRequestID correlates the Canton burn with Circle's release; the
-// relayer's xreserve adapter polls release status by this id.
-const metaBurnRequestID = "burn_request_id"
 
 // CantonBurner is the slice of the Canton token client the withdraw flow
 // needs: burn preparation/execution for external keys and direct burns for
@@ -42,6 +37,8 @@ type WithdrawRequest struct {
 	Amount string `json:"amount"`
 	// Recipient is the destination EVM address.
 	Recipient string `json:"recipient"`
+	// IdempotencyKey ties a retry to the same burn so it never burns twice. Required.
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 // WithdrawPrepareResponse carries the hash an external-key user signs.
@@ -95,6 +92,18 @@ func (s *burnStore) Put(b *preparedBurn) {
 	s.burns[b.Prepared.TransferID] = b
 }
 
+// Peek returns the prepared burn without consuming it, so callers can validate
+// before the single-use Take.
+func (s *burnStore) Peek(transferID string) (*preparedBurn, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.burns[transferID]
+	if !ok || s.now().After(b.Prepared.ExpiresAt) {
+		return nil, false
+	}
+	return b, true
+}
+
 // Take removes and returns the prepared burn if present and unexpired.
 func (s *burnStore) Take(transferID string) (*preparedBurn, bool) {
 	s.mu.Lock()
@@ -126,7 +135,8 @@ func (s *bridgeService) WithdrawPrepare(
 		return nil, apperrors.BadRequestError(nil, "custodial users must use the custodial withdraw endpoint")
 	}
 
-	requestID := uuid.NewString()
+	// Use the idempotency key as the stable request id so a re-prepare dedupes.
+	requestID := req.IdempotencyKey
 	prepared, err := s.canton.PrepareBurn(ctx, burnRequest(tc, usr.CantonParty, req, requestID))
 	if err != nil {
 		return nil, fmt.Errorf("prepare burn: %w", err)
@@ -150,12 +160,13 @@ func (s *bridgeService) WithdrawPrepare(
 	}, nil
 }
 
-// WithdrawExecute submits the user-signed burn and registers the transfer
-// with the relayer for release tracking.
+// WithdrawExecute submits the user-signed burn and tracks it. It validates
+// (via Peek) before consuming the burn, so a bad request can't destroy it, and
+// registers before submitting so a crash never leaves an untracked burn.
 func (s *bridgeService) WithdrawExecute(
 	ctx context.Context, evmAddress string, req *WithdrawExecuteRequest,
 ) (*relayer.RegisterTransferResponse, error) {
-	burn, ok := s.burns.Take(req.TransferID)
+	burn, ok := s.burns.Peek(req.TransferID)
 	if !ok {
 		return nil, apperrors.ResourceNotFoundError(nil, "unknown or expired transfer_id")
 	}
@@ -176,6 +187,20 @@ func (s *bridgeService) WithdrawExecute(
 		return nil, apperrors.BadRequestError(err, "invalid DER signature")
 	}
 
+	// Consume the single-use burn; a concurrent duplicate loses this race.
+	if _, ok = s.burns.Take(req.TransferID); !ok {
+		return nil, apperrors.ResourceNotFoundError(nil, "transfer already executed")
+	}
+
+	resp, created, err := s.registerWithdrawal(ctx, burn.TokenSymbol, burn.TokenAddress,
+		burn.Amount, burn.Sender, burn.Recipient, burn.RequestID)
+	if err != nil {
+		return nil, err
+	}
+	if !created {
+		return resp, nil // already submitted under this id; don't burn again
+	}
+
 	if err = s.canton.ExecuteTransfer(ctx, &cantontkn.ExecuteTransferRequest{
 		PreparedTransfer: burn.Prepared,
 		Signature:        sigBytes,
@@ -183,13 +208,12 @@ func (s *bridgeService) WithdrawExecute(
 	}); err != nil {
 		return nil, fmt.Errorf("execute burn: %w", err)
 	}
-
-	return s.registerWithdrawal(ctx, burn.TokenSymbol, burn.TokenAddress,
-		burn.Amount, burn.Sender, burn.Recipient, burn.RequestID)
+	return resp, nil
 }
 
-// WithdrawCustodial burns server-side for a custodial user and registers the
-// transfer for release tracking.
+// WithdrawCustodial burns server-side for a custodial user. It registers
+// (keyed by the idempotency key) before burning, so a retry of a lost-response
+// call returns the existing transfer instead of burning twice.
 func (s *bridgeService) WithdrawCustodial(
 	ctx context.Context, evmAddress string, req *WithdrawRequest,
 ) (*relayer.RegisterTransferResponse, error) {
@@ -201,13 +225,20 @@ func (s *bridgeService) WithdrawCustodial(
 		return nil, apperrors.BadRequestError(nil, "only custodial users can use this endpoint")
 	}
 
-	requestID := uuid.NewString()
+	requestID := req.IdempotencyKey
+	resp, created, err := s.registerWithdrawal(ctx, req.Token, tc.EVMAddress,
+		req.Amount, usr.CantonParty, req.Recipient, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if !created {
+		return resp, nil // retry: already submitted under this id, don't burn again
+	}
+
 	if err = s.canton.BurnByPartyID(ctx, burnRequest(tc, usr.CantonParty, req, requestID)); err != nil {
 		return nil, fmt.Errorf("burn: %w", err)
 	}
-
-	return s.registerWithdrawal(ctx, req.Token, tc.EVMAddress,
-		req.Amount, usr.CantonParty, req.Recipient, requestID)
+	return resp, nil
 }
 
 // validateWithdraw shares the request/token/user checks between the
@@ -232,6 +263,9 @@ func (s *bridgeService) validateWithdraw(
 		return TokenConfig{}, nil, apperrors.BadRequestError(nil,
 			"invalid recipient: must be a 0x-prefixed 40-hex-char EVM address")
 	}
+	if req.IdempotencyKey == "" {
+		return TokenConfig{}, nil, apperrors.BadRequestError(nil, "idempotency_key is required")
+	}
 
 	usr, err := s.userStore.GetUserByEVMAddress(ctx, evmAddress)
 	if err != nil {
@@ -254,14 +288,16 @@ func burnRequest(tc TokenConfig, partyID string, req *WithdrawRequest, requestID
 	}
 }
 
-// registerWithdrawal records the burn with the relayer so the xreserve
-// adapter can track Circle's release.
+// registerWithdrawal records the pending withdrawal (before the burn) so the
+// adapter can track the release. Its created result drives idempotency: false
+// means this id was already registered (a retry), so don't burn again.
 func (s *bridgeService) registerWithdrawal(
 	ctx context.Context,
 	tokenSymbol, tokenAddress, amount, senderParty, recipient, requestID string,
-) (*relayer.RegisterTransferResponse, error) {
-	resp, err := s.relayer.RegisterTransfer(ctx, &relayer.RegisterTransferRequest{
-		ID:           requestID,
+) (resp *relayer.RegisterTransferResponse, created bool, err error) {
+	id := registrationID(MechanismXReserve, requestID)
+	resp, err = s.relayer.RegisterTransfer(ctx, &relayer.RegisterTransferRequest{
+		ID:           id,
 		BridgeKey:    MechanismXReserve,
 		TokenSymbol:  tokenSymbol,
 		Direction:    relayer.DirectionCantonToEthereum,
@@ -270,13 +306,10 @@ func (s *bridgeService) registerWithdrawal(
 		Amount:       amount,
 		Sender:       senderParty,
 		Recipient:    recipient,
-		Metadata:     map[string]string{metaBurnRequestID: requestID},
+		Metadata:     map[string]string{relayer.MetaBurnRequestID: requestID},
 	})
 	if err != nil {
-		// The burn already settled on Canton; registration is status
-		// tracking only, so surface the failure without implying the
-		// withdrawal itself failed.
-		return nil, fmt.Errorf("burn submitted but status registration failed: %w", err)
+		return nil, false, fmt.Errorf("register withdrawal: %w", err)
 	}
-	return resp, nil
+	return resp, resp.Created, nil
 }

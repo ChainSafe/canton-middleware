@@ -46,7 +46,12 @@ func preparedBurnTransfer() *cantontkn.PreparedTransfer {
 }
 
 func withdrawReq() *WithdrawRequest {
-	return &WithdrawRequest{Token: "USDCX", Amount: testAmount, Recipient: testEVMRecipient}
+	return &WithdrawRequest{
+		Token:          "USDCX",
+		Amount:         testAmount,
+		Recipient:      testEVMRecipient,
+		IdempotencyKey: "idem-1",
+	}
 }
 
 func TestWithdrawPrepare_ExternalKey(t *testing.T) {
@@ -136,7 +141,7 @@ func TestWithdrawExecute_SubmitsAndRegisters(t *testing.T) {
 	if reg.Direction != relayer.DirectionCantonToEthereum || reg.BridgeKey != MechanismXReserve {
 		t.Fatalf("registered = %+v", reg)
 	}
-	if reg.Metadata[metaBurnRequestID] == "" || reg.SourceTxHash != reg.Metadata[metaBurnRequestID] {
+	if reg.Metadata[relayer.MetaBurnRequestID] == "" || reg.SourceTxHash != reg.Metadata[relayer.MetaBurnRequestID] {
 		t.Fatalf("burn request id not propagated: %+v", reg)
 	}
 	if reg.Recipient != testEVMRecipient || reg.Sender != "party::external" || reg.Amount != testAmount {
@@ -211,5 +216,64 @@ func TestWithdrawCustodial_ExternalUserRejected(t *testing.T) {
 
 	if _, err := svc.WithdrawCustodial(context.Background(), testExternalAddr, withdrawReq()); err == nil {
 		t.Fatalf("external-key user on custodial endpoint should fail")
+	}
+}
+
+// TestWithdrawCustodial_RetryDoesNotDoubleBurn is the O1 regression: a retry
+// with the same idempotency key must not trigger a second on-chain burn.
+func TestWithdrawCustodial_RetryDoesNotDoubleBurn(t *testing.T) {
+	burner := &fakeBurner{}
+	rc := &fakeRelayer{}
+	svc := newTestServiceWithUsers(t, rc, burner, withdrawUsers())
+	ctx := context.Background()
+
+	if _, err := svc.WithdrawCustodial(ctx, testCustodialAddr, withdrawReq()); err != nil {
+		t.Fatalf("first WithdrawCustodial failed: %v", err)
+	}
+	// Same idempotency key: the relayer reports the row already exists, so the
+	// second call must return without burning again.
+	resp, err := svc.WithdrawCustodial(ctx, testCustodialAddr, withdrawReq())
+	if err != nil {
+		t.Fatalf("retry WithdrawCustodial failed: %v", err)
+	}
+	if resp.Created {
+		t.Fatalf("retry should report created=false")
+	}
+	if burner.customCalls != 1 {
+		t.Fatalf("burn executed %d times, want exactly 1", burner.customCalls)
+	}
+}
+
+// TestWithdrawExecute_FailedValidationPreservesBurn is the O2 regression: a
+// validation failure (wrong fingerprint) must not consume the prepared burn,
+// so a subsequent correct execute still succeeds.
+func TestWithdrawExecute_FailedValidationPreservesBurn(t *testing.T) {
+	burner := &fakeBurner{prepared: preparedBurnTransfer()}
+	svc := newTestServiceWithUsers(t, &fakeRelayer{}, burner, withdrawUsers())
+	ctx := context.Background()
+
+	prep, err := svc.WithdrawPrepare(ctx, testExternalAddr, withdrawReq())
+	if err != nil {
+		t.Fatalf("prepare failed: %v", err)
+	}
+
+	// Wrong fingerprint: must fail without consuming the burn.
+	if _, err = svc.WithdrawExecute(ctx, testExternalAddr, &WithdrawExecuteRequest{
+		TransferID: prep.TransferID, Signature: "0xabcd", SignedBy: "1220wrong",
+	}); err == nil {
+		t.Fatalf("wrong fingerprint should fail")
+	}
+	if burner.executed != nil {
+		t.Fatalf("burn must not have been executed on a failed validation")
+	}
+
+	// The correct execute still works: the burn was preserved.
+	if _, err = svc.WithdrawExecute(ctx, testExternalAddr, &WithdrawExecuteRequest{
+		TransferID: prep.TransferID, Signature: "0xabcd", SignedBy: testFingerprint,
+	}); err != nil {
+		t.Fatalf("execute after a failed attempt should succeed: %v", err)
+	}
+	if burner.executed == nil {
+		t.Fatalf("burn should have executed on the valid attempt")
 	}
 }
