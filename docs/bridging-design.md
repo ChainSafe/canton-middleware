@@ -326,7 +326,7 @@ func (w *Bridge) stepWithdrawal(ctx context.Context, t *relayer.Transfer) (relay
         if done, err := w.eth.IsWithdrawalProcessed(ctx, cantonTxHash(t)); err != nil {
             return relayer.StepResult{}, err
         } else if done {
-            return relayer.StepResult{Status: relayer.StatusInProgress, Stage: "eth_submitted"}, nil
+            return relayer.StepResult{Status: relayer.StatusPending, Stage: "eth_submitted"}, nil
         }
         hash, err := w.eth.WithdrawFromCanton(ctx, w.token.EVMAddress,
             common.HexToAddress(t.Recipient), toWei(t.Amount, w.token.Decimals),
@@ -335,7 +335,7 @@ func (w *Bridge) stepWithdrawal(ctx context.Context, t *relayer.Transfer) (relay
             return relayer.StepResult{}, err
         }
         h := hash.Hex()
-        return relayer.StepResult{Status: relayer.StatusInProgress, Stage: "eth_submitted", DestTxHash: &h}, nil
+        return relayer.StepResult{Status: relayer.StatusPending, Stage: "eth_submitted", DestTxHash: &h}, nil
 
     case "eth_submitted":
         err := w.canton.CompleteWithdrawal(ctx, bridge.CompleteWithdrawalRequest{
@@ -409,13 +409,13 @@ func (x *Bridge) stepDeposit(ctx context.Context, t *relayer.Transfer) (relayer.
     case "", "awaiting_attestation":
         att, err := x.circle.GetAttestation(ctx, t.SourceTxHash, t.Metadata["deposit_nonce"])
         if errors.Is(err, circle.ErrNotReady) { // Ethereum finality ~15 min
-            return relayer.StepResult{Status: relayer.StatusInProgress,
+            return relayer.StepResult{Status: relayer.StatusPending,
                 Stage: "awaiting_attestation", RetryAfter: time.Minute}, nil
         }
         if err != nil {
             return relayer.StepResult{}, err
         }
-        return relayer.StepResult{Status: relayer.StatusInProgress, Stage: "awaiting_mint",
+        return relayer.StepResult{Status: relayer.StatusPending, Stage: "awaiting_mint",
             Metadata: map[string]any{"attestation_id": att.ID}}, nil
 
     case "awaiting_mint":
@@ -428,7 +428,7 @@ func (x *Bridge) stepDeposit(ctx context.Context, t *relayer.Transfer) (relayer.
             return relayer.StepResult{}, err
         }
         if holding == nil {
-            return relayer.StepResult{Status: relayer.StatusInProgress,
+            return relayer.StepResult{Status: relayer.StatusPending,
                 Stage: "awaiting_mint", RetryAfter: 30 * time.Second}, nil
         }
         return relayer.StepResult{Status: relayer.StatusCompleted, DestTxHash: &holding.UpdateID}, nil
@@ -448,7 +448,7 @@ func (x *Bridge) stepWithdrawal(ctx context.Context, t *relayer.Transfer) (relay
             return relayer.StepResult{}, err
         }
         if release == nil {
-            return relayer.StepResult{Status: relayer.StatusInProgress,
+            return relayer.StepResult{Status: relayer.StatusPending,
                 Stage: "awaiting_release", RetryAfter: time.Minute}, nil
         }
         h := release.TxHash.Hex()
@@ -488,28 +488,30 @@ signs.
 
   ```json
   {
-    "quote_id": "q_7f3a...",
     "chain_id": 1,
     "steps": [
       {"kind": "approve", "to": "0x<token>",   "data": "0x095ea7b3...", "value": "0"},
       {"kind": "deposit", "to": "0x<bridge>",  "data": "0x...",         "value": "0"}
     ],
     "fees": {"bridge_fee": "0", "currency": "USDC"},
-    "estimated_seconds": 900,
-    "expires_at": "2026-07-11T12:34:56Z"
+    "estimated_seconds": 900
   }
   ```
 
   The `approve` step is included only when the current on-chain allowance is
   insufficient (server checks via its eth client). `estimated_seconds` and
   `fees` come from the mechanism: seconds and zero fee for wayfinder, ~15 min
-  and Circle's withdrawal fee for xreserve. Quote params are persisted
-  against `quote_id` so the later registration can be validated against what
-  was quoted. (Future optimization: EIP-2612 permit to collapse the approve
-  step — USDC supports it.)
-- `POST /api/v2/bridge/deposits` — body `{quote_id, tx_hash}`: registers the
-  transfer for status tracking. No-op-ish for wayfinder (the Source detects
-  it independently); required for xreserve, where nothing watches the chain.
+  and Circle's withdrawal fee for xreserve. Quoting is **stateless** — a pure
+  encoding function; the server persists nothing. Nothing needs binding to a
+  quote id because the chain is the source of truth: a registration with
+  wrong parameters only produces a status row that never completes.
+  (Future optimization: EIP-2612 permit to collapse the approve step — USDC
+  supports it.)
+- `POST /api/v2/bridge/deposits` — body `{token, amount, tx_hash}`: registers
+  the transfer for status tracking; the recipient party is re-derived from
+  the authenticated session, never taken from the caller. No-op-ish for
+  wayfinder (the Source detects it independently); required for xreserve,
+  where nothing watches the chain.
 - `POST /api/v2/bridge/withdraw/prepare|execute` — mechanism-dispatched
   Canton-side signing: wayfinder builds `InitiateWithdrawal`; xreserve builds
   `BridgeUserAgreement_Burn`. Execute also registers the transfer.

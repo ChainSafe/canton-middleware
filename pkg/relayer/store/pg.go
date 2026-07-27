@@ -174,10 +174,7 @@ func (s *PGStore) GetSteppableTransfers(
 	err := s.db.NewSelect().
 		Model(&daos).
 		Where("bridge_key IN (?)", bun.List(bridgeKeys)).
-		Where("status IN (?)", bun.List([]string{
-			string(relayer.TransferStatusPending),
-			string(relayer.TransferStatusInProgress),
-		})).
+		Where("status = ?", relayer.TransferStatusPending).
 		Where("(next_step_at IS NULL OR next_step_at <= ?)", time.Now()).
 		OrderExpr("created_at ASC").
 		Limit(limit).

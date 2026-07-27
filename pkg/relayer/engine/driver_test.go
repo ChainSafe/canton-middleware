@@ -87,7 +87,7 @@ func TestDriver_StepDueTransfers_AppliesResult(t *testing.T) {
 		key: "fake",
 		stepFn: func(_ context.Context, _ *relayer.Transfer) (relayer.StepResult, error) {
 			return relayer.StepResult{
-				Status:     relayer.TransferStatusInProgress,
+				Status:     relayer.TransferStatusPending,
 				Stage:      "awaiting_attestation",
 				Metadata:   map[string]string{"attestation_id": "att-1"},
 				RetryAfter: 45 * time.Second,
@@ -102,7 +102,7 @@ func TestDriver_StepDueTransfers_AppliesResult(t *testing.T) {
 	before := time.Now()
 	store.EXPECT().ApplyStep(mock.Anything, "t-1", mock.Anything, mock.Anything).
 		RunAndReturn(func(_ context.Context, _ string, res relayer.StepResult, nextStepAt time.Time) error {
-			if res.Status != relayer.TransferStatusInProgress || res.Stage != "awaiting_attestation" {
+			if res.Status != relayer.TransferStatusPending || res.Stage != "awaiting_attestation" {
 				t.Errorf("unexpected step result: %+v", res)
 			}
 			if res.Metadata["attestation_id"] != "att-1" {

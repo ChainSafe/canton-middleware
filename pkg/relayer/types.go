@@ -17,10 +17,9 @@ const OffsetBegin = "BEGIN"
 type TransferStatus string
 
 const (
-	TransferStatusPending    TransferStatus = "pending"
-	TransferStatusInProgress TransferStatus = "in_progress"
-	TransferStatusCompleted  TransferStatus = "completed"
-	TransferStatusFailed     TransferStatus = "failed"
+	TransferStatusPending   TransferStatus = "pending"
+	TransferStatusCompleted TransferStatus = "completed"
+	TransferStatusFailed    TransferStatus = "failed"
 )
 
 // IsTerminal reports whether the status is final and the transfer needs no

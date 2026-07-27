@@ -114,7 +114,6 @@ func TestTransferStatus_IsTerminal(t *testing.T) {
 		want   bool
 	}{
 		{TransferStatusPending, false},
-		{TransferStatusInProgress, false},
 		{TransferStatusCompleted, true},
 		{TransferStatusFailed, true},
 	}

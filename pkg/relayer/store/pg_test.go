@@ -371,8 +371,8 @@ func TestPGStore_SteppableTransfers(t *testing.T) {
 	future := time.Now().Add(time.Hour)
 
 	seed("due-nil", "xreserve", relayer.TransferStatusPending, nil)
-	seed("due-past", "xreserve", relayer.TransferStatusInProgress, &past)
-	seed("not-due", "xreserve", relayer.TransferStatusInProgress, &future)
+	seed("due-past", "xreserve", relayer.TransferStatusPending, &past)
+	seed("not-due", "xreserve", relayer.TransferStatusPending, &future)
 	seed("terminal", "xreserve", relayer.TransferStatusCompleted, nil)
 	seed("other-bridge", "wayfinder", relayer.TransferStatusPending, nil)
 
@@ -426,7 +426,7 @@ func TestPGStore_ApplyStep(t *testing.T) {
 
 	next := time.Now().Add(time.Minute)
 	err = store.ApplyStep(ctx, "step-1", relayer.StepResult{
-		Status:   relayer.TransferStatusInProgress,
+		Status:   relayer.TransferStatusPending,
 		Stage:    "awaiting_attestation",
 		Metadata: map[string]string{"attestation_id": "att-9"},
 	}, next)
@@ -438,7 +438,7 @@ func TestPGStore_ApplyStep(t *testing.T) {
 	if err != nil || tr == nil {
 		t.Fatalf("GetTransfer failed: %v", err)
 	}
-	if tr.Status != relayer.TransferStatusInProgress || tr.Stage != "awaiting_attestation" {
+	if tr.Status != relayer.TransferStatusPending || tr.Stage != "awaiting_attestation" {
 		t.Fatalf("status/stage = %s/%s, want in_progress/awaiting_attestation", tr.Status, tr.Stage)
 	}
 	// Metadata is merged, not replaced.
