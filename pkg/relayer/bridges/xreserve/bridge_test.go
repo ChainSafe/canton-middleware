@@ -14,16 +14,25 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
 
-// fakeAttester returns a fixed attestation result.
+// fakeAttester returns fixed attestation / burn-status results.
 type fakeAttester struct {
 	att   *Attestation
 	err   error
 	calls int
+
+	burnStatus *BurnStatus
+	burnErr    error
+	burnCalls  int
 }
 
 func (f *fakeAttester) GetAttestation(context.Context, string) (*Attestation, error) {
 	f.calls++
 	return f.att, f.err
+}
+
+func (f *fakeAttester) GetBurnStatus(context.Context, string) (*BurnStatus, error) {
+	f.burnCalls++
+	return f.burnStatus, f.burnErr
 }
 
 // fakeHoldings returns its fixed holdings list filtered by owner.
@@ -250,12 +259,73 @@ func TestBridge_Step_UnknownStage_Fails(t *testing.T) {
 	}
 }
 
-func TestBridge_Step_WithdrawalsNotSupportedYet(t *testing.T) {
+func withdrawalTransfer(stage string, metadata map[string]string) *relayer.Transfer {
+	tr := depositTransfer(stage, metadata)
+	tr.Direction = relayer.DirectionCantonToEthereum
+	return tr
+}
+
+func TestBridge_StepWithdrawal_ReleasePending_KeepsPolling(t *testing.T) {
+	circle := &fakeAttester{burnErr: ErrReleasePending}
+
+	b := newTestBridge(t, circle, &fakeHoldings{})
+	res, err := b.Step(context.Background(),
+		withdrawalTransfer("", map[string]string{metaBurnRequestID: "req-1"}))
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+	if res.Status != relayer.TransferStatusPending || res.Stage != StageAwaitingRelease {
+		t.Fatalf("status/stage = %s/%s, want pending/%s", res.Status, res.Stage, StageAwaitingRelease)
+	}
+	if circle.burnCalls != 1 {
+		t.Fatalf("GetBurnStatus called %d times, want 1", circle.burnCalls)
+	}
+}
+
+func TestBridge_StepWithdrawal_ServiceUnavailable_KeepsPollingWithoutError(t *testing.T) {
+	circle := &fakeAttester{burnErr: errors.Join(ErrAttestationUnavailable, errors.New("503"))}
+
+	b := newTestBridge(t, circle, &fakeHoldings{})
+	res, err := b.Step(context.Background(),
+		withdrawalTransfer(StageAwaitingRelease, map[string]string{metaBurnRequestID: "req-1"}))
+	if err != nil {
+		t.Fatalf("transient unavailability must not be a step error, got: %v", err)
+	}
+	if res.Stage != StageAwaitingRelease {
+		t.Fatalf("stage = %s, want %s", res.Stage, StageAwaitingRelease)
+	}
+}
+
+func TestBridge_StepWithdrawal_Released_Completes(t *testing.T) {
+	circle := &fakeAttester{burnStatus: &BurnStatus{Status: "released", TxHash: "0xrelease"}}
+
+	b := newTestBridge(t, circle, &fakeHoldings{})
+	res, err := b.Step(context.Background(),
+		withdrawalTransfer(StageAwaitingRelease, map[string]string{metaBurnRequestID: "req-1"}))
+	if err != nil {
+		t.Fatalf("Step failed: %v", err)
+	}
+	if res.Status != relayer.TransferStatusCompleted || res.Stage != StageReleased {
+		t.Fatalf("status/stage = %s/%s, want completed/%s", res.Status, res.Stage, StageReleased)
+	}
+	if res.DestTxHash == nil || *res.DestTxHash != "0xrelease" {
+		t.Fatalf("DestTxHash = %v, want 0xrelease", res.DestTxHash)
+	}
+}
+
+func TestBridge_StepWithdrawal_MissingRequestID_Fails(t *testing.T) {
 	b := newTestBridge(t, &fakeAttester{}, &fakeHoldings{})
 
-	transfer := depositTransfer("", nil)
-	transfer.Direction = relayer.DirectionCantonToEthereum
-	if _, err := b.Step(context.Background(), transfer); err == nil {
-		t.Fatalf("withdrawal Step should fail until #359 lands")
+	if _, err := b.Step(context.Background(), withdrawalTransfer("", nil)); err == nil {
+		t.Fatalf("withdrawal without burn_request_id should fail")
+	}
+}
+
+func TestBridge_StepWithdrawal_UnknownStage_Fails(t *testing.T) {
+	b := newTestBridge(t, &fakeAttester{}, &fakeHoldings{})
+
+	if _, err := b.Step(context.Background(),
+		withdrawalTransfer("bogus", map[string]string{metaBurnRequestID: "req-1"})); err == nil {
+		t.Fatalf("unknown withdrawal stage should fail")
 	}
 }

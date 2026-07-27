@@ -42,23 +42,30 @@ type Service interface {
 	DepositQuote(ctx context.Context, evmAddress string, req *QuoteRequest) (*Quote, error)
 	RegisterDeposit(ctx context.Context, evmAddress string, req *RegisterDepositRequest) (*relayer.RegisterTransferResponse, error)
 	GetTransfer(ctx context.Context, id string) (*relayer.Transfer, error)
+	WithdrawPrepare(ctx context.Context, evmAddress string, req *WithdrawRequest) (*WithdrawPrepareResponse, error)
+	WithdrawExecute(ctx context.Context, evmAddress string, req *WithdrawExecuteRequest) (*relayer.RegisterTransferResponse, error)
+	WithdrawCustodial(ctx context.Context, evmAddress string, req *WithdrawRequest) (*relayer.RegisterTransferResponse, error)
 }
 
 type bridgeService struct {
 	cfg       *Config
 	quoters   map[string]DepositQuoter // keyed by mechanism
+	burns     *burnStore
 	userStore UserStore
 	relayer   RelayerClient
+	canton    CantonBurner // nil disables withdrawals
 	logger    *zap.Logger
 }
 
 // NewService builds the bridge service from config. allowance may be nil, in
-// which case quotes always include the approve step.
+// which case quotes always include the approve step; canton may be nil, which
+// disables withdrawals.
 func NewService(
 	cfg *Config,
 	userStore UserStore,
 	relayerClient RelayerClient,
 	allowance AllowanceChecker,
+	canton CantonBurner,
 	logger *zap.Logger,
 ) (Service, error) {
 	if err := cfg.Validate(); err != nil {
@@ -80,8 +87,10 @@ func NewService(
 	return &bridgeService{
 		cfg:       cfg,
 		quoters:   quoters,
+		burns:     newBurnStore(),
 		userStore: userStore,
 		relayer:   relayerClient,
+		canton:    canton,
 		logger:    logger,
 	}, nil
 }

@@ -37,10 +37,17 @@ const (
 	StageMinted              = "minted"
 )
 
+// Withdrawal stages.
+const (
+	StageAwaitingRelease = "awaiting_release"
+	StageReleased        = "released"
+)
+
 // Metadata keys accumulated on transfers.
 const (
 	metaBaselineBalance = "baseline_balance"
 	metaAttestationID   = "attestation_id"
+	metaBurnRequestID   = "burn_request_id"
 )
 
 const (
@@ -152,10 +159,55 @@ func (b *Bridge) Step(ctx context.Context, t *relayer.Transfer) (relayer.StepRes
 	case relayer.DirectionEthereumToCanton:
 		return b.stepDeposit(ctx, rt, t)
 	case relayer.DirectionCantonToEthereum:
-		// Outbound (BridgeUserAgreement_Burn + release tracking) lands with #359.
-		return relayer.StepResult{}, fmt.Errorf("xreserve withdrawals are not supported yet")
+		return b.stepWithdrawal(ctx, rt, t)
 	default:
 		return relayer.StepResult{}, fmt.Errorf("unknown direction %q", t.Direction)
+	}
+}
+
+// stepWithdrawal tracks a burn's destination-chain release. The burn itself
+// was already exercised by the api-server (BridgeUserAgreement_Burn is a
+// user-party choice); Circle controls the release timing, so this adapter
+// only observes.
+func (b *Bridge) stepWithdrawal(ctx context.Context, rt *tokenRuntime, t *relayer.Transfer) (relayer.StepResult, error) {
+	switch t.Stage {
+	case "", StageAwaitingRelease:
+		requestID := t.Metadata[metaBurnRequestID]
+		if requestID == "" {
+			return relayer.StepResult{}, fmt.Errorf("withdrawal is missing %s metadata", metaBurnRequestID)
+		}
+
+		st, err := rt.circle.GetBurnStatus(ctx, requestID)
+		switch {
+		case errors.Is(err, ErrReleasePending):
+			return relayer.StepResult{
+				Status:     relayer.TransferStatusPending,
+				Stage:      StageAwaitingRelease,
+				RetryAfter: rt.attestationPollInterval(),
+			}, nil
+		case errors.Is(err, ErrAttestationUnavailable):
+			b.logger.Warn("Burn-status service unavailable, will keep polling",
+				zap.String("id", t.ID), zap.String("token", rt.symbol), zap.Error(err))
+			return relayer.StepResult{
+				Status:     relayer.TransferStatusPending,
+				Stage:      StageAwaitingRelease,
+				RetryAfter: rt.attestationPollInterval(),
+			}, nil
+		case err != nil:
+			return relayer.StepResult{}, err
+		}
+
+		result := relayer.StepResult{
+			Status: relayer.TransferStatusCompleted,
+			Stage:  StageReleased,
+		}
+		if st.TxHash != "" {
+			txHash := st.TxHash
+			result.DestTxHash = &txHash
+		}
+		return result, nil
+	default:
+		return relayer.StepResult{}, fmt.Errorf("unknown withdrawal stage %q", t.Stage)
 	}
 }
 

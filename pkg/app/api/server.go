@@ -303,7 +303,7 @@ func initServices(
 		cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient, cantonClient.Identity,
 	)
 
-	bridgeSvc, err := buildBridgeService(cfg, userStore, logger)
+	bridgeSvc, err := buildBridgeService(cfg, userStore, cantonClient.Token, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,9 @@ func initServices(
 // buildBridgeService constructs the bridge API service when the optional
 // `bridge` config block is present. The allowance checker is optional: with
 // no eth_rpc_url, quotes always include the approve step.
-func buildBridgeService(cfg *config.APIServer, userStore userstore.Store, logger *zap.Logger) (bridgeapi.Service, error) {
+func buildBridgeService(
+	cfg *config.APIServer, userStore userstore.Store, cantonToken cantontkn.Token, logger *zap.Logger,
+) (bridgeapi.Service, error) {
 	if cfg.Bridge == nil {
 		return nil, nil
 	}
@@ -337,7 +339,7 @@ func buildBridgeService(cfg *config.APIServer, userStore userstore.Store, logger
 		}
 	}
 
-	svc, err := bridgeapi.NewService(cfg.Bridge, userStore, relayerClient, allowance, logger)
+	svc, err := bridgeapi.NewService(cfg.Bridge, userStore, relayerClient, allowance, cantonToken, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create bridge service: %w", err)
 	}

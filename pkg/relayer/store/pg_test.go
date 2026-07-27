@@ -431,7 +431,7 @@ func TestPGStore_ApplyStep(t *testing.T) {
 		Metadata: map[string]string{"attestation_id": "att-9"},
 	}, next)
 	if err != nil {
-		t.Fatalf("ApplyStep(in_progress) failed: %v", err)
+		t.Fatalf("ApplyStep(pending) failed: %v", err)
 	}
 
 	tr, err := store.GetTransfer(ctx, "step-1")
@@ -439,7 +439,7 @@ func TestPGStore_ApplyStep(t *testing.T) {
 		t.Fatalf("GetTransfer failed: %v", err)
 	}
 	if tr.Status != relayer.TransferStatusPending || tr.Stage != "awaiting_attestation" {
-		t.Fatalf("status/stage = %s/%s, want in_progress/awaiting_attestation", tr.Status, tr.Stage)
+		t.Fatalf("status/stage = %s/%s, want pending/awaiting_attestation", tr.Status, tr.Stage)
 	}
 	// Metadata is merged, not replaced.
 	if tr.Metadata["deposit_nonce"] != "7" || tr.Metadata["attestation_id"] != "att-9" {

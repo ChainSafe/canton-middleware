@@ -164,6 +164,23 @@ func (r *PrepareTransferRequest) validate() error {
 	return nil
 }
 
+// PrepareBurnRequest contains the parameters for an xReserve outbound burn
+// (BridgeUserAgreement_Burn).
+type PrepareBurnRequest struct {
+	PartyID     string
+	TokenSymbol string
+	// Amount is a decimal string in token units.
+	Amount string
+	// InstrumentAdmin selects the external token's registry (ExternalTokens key).
+	InstrumentAdmin string
+	// DestinationDomain is the xReserve destination domain (0 = Ethereum).
+	DestinationDomain int64
+	// EvmRecipient is the destination-chain address receiving the released asset.
+	EvmRecipient string
+	// RequestID is the caller-generated UUID correlating burn and release.
+	RequestID string
+}
+
 // PreparedTransfer holds the result of a prepare step for non-custodial signing.
 type PreparedTransfer struct {
 	TransferID           string                             // UUID

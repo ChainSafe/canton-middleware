@@ -91,3 +91,57 @@ func TestNewAttestationClient_RejectsInvalidURL(t *testing.T) {
 		}
 	}
 }
+
+func burnStatusServer(t *testing.T, status int, body string) *HTTPAttestationClient {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/burns/req-1" {
+			t.Errorf("unexpected path %q", r.URL.Path)
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := NewAttestationClient(srv.URL, srv.Client())
+	if err != nil {
+		t.Fatalf("NewAttestationClient failed: %v", err)
+	}
+	return client
+}
+
+func TestBurnStatus_Released(t *testing.T) {
+	client := burnStatusServer(t, http.StatusOK, `{"status":"released","tx_hash":"0xrelease"}`)
+
+	st, err := client.GetBurnStatus(context.Background(), "req-1")
+	if err != nil {
+		t.Fatalf("GetBurnStatus failed: %v", err)
+	}
+	if st.TxHash != "0xrelease" {
+		t.Fatalf("tx hash = %q", st.TxHash)
+	}
+}
+
+func TestBurnStatus_Pending(t *testing.T) {
+	client := burnStatusServer(t, http.StatusOK, `{"status":"pending"}`)
+
+	if _, err := client.GetBurnStatus(context.Background(), "req-1"); !errors.Is(err, ErrReleasePending) {
+		t.Fatalf("err = %v, want ErrReleasePending", err)
+	}
+}
+
+func TestBurnStatus_NotFound_Pending(t *testing.T) {
+	client := burnStatusServer(t, http.StatusNotFound, `{}`)
+
+	if _, err := client.GetBurnStatus(context.Background(), "req-1"); !errors.Is(err, ErrReleasePending) {
+		t.Fatalf("err = %v, want ErrReleasePending", err)
+	}
+}
+
+func TestBurnStatus_ServerError_Unavailable(t *testing.T) {
+	client := burnStatusServer(t, http.StatusBadGateway, "down")
+
+	if _, err := client.GetBurnStatus(context.Background(), "req-1"); !errors.Is(err, ErrAttestationUnavailable) {
+		t.Fatalf("err = %v, want ErrAttestationUnavailable", err)
+	}
+}
