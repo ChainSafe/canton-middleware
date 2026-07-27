@@ -2,8 +2,6 @@
 
 package bridgeapi
 
-import "time"
-
 // TokenInfo describes one bridgeable token for the dapp's token picker.
 type TokenInfo struct {
 	Symbol           string `json:"symbol"`
@@ -45,19 +43,23 @@ type Fees struct {
 }
 
 // Quote is a prepared deposit: the exact transactions to sign plus indicative
-// cost and latency. Quotes expire and are single-token, single-amount.
+// cost and latency. Quoting is stateless — the server persists nothing, so a
+// quote can be re-requested freely.
 type Quote struct {
-	QuoteID          string    `json:"quote_id"`
-	ChainID          int64     `json:"chain_id"`
-	Steps            []TxStep  `json:"steps"`
-	Fees             Fees      `json:"fees"`
-	EstimatedSeconds int       `json:"estimated_seconds"`
-	ExpiresAt        time.Time `json:"expires_at"`
+	ChainID          int64    `json:"chain_id"`
+	Steps            []TxStep `json:"steps"`
+	Fees             Fees     `json:"fees"`
+	EstimatedSeconds int      `json:"estimated_seconds"`
 }
 
-// RegisterDepositRequest reports that the quoted deposit transaction was
-// submitted on the EVM chain, registering it for status tracking.
+// RegisterDepositRequest reports a submitted deposit transaction for status
+// tracking. Nothing here needs binding to a quote: the chain is the source of
+// truth, and the recipient party is re-derived from the authenticated
+// session — a registration with wrong parameters only produces a status row
+// that never completes.
 type RegisterDepositRequest struct {
-	QuoteID string `json:"quote_id"`
-	TxHash  string `json:"tx_hash"`
+	Token string `json:"token"`
+	// Amount is a decimal string in token units.
+	Amount string `json:"amount"`
+	TxHash string `json:"tx_hash"`
 }

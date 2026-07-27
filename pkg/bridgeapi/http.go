@@ -74,8 +74,8 @@ func (h *httpHandler) registerDeposit(w http.ResponseWriter, r *http.Request) er
 	if jsonErr := readJSON(r, &req); jsonErr != nil {
 		return jsonErr
 	}
-	if req.QuoteID == "" || req.TxHash == "" {
-		return apperrors.BadRequestError(nil, "quote_id and tx_hash are required")
+	if req.Token == "" || req.Amount == "" || req.TxHash == "" {
+		return apperrors.BadRequestError(nil, "token, amount, and tx_hash are required")
 	}
 
 	resp, err := h.svc.RegisterDeposit(r.Context(), evmAddr, &req)

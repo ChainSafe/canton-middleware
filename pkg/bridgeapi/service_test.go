@@ -4,9 +4,7 @@ package bridgeapi
 
 import (
 	"context"
-	"strings"
 	"testing"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -14,7 +12,10 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
 
-const testEVMAddress = "0x00000000000000000000000000000000000000aa"
+const (
+	testEVMAddress = "0x00000000000000000000000000000000000000aa"
+	testTokenSym   = "USDCX"
+)
 
 type fakeUserStore struct {
 	users map[string]*user.User
@@ -51,9 +52,8 @@ func testConfig() *Config {
 	return &Config{
 		RelayerURL: "http://relayer:8080",
 		ChainID:    1,
-		QuoteTTL:   time.Minute,
 		Tokens: map[string]TokenConfig{
-			"USDCX": xreserveToken(),
+			testTokenSym: xreserveToken(),
 		},
 	}
 }
@@ -74,7 +74,7 @@ func TestService_Tokens(t *testing.T) {
 	svc := newTestService(t, &fakeRelayer{})
 
 	tokens := svc.Tokens(context.Background())
-	if len(tokens) != 1 || tokens[0].Symbol != "USDCX" || tokens[0].Mechanism != MechanismXReserve {
+	if len(tokens) != 1 || tokens[0].Symbol != testTokenSym || tokens[0].Mechanism != MechanismXReserve {
 		t.Fatalf("tokens = %+v", tokens)
 	}
 }
@@ -82,18 +82,15 @@ func TestService_Tokens(t *testing.T) {
 func TestService_DepositQuote_HappyPath(t *testing.T) {
 	svc := newTestService(t, &fakeRelayer{})
 
-	quote, err := svc.DepositQuote(context.Background(), testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "12.5"})
+	quote, err := svc.DepositQuote(context.Background(), testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: "12.5"})
 	if err != nil {
 		t.Fatalf("DepositQuote failed: %v", err)
 	}
 	if quote.ChainID != 1 || len(quote.Steps) != 2 {
 		t.Fatalf("quote = %+v, want chain 1 with approve+deposit steps", quote)
 	}
-	if !strings.HasPrefix(quote.QuoteID, "q_") {
-		t.Fatalf("quote id = %q", quote.QuoteID)
-	}
-	if quote.ExpiresAt.Before(time.Now()) {
-		t.Fatalf("quote already expired: %v", quote.ExpiresAt)
+	if quote.Fees.Currency != testTokenSym {
+		t.Fatalf("quote fees = %+v", quote.Fees)
 	}
 }
 
@@ -107,10 +104,10 @@ func TestService_DepositQuote_Validation(t *testing.T) {
 		req  *QuoteRequest
 	}{
 		{"unsupported token", testEVMAddress, &QuoteRequest{Token: "DOGE", Amount: "1"}},
-		{"negative amount", testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "-1"}},
-		{"non-numeric amount", testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "abc"}},
-		{"too many decimals", testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "1.0000001"}},
-		{"unregistered user", "0xdead", &QuoteRequest{Token: "USDCX", Amount: "1"}},
+		{"negative amount", testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: "-1"}},
+		{"non-numeric amount", testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: "abc"}},
+		{"too many decimals", testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: "1.0000001"}},
+		{"unregistered user", "0xdead", &QuoteRequest{Token: testTokenSym, Amount: "1"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,19 +118,14 @@ func TestService_DepositQuote_Validation(t *testing.T) {
 	}
 }
 
-func TestService_RegisterDeposit_UsesQuoteParams(t *testing.T) {
+func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 	rc := &fakeRelayer{}
 	svc := newTestService(t, rc)
-	ctx := context.Background()
 
-	quote, err := svc.DepositQuote(ctx, testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "12.5"})
-	if err != nil {
-		t.Fatalf("DepositQuote failed: %v", err)
-	}
-
-	resp, err := svc.RegisterDeposit(ctx, testEVMAddress, &RegisterDepositRequest{
-		QuoteID: quote.QuoteID,
-		TxHash:  "0xdeadbeef",
+	resp, err := svc.RegisterDeposit(context.Background(), testEVMAddress, &RegisterDepositRequest{
+		Token:  testTokenSym,
+		Amount: "12.5",
+		TxHash: "0xdeadbeef",
 	})
 	if err != nil {
 		t.Fatalf("RegisterDeposit failed: %v", err)
@@ -146,8 +138,8 @@ func TestService_RegisterDeposit_UsesQuoteParams(t *testing.T) {
 	if reg == nil {
 		t.Fatalf("relayer never called")
 	}
-	// Every transfer parameter comes from the stored quote, not the caller.
-	if reg.BridgeKey != MechanismXReserve || reg.TokenSymbol != "USDCX" ||
+	// Recipient and mechanism come from the session/config, never the caller.
+	if reg.BridgeKey != MechanismXReserve || reg.TokenSymbol != testTokenSym ||
 		reg.Amount != "12.5" || reg.Recipient != testParty ||
 		reg.Sender != testEVMAddress || reg.SourceTxHash != "0xdeadbeef" {
 		t.Fatalf("registered = %+v", reg)
@@ -155,43 +147,27 @@ func TestService_RegisterDeposit_UsesQuoteParams(t *testing.T) {
 	if reg.Direction != relayer.DirectionEthereumToCanton {
 		t.Fatalf("direction = %s", reg.Direction)
 	}
-	if reg.Metadata["quote_id"] != quote.QuoteID {
-		t.Fatalf("metadata = %+v", reg.Metadata)
-	}
 }
 
-func TestService_RegisterDeposit_Guards(t *testing.T) {
+func TestService_RegisterDeposit_Validation(t *testing.T) {
 	svc := newTestService(t, &fakeRelayer{})
 	ctx := context.Background()
 
-	// Unknown quote.
-	if _, err := svc.RegisterDeposit(ctx, testEVMAddress, &RegisterDepositRequest{QuoteID: "q_nope", TxHash: "0x1"}); err == nil {
-		t.Fatalf("unknown quote should fail")
+	cases := []struct {
+		name string
+		addr string
+		req  *RegisterDepositRequest
+	}{
+		{"unsupported token", testEVMAddress, &RegisterDepositRequest{Token: "DOGE", Amount: "1", TxHash: "0x1"}},
+		{"bad amount", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "-1", TxHash: "0x1"}},
+		{"precision overflow", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "1.0000001", TxHash: "0x1"}},
+		{"unregistered user", "0xdead", &RegisterDepositRequest{Token: testTokenSym, Amount: "1", TxHash: "0x1"}},
 	}
-
-	// Quote owned by someone else.
-	quote, err := svc.DepositQuote(ctx, testEVMAddress, &QuoteRequest{Token: "USDCX", Amount: "1"})
-	if err != nil {
-		t.Fatalf("DepositQuote failed: %v", err)
-	}
-	if _, err = svc.RegisterDeposit(ctx, "0xother", &RegisterDepositRequest{QuoteID: quote.QuoteID, TxHash: "0x1"}); err == nil {
-		t.Fatalf("foreign quote should fail")
-	}
-}
-
-func TestQuoteStore_Expiry(t *testing.T) {
-	store := newQuoteStore()
-	now := time.Now()
-	store.now = func() time.Time { return now }
-
-	store.Put(&storedQuote{QuoteID: "q_1", ExpiresAt: now.Add(time.Minute)})
-
-	if _, ok := store.Get("q_1"); !ok {
-		t.Fatalf("fresh quote should be retrievable")
-	}
-
-	store.now = func() time.Time { return now.Add(2 * time.Minute) }
-	if _, ok := store.Get("q_1"); ok {
-		t.Fatalf("expired quote should not be retrievable")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.RegisterDeposit(ctx, tc.addr, tc.req); err == nil {
+				t.Fatalf("expected error")
+			}
+		})
 	}
 }

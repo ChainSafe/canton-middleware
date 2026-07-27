@@ -13,7 +13,6 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"go.uber.org/zap"
 
@@ -38,7 +37,6 @@ type Service interface {
 type bridgeService struct {
 	cfg       *Config
 	quoters   map[string]DepositQuoter // keyed by mechanism
-	quotes    *quoteStore
 	userStore UserStore
 	relayer   RelayerClient
 	logger    *zap.Logger
@@ -72,7 +70,6 @@ func NewService(
 	return &bridgeService{
 		cfg:       cfg,
 		quoters:   quoters,
-		quotes:    newQuoteStore(),
 		userStore: userStore,
 		relayer:   relayerClient,
 		logger:    logger,
@@ -98,25 +95,12 @@ func (s *bridgeService) Tokens(context.Context) []TokenInfo {
 
 // DepositQuote builds the unsigned transactions that bridge req.Amount of
 // req.Token from the caller to their Canton party. The recipient encoding
-// never leaves the server.
+// never leaves the server. Stateless: nothing is stored, so quotes can be
+// re-requested freely.
 func (s *bridgeService) DepositQuote(ctx context.Context, evmAddress string, req *QuoteRequest) (*Quote, error) {
-	tc, ok := s.cfg.Tokens[req.Token]
-	if !ok {
-		return nil, apperrors.BadRequestError(nil, fmt.Sprintf("unsupported bridge token %q", req.Token))
-	}
-
-	amount, err := decimal.NewFromString(req.Amount)
-	if err != nil || !amount.IsPositive() {
-		return nil, apperrors.BadRequestError(nil, "invalid amount: must be a positive decimal number")
-	}
-	// Decimals is tag-validated to 0..18, so the int32 conversion is safe.
-	if tc.Decimals < 0 || tc.Decimals > 18 {
-		return nil, fmt.Errorf("token %s: invalid decimals %d", req.Token, tc.Decimals)
-	}
-	baseAmount := amount.Shift(int32(tc.Decimals))
-	if !baseAmount.IsInteger() {
-		return nil, apperrors.BadRequestError(nil,
-			fmt.Sprintf("amount exceeds the token's %d decimal places", tc.Decimals))
+	tc, amount, err := s.parseTokenAmount(req.Token, req.Amount)
+	if err != nil {
+		return nil, err
 	}
 
 	usr, err := s.userStore.GetUserByEVMAddress(ctx, evmAddress)
@@ -125,66 +109,80 @@ func (s *bridgeService) DepositQuote(ctx context.Context, evmAddress string, req
 	}
 
 	quoter := s.quoters[tc.Mechanism]
+	baseAmount := amount.Shift(int32(tc.Decimals)) //nolint:gosec // decimals bounded by parseTokenAmount
 	steps, err := quoter.DepositSteps(ctx, tc, baseAmount.BigInt(), common.HexToAddress(evmAddress), usr.CantonParty)
 	if err != nil {
 		return nil, fmt.Errorf("build deposit steps: %w", err)
 	}
 
-	quote := &Quote{
-		QuoteID:          "q_" + uuid.NewString(),
+	return &Quote{
 		ChainID:          s.cfg.ChainID,
 		Steps:            steps,
 		Fees:             Fees{BridgeFee: tc.BridgeFee, Currency: req.Token},
 		EstimatedSeconds: tc.EstimatedSeconds,
-		ExpiresAt:        s.quotes.now().Add(s.cfg.QuoteTTLOrDefault()),
-	}
-
-	s.quotes.Put(&storedQuote{
-		QuoteID:        quote.QuoteID,
-		Owner:          evmAddress,
-		TokenSymbol:    req.Token,
-		Mechanism:      tc.Mechanism,
-		TokenAddress:   tc.EVMAddress,
-		Amount:         amount.String(),
-		RecipientParty: usr.CantonParty,
-		ExpiresAt:      quote.ExpiresAt,
-	})
-
-	return quote, nil
+	}, nil
 }
 
-// RegisterDeposit forwards a quoted deposit's tx hash to the relayer for
-// status tracking. All transfer parameters come from the stored quote, never
-// from the caller.
+// RegisterDeposit forwards a submitted deposit's tx hash to the relayer for
+// status tracking. Token and amount are re-validated and the recipient party
+// is re-derived from the authenticated session; the caller cannot register a
+// transfer on anyone else's behalf, and a wrong amount only yields a status
+// row the adapter never completes (the chain is the source of truth).
 func (s *bridgeService) RegisterDeposit(
 	ctx context.Context,
 	evmAddress string,
 	req *RegisterDepositRequest,
 ) (*relayer.RegisterTransferResponse, error) {
-	quote, ok := s.quotes.Get(req.QuoteID)
-	if !ok {
-		return nil, apperrors.BadRequestError(nil, "unknown or expired quote_id")
+	tc, amount, err := s.parseTokenAmount(req.Token, req.Amount)
+	if err != nil {
+		return nil, err
 	}
-	if quote.Owner != evmAddress {
-		return nil, apperrors.UnAuthorizedError(nil, "quote belongs to a different address")
+
+	usr, err := s.userStore.GetUserByEVMAddress(ctx, evmAddress)
+	if err != nil {
+		return nil, apperrors.ResourceNotFoundError(err, "user is not registered")
 	}
 
 	resp, err := s.relayer.RegisterTransfer(ctx, &relayer.RegisterTransferRequest{
 		ID:           req.TxHash,
-		BridgeKey:    quote.Mechanism,
-		TokenSymbol:  quote.TokenSymbol,
+		BridgeKey:    tc.Mechanism,
+		TokenSymbol:  req.Token,
 		Direction:    relayer.DirectionEthereumToCanton,
 		SourceTxHash: req.TxHash,
-		TokenAddress: quote.TokenAddress,
-		Amount:       quote.Amount,
+		TokenAddress: tc.EVMAddress,
+		Amount:       amount.String(),
 		Sender:       evmAddress,
-		Recipient:    quote.RecipientParty,
-		Metadata:     map[string]string{"quote_id": quote.QuoteID},
+		Recipient:    usr.CantonParty,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("register deposit: %w", err)
 	}
 	return resp, nil
+}
+
+// parseTokenAmount resolves a configured token and validates the token-unit
+// amount against its precision. Shared by quoting and registration.
+func (s *bridgeService) parseTokenAmount(token, rawAmount string) (TokenConfig, decimal.Decimal, error) {
+	tc, ok := s.cfg.Tokens[token]
+	if !ok {
+		return TokenConfig{}, decimal.Zero, apperrors.BadRequestError(nil,
+			fmt.Sprintf("unsupported bridge token %q", token))
+	}
+
+	amount, err := decimal.NewFromString(rawAmount)
+	if err != nil || !amount.IsPositive() {
+		return TokenConfig{}, decimal.Zero, apperrors.BadRequestError(nil,
+			"invalid amount: must be a positive decimal number")
+	}
+	// Decimals is tag-validated to 0..18, so int32 conversions are safe.
+	if tc.Decimals < 0 || tc.Decimals > 18 {
+		return TokenConfig{}, decimal.Zero, fmt.Errorf("token %s: invalid decimals %d", token, tc.Decimals)
+	}
+	if !amount.Shift(int32(tc.Decimals)).IsInteger() {
+		return TokenConfig{}, decimal.Zero, apperrors.BadRequestError(nil,
+			fmt.Sprintf("amount exceeds the token's %d decimal places", tc.Decimals))
+	}
+	return tc, amount, nil
 }
 
 // GetTransfer proxies a transfer status read to the relayer.
