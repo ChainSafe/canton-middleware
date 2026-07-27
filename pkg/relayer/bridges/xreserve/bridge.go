@@ -180,7 +180,7 @@ func (b *Bridge) snapshotBaseline(ctx context.Context, rt *tokenRuntime, t *rela
 	}
 
 	return relayer.StepResult{
-		Status:     relayer.TransferStatusInProgress,
+		Status:     relayer.TransferStatusPending,
 		Stage:      StageAwaitingAttestation,
 		Metadata:   map[string]string{metaBaselineBalance: baseline.String()},
 		RetryAfter: rt.attestationPollInterval(),
@@ -195,7 +195,7 @@ func (b *Bridge) pollAttestation(ctx context.Context, rt *tokenRuntime, t *relay
 	switch {
 	case errors.Is(err, ErrAttestationNotReady):
 		return relayer.StepResult{
-			Status:     relayer.TransferStatusInProgress,
+			Status:     relayer.TransferStatusPending,
 			Stage:      StageAwaitingAttestation,
 			RetryAfter: rt.attestationPollInterval(),
 		}, nil
@@ -203,7 +203,7 @@ func (b *Bridge) pollAttestation(ctx context.Context, rt *tokenRuntime, t *relay
 		b.logger.Warn("Attestation service unavailable, will keep polling",
 			zap.String("id", t.ID), zap.String("token", rt.symbol), zap.Error(err))
 		return relayer.StepResult{
-			Status:     relayer.TransferStatusInProgress,
+			Status:     relayer.TransferStatusPending,
 			Stage:      StageAwaitingAttestation,
 			RetryAfter: rt.attestationPollInterval(),
 		}, nil
@@ -212,7 +212,7 @@ func (b *Bridge) pollAttestation(ctx context.Context, rt *tokenRuntime, t *relay
 	}
 
 	return relayer.StepResult{
-		Status:     relayer.TransferStatusInProgress,
+		Status:     relayer.TransferStatusPending,
 		Stage:      StageAwaitingMint,
 		Metadata:   map[string]string{metaAttestationID: att.ID},
 		RetryAfter: rt.mintPollInterval(),
@@ -239,7 +239,7 @@ func (b *Bridge) checkMinted(ctx context.Context, rt *tokenRuntime, t *relayer.T
 
 	if current.LessThan(baseline.Add(amount)) {
 		return relayer.StepResult{
-			Status:     relayer.TransferStatusInProgress,
+			Status:     relayer.TransferStatusPending,
 			Stage:      StageAwaitingMint,
 			RetryAfter: rt.mintPollInterval(),
 		}, nil

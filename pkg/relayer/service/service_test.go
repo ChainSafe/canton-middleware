@@ -57,7 +57,7 @@ func TestRegisterTransfer_CreatesPendingTransfer(t *testing.T) {
 }
 
 func TestRegisterTransfer_IdempotentReplayReturnsExisting(t *testing.T) {
-	existing := &relayer.Transfer{ID: "0xdeposit", Status: relayer.TransferStatusInProgress, Stage: "awaiting_mint"}
+	existing := &relayer.Transfer{ID: "0xdeposit", Status: relayer.TransferStatusPending, Stage: "awaiting_mint"}
 
 	store := mocks.NewStore(t)
 	store.EXPECT().CreateTransfer(mock.Anything, mock.Anything).Return(false, nil).Once()

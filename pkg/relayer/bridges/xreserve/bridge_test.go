@@ -147,8 +147,8 @@ func TestBridge_Step_FirstStep_SnapshotsBaseline(t *testing.T) {
 		t.Fatalf("Step failed: %v", err)
 	}
 
-	if res.Status != relayer.TransferStatusInProgress || res.Stage != StageAwaitingAttestation {
-		t.Fatalf("status/stage = %s/%s, want in_progress/%s", res.Status, res.Stage, StageAwaitingAttestation)
+	if res.Status != relayer.TransferStatusPending || res.Stage != StageAwaitingAttestation {
+		t.Fatalf("status/stage = %s/%s, want pending/%s", res.Status, res.Stage, StageAwaitingAttestation)
 	}
 	if res.Metadata[metaBaselineBalance] != "102.5" {
 		t.Fatalf("baseline = %q, want 102.5", res.Metadata[metaBaselineBalance])
@@ -166,8 +166,8 @@ func TestBridge_Step_AttestationNotReady_KeepsPolling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
-	if res.Status != relayer.TransferStatusInProgress || res.Stage != StageAwaitingAttestation {
-		t.Fatalf("status/stage = %s/%s, want in_progress/%s", res.Status, res.Stage, StageAwaitingAttestation)
+	if res.Status != relayer.TransferStatusPending || res.Stage != StageAwaitingAttestation {
+		t.Fatalf("status/stage = %s/%s, want pending/%s", res.Status, res.Stage, StageAwaitingAttestation)
 	}
 	if circle.calls != 1 {
 		t.Fatalf("GetAttestation called %d times, want 1", circle.calls)
@@ -195,8 +195,8 @@ func TestBridge_Step_AttestationReady_MovesToAwaitingMint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
-	if res.Status != relayer.TransferStatusInProgress || res.Stage != StageAwaitingMint {
-		t.Fatalf("status/stage = %s/%s, want in_progress/%s", res.Status, res.Stage, StageAwaitingMint)
+	if res.Status != relayer.TransferStatusPending || res.Stage != StageAwaitingMint {
+		t.Fatalf("status/stage = %s/%s, want pending/%s", res.Status, res.Stage, StageAwaitingMint)
 	}
 	if res.Metadata[metaAttestationID] != "att-1" {
 		t.Fatalf("attestation id = %q, want att-1", res.Metadata[metaAttestationID])
@@ -214,8 +214,8 @@ func TestBridge_Step_MintNotArrived_KeepsWaiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step failed: %v", err)
 	}
-	if res.Status != relayer.TransferStatusInProgress || res.Stage != StageAwaitingMint {
-		t.Fatalf("status/stage = %s/%s, want in_progress/%s", res.Status, res.Stage, StageAwaitingMint)
+	if res.Status != relayer.TransferStatusPending || res.Stage != StageAwaitingMint {
+		t.Fatalf("status/stage = %s/%s, want pending/%s", res.Status, res.Stage, StageAwaitingMint)
 	}
 }
 
