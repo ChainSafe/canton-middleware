@@ -138,9 +138,12 @@ func (q *xReserveQuoter) DepositSteps(
 	return steps, nil
 }
 
-// needsApprove checks the current on-chain allowance when a checker is
-// configured. Failures fall back to including the approve step: a redundant
-// approve is safe, a missing one strands the deposit.
+// needsApprove checks the current allowance when a checker is configured, and
+// falls back to including the approve step on any failure (a redundant approve
+// is safe, a missing one strands the deposit).
+//
+// Emits a single approve(amount) — fine for USDC (non-zero -> non-zero is
+// allowed). A USDT-style token would need an approve(0) reset added first.
 func (q *xReserveQuoter) needsApprove(
 	ctx context.Context, token, owner, spender common.Address, amount *big.Int,
 ) bool {

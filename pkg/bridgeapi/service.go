@@ -10,6 +10,8 @@ package bridgeapi
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"regexp"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -20,6 +22,14 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
+
+// txHashPattern matches a 0x-prefixed 32-byte EVM transaction hash.
+var txHashPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
+
+// maxUint256 is 2^256 - 1, the largest value that fits an ABI uint256.
+const uint256Bits = 256
+
+var maxUint256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint256Bits), big.NewInt(1))
 
 // UserStore resolves authenticated EVM addresses to Canton parties.
 type UserStore interface {
@@ -123,11 +133,9 @@ func (s *bridgeService) DepositQuote(ctx context.Context, evmAddress string, req
 	}, nil
 }
 
-// RegisterDeposit forwards a submitted deposit's tx hash to the relayer for
-// status tracking. Token and amount are re-validated and the recipient party
-// is re-derived from the authenticated session; the caller cannot register a
-// transfer on anyone else's behalf, and a wrong amount only yields a status
-// row the adapter never completes (the chain is the source of truth).
+// RegisterDeposit forwards a submitted deposit to the relayer for tracking.
+// Token/amount are re-validated and the recipient party comes from the
+// session, so a caller can't register on anyone else's behalf.
 func (s *bridgeService) RegisterDeposit(
 	ctx context.Context,
 	evmAddress string,
@@ -138,13 +146,19 @@ func (s *bridgeService) RegisterDeposit(
 		return nil, err
 	}
 
+	if !txHashPattern.MatchString(req.TxHash) {
+		return nil, apperrors.BadRequestError(nil, "tx_hash must be a 0x-prefixed 32-byte hex string")
+	}
+
 	usr, err := s.userStore.GetUserByEVMAddress(ctx, evmAddress)
 	if err != nil {
 		return nil, apperrors.ResourceNotFoundError(err, "user is not registered")
 	}
 
 	resp, err := s.relayer.RegisterTransfer(ctx, &relayer.RegisterTransferRequest{
-		ID:           req.TxHash,
+		// Namespace by mechanism so a crafted tx_hash can't collide with the
+		// observer's "<txhash>-<logindex>" ids and squat a real deposit's row.
+		ID:           registrationID(tc.Mechanism, req.TxHash),
 		BridgeKey:    tc.Mechanism,
 		TokenSymbol:  req.Token,
 		Direction:    relayer.DirectionEthereumToCanton,
@@ -158,6 +172,12 @@ func (s *bridgeService) RegisterDeposit(
 		return nil, fmt.Errorf("register deposit: %w", err)
 	}
 	return resp, nil
+}
+
+// registrationID namespaces the transfer id by mechanism. The dapp polls the
+// id from the response, so the namespacing is transparent.
+func registrationID(mechanism, txHash string) string {
+	return mechanism + ":" + txHash
 }
 
 // parseTokenAmount resolves a configured token and validates the token-unit
@@ -178,9 +198,14 @@ func (s *bridgeService) parseTokenAmount(token, rawAmount string) (TokenConfig, 
 	if tc.Decimals < 0 || tc.Decimals > 18 {
 		return TokenConfig{}, decimal.Zero, fmt.Errorf("token %s: invalid decimals %d", token, tc.Decimals)
 	}
-	if !amount.Shift(int32(tc.Decimals)).IsInteger() {
+	baseAmount := amount.Shift(int32(tc.Decimals))
+	if !baseAmount.IsInteger() {
 		return TokenConfig{}, decimal.Zero, apperrors.BadRequestError(nil,
 			fmt.Sprintf("amount exceeds the token's %d decimal places", tc.Decimals))
+	}
+	// Anything over uint256 would silently wrap in the encoded calldata.
+	if baseAmount.BigInt().Cmp(maxUint256) > 0 {
+		return TokenConfig{}, decimal.Zero, apperrors.BadRequestError(nil, "amount exceeds the maximum supported value")
 	}
 	return tc, amount, nil
 }

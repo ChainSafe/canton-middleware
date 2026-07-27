@@ -118,6 +118,8 @@ func TestService_DepositQuote_Validation(t *testing.T) {
 	}
 }
 
+const testTxHash = "0x1111111111111111111111111111111111111111111111111111111111111111"
+
 func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 	rc := &fakeRelayer{}
 	svc := newTestService(t, rc)
@@ -125,7 +127,7 @@ func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 	resp, err := svc.RegisterDeposit(context.Background(), testEVMAddress, &RegisterDepositRequest{
 		Token:  testTokenSym,
 		Amount: "12.5",
-		TxHash: "0xdeadbeef",
+		TxHash: testTxHash,
 	})
 	if err != nil {
 		t.Fatalf("RegisterDeposit failed: %v", err)
@@ -138,11 +140,15 @@ func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 	if reg == nil {
 		t.Fatalf("relayer never called")
 	}
-	// Recipient and mechanism come from the session/config, never the caller.
+	// Recipient and mechanism come from the session/config, never the caller;
+	// the id is namespaced so it cannot collide with observer ids.
 	if reg.BridgeKey != MechanismXReserve || reg.TokenSymbol != testTokenSym ||
 		reg.Amount != "12.5" || reg.Recipient != testParty ||
-		reg.Sender != testEVMAddress || reg.SourceTxHash != "0xdeadbeef" {
+		reg.Sender != testEVMAddress || reg.SourceTxHash != testTxHash {
 		t.Fatalf("registered = %+v", reg)
+	}
+	if reg.ID != MechanismXReserve+":"+testTxHash {
+		t.Fatalf("id = %q, want namespaced by mechanism", reg.ID)
 	}
 	if reg.Direction != relayer.DirectionEthereumToCanton {
 		t.Fatalf("direction = %s", reg.Direction)
@@ -158,10 +164,12 @@ func TestService_RegisterDeposit_Validation(t *testing.T) {
 		addr string
 		req  *RegisterDepositRequest
 	}{
-		{"unsupported token", testEVMAddress, &RegisterDepositRequest{Token: "DOGE", Amount: "1", TxHash: "0x1"}},
-		{"bad amount", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "-1", TxHash: "0x1"}},
-		{"precision overflow", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "1.0000001", TxHash: "0x1"}},
-		{"unregistered user", "0xdead", &RegisterDepositRequest{Token: testTokenSym, Amount: "1", TxHash: "0x1"}},
+		{"unsupported token", testEVMAddress, &RegisterDepositRequest{Token: "DOGE", Amount: "1", TxHash: testTxHash}},
+		{"bad amount", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "-1", TxHash: testTxHash}},
+		{"precision overflow", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "1.0000001", TxHash: testTxHash}},
+		{"malformed tx hash", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "1", TxHash: "0xdeadbeef"}},
+		{"tx hash with suffix", testEVMAddress, &RegisterDepositRequest{Token: testTokenSym, Amount: "1", TxHash: testTxHash + "-0"}},
+		{"unregistered user", "0xdead", &RegisterDepositRequest{Token: testTokenSym, Amount: "1", TxHash: testTxHash}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

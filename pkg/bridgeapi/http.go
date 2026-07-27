@@ -92,6 +92,12 @@ func (h *httpHandler) registerDeposit(w http.ResponseWriter, r *http.Request) er
 }
 
 func (h *httpHandler) getTransfer(w http.ResponseWriter, r *http.Request) error {
+	// Ids are public tx hashes, so require a session to avoid leaking other
+	// users' sender/recipient/amount.
+	if _, err := authenticateEVM(r); err != nil {
+		return err
+	}
+
 	transfer, err := h.svc.GetTransfer(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		return err
