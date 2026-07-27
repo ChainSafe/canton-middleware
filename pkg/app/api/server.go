@@ -14,6 +14,7 @@ import (
 
 	sharedmetrics "github.com/chainsafe/canton-middleware/internal/metrics"
 	apphttp "github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/bridgeapi"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/config"
@@ -170,7 +171,7 @@ func (s *Server) Run() error {
 
 	router := s.setupRouter(
 		svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc,
-		adminCfg, metrics, logger,
+		svcs.bridgeSvc, adminCfg, metrics, logger,
 	)
 
 	s.registerServers(g, gCtx, router, logger)
@@ -225,6 +226,7 @@ type services struct {
 	tokenService *token.Service
 	regSvc       userservice.Service
 	transferSvc  transfer.Service
+	bridgeSvc    bridgeapi.Service // nil when the bridge block is omitted
 }
 
 func initServices(
@@ -300,12 +302,46 @@ func initServices(
 	transferSvc := transfer.NewTransferService(
 		cantonClient.Token, userStore, instrumentedCache, cfg.Token, indexerClient, cantonClient.Identity,
 	)
+
+	bridgeSvc, err := buildBridgeService(cfg, userStore, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	return &services{
 		evmStore:     evmStore,
 		tokenService: tokenService,
 		regSvc:       userservice.NewLog(registrationService, logger),
 		transferSvc:  transfer.NewLog(transferSvc, logger),
+		bridgeSvc:    bridgeSvc,
 	}, nil
+}
+
+// buildBridgeService constructs the bridge API service when the optional
+// `bridge` config block is present. The allowance checker is optional: with
+// no eth_rpc_url, quotes always include the approve step.
+func buildBridgeService(cfg *config.APIServer, userStore userstore.Store, logger *zap.Logger) (bridgeapi.Service, error) {
+	if cfg.Bridge == nil {
+		return nil, nil
+	}
+
+	relayerClient, err := bridgeapi.NewRelayerClient(cfg.Bridge.RelayerURL, &http.Client{Timeout: 10 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("create relayer client: %w", err)
+	}
+
+	var allowance bridgeapi.AllowanceChecker
+	if cfg.Bridge.EthRPCURL != "" {
+		if allowance, err = bridgeapi.NewAllowanceChecker(cfg.Bridge.EthRPCURL); err != nil {
+			return nil, fmt.Errorf("create allowance checker: %w", err)
+		}
+	}
+
+	svc, err := bridgeapi.NewService(cfg.Bridge, userStore, relayerClient, allowance, logger)
+	if err != nil {
+		return nil, fmt.Errorf("create bridge service: %w", err)
+	}
+	return svc, nil
 }
 
 func (s *Server) getMasterKey() ([]byte, error) {
@@ -382,6 +418,7 @@ func (s *Server) setupRouter(
 	tokenService *token.Service,
 	userService userservice.Service,
 	transferSvc transfer.Service,
+	bridgeSvc bridgeapi.Service,
 	adminCfg config.AdminAPI,
 	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
@@ -415,6 +452,12 @@ func (s *Server) setupRouter(
 
 	// Non-custodial transfer endpoints (prepare/execute)
 	transfer.RegisterRoutes(r, transferSvc, logger)
+
+	// Bridge endpoints (deposit quotes + registration), enabled by the
+	// optional `bridge` config block.
+	if bridgeSvc != nil {
+		bridgeapi.RegisterRoutes(r, bridgeSvc, logger)
+	}
 
 	registryHandler := registry.NewHandler(cantonClient.Token, logger)
 	r.Handle("/registry/transfer-instruction/v1/transfer-factory", registryHandler)

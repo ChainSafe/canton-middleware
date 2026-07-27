@@ -11,6 +11,7 @@ import (
 
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
 	"github.com/chainsafe/canton-middleware/pkg/auth"
+	"github.com/chainsafe/canton-middleware/pkg/bridgeapi"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/custodial"
@@ -83,7 +84,8 @@ type APIServer struct {
 	SkipCantonSigVerify bool                          `yaml:"skip_canton_sig_verify" default:"false"`
 	SkipWhitelistCheck  bool                          `yaml:"skip_whitelist_check" default:"false"`
 	CORSOrigins         []string                      `yaml:"cors" default:"[\"*\"]"`
-	Admin               *AdminAPI                     `yaml:"admin" default:"-"` // nil disables the admin endpoints
+	Admin               *AdminAPI                     `yaml:"admin" default:"-"`  // nil disables the admin endpoints
+	Bridge              *bridgeapi.Config             `yaml:"bridge" default:"-"` // nil disables the bridge endpoints
 }
 
 // AdminAPI configures the optional admin HTTP endpoints (whitelist management).
