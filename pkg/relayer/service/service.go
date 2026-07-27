@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/shopspring/decimal"
+
 	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 )
@@ -83,6 +85,11 @@ func (s *relayerService) RegisterTransfer(
 		if getErr != nil {
 			return nil, fmt.Errorf("load existing transfer: %w", getErr)
 		}
+		// Only replay for the same owner; a mismatch means the id collides with
+		// someone else's row (or a legacy one), so 409 instead of leaking it.
+		if existing == nil || existing.BridgeKey != req.BridgeKey || existing.Sender != req.Sender {
+			return nil, apperrors.ConflictError(nil, "a transfer with this id already exists")
+		}
 		return &relayer.RegisterTransferResponse{Transfer: existing, Created: false}, nil
 	}
 	return &relayer.RegisterTransferResponse{Transfer: transfer, Created: true}, nil
@@ -97,6 +104,10 @@ func (s *relayerService) validateRegistration(req *relayer.RegisterTransferReque
 	}
 	if req.TokenSymbol == "" || req.Amount == "" || req.Recipient == "" {
 		return apperrors.BadRequestError(nil, "token_symbol, amount, and recipient are required")
+	}
+	// Non-positive amounts would let mint detection "complete" with no mint.
+	if amt, err := decimal.NewFromString(req.Amount); err != nil || !amt.IsPositive() {
+		return apperrors.BadRequestError(nil, "amount must be a positive decimal number")
 	}
 	if req.Direction != relayer.DirectionEthereumToCanton && req.Direction != relayer.DirectionCantonToEthereum {
 		return apperrors.BadRequestError(nil, "direction must be ethereum_to_canton or canton_to_ethereum")

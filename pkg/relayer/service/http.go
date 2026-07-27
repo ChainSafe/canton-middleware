@@ -3,9 +3,11 @@
 package service
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -30,11 +32,16 @@ type HTTP struct {
 	service Service
 	engine  Engine
 	logger  *zap.Logger
+	// registrationToken, when non-empty, is the bearer token required to call
+	// the internal transfer-registration endpoint.
+	registrationToken string
 }
 
-// RegisterRoutes registers relayer HTTP endpoints on the given chi router.
-func RegisterRoutes(r chi.Router, svc Service, engine Engine, logger *zap.Logger) {
-	h := &HTTP{service: svc, engine: engine, logger: logger}
+// RegisterRoutes registers relayer HTTP endpoints. A non-empty
+// registrationToken requires callers of the registration endpoint to present
+// it as a bearer token; empty disables the guard (single-host/dev).
+func RegisterRoutes(r chi.Router, svc Service, engine Engine, registrationToken string, logger *zap.Logger) {
+	h := &HTTP{service: svc, engine: engine, logger: logger, registrationToken: registrationToken}
 
 	r.Get("/ready", h.ready)
 	r.Route("/api/v1", func(r chi.Router) {
@@ -45,6 +52,18 @@ func RegisterRoutes(r chi.Router, svc Service, engine Engine, logger *zap.Logger
 		r.Get("/transfers/{id}", apphttp.HandleError(h.getTransfer))
 		r.Get("/status", apphttp.HandleError(h.getStatus))
 	})
+}
+
+// authorizeRegistration checks the bearer token when one is configured.
+func (h *HTTP) authorizeRegistration(r *http.Request) error {
+	if h.registrationToken == "" {
+		return nil
+	}
+	presented := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(h.registrationToken)) != 1 {
+		return apperrors.UnAuthorizedError(nil, "invalid or missing registration token")
+	}
+	return nil
 }
 
 func (h *HTTP) ready(w http.ResponseWriter, _ *http.Request) {
@@ -84,6 +103,10 @@ func (h *HTTP) getTransfer(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *HTTP) registerTransfer(w http.ResponseWriter, r *http.Request) error {
+	if err := h.authorizeRegistration(r); err != nil {
+		return err
+	}
+
 	var req relayer.RegisterTransferRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxRequestBodyBytes)).Decode(&req); err != nil {
 		return apperrors.BadRequestError(err, "invalid JSON")

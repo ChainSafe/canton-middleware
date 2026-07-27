@@ -1,21 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package xreserve implements the TokenBridge adapter for tokens bridged by
-// Circle xReserve (USDCx). It is an observer mechanism: Circle executes the
-// bridge, so the adapter exposes no event sources and never submits anything
-// for deposits — transfers are registered at initiation time via the relayer
-// API and Step only tracks their progress.
+// Package xreserve is the TokenBridge adapter for USDCx (Circle xReserve).
+// It's an observer: Circle runs the bridge, so there are no event sources —
+// transfers are registered when initiated and Step just tracks them.
 //
-// Deposit stage sequence:
+// Deposit: "" -> awaiting_attestation -> awaiting_mint -> completed ("minted").
+// Mint detection snapshots the recipient balance on the first step (before
+// finality, so before any mint) and completes once it grows by the amount.
 //
-//	"" -> awaiting_attestation -> awaiting_mint -> completed (stage "minted")
-//
-// Mint detection is balance-based: the recipient's instrument balance is
-// snapshotted on the first step (before Ethereum finality, so before any mint
-// for this deposit can exist) and the transfer completes once the balance has
-// grown by the deposited amount. This assumes the transfer is registered
-// promptly after the deposit transaction is sent, well within the ~15 minute
-// attestation window.
+// Limitation (#360, needs real mint-event data): balance-delta can't tie a
+// mint to a specific deposit, so two concurrent same-recipient deposits (or an
+// unrelated credit) can complete the wrong one. Bounded for now by rejecting
+// non-positive amounts and failing anything past depositCompletionDeadline.
 package xreserve
 
 import (
@@ -51,6 +47,11 @@ const (
 	defaultAttestationPollInterval = time.Minute
 	defaultMintPollInterval        = 15 * time.Second
 	defaultHTTPTimeout             = 10 * time.Second
+
+	// depositCompletionDeadline reaps deposits that never mint (bogus hashes,
+	// never-attested). Well past finality+attestation (~15 min) so a healthy
+	// deposit always completes first.
+	depositCompletionDeadline = 2 * time.Hour
 )
 
 // tokenRuntime is one configured xreserve token with its attestation client.
@@ -159,6 +160,18 @@ func (b *Bridge) Step(ctx context.Context, t *relayer.Transfer) (relayer.StepRes
 }
 
 func (b *Bridge) stepDeposit(ctx context.Context, rt *tokenRuntime, t *relayer.Transfer) (relayer.StepResult, error) {
+	// Past the deadline it's never going to mint; fail it so the driver stops
+	// reloading it forever.
+	if !t.CreatedAt.IsZero() && time.Since(t.CreatedAt) > depositCompletionDeadline {
+		b.logger.Warn("Deposit exceeded completion deadline, failing",
+			zap.String("id", t.ID), zap.String("token", rt.symbol), zap.String("stage", t.Stage))
+		return relayer.StepResult{
+			Status: relayer.TransferStatusFailed,
+			Stage:  t.Stage,
+			Reason: fmt.Sprintf("deposit not minted within %s", depositCompletionDeadline),
+		}, nil
+	}
+
 	switch t.Stage {
 	case "":
 		return b.snapshotBaseline(ctx, rt, t)

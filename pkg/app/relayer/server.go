@@ -194,7 +194,12 @@ func (s *Server) newRouter(
 	})
 
 	svc := relayersvc.NewLog(relayersvc.NewService(store, bridgeKeys), logger)
-	relayersvc.RegisterRoutes(r, svc, engine, logger)
+	// Optional bearer token guarding the internal registration endpoint. When
+	// unset (single-host/dev), the guard is disabled; set it (and the matching
+	// api-server value) in any topology where the relayer API is reachable
+	// beyond the api-server.
+	registrationToken := os.Getenv("RELAYER_REGISTRATION_TOKEN")
+	relayersvc.RegisterRoutes(r, svc, engine, registrationToken, logger)
 
 	return r
 }

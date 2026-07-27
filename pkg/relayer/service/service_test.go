@@ -4,11 +4,14 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/mock"
 
+	apperrors "github.com/chainsafe/canton-middleware/pkg/app/errors"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/relayer/service/mocks"
 )
@@ -57,7 +60,14 @@ func TestRegisterTransfer_CreatesPendingTransfer(t *testing.T) {
 }
 
 func TestRegisterTransfer_IdempotentReplayReturnsExisting(t *testing.T) {
-	existing := &relayer.Transfer{ID: "0xdeposit", Status: relayer.TransferStatusPending, Stage: "awaiting_mint"}
+	// Same owner (bridge_key + sender) replay: returns the existing row.
+	existing := &relayer.Transfer{
+		ID:        "0xdeposit",
+		BridgeKey: "xreserve",
+		Sender:    "0xsender",
+		Status:    relayer.TransferStatusPending,
+		Stage:     "awaiting_mint",
+	}
 
 	store := mocks.NewStore(t)
 	store.EXPECT().CreateTransfer(mock.Anything, mock.Anything).Return(false, nil).Once()
@@ -73,6 +83,47 @@ func TestRegisterTransfer_IdempotentReplayReturnsExisting(t *testing.T) {
 	}
 	if resp.Transfer.Stage != "awaiting_mint" {
 		t.Fatalf("replay should return the existing transfer, got %+v", resp.Transfer)
+	}
+}
+
+func TestRegisterTransfer_ConflictOnForeignRowDoesNotLeak(t *testing.T) {
+	// Existing row under the same id belongs to a different pipeline/caller:
+	// the response must be a conflict, never the foreign record.
+	foreign := &relayer.Transfer{
+		ID:        "0xdeposit",
+		BridgeKey: "wayfinder",
+		Sender:    "0xvictim",
+		Recipient: "party::victim",
+		Amount:    "999",
+	}
+
+	store := mocks.NewStore(t)
+	store.EXPECT().CreateTransfer(mock.Anything, mock.Anything).Return(false, nil).Once()
+	store.EXPECT().GetTransfer(mock.Anything, "0xdeposit").Return(foreign, nil).Once()
+
+	svc := NewService(store, []string{"xreserve"})
+	resp, err := svc.RegisterTransfer(context.Background(), validRegistration())
+	if err == nil {
+		t.Fatalf("foreign-row registration should error")
+	}
+	var svcErr *apperrors.ServiceError
+	if !errors.As(err, &svcErr) || svcErr.StatusCode() != http.StatusConflict {
+		t.Fatalf("err = %v, want a 409 conflict ServiceError", err)
+	}
+	if resp != nil {
+		t.Fatalf("no response should be returned on conflict, got %+v", resp)
+	}
+}
+
+func TestRegisterTransfer_RejectsNonPositiveAmount(t *testing.T) {
+	svc := NewService(mocks.NewStore(t), []string{"xreserve"})
+
+	for _, amt := range []string{"0", "-100", "notanumber"} {
+		req := validRegistration()
+		req.Amount = amt
+		if _, err := svc.RegisterTransfer(context.Background(), req); err == nil {
+			t.Fatalf("amount %q should be rejected", amt)
+		}
 	}
 }
 

@@ -17,15 +17,21 @@ import (
 // expected during the source-chain finality window (~15 min on Ethereum).
 var ErrAttestationNotReady = errors.New("attestation not ready")
 
-// ErrAttestationUnavailable means the attestation service could not be
-// reached or answered with a server error. Transient by definition: the
-// adapter keeps polling instead of burning transfer retries.
+// ErrAttestationUnavailable means the service was unreachable or 5xx'd —
+// transient, so the adapter keeps polling instead of burning retries.
 var ErrAttestationUnavailable = errors.New("attestation service unavailable")
 
 const maxAttestationResponseBytes = 1 << 20 // 1MB
 
 // attestationStatusComplete is the terminal attestation status.
 const attestationStatusComplete = "complete"
+
+// isTransientStatus reports statuses worth retrying rather than failing on.
+func isTransientStatus(code int) bool {
+	return code >= http.StatusInternalServerError ||
+		code == http.StatusTooManyRequests ||
+		code == http.StatusRequestTimeout
+}
 
 // Attestation is Circle's signed confirmation that a deposit into the
 // xReserve contract is final.
@@ -43,9 +49,7 @@ type AttestationClient interface {
 }
 
 // HTTPAttestationClient talks to the xReserve attestation REST API.
-//
-// The path and response shape follow the devstack attestation stub; Circle's
-// production API schema must be confirmed before mainnet enablement (#360).
+// Paths/shapes match the devstack stub; confirm against Circle before mainnet (#360).
 type HTTPAttestationClient struct {
 	baseURL    string
 	httpClient *http.Client
@@ -91,7 +95,7 @@ func (c *HTTPAttestationClient) GetAttestation(ctx context.Context, depositTxHas
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, ErrAttestationNotReady
-	case resp.StatusCode >= http.StatusInternalServerError:
+	case isTransientStatus(resp.StatusCode): // 5xx / 429 / 408: keep polling
 		return nil, fmt.Errorf("%w: status %d: %s", ErrAttestationUnavailable, resp.StatusCode, body)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("attestation service returned %d: %s", resp.StatusCode, body)

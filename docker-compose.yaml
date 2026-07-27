@@ -195,8 +195,11 @@ services:
       target: relayer
     container_name: canton-bridge-relayer
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      # Bind to loopback only: the api-server reaches the relayer over the
+      # internal bridge-network by service name, so the API (incl. the
+      # transfer-registration endpoint) never needs host-wide exposure.
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9090:9090"
     volumes:
       - config_state:/app/state:ro
     command: ["-config", "/app/state/config.yaml"]
