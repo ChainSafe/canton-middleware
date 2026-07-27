@@ -35,6 +35,8 @@ type StepResult struct {
 	// RetryAfter hints when the driver should step this transfer again.
 	// Zero means the driver's default processing interval.
 	RetryAfter time.Duration
+	// Reason is stored as the error message when Status is failed; ignored otherwise.
+	Reason string
 }
 
 // TokenBridge is a bridging-mechanism adapter. A transfer is a durable record

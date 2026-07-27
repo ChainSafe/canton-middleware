@@ -21,6 +21,9 @@ const (
 	// defaultStepBatchLimit caps how many transfers a single step tick loads.
 	defaultStepBatchLimit = 100
 
+	// stepTimeout keeps one slow adapter from stalling the shared step loop.
+	stepTimeout = 30 * time.Second
+
 	ingestRestartInitialBackoff = 1 * time.Second
 	ingestRestartMaxBackoff     = 30 * time.Second
 )
@@ -68,6 +71,7 @@ func (d *Driver) Start(ctx context.Context) error {
 	for _, b := range d.registry.Bridges() {
 		sources, err := b.Sources(ctx)
 		if err != nil {
+			d.Stop() // don't leak the goroutines we already launched
 			return fmt.Errorf("bridge %s sources: %w", b.Key(), err)
 		}
 		for _, src := range sources {
@@ -158,7 +162,9 @@ func (d *Driver) stepTransfer(ctx context.Context, t *relayer.Transfer) {
 		return
 	}
 
-	res, err := bridge.Step(ctx, t)
+	stepCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	res, err := bridge.Step(stepCtx, t)
+	cancel()
 	if err != nil {
 		d.metrics.IncSteps(t.BridgeKey, t.Stage, StepOutcomeError)
 		d.logger.Error("Step failed",
@@ -271,7 +277,11 @@ func (d *Driver) consumeStream(
 				d.persistIngestOffset(ctx, src, offsetKey, event)
 				continue
 			}
-			d.ingestEvent(ctx, b, src, offsetKey, event)
+			if err := d.ingestEvent(ctx, b, src, offsetKey, event); err != nil {
+				// Abort instead of advancing the offset past an event we
+				// failed to record; the restart re-delivers it.
+				return err
+			}
 		case err := <-errCh:
 			if err != nil {
 				d.logger.Error("Ingest source stream error",
@@ -288,10 +298,11 @@ func (d *Driver) consumeStream(
 }
 
 // ingestEvent records a detected event as a pending transfer (idempotent) and
-// advances the persisted offset.
+// advances the offset. It errors only when the transfer couldn't be persisted,
+// so the caller can abort rather than skip past it.
 func (d *Driver) ingestEvent(
 	ctx context.Context, b relayer.TokenBridge, src relayer.Source, offsetKey string, event *relayer.Event,
-) {
+) error {
 	transfer := relayer.TransferFromEvent(b.Key(), event)
 
 	inserted, err := d.store.CreateTransfer(ctx, transfer)
@@ -301,7 +312,7 @@ func (d *Driver) ingestEvent(
 			zap.String("event_id", event.ID),
 			zap.String("bridge", b.Key()),
 			zap.Error(err))
-		return
+		return fmt.Errorf("create ingested transfer %s: %w", event.ID, err)
 	}
 	if inserted {
 		d.logger.Info("Ingested transfer",
@@ -314,6 +325,7 @@ func (d *Driver) ingestEvent(
 	}
 
 	d.persistIngestOffset(ctx, src, offsetKey, event)
+	return nil
 }
 
 // persistIngestOffset saves the source's processing position under the

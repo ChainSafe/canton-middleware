@@ -245,6 +245,58 @@ func TestDriver_OrphanedBridgeKey_MarksFailed(t *testing.T) {
 	d.stepDueTransfers(ctx)
 }
 
+func TestDriver_Ingest_CreateTransferError_DoesNotAdvanceOffset(t *testing.T) {
+	ctx := context.Background()
+
+	event := &relayer.Event{
+		ID:                "0xdeposit-0",
+		TokenSymbol:       "USDCX",
+		Direction:         relayer.DirectionEthereumToCanton,
+		SourceChain:       relayer.ChainEthereum,
+		SourceTxHash:      "0xdeposit",
+		Amount:            "1000000",
+		SourceBlockNumber: 42,
+	}
+	bridge := &fakeBridge{
+		key:     "fake",
+		sources: []relayer.Source{&fakeSource{chainID: relayer.ChainEthereum, events: []*relayer.Event{event}}},
+		stepFn: func(_ context.Context, _ *relayer.Transfer) (relayer.StepResult, error) {
+			return relayer.StepResult{Status: relayer.TransferStatusCompleted}, nil
+		},
+	}
+
+	store := relayermocks.NewBridgeStore(t)
+	store.EXPECT().GetChainState(mock.Anything, "fake:ethereum").Return(nil, nil).Maybe()
+	store.EXPECT().GetSteppableTransfers(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	// CreateTransfer always fails; SetChainState must never be called, so the
+	// offset is never advanced past the unrecorded event. A call to
+	// SetChainState fails the strict mock.
+	created := make(chan struct{}, 1)
+	store.EXPECT().CreateTransfer(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ *relayer.Transfer) (bool, error) {
+			select {
+			case created <- struct{}{}:
+			default:
+			}
+			return false, errors.New("transient db error")
+		}).Maybe()
+
+	d := newTestDriver(&relayer.Config{}, newDriverRegistry(t, bridge), store)
+	if err := d.Start(ctx); err != nil {
+		t.Fatalf("Start() failed: %v", err)
+	}
+	defer d.Stop()
+
+	select {
+	case <-created:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for the ingest attempt")
+	}
+	// Give the loop a moment; if it were going to advance the offset it would
+	// have called SetChainState, which the mock would reject.
+	time.Sleep(50 * time.Millisecond)
+}
+
 func TestDriver_Ingest_CreatesTransferAndPersistsOffset(t *testing.T) {
 	ctx := context.Background()
 

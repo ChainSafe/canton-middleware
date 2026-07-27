@@ -13,6 +13,10 @@ const (
 // OffsetBegin is the special Canton ledger offset meaning "start from the beginning".
 const OffsetBegin = "BEGIN"
 
+// LegacyBridgeKey tags rows owned by the legacy PROMPT pipeline (the column
+// default). The reconcile loop filters on it so it skips adapter rows.
+const LegacyBridgeKey = "wayfinder"
+
 // TransferStatus represents the current state of a cross-chain transfer.
 type TransferStatus string
 
@@ -63,11 +67,9 @@ type Transfer struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 	CompletedAt       *time.Time `json:"completed_at"`
 	ErrorMessage      *string    `json:"error_message"`
-	// Metadata carries mechanism-specific breadcrumbs (attestation IDs,
-	// request UUIDs) accumulated across Step calls.
+	// Metadata holds mechanism-specific breadcrumbs accumulated across steps.
 	Metadata map[string]string `json:"metadata,omitempty"`
-	// NextStepAt is when the driver should step this transfer next.
-	// Nil means due immediately. Unused by the legacy pipeline.
+	// NextStepAt is when the driver should next step this transfer (nil = now).
 	NextStepAt *time.Time `json:"next_step_at,omitempty"`
 }
 
@@ -82,9 +84,7 @@ type ChainState struct {
 // Event represents a generic bridge event flowing from source to destination.
 type Event struct {
 	ID string
-	// BridgeKey, TokenSymbol, and Direction identify the adapter-owned
-	// pipeline for events produced by TokenBridge sources; unset for events
-	// from the legacy pipeline (which derives them from its processor wiring).
+	// Set on events from TokenBridge sources; unset for legacy-pipeline events.
 	BridgeKey        string
 	TokenSymbol      string
 	Direction        TransferDirection

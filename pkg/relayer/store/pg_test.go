@@ -449,6 +449,25 @@ func TestPGStore_ApplyStep(t *testing.T) {
 		t.Fatalf("NextStepAt should be set for non-terminal status")
 	}
 
+	// A step error bumps retry_count; the next successful step must reset it
+	// so max-retries counts consecutive, not lifetime, failures.
+	if err = store.RecordStepError(ctx, "step-1", "transient", time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("RecordStepError failed: %v", err)
+	}
+	if err = store.ApplyStep(ctx, "step-1", relayer.StepResult{
+		Status: relayer.TransferStatusPending,
+		Stage:  "awaiting_mint",
+	}, time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("ApplyStep(progress) failed: %v", err)
+	}
+	progressed, gErr := store.GetTransfer(ctx, "step-1")
+	if gErr != nil || progressed == nil {
+		t.Fatalf("GetTransfer failed: %v", gErr)
+	}
+	if progressed.RetryCount != 0 {
+		t.Fatalf("RetryCount = %d after a successful step, want 0", progressed.RetryCount)
+	}
+
 	destTx := "0xminted"
 	err = store.ApplyStep(ctx, "step-1", relayer.StepResult{
 		Status:     relayer.TransferStatusCompleted,

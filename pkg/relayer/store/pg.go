@@ -116,7 +116,9 @@ func (s *PGStore) IncrementRetryCount(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetPendingTransfers returns all pending transfers for a given direction.
+// GetPendingTransfers returns pending legacy-pipeline transfers for a
+// direction. Adapter-owned rows are excluded so the reconcile loop never
+// touches a transfer the driver owns.
 func (s *PGStore) GetPendingTransfers(
 	ctx context.Context,
 	direction relayer.TransferDirection,
@@ -126,6 +128,7 @@ func (s *PGStore) GetPendingTransfers(
 		Model(&daos).
 		Where("direction = ?", direction).
 		Where("status = ?", relayer.TransferStatusPending).
+		Where("bridge_key = ?", relayer.LegacyBridgeKey).
 		OrderExpr("created_at ASC").
 		Scan(ctx)
 	if err != nil {
@@ -176,7 +179,8 @@ func (s *PGStore) GetSteppableTransfers(
 		Where("bridge_key IN (?)", bun.List(bridgeKeys)).
 		Where("status = ?", relayer.TransferStatusPending).
 		Where("(next_step_at IS NULL OR next_step_at <= ?)", time.Now()).
-		OrderExpr("created_at ASC").
+		// Oldest-due first, so a busy backlog can't starve newer transfers.
+		OrderExpr("next_step_at ASC NULLS FIRST").
 		Limit(limit).
 		Scan(ctx)
 	if err != nil {
@@ -200,9 +204,17 @@ func (s *PGStore) ApplyStep(ctx context.Context, id string, res relayer.StepResu
 		Model((*TransferDao)(nil)).
 		Set("status = ?", res.Status).
 		Set("stage = ?", res.Stage).
-		Set("error_message = NULL").
+		// Reset on progress so max-retries counts consecutive, not lifetime, failures.
+		Set("retry_count = 0").
 		Set("updated_at = ?", now).
 		Where("id = ?", id)
+
+	// Keep an adapter's failure reason; otherwise clear any stale error.
+	if res.Status == relayer.TransferStatusFailed && res.Reason != "" {
+		q = q.Set("error_message = ?", res.Reason)
+	} else {
+		q = q.Set("error_message = NULL")
+	}
 
 	if res.DestTxHash != nil {
 		q = q.Set("destination_tx_hash = ?", res.DestTxHash)
