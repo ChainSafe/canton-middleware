@@ -143,8 +143,8 @@ func TestLoadAPIServer_AppliesDefaults(t *testing.T) {
 		t.Fatalf("key_management.key_derivation default mismatch: got %q", cfg.KeyManagement.KeyDerivation)
 	}
 
-	if cfg.JWKS != nil {
-		t.Fatal("jwks should default to nil when omitted")
+	if cfg.Auth != nil {
+		t.Fatal("auth should default to nil when omitted")
 	}
 	if cfg.Canton.Bridge != nil {
 		t.Fatal("canton.bridge should default to nil when omitted")
@@ -422,4 +422,5 @@ func setDefaultConfigEnv(t *testing.T) {
 	t.Setenv("CANTON_USDCX_ISSUER_PARTY", "usdcx-issuer::1220test")
 	t.Setenv("CANTON_USDCX_REGISTRY_URL", "http://usdcx-registry:8090")
 	t.Setenv("ADMIN_API_KEY", "test-admin-key")
+	t.Setenv("JWT_PRIVATE_KEY", "dummy-base64-key")
 }

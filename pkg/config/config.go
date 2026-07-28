@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/chainsafe/canton-middleware/pkg/app/http"
+	"github.com/chainsafe/canton-middleware/pkg/auth"
 	canton "github.com/chainsafe/canton-middleware/pkg/cantonsdk/client"
 	"github.com/chainsafe/canton-middleware/pkg/cantonsdk/ledger"
 	"github.com/chainsafe/canton-middleware/pkg/custodial"
@@ -74,7 +75,7 @@ type APIServer struct {
 	Token               *token.Config                 `yaml:"token" validate:"required"`
 	TokenProvider       *TokenProviderConfig          `yaml:"token_provider" default:"-"` // omit → defaults to canton mode
 	EthRPC              *ethrpc.Config                `yaml:"eth_rpc" validate:"required"`
-	JWKS                *JWKS                         `yaml:"jwks" default:"-"`          // nil by default (feature disabled)
+	Auth                *auth.Config                  `yaml:"auth" default:"-"`          // nil disables read-endpoint auth (SIWE login + JWT)
 	AcceptWorker        *custodial.AcceptWorkerConfig `yaml:"accept_worker" default:"-"` // nil disables the worker
 	Monitoring          *Monitoring                   `yaml:"monitoring" validate:"required"`
 	Logging             *log.Config                   `yaml:"logging" validate:"required"`
@@ -112,12 +113,6 @@ type Monitoring struct {
 	Enabled        bool               `yaml:"enabled" default:"false"`
 	Server         *http.ServerConfig `yaml:"server" validate:"required_if=Enabled true"`
 	HealthCheckURL string             `yaml:"health_check_url" default:"/health"`
-}
-
-// JWKS contains JWKS configuration for JWT validation
-type JWKS struct {
-	URL    string `yaml:"url" default:""`
-	Issuer string `yaml:"issuer" default:""`
 }
 
 // KeyManagement contains settings for custodial Canton key management
