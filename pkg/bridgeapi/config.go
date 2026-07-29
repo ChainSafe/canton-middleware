@@ -36,7 +36,7 @@ type TokenConfig struct {
 	XReserve *XReserveTokenConfig `yaml:"xreserve" default:"-"`
 }
 
-// XReserveTokenConfig carries the Circle xReserve deposit-call parameters.
+// XReserveTokenConfig carries the Circle xReserve bridge parameters.
 type XReserveTokenConfig struct {
 	// Contract is the xReserve contract address on the EVM chain.
 	Contract string `yaml:"contract" validate:"required"`
@@ -45,6 +45,14 @@ type XReserveTokenConfig struct {
 	RemoteDomain uint32 `yaml:"remote_domain" validate:"required"`
 	// MaxFee is the depositToRemote maxFee argument in token base units.
 	MaxFee string `yaml:"max_fee"`
+	// InstrumentAdmin is the Canton party administering the instrument
+	// (selects the burn registry via the token client's external_tokens map).
+	InstrumentAdmin string `yaml:"instrument_admin" validate:"required"`
+	// InstrumentID is the Canton token-standard instrument id (e.g. "USDCx").
+	InstrumentID string `yaml:"instrument_id" validate:"required"`
+	// WithdrawDestinationDomain is the xReserve domain burns release to
+	// (0 = Ethereum).
+	WithdrawDestinationDomain int64 `yaml:"withdraw_destination_domain"`
 }
 
 // Validate performs the cross-field checks the tag validator cannot express.

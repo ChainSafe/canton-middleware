@@ -120,6 +120,53 @@ func (_c *Token_Burn_Call) RunAndReturn(run func(context.Context, *token.BurnReq
 	return _c
 }
 
+// BurnByPartyID provides a mock function with given fields: ctx, req
+func (_m *Token) BurnByPartyID(ctx context.Context, req *token.PrepareBurnRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BurnByPartyID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareBurnRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Token_BurnByPartyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BurnByPartyID'
+type Token_BurnByPartyID_Call struct {
+	*mock.Call
+}
+
+// BurnByPartyID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.PrepareBurnRequest
+func (_e *Token_Expecter) BurnByPartyID(ctx interface{}, req interface{}) *Token_BurnByPartyID_Call {
+	return &Token_BurnByPartyID_Call{Call: _e.mock.On("BurnByPartyID", ctx, req)}
+}
+
+func (_c *Token_BurnByPartyID_Call) Run(run func(ctx context.Context, req *token.PrepareBurnRequest)) *Token_BurnByPartyID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.PrepareBurnRequest))
+	})
+	return _c
+}
+
+func (_c *Token_BurnByPartyID_Call) Return(_a0 error) *Token_BurnByPartyID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Token_BurnByPartyID_Call) RunAndReturn(run func(context.Context, *token.PrepareBurnRequest) error) *Token_BurnByPartyID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ExecuteTransfer provides a mock function with given fields: ctx, req
 func (_m *Token) ExecuteTransfer(ctx context.Context, req *token.ExecuteTransferRequest) error {
 	ret := _m.Called(ctx, req)
@@ -864,6 +911,65 @@ func (_c *Token_PrepareAcceptTransfer_Call) Return(_a0 *token.PreparedTransfer, 
 }
 
 func (_c *Token_PrepareAcceptTransfer_Call) RunAndReturn(run func(context.Context, string, string, string) (*token.PreparedTransfer, error)) *Token_PrepareAcceptTransfer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PrepareBurn provides a mock function with given fields: ctx, req
+func (_m *Token) PrepareBurn(ctx context.Context, req *token.PrepareBurnRequest) (*token.PreparedTransfer, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PrepareBurn")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareBurnRequest) (*token.PreparedTransfer, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *token.PrepareBurnRequest) *token.PreparedTransfer); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *token.PrepareBurnRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Token_PrepareBurn_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PrepareBurn'
+type Token_PrepareBurn_Call struct {
+	*mock.Call
+}
+
+// PrepareBurn is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *token.PrepareBurnRequest
+func (_e *Token_Expecter) PrepareBurn(ctx interface{}, req interface{}) *Token_PrepareBurn_Call {
+	return &Token_PrepareBurn_Call{Call: _e.mock.On("PrepareBurn", ctx, req)}
+}
+
+func (_c *Token_PrepareBurn_Call) Run(run func(ctx context.Context, req *token.PrepareBurnRequest)) *Token_PrepareBurn_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*token.PrepareBurnRequest))
+	})
+	return _c
+}
+
+func (_c *Token_PrepareBurn_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *Token_PrepareBurn_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Token_PrepareBurn_Call) RunAndReturn(run func(context.Context, *token.PrepareBurnRequest) (*token.PreparedTransfer, error)) *Token_PrepareBurn_Call {
 	_c.Call.Return(run)
 	return _c
 }

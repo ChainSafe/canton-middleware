@@ -30,6 +30,12 @@ type Config struct {
 	// Tokens whose InstrumentAdmin matches IssuerParty use local ACS-based factory discovery.
 	// Tokens whose InstrumentAdmin is in this map use the external registry API.
 	ExternalTokens map[string]ExternalTokenConfig `yaml:"external_tokens"`
+
+	// BurnMintPackageID/BurnMintModule identify the utility-bridge package
+	// hosting BridgeUserAgreement (xReserve burn/mint). Both must be set to
+	// enable outbound burns; values come from the utility-bridge DAR.
+	BurnMintPackageID string `yaml:"burn_mint_package_id"`
+	BurnMintModule    string `yaml:"burn_mint_module"`
 }
 
 func (c *Config) validate() error {

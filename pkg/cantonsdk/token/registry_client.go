@@ -21,6 +21,9 @@ const (
 	// choiceContextPathFmt is the registrar's per-instruction choice-context
 	// endpoint. The final %s is the action ("accept" or "withdraw").
 	choiceContextPathFmt = "/api/token-standard/v0/registrars/%s/registry/transfer-instruction/v1/%s/choice-contexts/%s"
+	// burnMintFactoryPathFmt is the registrar's xReserve burn-mint factory
+	// endpoint (see GetBurnMintFactory for the mainnet-path caveat).
+	burnMintFactoryPathFmt = "/api/token-standard/v0/registrars/%s/registry/burn-mint-instruction/v0/burn-mint-factory"
 )
 
 // RegistryClient calls the Splice Transfer Factory Registry API to discover
@@ -131,47 +134,57 @@ type registryDisclosedContract struct {
 func (rc *RegistryClient) GetTransferFactory(
 	ctx context.Context, registryBaseURL, registrarParty string, req *RegistryRequest,
 ) (*RegistryResponse, error) {
+	reqURL := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(registryPathFmt, url.PathEscape(registrarParty))
+	return rc.postFactoryEndpoint(ctx, reqURL, req, "registry")
+}
+
+// postFactoryEndpoint POSTs a RegistryRequest to a factory-discovery endpoint
+// and lifts the nested choiceContext wrapper into the flat RegistryResponse
+// shape the SDK's converters understand. Shared by the transfer-factory and
+// burn-mint-factory endpoints, whose response envelopes are identical.
+//
+// DA's hosted registry wraps `choiceContextData` and `disclosedContracts`
+// inside `choiceContext` — a null/absent choiceContext leaves both fields
+// empty, which the converters short-circuit.
+func (rc *RegistryClient) postFactoryEndpoint(
+	ctx context.Context, reqURL string, req *RegistryRequest, label string,
+) (*RegistryResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal registry request: %w", err)
+		return nil, fmt.Errorf("marshal %s request: %w", label, err)
 	}
 
-	reqURL := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(registryPathFmt, url.PathEscape(registrarParty))
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create registry request: %w", err)
+		return nil, fmt.Errorf("create %s request: %w", label, err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := rc.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("registry request failed: %w", err)
+		return nil, fmt.Errorf("%s request failed: %w", label, err)
 	}
 	defer resp.Body.Close()
 
 	const maxResponseBytes = 1 << 20 // 1 MB
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read registry response: %w", err)
+		return nil, fmt.Errorf("read %s response: %w", label, err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("registry returned %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("%s returned %d: %s", label, resp.StatusCode, string(respBody))
 	}
 
 	var wire registryWireResponse
 	if err := json.Unmarshal(respBody, &wire); err != nil {
-		return nil, fmt.Errorf("parse registry response: %w", err)
+		return nil, fmt.Errorf("parse %s response: %w", label, err)
 	}
 
-	// DA's hosted registry wraps `choiceContextData` and `disclosedContracts`
-	// inside `choiceContext` — lift them out so callers see the legacy flat
-	// shape the SDK's converters already understand. A null/absent
-	// choiceContext leaves both fields empty, which the converters short-circuit.
 	var inner registryWireChoiceContext
 	if len(wire.ChoiceContext) > 0 && string(wire.ChoiceContext) != jsonNull {
 		if err := json.Unmarshal(wire.ChoiceContext, &inner); err != nil {
-			return nil, fmt.Errorf("parse choiceContext wrapper: %w", err)
+			return nil, fmt.Errorf("parse %s choiceContext wrapper: %w", label, err)
 		}
 	}
 
@@ -306,6 +319,19 @@ func (rc *RegistryClient) GetWithdrawChoiceContext(
 	ctx context.Context, registryBaseURL, registrarParty, instructionCID string,
 ) (*AcceptContextResponse, error) {
 	return rc.getChoiceContext(ctx, registryBaseURL, registrarParty, instructionCID, "withdraw")
+}
+
+// GetBurnMintFactory calls the registrar's burn-mint factory endpoint and
+// returns the factory contract id, choice context, and disclosed contracts
+// needed to exercise xReserve burn/mint choices. The path mirrors the
+// registrar prefix used by the transfer-instruction API (and the devstack
+// stub); DA's hosted Utilities backend may expose a different prefix — pin it
+// during mainnet enablement (#360).
+func (rc *RegistryClient) GetBurnMintFactory(
+	ctx context.Context, registryBaseURL, registrarParty string, req *RegistryRequest,
+) (*RegistryResponse, error) {
+	reqURL := strings.TrimRight(registryBaseURL, "/") + fmt.Sprintf(burnMintFactoryPathFmt, url.PathEscape(registrarParty))
+	return rc.postFactoryEndpoint(ctx, reqURL, req, "burn-mint registry")
 }
 
 // getChoiceContext fetches a per-instruction choice-context for the given action

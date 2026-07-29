@@ -17,6 +17,10 @@ const OffsetBegin = "BEGIN"
 // default). The reconcile loop filters on it so it skips adapter rows.
 const LegacyBridgeKey = "wayfinder"
 
+// MetaBurnRequestID is the metadata key tying a burn to its release. The
+// api-server writes it; the xreserve adapter reads it to poll release status.
+const MetaBurnRequestID = "burn_request_id"
+
 // TransferStatus represents the current state of a cross-chain transfer.
 type TransferStatus string
 

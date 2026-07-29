@@ -40,9 +40,11 @@ func xreserveToken() TokenConfig {
 		EVMAddress: testTokenAddr,
 		Decimals:   6,
 		XReserve: &XReserveTokenConfig{
-			Contract:     testContractAddr,
-			RemoteDomain: 10001,
-			MaxFee:       "50000",
+			Contract:        testContractAddr,
+			RemoteDomain:    10001,
+			MaxFee:          "50000",
+			InstrumentAdmin: "circle::admin",
+			InstrumentID:    "USDCx",
 		},
 	}
 }

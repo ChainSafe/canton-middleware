@@ -153,6 +153,14 @@ type Token interface {
 	PrepareWithdrawTransfer(
 		ctx context.Context, partyID, instructionCID, instrumentAdmin string,
 	) (*PreparedTransfer, error)
+
+	// PrepareBurn builds an xReserve BridgeUserAgreement_Burn for a
+	// non-custodial party and returns the hash to sign externally. Use
+	// ExecuteTransfer to complete it.
+	PrepareBurn(ctx context.Context, req *PrepareBurnRequest) (*PreparedTransfer, error)
+
+	// BurnByPartyID burns on behalf of a custodial party (middleware-held key).
+	BurnByPartyID(ctx context.Context, req *PrepareBurnRequest) error
 }
 
 // Client implements CIP-56 token operations.

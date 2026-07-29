@@ -34,6 +34,9 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	r.Post("/api/v2/bridge/deposit/quote", apphttp.HandleError(h.depositQuote))
 	r.Post("/api/v2/bridge/deposits", apphttp.HandleError(h.registerDeposit))
 	r.Get("/api/v2/bridge/transfers/{id}", apphttp.HandleError(h.getTransfer))
+	r.Post("/api/v2/bridge/withdraw/prepare", apphttp.HandleError(h.withdrawPrepare))
+	r.Post("/api/v2/bridge/withdraw/execute", apphttp.HandleError(h.withdrawExecute))
+	r.Post("/api/v2/bridge/withdraw/custodial", apphttp.HandleError(h.withdrawCustodial))
 }
 
 func (h *httpHandler) tokens(w http.ResponseWriter, r *http.Request) error {
@@ -104,6 +107,75 @@ func (h *httpHandler) getTransfer(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	h.writeJSON(w, http.StatusOK, transfer)
+	return nil
+}
+
+func (h *httpHandler) withdrawPrepare(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req WithdrawRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.Token == "" || req.Amount == "" || req.Recipient == "" {
+		return apperrors.BadRequestError(nil, "token, amount, and recipient are required")
+	}
+
+	resp, err := h.svc.WithdrawPrepare(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+	return nil
+}
+
+func (h *httpHandler) withdrawExecute(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req WithdrawExecuteRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.TransferID == "" || req.Signature == "" || req.SignedBy == "" {
+		return apperrors.BadRequestError(nil, "transfer_id, signature, and signed_by are required")
+	}
+
+	resp, err := h.svc.WithdrawExecute(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, http.StatusCreated, resp)
+	return nil
+}
+
+func (h *httpHandler) withdrawCustodial(w http.ResponseWriter, r *http.Request) error {
+	evmAddr, err := authenticateEVM(r)
+	if err != nil {
+		return err
+	}
+
+	var req WithdrawRequest
+	if jsonErr := readJSON(r, &req); jsonErr != nil {
+		return jsonErr
+	}
+	if req.Token == "" || req.Amount == "" || req.Recipient == "" {
+		return apperrors.BadRequestError(nil, "token, amount, and recipient are required")
+	}
+
+	resp, err := h.svc.WithdrawCustodial(r.Context(), evmAddr, &req)
+	if err != nil {
+		return err
+	}
+
+	h.writeJSON(w, http.StatusCreated, resp)
 	return nil
 }
 

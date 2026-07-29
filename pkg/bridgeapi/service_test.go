@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 
+	cantontkn "github.com/chainsafe/canton-middleware/pkg/cantonsdk/token"
 	"github.com/chainsafe/canton-middleware/pkg/relayer"
 	"github.com/chainsafe/canton-middleware/pkg/user"
 )
@@ -32,15 +33,29 @@ func (f *fakeUserStore) GetUserByEVMAddress(_ context.Context, evmAddress string
 type fakeRelayer struct {
 	registered *relayer.RegisterTransferRequest
 	transfer   *relayer.Transfer
+	// seen models the relayer's idempotent CreateTransfer: a repeated id
+	// returns created=false, as the real ON CONFLICT DO NOTHING would.
+	seen         map[string]bool
+	registerErr  error
+	registerHits int
 }
 
 func (f *fakeRelayer) RegisterTransfer(
 	_ context.Context, req *relayer.RegisterTransferRequest,
 ) (*relayer.RegisterTransferResponse, error) {
+	f.registerHits++
+	if f.registerErr != nil {
+		return nil, f.registerErr
+	}
 	f.registered = req
+	if f.seen == nil {
+		f.seen = map[string]bool{}
+	}
+	created := !f.seen[req.ID]
+	f.seen[req.ID] = true
 	return &relayer.RegisterTransferResponse{
 		Transfer: &relayer.Transfer{ID: req.ID, Status: relayer.TransferStatusPending},
-		Created:  true,
+		Created:  created,
 	}, nil
 }
 
@@ -58,12 +73,43 @@ func testConfig() *Config {
 	}
 }
 
+// fakeBurner records burn calls and returns canned results.
+type fakeBurner struct {
+	prepared    *cantontkn.PreparedTransfer
+	prepareErr  error
+	burnReq     *cantontkn.PrepareBurnRequest
+	executed    *cantontkn.ExecuteTransferRequest
+	burnErr     error
+	executeErr  error
+	customCalls int
+}
+
+func (f *fakeBurner) PrepareBurn(_ context.Context, req *cantontkn.PrepareBurnRequest) (*cantontkn.PreparedTransfer, error) {
+	f.burnReq = req
+	return f.prepared, f.prepareErr
+}
+
+func (f *fakeBurner) BurnByPartyID(_ context.Context, req *cantontkn.PrepareBurnRequest) error {
+	f.customCalls++
+	f.burnReq = req
+	return f.burnErr
+}
+
+func (f *fakeBurner) ExecuteTransfer(_ context.Context, req *cantontkn.ExecuteTransferRequest) error {
+	f.executed = req
+	return f.executeErr
+}
+
 func newTestService(t *testing.T, rc RelayerClient) Service {
 	t.Helper()
-	users := &fakeUserStore{users: map[string]*user.User{
+	return newTestServiceWithUsers(t, rc, &fakeBurner{}, map[string]*user.User{
 		testEVMAddress: {EVMAddress: testEVMAddress, CantonParty: testParty},
-	}}
-	svc, err := NewService(testConfig(), users, rc, nil, zap.NewNop())
+	})
+}
+
+func newTestServiceWithUsers(t *testing.T, rc RelayerClient, burner CantonBurner, users map[string]*user.User) Service {
+	t.Helper()
+	svc, err := NewService(testConfig(), &fakeUserStore{users: users}, rc, nil, burner, zap.NewNop())
 	if err != nil {
 		t.Fatalf("NewService failed: %v", err)
 	}
@@ -82,7 +128,7 @@ func TestService_Tokens(t *testing.T) {
 func TestService_DepositQuote_HappyPath(t *testing.T) {
 	svc := newTestService(t, &fakeRelayer{})
 
-	quote, err := svc.DepositQuote(context.Background(), testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: "12.5"})
+	quote, err := svc.DepositQuote(context.Background(), testEVMAddress, &QuoteRequest{Token: testTokenSym, Amount: testAmount})
 	if err != nil {
 		t.Fatalf("DepositQuote failed: %v", err)
 	}
@@ -126,7 +172,7 @@ func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 
 	resp, err := svc.RegisterDeposit(context.Background(), testEVMAddress, &RegisterDepositRequest{
 		Token:  testTokenSym,
-		Amount: "12.5",
+		Amount: testAmount,
 		TxHash: testTxHash,
 	})
 	if err != nil {
@@ -143,7 +189,7 @@ func TestService_RegisterDeposit_DerivesRecipientFromSession(t *testing.T) {
 	// Recipient and mechanism come from the session/config, never the caller;
 	// the id is namespaced so it cannot collide with observer ids.
 	if reg.BridgeKey != MechanismXReserve || reg.TokenSymbol != testTokenSym ||
-		reg.Amount != "12.5" || reg.Recipient != testParty ||
+		reg.Amount != testAmount || reg.Recipient != testParty ||
 		reg.Sender != testEVMAddress || reg.SourceTxHash != testTxHash {
 		t.Fatalf("registered = %+v", reg)
 	}
@@ -179,3 +225,5 @@ func TestService_RegisterDeposit_Validation(t *testing.T) {
 		})
 	}
 }
+
+const testAmount = "12.5"
