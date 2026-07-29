@@ -58,6 +58,10 @@ canton:
     external_tokens:
       "${CANTON_USDCX_ISSUER_PARTY}":
         registry_url: "http://usdcx-registry:8090"
+    # Enables USDCx outbound burns (BridgeUserAgreement_Burn). Package is the
+    # utility-bridge DAR; uncomment with the confirmed module name (#360).
+    # burn_mint_package_id: "#utility-bridge-v0"
+    # burn_mint_module: "Utility.Bridge.V0.Model"
 
   bridge:
     package_id: "#bridge-wayfinder"
@@ -115,6 +119,9 @@ bridge:
       xreserve:
         contract: "0x0000000000000000000000000000000000000000"
         remote_domain: 10001
+        instrument_admin: "${CANTON_USDCX_ISSUER_PARTY}"
+        instrument_id: "USDCx"
+        withdraw_destination_domain: 0  # 0 = Ethereum
 
 # JWKS endpoint for JWT validation (optional - if not using EVM signatures)
 monitoring:
