@@ -79,6 +79,19 @@ bridge:
   eth_lookback_blocks: 1000
   eth_token_contract: "0x5fbdb2315678afecb367f032d93f642f64180aa3"
 
+  # TokenBridge adapters (multi-token). USDCx via Circle xReserve — observer
+  # mechanism, so the relayer only tracks transfers the api-server registers.
+  # attestation_url points at the devstack stub; real Circle endpoint is #360.
+  tokens:
+    USDCX:
+      mechanism: xreserve
+      evm_address: "0xC1A0000000000000000000000000000000000001"
+      decimals: 6
+      xreserve:
+        attestation_url: "http://usdcx-registry:8090"
+        instrument_admin: "${CANTON_USDCX_ISSUER_PARTY}"
+        instrument_id: "USDCx"
+
 monitoring:
   enabled: true
   server:

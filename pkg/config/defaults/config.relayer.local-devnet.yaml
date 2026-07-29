@@ -80,6 +80,19 @@ bridge:
   eth_lookback_blocks: 200
   eth_token_contract: "0x90cb4f9eF6d682F4338f0E360B9C079fbb32048e"
 
+  # TokenBridge adapters (multi-token). USDCx via Circle xReserve — observer
+  # mechanism, so the relayer only tracks transfers the api-server registers.
+  # Sepolia USDC + xReserve addresses; confirm the attestation endpoint (#360).
+  tokens:
+    USDCX:
+      mechanism: xreserve
+      evm_address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+      decimals: 6
+      xreserve:
+        attestation_url: "https://xreserve-api.circle.com"
+        instrument_admin: "${CANTON_USDCX_ISSUER_PARTY}"
+        instrument_id: "USDCx"
+
 monitoring:
   enabled: true
   server:

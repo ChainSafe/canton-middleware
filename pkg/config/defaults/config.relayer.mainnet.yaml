@@ -75,6 +75,9 @@ bridge:
   eth_start_block: 0
   eth_lookback_blocks: 5000
   eth_token_contract: "${ETHEREUM_TOKEN_CONTRACT}"
+  # USDCx (xReserve) bridging is not enabled on mainnet yet — needs DA
+  # Utilities onboarding + the confirmed Circle addresses/endpoint (#360).
+  # Add a `tokens:` block mirroring the devnet configs once those are pinned.
 
 monitoring:
   enabled: true
