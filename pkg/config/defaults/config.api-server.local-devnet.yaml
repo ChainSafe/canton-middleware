@@ -92,6 +92,23 @@ eth_rpc:
   chain_id: 1155111101  # Custom: Sepolia (11155111) + 01 suffix for Canton local
   request_timeout: "60s"
 
+# Bridge endpoints (deposit quotes + withdraw). Enabled per-deployment once
+# the relayer URL and confirmed Circle endpoints are known (#360); uncomment
+# and set relayer_url via env. Sepolia USDC + xReserve addresses shown.
+# bridge:
+#   relayer_url: "${RELAYER_URL}"
+#   chain_id: 11155111  # Sepolia (the chain the quoted txs target)
+#   tokens:
+#     USDCX:
+#       mechanism: xreserve
+#       evm_address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+#       decimals: 6
+#       bridge_fee: "0"
+#       estimated_seconds: 900
+#       xreserve:
+#         contract: "0x008888878f94C0d87defdf0B07f46B93C1934442"
+#         remote_domain: 10001
+
 monitoring:
   enabled: true
   server:

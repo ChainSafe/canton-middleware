@@ -99,6 +99,23 @@ eth_rpc:
   chain_id: 31337  # Anvil local chain ID
   request_timeout: "30s"
 
+# Bridge endpoints (deposit quotes + withdraw). eth_rpc_url is omitted, so
+# quotes always include the ERC-20 approve step (no allowance check). USDCx
+# xReserve contract address is a devstack placeholder pending #360.
+bridge:
+  relayer_url: "http://relayer:8080"
+  chain_id: 31337
+  tokens:
+    USDCX:
+      mechanism: xreserve
+      evm_address: "0xC1A0000000000000000000000000000000000001"
+      decimals: 6
+      bridge_fee: "0"
+      estimated_seconds: 900
+      xreserve:
+        contract: "0x0000000000000000000000000000000000000000"
+        remote_domain: 10001
+
 # JWKS endpoint for JWT validation (optional - if not using EVM signatures)
 monitoring:
   enabled: true

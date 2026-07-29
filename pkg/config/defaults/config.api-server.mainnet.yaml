@@ -74,6 +74,10 @@ eth_rpc:
   chain_id: 1337
   request_timeout: "60s"
 
+# Bridge endpoints are not enabled on mainnet yet — pending DA Utilities
+# onboarding and confirmed Circle addresses/endpoints (#360). Add a `bridge:`
+# block mirroring the docker config once those are pinned.
+
 monitoring:
   enabled: true
   server:
