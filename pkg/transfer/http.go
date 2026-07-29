@@ -38,7 +38,11 @@ type httpHandler struct {
 }
 
 // RegisterRoutes registers the non-custodial prepare/execute transfer endpoints.
-func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
+// readAuth guards the read (list) endpoints. When auth is enabled it authenticates
+// the caller and puts their identity in the request context; when disabled it is a
+// passthrough and the handlers fall back to the ?address= query parameter. It must
+// be non-nil.
+func RegisterRoutes(r chi.Router, svc Service, readAuth func(http.Handler) http.Handler, logger *zap.Logger) {
 	h := &httpHandler{svc: svc, logger: logger}
 
 	r.Post("/api/v2/transfer/prepare", apphttp.HandleError(h.prepare))
@@ -48,9 +52,12 @@ func RegisterRoutes(r chi.Router, svc Service, logger *zap.Logger) {
 	// middleware holds the custodial user's Canton key and signs server-side.
 	r.Post("/api/v2/transfer/custodial", apphttp.HandleError(h.sendCustodial))
 
-	r.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
-	r.Get("/api/v2/transfer/outgoing", apphttp.HandleError(h.listOutgoing))
-	r.Get("/api/v2/transfer/completed", apphttp.HandleError(h.listCompleted))
+	// Read endpoints return one caller's data. With auth enabled the caller is the
+	// bearer-token identity; with auth disabled they fall back to ?address=.
+	read := r.With(readAuth)
+	read.Get("/api/v2/transfer/incoming", apphttp.HandleError(h.listIncoming))
+	read.Get("/api/v2/transfer/outgoing", apphttp.HandleError(h.listOutgoing))
+	read.Get("/api/v2/transfer/completed", apphttp.HandleError(h.listCompleted))
 	r.Post("/api/v2/transfer/incoming/{contractID}/prepare", apphttp.HandleError(h.prepareAccept))
 	r.Post("/api/v2/transfer/incoming/{contractID}/execute", apphttp.HandleError(h.executeAccept))
 
@@ -149,23 +156,15 @@ func (h *httpHandler) execute(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// listIncoming is intentionally unauthenticated for now: callers pass the EVM
-// address as a query parameter and receive that user's pending offers. The
-// endpoint is read-only and exposes only data already visible to the receiver
-// party on-ledger, so dropping the signature requirement does not leak anything
-// new — it just lets clients (and tests) poll incoming offers without prior
-// signing-key access. Sensitive fields (party IDs) are truncated server-side.
+// listIncoming returns the caller's pending offers. Identity comes from the bearer token when auth is enabled, else from ?address=.
 //
 // Pagination is page/limit based to match the indexer envelope so each request
 // translates to exactly one indexer round-trip — no in-process buffering of all
 // offers for a receiver.
 func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error {
-	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
-	if evmAddr == "" {
-		return apperrors.BadRequestError(nil, "address query parameter is required")
-	}
-	if !auth.ValidateEVMAddress(evmAddr) {
-		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	evmAddr, err := callerAddress(r)
+	if err != nil {
+		return err
 	}
 
 	p, err := parseListPagination(r)
@@ -173,7 +172,7 @@ func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	resp, err := h.svc.ListIncoming(r.Context(), auth.NormalizeAddress(evmAddr), p)
+	resp, err := h.svc.ListIncoming(r.Context(), evmAddr, p)
 	if err != nil {
 		return err
 	}
@@ -182,16 +181,12 @@ func (h *httpHandler) listIncoming(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// listOutgoing returns the queried address's outbound TransferOffers. Like
-// listIncoming it is unauthenticated and takes the EVM address as a query param;
+// listOutgoing returns the caller's outbound TransferOffers;
 // ?status= filters by pending|expired|accepted|canceled|rejected|all (default all).
 func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error {
-	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
-	if evmAddr == "" {
-		return apperrors.BadRequestError(nil, "address query parameter is required")
-	}
-	if !auth.ValidateEVMAddress(evmAddr) {
-		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	evmAddr, err := callerAddress(r)
+	if err != nil {
+		return err
 	}
 
 	status, err := parseOutgoingStatus(r)
@@ -203,7 +198,7 @@ func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	resp, err := h.svc.ListOutgoing(r.Context(), auth.NormalizeAddress(evmAddr), status, p)
+	resp, err := h.svc.ListOutgoing(r.Context(), evmAddr, status, p)
 	if err != nil {
 		return err
 	}
@@ -212,15 +207,11 @@ func (h *httpHandler) listOutgoing(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// listCompleted returns the queried address's settled transfers across all tokens.
-// Unauthenticated, EVM address as a query param, party IDs truncated.
+// listCompleted returns the caller's settled transfers across all tokens.
 func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) error {
-	evmAddr := strings.TrimSpace(r.URL.Query().Get("address"))
-	if evmAddr == "" {
-		return apperrors.BadRequestError(nil, "address query parameter is required")
-	}
-	if !auth.ValidateEVMAddress(evmAddr) {
-		return apperrors.BadRequestError(nil, "invalid address: must be a 0x-prefixed 40-hex-char EVM address")
+	evmAddr, err := callerAddress(r)
+	if err != nil {
+		return err
 	}
 
 	p, err := parseListPagination(r)
@@ -228,13 +219,42 @@ func (h *httpHandler) listCompleted(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 
-	resp, err := h.svc.ListCompleted(r.Context(), auth.NormalizeAddress(evmAddr), p)
+	resp, err := h.svc.ListCompleted(r.Context(), evmAddr, p)
 	if err != nil {
 		return err
 	}
 
 	h.writeJSON(w, resp)
 	return nil
+}
+
+// callerAddress resolves the EVM address whose data the request may access.
+//
+// When read authentication is enabled, the auth middleware has placed the
+// authenticated address (from the JWT, already normalized) in the request context,
+// and it is used verbatim — a caller can only read their own data. A ?address= that
+// does not match the token is rejected with a 403 rather than silently ignored, so a
+// client wrongly targeting another address fails loudly instead of quietly receiving
+// its own data. When auth is disabled, the middleware is a passthrough and the address
+// falls back to the ?address= query parameter (not access-controlled — the
+// disabled-auth posture).
+func callerAddress(r *http.Request) (string, error) {
+	if addr, ok := auth.EVMAddressFromContext(r.Context()); ok && addr != "" {
+		// Normalize here too: the transfer service looks the address up verbatim
+		// and does not normalize, so both branches must yield a canonical address.
+		authenticated := auth.NormalizeAddress(addr)
+		if q := strings.TrimSpace(r.URL.Query().Get("address")); q != "" &&
+			(!auth.ValidateEVMAddress(q) || auth.NormalizeAddress(q) != authenticated) {
+			return "", apperrors.ForbiddenError(nil, "address query parameter does not match the authenticated identity")
+		}
+		return authenticated, nil
+	}
+
+	addr := strings.TrimSpace(r.URL.Query().Get("address"))
+	if !auth.ValidateEVMAddress(addr) {
+		return "", apperrors.BadRequestError(nil, "address query parameter is required: must be a 0x-prefixed 40-hex-char EVM address")
+	}
+	return auth.NormalizeAddress(addr), nil
 }
 
 // parseOutgoingStatus maps ?status= to a transfer status filter for the outgoing
