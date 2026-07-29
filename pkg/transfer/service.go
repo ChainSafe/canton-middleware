@@ -20,6 +20,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/indexer"
 	pkgtoken "github.com/chainsafe/canton-middleware/pkg/token"
 	"github.com/chainsafe/canton-middleware/pkg/user"
+	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 )
 
 //go:generate mockery --name UserStore --output mocks --outpkg mocks --filename mock_user_store.go --with-expecter
@@ -103,6 +104,8 @@ type TransferService struct {
 	cache               TransferCache
 	offerLister         IndexerReader
 	partyRegistry       PartyRegistry
+	whitelist           whitelist.Checker
+	issuerParty         string
 	allowedTokenSymbols map[string]bool
 	// externalTokenSymbols marks tokens transferable to parties not registered
 	// with the middleware (hosted on external participant nodes), per token config.
@@ -128,6 +131,8 @@ type instrumentMeta struct {
 // instrument→EVM-contract mapping (used to enrich ListIncoming responses).
 // offerLister is required — the api-server now wires every service to the same
 // indexer client at startup, so ListIncoming relies on it being non-nil.
+// wl is required; pass whitelist.New(store, true) to allow all. issuerParty is
+// rejected as a transfer recipient.
 func NewTransferService(
 	cantonToken token.Token,
 	userStore UserStore,
@@ -135,6 +140,8 @@ func NewTransferService(
 	tokenCfg *pkgtoken.Config,
 	offerLister IndexerReader,
 	partyRegistry PartyRegistry,
+	wl whitelist.Checker,
+	issuerParty string,
 ) *TransferService {
 	allowed := map[string]bool{}
 	external := map[string]bool{}
@@ -163,6 +170,8 @@ func NewTransferService(
 		cache:                cache,
 		offerLister:          offerLister,
 		partyRegistry:        partyRegistry,
+		whitelist:            wl,
+		issuerParty:          issuerParty,
 		allowedTokenSymbols:  allowed,
 		externalTokenSymbols: external,
 		tokensByInstrument:   byInstrument,
@@ -229,11 +238,11 @@ func (s *TransferService) Prepare(ctx context.Context, senderEVMAddr string, req
 			return nil, fmt.Errorf("lookup recipient: %w", lookupErr)
 		}
 		toPartyID = recipient.CantonPartyID
-	} else if vErr := validatePartyID(toPartyID); vErr != nil {
-		return nil, apperrors.BadRequestError(vErr, "invalid recipient party id")
+	} else if wlErr := s.checkSenderWhitelisted(ctx, senderEVMAddr); wlErr != nil {
+		return nil, wlErr
 	}
-	if toPartyID == sender.CantonPartyID {
-		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
+	if err = s.validateRecipient(sender.CantonPartyID, toPartyID); err != nil {
+		return nil, err
 	}
 	// A caller-supplied party id may point anywhere, so it gets the full
 	// registration/topology check; a party resolved from a registered user's
@@ -283,10 +292,6 @@ func (s *TransferService) SendCustodial(
 		return nil, err
 	}
 
-	if err = validatePartyID(req.ToPartyID); err != nil {
-		return nil, apperrors.BadRequestError(err, "invalid recipient party id")
-	}
-
 	sender, err := s.userStore.GetUserByEVMAddress(ctx, senderEVMAddr)
 	if err != nil {
 		if errors.Is(err, user.ErrUserNotFound) {
@@ -297,8 +302,12 @@ func (s *TransferService) SendCustodial(
 	if sender.KeyMode != user.KeyModeCustodial {
 		return nil, apperrors.BadRequestError(nil, "this endpoint requires key_mode=custodial")
 	}
-	if req.ToPartyID == sender.CantonPartyID {
-		return nil, apperrors.BadRequestError(nil, "cannot transfer to self")
+
+	if err = s.checkSenderWhitelisted(ctx, senderEVMAddr); err != nil {
+		return nil, err
+	}
+	if err = s.validateRecipient(sender.CantonPartyID, req.ToPartyID); err != nil {
+		return nil, err
 	}
 	if err = s.checkRecipientParty(ctx, req.Token, req.ToPartyID); err != nil {
 		return nil, err
@@ -351,6 +360,19 @@ func (s *TransferService) checkRecipientParty(ctx context.Context, tokenSymbol, 
 	return nil
 }
 
+// checkSenderWhitelisted authorizes an outbound party-id transfer against the
+// registration whitelist, mirroring the eth_sendRawTransaction gate.
+func (s *TransferService) checkSenderWhitelisted(ctx context.Context, senderEVMAddr string) error {
+	whitelisted, err := s.whitelist.IsWhitelisted(ctx, senderEVMAddr)
+	if err != nil {
+		return apperrors.DependencyError(err, "whitelist check")
+	}
+	if !whitelisted {
+		return apperrors.ForbiddenError(nil, "sender not whitelisted for transfers to a party id")
+	}
+	return nil
+}
+
 // mapTransferErr maps a transfer preparation/submission failure to an
 // HTTP-shaped error. Ledger rejections that indicate a bad request (unknown
 // party or contract, failed precondition) surface as 400s and contention as
@@ -374,6 +396,23 @@ func mapTransferErr(err error, op string) error {
 		}
 	}
 	return err
+}
+
+// validateRecipient is the shared recipient guard for both outbound handlers:
+// syntactic party-id check, no self-transfers, and no transfers to the issuer
+// party (also the bridge-operator party — both configured from
+// canton.issuer_party), which would corrupt supply accounting.
+func (s *TransferService) validateRecipient(senderPartyID, toPartyID string) error {
+	if err := validatePartyID(toPartyID); err != nil {
+		return apperrors.BadRequestError(err, "invalid recipient party id")
+	}
+	if toPartyID == senderPartyID {
+		return apperrors.BadRequestError(nil, "cannot transfer to self")
+	}
+	if toPartyID == s.issuerParty {
+		return apperrors.BadRequestError(nil, "cannot transfer to the issuer/bridge-operator party")
+	}
+	return nil
 }
 
 // validatePartyID does a lightweight syntactic check of a Canton party id, which
