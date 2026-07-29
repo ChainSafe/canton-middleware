@@ -165,7 +165,7 @@ func (ls *logService) PrepareExternalRegistration(
 	return ls.svc.PrepareExternalRegistration(ctx, req)
 }
 
-func (ls *logService) GetUser(ctx context.Context, evmAddress, msg, sig string) (usr *user.User, err error) {
+func (ls *logService) GetUser(ctx context.Context, evmAddress string) (usr *user.User, err error) {
 	start := time.Now()
 
 	ls.logger.Info("GetUser started",
@@ -195,7 +195,7 @@ func (ls *logService) GetUser(ctx context.Context, evmAddress, msg, sig string) 
 		}
 	}()
 
-	return ls.svc.GetUser(ctx, evmAddress, msg, sig)
+	return ls.svc.GetUser(ctx, evmAddress)
 }
 
 // Helper functions for sensitive data redaction

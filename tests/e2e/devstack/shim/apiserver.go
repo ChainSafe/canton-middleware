@@ -10,13 +10,16 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	siwe "github.com/spruceid/siwe-go"
 
+	"github.com/chainsafe/canton-middleware/pkg/auth"
 	"github.com/chainsafe/canton-middleware/pkg/ethereum/contracts"
 	"github.com/chainsafe/canton-middleware/pkg/registry"
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
@@ -24,6 +27,15 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/user/whitelist"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/stack"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/util"
+)
+
+// SIWE login parameters. They MUST match the api-server's auth config
+// (pkg/config/defaults/config.api-server.docker.yaml) or /auth/login rejects the
+// signed message.
+const (
+	siweDomain  = "localhost"
+	siweURI     = "http://localhost"
+	siweChainID = 31337
 )
 
 // defaultAdminAPIKey is the admin bearer token used when ADMIN_API_KEY is not
@@ -49,6 +61,11 @@ var _ stack.APIServer = (*APIServerShim)(nil)
 type APIServerShim struct {
 	httpClient
 	evm *ethclient.Client
+
+	// tokens caches one SIWE-issued JWT per account address so the read endpoints
+	// (which require a bearer token when auth is enabled) reuse a single login.
+	mu     sync.Mutex
+	tokens map[common.Address]string
 }
 
 // NewAPIServer dials the api-server REST endpoint and its /eth JSON-RPC
@@ -64,8 +81,58 @@ func NewAPIServer(ctx context.Context, manifest *stack.ServiceManifest) (*APISer
 			endpoint: manifest.APIHTTP,
 			client:   &http.Client{Timeout: 30 * time.Second},
 		},
-		evm: ethclient.NewClient(rpcClient),
+		evm:    ethclient.NewClient(rpcClient),
+		tokens: make(map[common.Address]string),
 	}, nil
+}
+
+// Login performs the SIWE (EIP-4361) login flow for account and returns a JWT:
+// fetch a nonce, build and EIP-191-sign the message, then exchange it at
+// /auth/login. The account must already be registered. The token is cached, so
+// the read endpoints authenticate transparently after the first call.
+func (a *APIServerShim) Login(ctx context.Context, account *stack.Account) (string, error) {
+	var nr auth.NonceResponse
+	q := url.Values{"address": []string{account.Address.Hex()}}
+	if err := a.get(ctx, "/auth/nonce", q, &nr); err != nil {
+		return "", fmt.Errorf("fetch nonce: %w", err)
+	}
+
+	// Build the message with the same library the server parses with, so the text
+	// is a guaranteed-parseable EIP-4361 message.
+	msg, err := siwe.InitMessage(siweDomain, account.Address.Hex(), siweURI, nr.Nonce, map[string]any{
+		"chainId":  siweChainID,
+		"issuedAt": time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return "", fmt.Errorf("build SIWE message: %w", err)
+	}
+	raw := msg.String()
+
+	sig, err := util.SignEIP191(account.PrivateKey, raw)
+	if err != nil {
+		return "", fmt.Errorf("sign SIWE message: %w", err)
+	}
+
+	var lr auth.LoginResponse
+	if err := a.post(ctx, "/auth/login", "", "", auth.LoginRequest{Message: raw, Signature: sig}, &lr); err != nil {
+		return "", fmt.Errorf("login: %w", err)
+	}
+
+	a.mu.Lock()
+	a.tokens[account.Address] = lr.Token
+	a.mu.Unlock()
+	return lr.Token, nil
+}
+
+// ensureToken returns a cached JWT for account, logging in on first use.
+func (a *APIServerShim) ensureToken(ctx context.Context, account *stack.Account) (string, error) {
+	a.mu.Lock()
+	tok := a.tokens[account.Address]
+	a.mu.Unlock()
+	if tok != "" {
+		return tok, nil
+	}
+	return a.Login(ctx, account)
 }
 
 func (a *APIServerShim) Endpoint() string       { return a.endpoint }
@@ -204,15 +271,19 @@ func (a *APIServerShim) TransferFactory(ctx context.Context) (*registry.Transfer
 	return &resp, nil
 }
 
-// ListIncomingTransfers sends GET /api/v2/transfer/incoming?address=<addr>. The
-// endpoint is unauthenticated; account is used only to derive the query parameter.
+// ListIncomingTransfers sends GET /api/v2/transfer/incoming as account. The caller
+// is taken from account's SIWE-issued bearer token, so it returns only account's
+// pending offers.
 func (a *APIServerShim) ListIncomingTransfers(
 	ctx context.Context,
 	account *stack.Account,
 ) (*transfer.IncomingTransfersList, error) {
-	q := url.Values{"address": []string{account.Address.Hex()}}
+	token, err := a.ensureToken(ctx, account)
+	if err != nil {
+		return nil, err
+	}
 	var resp transfer.IncomingTransfersList
-	if err := a.get(ctx, "/api/v2/transfer/incoming", q, &resp); err != nil {
+	if err := a.getBearer(ctx, "/api/v2/transfer/incoming", token, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -259,34 +330,41 @@ func (a *APIServerShim) WithdrawCustodial(
 	return &resp, nil
 }
 
-// ListOutgoingTransfers sends GET /api/v2/transfer/outgoing?address=<addr>&status=<status>.
-// The endpoint is unauthenticated; account is used only to derive the address query
-// parameter. An empty status omits the filter (server defaults to all).
+// ListOutgoingTransfers sends GET /api/v2/transfer/outgoing[?status=<status>] as
+// account (caller from its bearer token). An empty status omits the filter (server
+// defaults to all).
 func (a *APIServerShim) ListOutgoingTransfers(
 	ctx context.Context,
 	account *stack.Account,
 	status string,
 ) (*transfer.OutgoingTransfersList, error) {
-	q := url.Values{"address": []string{account.Address.Hex()}}
+	token, err := a.ensureToken(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	path := "/api/v2/transfer/outgoing"
 	if status != "" {
-		q.Set("status", status)
+		path += "?" + url.Values{"status": []string{status}}.Encode()
 	}
 	var resp transfer.OutgoingTransfersList
-	if err := a.get(ctx, "/api/v2/transfer/outgoing", q, &resp); err != nil {
+	if err := a.getBearer(ctx, path, token, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// ListCompletedTransfers sends GET /api/v2/transfer/completed?address=<addr>.
-// The endpoint is unauthenticated; account is used only to derive the query parameter.
+// ListCompletedTransfers sends GET /api/v2/transfer/completed as account (caller
+// from its bearer token).
 func (a *APIServerShim) ListCompletedTransfers(
 	ctx context.Context,
 	account *stack.Account,
 ) (*transfer.CompletedTransfersList, error) {
-	q := url.Values{"address": []string{account.Address.Hex()}}
+	token, err := a.ensureToken(ctx, account)
+	if err != nil {
+		return nil, err
+	}
 	var resp transfer.CompletedTransfersList
-	if err := a.get(ctx, "/api/v2/transfer/completed", q, &resp); err != nil {
+	if err := a.getBearer(ctx, "/api/v2/transfer/completed", token, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
