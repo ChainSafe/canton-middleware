@@ -38,4 +38,24 @@ type TokenConfig struct {
 	EVMAddress string `yaml:"evm_address" validate:"required"`
 	// Decimals is the token's on-chain decimal precision.
 	Decimals int `yaml:"decimals" validate:"required,gt=0"`
+
+	// XReserve carries the Circle xReserve settings; required when
+	// mechanism is "xreserve" (enforced by the adapter constructor).
+	XReserve *XReserveConfig `yaml:"xreserve" default:"-"`
+}
+
+// XReserveConfig configures tracking for a token bridged by Circle xReserve.
+type XReserveConfig struct {
+	// AttestationURL is the base URL of the attestation API (Circle's in
+	// production, the devstack stub locally).
+	AttestationURL string `yaml:"attestation_url" validate:"required"`
+	// InstrumentAdmin is the Canton party administering the instrument
+	// (e.g. Circle's decentralized-usdc-interchain-rep party).
+	InstrumentAdmin string `yaml:"instrument_admin" validate:"required"`
+	// InstrumentID is the Canton token-standard instrument id (e.g. "USDCx").
+	InstrumentID string `yaml:"instrument_id" validate:"required"`
+	// AttestationPollInterval paces attestation polling (default 60s).
+	AttestationPollInterval time.Duration `yaml:"attestation_poll_interval"`
+	// MintPollInterval paces post-attestation mint detection (default 15s).
+	MintPollInterval time.Duration `yaml:"mint_poll_interval"`
 }
