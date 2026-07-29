@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -35,10 +34,6 @@ const (
 
 	// cantonKeySize is the required size for Canton private keys (32 bytes for secp256k1)
 	cantonKeySize = 32
-
-	// loginMessageMaxAge is the maximum age accepted for a GET /profile login message.
-	// Must match SESSION_MAX_AGE_MS in the dapp's session.ts.
-	loginMessageMaxAge = 24 * time.Hour
 )
 
 var (
@@ -68,7 +63,7 @@ type Service interface {
 	RegisterWeb3User(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	RegisterCantonNativeUser(ctx context.Context, req *user.RegisterRequest) (*user.RegisterResponse, error)
 	PrepareExternalRegistration(ctx context.Context, req *user.RegisterRequest) (*user.PrepareTopologyResponse, error)
-	GetUser(ctx context.Context, evmAddress, msg, sig string) (*user.User, error)
+	GetUser(ctx context.Context, evmAddress string) (*user.User, error)
 }
 
 type registrationService struct {
@@ -464,21 +459,11 @@ func (s *registrationService) PrepareExternalRegistration(
 	}, nil
 }
 
-func (s *registrationService) GetUser(ctx context.Context, evmAddress, msg, sig string) (*user.User, error) {
+// GetUser returns the profile for evmAddress. The caller's identity is
+// established by the auth middleware (bearer token) before this is reached, so no
+// signature is verified here; evmAddress is taken from the authenticated context.
+func (s *registrationService) GetUser(ctx context.Context, evmAddress string) (*user.User, error) {
 	evmAddress = auth.NormalizeAddress(evmAddress)
-	recoveredAddr, err := auth.VerifyEIP191Signature(msg, sig)
-	if err != nil {
-		return nil, apperrors.UnAuthorizedError(err, "invalid signature")
-	}
-	if !strings.EqualFold(recoveredAddr.Hex(), evmAddress) {
-		return nil, apperrors.UnAuthorizedError(nil, "signature does not match address")
-	}
-	if !strings.HasPrefix(strings.ToLower(msg), "login:"+strings.ToLower(evmAddress)+":") {
-		return nil, apperrors.UnAuthorizedError(nil, "message must be of form login:<address>:<timestamp>")
-	}
-	if err = auth.ValidateTimedMessage(msg, loginMessageMaxAge); err != nil {
-		return nil, apperrors.UnAuthorizedError(err, "message expired or malformed")
-	}
 
 	usr, err := s.store.GetUserByEVMAddress(ctx, evmAddress)
 	if err != nil && !errors.Is(err, user.ErrUserNotFound) {
