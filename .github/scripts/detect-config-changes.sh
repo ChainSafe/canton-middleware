@@ -21,12 +21,13 @@
 #   comment_file    markdown report to post on the PR (written when true)
 set -euo pipefail
 
-# Helm values files the deploy job bumps — keep in sync with FILES in
-# docker-build-release.yml. Top-level key = file name minus "-values.yml".
-VALUES_FILES=(
-  canton-middleware-api-values.yml
-  canton-indexer-values.yml
-  canton-middleware-values.yml
+# <folder>|<deployment key>|<image repository>, one values.yaml per folder under DIR.
+# All three are needed: names do not follow from each other.
+# Keep in sync with the table in docker-build-release.yml.
+SERVICES=(
+  'canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api'
+  'canton-indexer|canton-indexer|ghcr.io/chainsafe/canton-indexer'
+  'canton-middleware|canton-bridge-relayer|ghcr.io/chainsafe/canton-middleware'
 )
 
 # Paths that can break a deploy when the Helm values are stale: per-package
@@ -54,11 +55,19 @@ sanitize() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | cut -c1-64; }
 # baseline to diff against.
 TAG_REPORT=""
 TAG_VALUES=()
-for f in "${VALUES_FILES[@]}"; do
-  key="${f%-values.yml}"
-  tag=$(yq e ".[\"${key}\"].image.tag" "${DIR}/${f}" 2>/dev/null) || tag=""
-  [ "${tag}" = "null" ] && tag=""
-  TAG_REPORT="${TAG_REPORT}${key}: $(sanitize "${tag:-missing}"); "
+for entry in "${SERVICES[@]}"; do
+  IFS='|' read -r svc dep imgrepo <<< "${entry}"
+  image=$(yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image" \
+            "${DIR}/${svc}/values.yaml" 2>/dev/null) || image=""
+  [ "${image}" = "null" ] && image=""
+  # Require the expected repository and a present tag; either being wrong means there is
+  # no baseline. Matched on "repo:" rather than ${image%:*}, which returns the whole
+  # string when there is no colon.
+  case "${image}" in
+    "${imgrepo}":?*) tag="${image##*:}" ;;
+    *)               tag="" ;;
+  esac
+  TAG_REPORT="${TAG_REPORT}${svc}: $(sanitize "${tag:-missing}"); "
   TAG_VALUES+=("${tag}")
 done
 

@@ -133,8 +133,8 @@ jobs:
     # the Helm values against the config diff posted as a PR comment.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.tag == ''
     env:
-      # Directory in infra-kubernetes holding the devnet Helm values files
-      DIR: definitions/canton/validator-dev1
+      # Parent of the per-service app-chart values folders in infra-kubernetes
+      DIR: clusters/dev/apps/canton
     steps:
       - name: Compute image tag
         id: version
@@ -167,21 +167,33 @@ jobs:
           SRC: .src
         run: .src/.github/scripts/detect-config-changes.sh
 
-      # Each service maps to a Helm values file in infra-kubernetes whose
-      # top-level key matches the Helm release name. Add a service here to
-      # have it bumped and deployed to devnet automatically on every main push.
+      # <folder>|<deployment key>|<image repository>. All three are needed: a Deployment's
+      # name need not match its folder, nor its image its service. Add a service here to
+      # have it deployed on every main push; keep in sync with SERVICES in
+      # .github/scripts/detect-config-changes.sh.
       - name: Update image tags for all services
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          while IFS='|' read -r key file; do
-            [ -z "$key" ] && continue
-            echo "Bumping ${key} -> ${VERSION} in ${file}"
-            yq e ".[\"${key}\"].image.tag = env(VERSION)" -i "${DIR}/${file}"
+          set -euo pipefail
+          while IFS='|' read -r svc dep imgrepo; do
+            [ -z "$svc" ] && continue
+            f="${DIR}/${svc}/values.yaml"
+            echo "Bumping ${svc} (${dep}) -> ${imgrepo}:${VERSION}"
+            yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image = \"${imgrepo}:${VERSION}\"" -i "${f}"
+
+            # These files embed a config file verbatim inside an ExternalSecret, and a yq
+            # reformat of it would pass the infra repo's linters. Fail instead.
+            CHANGED=$(git diff --numstat -- "${f}" | awk '{print $1"/"$2}')
+            if [ "${CHANGED}" != "1/1" ]; then
+              echo "::error::expected exactly one line changed in ${f}, got ${CHANGED:-nothing}"
+              git diff -- "${f}"
+              exit 1
+            fi
           done <<'EOF'
-          canton-middleware-api|canton-middleware-api-values.yml
-          canton-indexer|canton-indexer-values.yml
-          canton-middleware|canton-middleware-values.yml
+          canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api
+          canton-indexer|canton-indexer|ghcr.io/chainsafe/canton-indexer
+          canton-middleware|canton-bridge-relayer|ghcr.io/chainsafe/canton-middleware
           EOF
 
       - name: Create signed commit and open PR
@@ -195,9 +207,9 @@ jobs:
           COMMENT_FILE: ${{ steps.config.outputs.comment_file }}
         run: |
           FILES=(
-            canton-middleware-api-values.yml
-            canton-indexer-values.yml
-            canton-middleware-values.yml
+            canton-middleware-api/values.yaml
+            canton-indexer/values.yaml
+            canton-middleware/values.yaml
           )
           BRANCH="cd/devnet-canton-services-${VERSION}"
           COMMIT_MSG="chore(devnet): deploy canton services ${VERSION}"
@@ -218,13 +230,18 @@ jobs:
           # re-run). Everything after this block always runs, so a re-run
           # repairs a missing PR, label, or comment instead of exiting early.
           ALL_MATCH=true
-          for f in "${FILES[@]}"; do
-            KEY="${f%-values.yml}"
-            BRANCH_TAG=$(gh api "repos/${REPO}/contents/${DIR}/${f}?ref=${BRANCH}" \
+          while IFS='|' read -r svc dep imgrepo; do
+            [ -z "$svc" ] && continue
+            BRANCH_IMAGE=$(gh api "repos/${REPO}/contents/${DIR}/${svc}/values.yaml?ref=${BRANCH}" \
               -H "Accept: application/vnd.github.raw" 2>/dev/null \
-              | yq e ".[\"${KEY}\"].image.tag" - 2>/dev/null || echo "")
-            [ "$BRANCH_TAG" = "$VERSION" ] || ALL_MATCH=false
-          done
+              | yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image" - \
+                2>/dev/null || echo "")
+            [ "$BRANCH_IMAGE" = "${imgrepo}:${VERSION}" ] || ALL_MATCH=false
+          done <<'EOF'
+          canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api
+          canton-indexer|canton-indexer|ghcr.io/chainsafe/canton-indexer
+          canton-middleware|canton-bridge-relayer|ghcr.io/chainsafe/canton-middleware
+          EOF
           if [ "$ALL_MATCH" = "true" ]; then
             echo "Branch already at tag ${VERSION} for all services, skipping commit"
           else
