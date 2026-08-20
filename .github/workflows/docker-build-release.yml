@@ -133,9 +133,7 @@ jobs:
     # the Helm values against the config diff posted as a PR comment.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.tag == ''
     env:
-      # Parent of the per-service app-chart values folders in infra-kubernetes. These
-      # services are managed by ArgoCD; their old definitions/ blocks still exist but are
-      # `enabled: false`, so writing there merges green and deploys nothing.
+      # Parent of the per-service app-chart values folders in infra-kubernetes
       DIR: clusters/dev/apps/canton
     steps:
       - name: Compute image tag
@@ -169,12 +167,10 @@ jobs:
           SRC: .src
         run: .src/.github/scripts/detect-config-changes.sh
 
-      # Each service is one folder under DIR holding a values.yaml. The table is
-      # <folder>|<deployment key>|<image repository>, and none of the three is derivable
-      # from the others: canton-middleware's Deployment is canton-bridge-relayer, and
-      # canton-middleware-api's image is canton-erc20-api. Add a service here to have it
-      # bumped and deployed to devnet automatically on every main push. Keep in sync with
-      # SERVICES in .github/scripts/detect-config-changes.sh.
+      # <folder>|<deployment key>|<image repository>. All three are needed: a Deployment's
+      # name need not match its folder, nor its image its service. Add a service here to
+      # have it deployed on every main push; keep in sync with SERVICES in
+      # .github/scripts/detect-config-changes.sh.
       - name: Update image tags for all services
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -184,12 +180,10 @@ jobs:
             [ -z "$svc" ] && continue
             f="${DIR}/${svc}/values.yaml"
             echo "Bumping ${svc} (${dep}) -> ${imgrepo}:${VERSION}"
-            # This layout holds the image as one string, not repository + tag.
             yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image = \"${imgrepo}:${VERSION}\"" -i "${f}"
 
-            # These values files embed a config file verbatim inside an ExternalSecret,
-            # complete with external-secrets {{ }} placeholders. Fail if yq rewrote
-            # anything beyond the image line rather than committing a silent reformat.
+            # These files embed a config file verbatim inside an ExternalSecret, and a yq
+            # reformat of it would pass the infra repo's linters. Fail instead.
             CHANGED=$(git diff --numstat -- "${f}" | awk '{print $1"/"$2}')
             if [ "${CHANGED}" != "1/1" ]; then
               echo "::error::expected exactly one line changed in ${f}, got ${CHANGED:-nothing}"

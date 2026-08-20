@@ -21,10 +21,8 @@
 #   comment_file    markdown report to post on the PR (written when true)
 set -euo pipefail
 
-# Services the deploy job bumps, as <folder>|<deployment key>|<image repository>.
-# One app-chart values.yaml per folder under DIR. None of the three fields is derivable
-# from the others: canton-middleware's Deployment is canton-bridge-relayer, and
-# canton-middleware-api's image is canton-erc20-api.
+# <folder>|<deployment key>|<image repository>, one values.yaml per folder under DIR.
+# All three are needed: names do not follow from each other.
 # Keep in sync with the table in docker-build-release.yml.
 SERVICES=(
   'canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api'
@@ -59,15 +57,12 @@ TAG_REPORT=""
 TAG_VALUES=()
 for entry in "${SERVICES[@]}"; do
   IFS='|' read -r svc dep imgrepo <<< "${entry}"
-  # This layout holds the image as one string; the tag is what follows the last colon.
   image=$(yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image" \
             "${DIR}/${svc}/values.yaml" 2>/dev/null) || image=""
   [ "${image}" = "null" ] && image=""
-  # Only trust a tag whose repository is the one we expect, and require the tag to be
-  # present. A repository mismatch means the values file was pointed elsewhere, and an
-  # untagged image has no baseline at all -- in either case treating what follows the
-  # colon as a tag would be wrong. Matching on "repo:" rather than stripping the suffix
-  # is deliberate: ${image%:*} returns the whole string when there is no colon.
+  # Require the expected repository and a present tag; either being wrong means there is
+  # no baseline. Matched on "repo:" rather than ${image%:*}, which returns the whole
+  # string when there is no colon.
   case "${image}" in
     "${imgrepo}":?*) tag="${image##*:}" ;;
     *)               tag="" ;;
