@@ -66,6 +66,11 @@ type Metrics struct {
 	// headers in ethereumSource, and extracting RecordTime in cantonSource.
 	TransferAge *prometheus.HistogramVec
 
+	// ── TokenBridge driver ───────────────────────────────────────────────────
+
+	// StepsTotal counts TokenBridge.Step outcomes by bridge key and stage.
+	StepsTotal *prometheus.CounterVec
+
 	// ── Chain sync & readiness ───────────────────────────────────────────────
 
 	// ChainHeadPosition tracks the remote chain head for each chain
@@ -174,6 +179,13 @@ func NewMetrics(reg sharedmetrics.NamespacedRegisterer) *Metrics {
 			Buckets: sharedmetrics.TransferAgeBuckets,
 		}, []string{"direction"}),
 
+		// TokenBridge driver
+		StepsTotal: f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: ns, Subsystem: sub,
+			Name: "steps_total",
+			Help: "Total TokenBridge step calls by bridge, stage, and outcome",
+		}, []string{"bridge", "stage", "outcome"}),
+
 		// Chain sync & readiness
 		ChainHeadPosition: f.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: ns, Subsystem: sub,
@@ -262,6 +274,14 @@ const (
 	ErrorCategoryProcessing ErrorCategory = "processing"
 )
 
+// StepOutcome represents the result of a TokenBridge.Step call.
+type StepOutcome string
+
+const (
+	StepOutcomeSuccess StepOutcome = "success"
+	StepOutcomeError   StepOutcome = "error"
+)
+
 // ── Helper methods ───────────────────────────────────────────────────────────
 // These wrap WithLabelValues so call sites are explicit about which label is which.
 
@@ -333,4 +353,9 @@ func (m *Metrics) ObserveTransferAge(direction relayer.TransferDirection, second
 // SetChainHeadPosition sets the chain head position gauge for the given chain.
 func (m *Metrics) SetChainHeadPosition(chain string, position float64) {
 	m.ChainHeadPosition.WithLabelValues(chain).Set(position)
+}
+
+// IncSteps increments the step counter for the given bridge, stage, and outcome.
+func (m *Metrics) IncSteps(bridge, stage string, outcome StepOutcome) {
+	m.StepsTotal.WithLabelValues(bridge, stage, string(outcome)).Inc()
 }

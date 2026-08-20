@@ -19,6 +19,7 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/log"
 	"github.com/chainsafe/canton-middleware/pkg/pgutil"
+	relayerpkg "github.com/chainsafe/canton-middleware/pkg/relayer"
 	relayerengine "github.com/chainsafe/canton-middleware/pkg/relayer/engine"
 	relayersvc "github.com/chainsafe/canton-middleware/pkg/relayer/service"
 	relayerstore "github.com/chainsafe/canton-middleware/pkg/relayer/store"
@@ -97,11 +98,38 @@ func (s *Server) Run() error {
 	}
 	defer engine.Stop()
 
+	// TokenBridge adapter pipelines (multi-token, #356) run alongside the
+	// legacy single-token engine above until its port to an adapter (#372).
+	registry, err := buildBridgeRegistry(cfg.Bridge)
+	if err != nil {
+		return err
+	}
+	if len(registry.Keys()) > 0 {
+		driver := relayerengine.NewDriver(cfg.Bridge, registry, store, engineMetrics, logger)
+		if err = driver.Start(ctx); err != nil {
+			return fmt.Errorf("start bridge driver: %w", err)
+		}
+		defer driver.Stop()
+	}
+
 	router := s.newRouter(store, engine, httpMetrics, logger)
 
 	g, gCtx := errgroup.WithContext(ctx)
 	s.registerServers(g, gCtx, router, logger)
 	return g.Wait()
+}
+
+// buildBridgeRegistry constructs the TokenBridge adapter registry from the
+// per-token config. Each mechanism registers a case here as it lands
+// (xreserve: #357, wayfinder: #372).
+func buildBridgeRegistry(cfg *relayerpkg.Config) (*relayerpkg.Registry, error) {
+	registry := relayerpkg.NewRegistry()
+	for symbol, tc := range cfg.Tokens {
+		// No adapter mechanisms are implemented yet, so any configured token
+		// is rejected until its adapter lands and adds a dispatch case here.
+		return nil, fmt.Errorf("token %s: unknown bridge mechanism %q", symbol, tc.Mechanism)
+	}
+	return registry, nil
 }
 
 // registerServers adds the main HTTP server and, when monitoring is enabled,

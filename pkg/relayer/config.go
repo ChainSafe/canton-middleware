@@ -23,4 +23,19 @@ type Config struct {
 	EthStartBlock     uint64 `yaml:"eth_start_block" default:"0"`
 	EthLookbackBlocks int64  `yaml:"eth_lookback_blocks" default:"1000"`
 	EthTokenContract  string `yaml:"eth_token_contract" validate:"required"`
+
+	// Tokens maps token symbol to its bridged-token config. Tokens listed
+	// here are driven by TokenBridge adapters; the legacy single-token
+	// pipeline is configured by the Eth*/Canton* fields above.
+	Tokens map[string]TokenConfig `yaml:"tokens" validate:"omitempty,dive"`
+}
+
+// TokenConfig declares one bridged token and the mechanism that moves it.
+type TokenConfig struct {
+	// Mechanism selects the TokenBridge adapter (e.g. "xreserve").
+	Mechanism string `yaml:"mechanism" validate:"required"`
+	// EVMAddress is the token's ERC-20 contract address on the EVM chain.
+	EVMAddress string `yaml:"evm_address" validate:"required"`
+	// Decimals is the token's on-chain decimal precision.
+	Decimals int `yaml:"decimals" validate:"required,gt=0"`
 }
