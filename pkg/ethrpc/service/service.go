@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -220,7 +221,11 @@ func (s *ethService) checkWhitelist(ctx context.Context, from common.Address) er
 		return apperr.DependencyError(err, "whitelist check")
 	}
 	if !whitelisted {
-		return apperr.ForbiddenError(nil, fmt.Sprintf("sender not whitelisted: %s", addr))
+		// Pass the detail as the wrapped error too: ServiceError.Error() returns
+		// the wrapped err, so without this the log line shows only the generic
+		// "request forbidden" and drops which address was rejected.
+		msg := fmt.Sprintf("sender not whitelisted: %s", addr)
+		return apperr.ForbiddenError(errors.New(msg), msg)
 	}
 	return nil
 }
