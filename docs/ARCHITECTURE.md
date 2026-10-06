@@ -35,6 +35,16 @@ This document describes how MetaMask, the API Server, the Relayer, and the Canto
 │  │  registered users           │      │                         │           │
 │  └──────────────┬──────────────┘      └──────────────┬──────────┘           │
 │                 │                                    │                       │
+│  ┌──────────────┴──────────────┐                     │                       │
+│  │          Indexer            │                     │                       │
+│  │        (Port 8082)          │                     │                       │
+│  │                             │                     │                       │
+│  │  Streams the Ledger API     │                     │                       │
+│  │  Materialises balances and  │                     │                       │
+│  │  total supply               │                     │                       │
+│  │  Internal API, not public   │                     │                       │
+│  └──────────────┬──────────────┘                     │                       │
+│                 │                                    │                       │
 │                 └─────────────┬───────────────────────┘                      │
 │                               │                                              │
 │                    ┌──────────▼──────────┐                                   │
@@ -42,7 +52,7 @@ This document describes how MetaMask, the API Server, the Relayer, and the Canto
 │                    │     (Port 5432)     │                                   │
 │                    │                     │                                   │
 │                    │  • User registry    │                                   │
-│                    │  • Balance cache    │                                   │
+│                    │  • Indexed balances │                                   │
 │                    │  • Transfer state   │                                   │
 │                    │  • Chain offsets    │                                   │
 │                    └──────────┬──────────┘                                   │
@@ -235,7 +245,44 @@ User deposits PROMPT tokens from Ethereum to Canton.
      │                │                │               │               │
 ```
 
-### Flow 3: Balance Reconciliation (operator-run)
+### Flow 3: Ledger to Indexer to API
+
+How token state reaches a reader. This is the path behind every `balanceOf` and `totalSupply` answer.
+
+```
+┌────────┐        ┌─────────┐        ┌──────────┐        ┌───────────┐      ┌────────┐
+│ Canton │        │ Indexer │        │PostgreSQL│        │API Server │      │ Caller │
+└───┬────┘        └────┬────┘        └────┬─────┘        └─────┬─────┘      └───┬────┘
+    │  Ledger API      │                  │                    │                │
+    │  stream (gRPC)   │                  │                    │                │
+    │─────────────────>│                  │                    │                │
+    │  Holding created │                  │                    │                │
+    │  / archived      │                  │                    │                │
+    │                  │ apply delta,     │                    │                │
+    │                  │ advance offset   │                    │                │
+    │                  │ (one tx)         │                    │                │
+    │                  │─────────────────>│                    │                │
+    │                  │                  │                    │                │
+    │                  │                  │                    │   eth_call     │
+    │                  │                  │                    │<───────────────│
+    │                  │   GET balance    │                    │                │
+    │                  │<────────────────────────────────────  │                │
+    │                  │   balance        │                    │                │
+    │                  │────────────────────────────────────>  │                │
+    │                  │                  │                    │  ABI-encoded   │
+    │                  │                  │                    │───────────────>│
+```
+
+Notes:
+
+- The indexer is event-driven. Each holding creation or archival is applied as it arrives, and the event
+  insert, balance delta and offset advance commit in one transaction, so a crash resumes from the last
+  persisted offset without double-counting.
+- Scoping is enforced by the participant node. The indexer sees only contracts its parties are stakeholders
+  on, which is why each operator runs their own.
+- The caller's entry point is the API server's `/eth` facade. The indexer's own HTTP API is internal.
+
+### Flow 4: Balance Reconciliation (operator-run)
 
 An operator rebuilds the API server's database cache from the Canton ledger. This is a maintenance tool,
 not a background loop; see Reconciliation under Relayer Design Principles.
