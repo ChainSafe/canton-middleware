@@ -14,7 +14,7 @@ This document describes how the Canton Middleware implements [CIP-0086: ERC-20 M
 | **PROMPT Token** | ✅ Complete | Bridged ERC-20 from Ethereum |
 | **Relayer (Deposits)** | ✅ Complete | Ethereum → Canton minting |
 | **Relayer (Withdrawals)** | ✅ Complete | Canton → Ethereum releases |
-| **Balance Reconciliation** | ✅ Complete | Periodic sync from Canton |
+| **Balance Reconciliation** | ✅ Complete | Operator-run rebuild from Canton; relayer reconciles stuck transfers every 60s |
 | **External Party Model** | ✅ Complete | All users allocated as external parties via Interactive Submission API |
 | **Native User Support** | ✅ Complete | Canton external party registration with EVM keypair |
 | **Splice Registry API** | ✅ Complete | TransferFactory discovery for Canton Loop / external wallets |
@@ -118,7 +118,7 @@ A bi-directional relay between Ethereum and Canton for the PROMPT token.
 
 - PostgreSQL stores cached balances for fast queries
 - Real-time sync via relayer event processing
-- Periodic reconciliation ensures consistency with Canton ledger
+- Relayer reconciliation retries stuck transfers every 60 seconds; balance rebuild is an operator tool
 
 ### Cross-Chain Interoperability ✅
 
