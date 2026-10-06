@@ -127,13 +127,17 @@ contract state into PostgreSQL.
 
 - Streams Holding creations and archivals, TransferFactory choices and bridge events from the Ledger API
 - Aggregates UTXO-style holdings deterministically into per-party balances and per-token total supply
-- Serves balance, supply and event queries over HTTP to the API server and to external consumers
+- Serves balance, supply and event queries over an internal HTTP API consumed by the API server. These
+  routes are unauthenticated and intended for trusted callers on a restricted network only; a public,
+  JWT-protected read API is future work. The indexer is not exposed publicly
 - Deployed per node, scoped to the visibility of the participant it connects to, so each operator indexes
   only what their participant can see
 - Published as a multi-architecture image at `ghcr.io/chainsafe/canton-indexer`
 
-The API server can be configured to serve ERC-20 reads from the indexer rather than querying the ledger
-directly, via `token_provider.mode: indexer`.
+The public read surface is the API server's Ethereum JSON-RPC facade at `/eth`, not the indexer itself.
+When configured with `token_provider.mode: indexer`, the API server serves ERC-20 reads such as
+`balanceOf` and `totalSupply` from the indexer rather than querying the ledger directly, so external
+callers get indexer-backed answers through the standard `eth_call` surface.
 
 ### PostgreSQL Database
 
@@ -443,5 +447,5 @@ Native Canton tokens use synthetic addresses:
 | Canton HTTP | 5013 | HTTP |
 | PostgreSQL | 5432 | PostgreSQL |
 | Relayer Metrics | 9090 | HTTP |
-| Indexer | 8082 | HTTP (query API) |
+| Indexer | 8082 | HTTP (internal admin/query API, not public) |
 | Indexer Metrics | 9092 | HTTP |
