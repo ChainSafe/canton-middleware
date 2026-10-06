@@ -35,6 +35,16 @@ This document describes how MetaMask, the API Server, the Relayer, and the Canto
 │  │  registered users           │      │                         │           │
 │  └──────────────┬──────────────┘      └──────────────┬──────────┘           │
 │                 │                                    │                       │
+│  ┌──────────────┴──────────────┐                     │                       │
+│  │          Indexer            │                     │                       │
+│  │        (Port 8082)          │                     │                       │
+│  │                             │                     │                       │
+│  │  Streams the Ledger API     │                     │                       │
+│  │  Materialises balances and  │                     │                       │
+│  │  total supply               │                     │                       │
+│  │  Internal API, not public   │                     │                       │
+│  └──────────────┬──────────────┘                     │                       │
+│                 │                                    │                       │
 │                 └─────────────┬───────────────────────┘                      │
 │                               │                                              │
 │                    ┌──────────▼──────────┐                                   │
@@ -42,7 +52,7 @@ This document describes how MetaMask, the API Server, the Relayer, and the Canto
 │                    │     (Port 5432)     │                                   │
 │                    │                     │                                   │
 │                    │  • User registry    │                                   │
-│                    │  • Balance cache    │                                   │
+│                    │  • Indexed balances │                                   │
 │                    │  • Transfer state   │                                   │
 │                    │  • Chain offsets    │                                   │
 │                    └──────────┬──────────┘                                   │
@@ -105,7 +115,7 @@ The API Server provides an **Ethereum JSON-RPC compatible interface** that allow
 - Translate ERC-20 calls to CIP-56 DAML operations
 - Manage custodial Canton keys for all registered users
 - Cache balances in PostgreSQL for fast queries
-- Reconcile database cache with Canton ledger periodically
+- Expose an operator-run tool to reconcile the database cache against the Canton ledger
 
 ### Relayer
 
@@ -119,6 +129,25 @@ The Relayer bridges PROMPT tokens between Ethereum and Canton.
 - At-least-once delivery with idempotency
 - Crash recovery via persisted offsets
 - Database-backed deduplication
+
+### Indexer
+
+A standalone Go service (`cmd/indexer`) that subscribes to the Canton Ledger API and materialises CIP-56
+contract state into PostgreSQL.
+
+- Streams Holding creations and archivals, TransferFactory choices and bridge events from the Ledger API
+- Aggregates UTXO-style holdings deterministically into per-party balances and per-token total supply
+- Serves balance, supply and event queries over an internal HTTP API consumed by the API server. These
+  routes are unauthenticated and intended for trusted callers on a restricted network only; a public,
+  JWT-protected read API is future work. The indexer is not exposed publicly
+- Deployed per node, scoped to the visibility of the participant it connects to, so each operator indexes
+  only what their participant can see
+- Published as a multi-architecture image at `ghcr.io/chainsafe/canton-indexer`
+
+The public read surface is the API server's Ethereum JSON-RPC facade at `/eth`, not the indexer itself.
+When configured with `token_provider.mode: indexer`, the API server serves ERC-20 reads such as
+`balanceOf` and `totalSupply` from the indexer rather than querying the ledger directly, so external
+callers get indexer-backed answers through the standard `eth_call` surface.
 
 ### PostgreSQL Database
 
@@ -216,9 +245,47 @@ User deposits PROMPT tokens from Ethereum to Canton.
      │                │                │               │               │
 ```
 
-### Flow 3: Balance Reconciliation
+### Flow 3: Ledger to Indexer to API
 
-API Server syncs database cache with Canton ledger.
+How token state reaches a reader. This is the path behind every `balanceOf` and `totalSupply` answer.
+
+```
+┌────────┐        ┌─────────┐        ┌──────────┐        ┌───────────┐      ┌────────┐
+│ Canton │        │ Indexer │        │PostgreSQL│        │API Server │      │ Caller │
+└───┬────┘        └────┬────┘        └────┬─────┘        └─────┬─────┘      └───┬────┘
+    │  Ledger API      │                  │                    │                │
+    │  stream (gRPC)   │                  │                    │                │
+    │─────────────────>│                  │                    │                │
+    │  Holding created │                  │                    │                │
+    │  / archived      │                  │                    │                │
+    │                  │ apply delta,     │                    │                │
+    │                  │ advance offset   │                    │                │
+    │                  │ (one tx)         │                    │                │
+    │                  │─────────────────>│                    │                │
+    │                  │                  │                    │                │
+    │                  │                  │                    │   eth_call     │
+    │                  │                  │                    │<───────────────│
+    │                  │   GET balance    │                    │                │
+    │                  │<────────────────────────────────────  │                │
+    │                  │   balance        │                    │                │
+    │                  │────────────────────────────────────>  │                │
+    │                  │                  │                    │  ABI-encoded   │
+    │                  │                  │                    │───────────────>│
+```
+
+Notes:
+
+- The indexer is event-driven. Each holding creation or archival is applied as it arrives, and the event
+  insert, balance delta and offset advance commit in one transaction, so a crash resumes from the last
+  persisted offset without double-counting.
+- Scoping is enforced by the participant node. The indexer sees only contracts its parties are stakeholders
+  on, which is why each operator runs their own.
+- The caller's entry point is the API server's `/eth` facade. The indexer's own HTTP API is internal.
+
+### Flow 4: Balance Reconciliation (operator-run)
+
+An operator rebuilds the API server's database cache from the Canton ledger. This is a maintenance tool,
+not a background loop; see Reconciliation under Relayer Design Principles.
 
 ```
 ┌───────────┐     ┌──────────┐     ┌────────┐
@@ -368,11 +435,27 @@ The middleware authenticates via OAuth2 to obtain JWT tokens. User transfers are
 
 ### Reconciliation
 
-The API Server runs periodic reconciliation (every 5 minutes):
-1. Query all `CIP56Holding` contracts from Canton
-2. Group by party and token
-3. Update cached balances in PostgreSQL
-4. Log any stuck transfers for investigation
+Two distinct mechanisms share this name.
+
+**Relayer reconciliation (automatic, every 60 seconds).** The relayer engine runs a reconciliation loop
+(`pkg/relayer/engine/engine.go`) that updates chain head positions, queries pending transfers in both
+directions from the bridge store, and retries ones that have become stuck. Duration and per-run outcome are
+exported as Prometheus metrics (`reconciliation_duration_seconds`, `reconciliation_runs_total`).
+
+**Balance correctness is maintained by the indexer, not by reconciliation.** The indexer subscribes to the
+Canton Ledger API and watches holding creations and archivals as they happen, applying each to its
+materialised balances. There is no periodic balance reconciliation loop, and none is needed: the indexer
+is event-driven and Canton remains the source of truth for any read that matters.
+
+A one-off rebuild of cached balances from the ledger is available as an operator tool (`pkg/reconciler`,
+invoked by `scripts/utils/reconcile.go`), used for recovery rather than routine operation.
+
+**Reconciliation against full ledger state is only possible for tokens this deployment issues.** Under
+Canton's privacy model a participant sees only the contracts its parties are stakeholders on. For a token
+issued elsewhere, such as USDCx, the deployment can see the holdings its own users hold but has no view of
+the instrument's total issuance or of holders on other participants. Comparing indexed state against
+complete ledger state is therefore meaningful for tokens issued here, such as DEMO, and not available for
+externally issued instruments. This is a property of the privacy model, not a gap in the indexer.
 
 ---
 
@@ -391,7 +474,7 @@ This enables MetaMask users to interact without Canton tooling and removes the ~
 ### 2. PostgreSQL as Cache, Canton as Source of Truth
 
 - Fast balance queries from PostgreSQL
-- Periodic reconciliation ensures consistency
+- Relayer reconciliation retries stuck transfers every 60 seconds
 - Canton ledger is always authoritative
 
 ### 3. Fingerprint-Based Identity
@@ -419,3 +502,5 @@ Native Canton tokens use synthetic addresses:
 | Canton HTTP | 5013 | HTTP |
 | PostgreSQL | 5432 | PostgreSQL |
 | Relayer Metrics | 9090 | HTTP |
+| Indexer | 8082 | HTTP (internal admin/query API, not public) |
+| Indexer Metrics | 9092 | HTTP |
