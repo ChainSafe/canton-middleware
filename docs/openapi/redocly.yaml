@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # The localhost servers are the documented docker-compose defaults.
+  no-server-example.com: off
+  # Health, status and JSON-RPC endpoints have no 4xx responses (JSON-RPC errors use HTTP 200).
+  operation-4xx-response: off

@@ -1,5 +1,8 @@
 # Canton Bridge API Documentation
 
+Machine-readable OpenAPI 3.1 specifications for the API server, indexer and relayer are in
+[`docs/openapi/`](openapi/).
+
 ## API Endpoints
 
 | Endpoint | Local | Production |

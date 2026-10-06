@@ -330,6 +330,7 @@ Key Canton-specific fields (auto-detected by bootstrap):
 | [dApp & Snap Testing](docs/DAPP_SNAP_TESTING.md) | Testing with the Wayfinder dApp and MetaMask Snap |
 | [Local Interop Testing](docs/LOCAL_INTEROP_TESTING.md) | Full local bootstrap and 8-step interop test guide |
 | [API Documentation](docs/API_DOCUMENTATION.md) | Endpoint reference (JSON-RPC, Registration, Splice Registry) |
+| [OpenAPI Specifications](docs/openapi/) | OpenAPI 3.1 specs for the API server, indexer and relayer |
 | [Architecture](docs/ARCHITECTURE.md) | System design and data flows |
 | [DevNet Interop Testing](docs/DEVNET_INTEROP_TESTING.md) | DEMO token testing on ChainSafe DevNet |
 | [CIP-0086 Overview](docs/CIP-0086-OVERVIEW.md) | CIP-0086 compliance |
