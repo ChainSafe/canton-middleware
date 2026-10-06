@@ -395,12 +395,20 @@ Two distinct mechanisms share this name.
 directions from the bridge store, and retries ones that have become stuck. Duration and per-run outcome are
 exported as Prometheus metrics (`reconciliation_duration_seconds`, `reconciliation_runs_total`).
 
-**Balance reconciliation (operator-run).** Rebuilding the API server's cached balances from the Canton
-ledger is available as an operator tool (`pkg/reconciler`, invoked by `scripts/utils/reconcile.go`) rather
-than as a background loop. It queries all `CIP56Holding` contracts from Canton, groups them by party and
-token, and updates the cached balances in PostgreSQL. Routine balance correctness does not depend on it:
-the indexer maintains balances by streaming ledger events, and Canton remains the source of truth for any
-read that matters.
+**Balance correctness is maintained by the indexer, not by reconciliation.** The indexer subscribes to the
+Canton Ledger API and watches holding creations and archivals as they happen, applying each to its
+materialised balances. There is no periodic balance reconciliation loop, and none is needed: the indexer
+is event-driven and Canton remains the source of truth for any read that matters.
+
+A one-off rebuild of cached balances from the ledger is available as an operator tool (`pkg/reconciler`,
+invoked by `scripts/utils/reconcile.go`), used for recovery rather than routine operation.
+
+**Reconciliation against full ledger state is only possible for tokens this deployment issues.** Under
+Canton's privacy model a participant sees only the contracts its parties are stakeholders on. For a token
+issued elsewhere, such as USDCx, the deployment can see the holdings its own users hold but has no view of
+the instrument's total issuance or of holders on other participants. Comparing indexed state against
+complete ledger state is therefore meaningful for tokens issued here, such as DEMO, and not available for
+externally issued instruments. This is a property of the privacy model, not a gap in the indexer.
 
 ---
 
