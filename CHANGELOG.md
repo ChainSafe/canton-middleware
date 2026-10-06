@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0](https://github.com/ChainSafe/canton-middleware/compare/v0.8.0...v0.9.0) (2026-08-20)
+
+
+### Features
+
+* auth primitives - JWT/SIWE (pkg/auth/jwt) ([#352](https://github.com/ChainSafe/canton-middleware/issues/352)) ([9da74c3](https://github.com/ChainSafe/canton-middleware/commit/9da74c3180bc308dedb4d7338deee6b7048568ce))
+* auth SIWE login service + config ([#353](https://github.com/ChainSafe/canton-middleware/issues/353)) ([1aea1e5](https://github.com/ChainSafe/canton-middleware/commit/1aea1e5b1d6dfc9d46175c51f8cc89483181a5f4))
+* gate read endpoints + e2e ([#354](https://github.com/ChainSafe/canton-middleware/issues/354)) ([9fb5f48](https://github.com/ChainSafe/canton-middleware/commit/9fb5f48150ab27afd62c3f661618e344cba941da))
+* outbound transfer authorization ([#348](https://github.com/ChainSafe/canton-middleware/issues/348)) ([74037b9](https://github.com/ChainSafe/canton-middleware/commit/74037b97f51af988ab8302caa028cebb41306240))
+
+
+### Bug Fixes
+
+* **ci:** point the devnet deploy at the app-chart values files ([#378](https://github.com/ChainSafe/canton-middleware/issues/378)) ([4659d4b](https://github.com/ChainSafe/canton-middleware/commit/4659d4b1189b2498f021737eb122ab732054236c))
+
 ## [0.8.0](https://github.com/ChainSafe/canton-middleware/compare/v0.7.0...v0.8.0) (2026-07-15)
 
 
