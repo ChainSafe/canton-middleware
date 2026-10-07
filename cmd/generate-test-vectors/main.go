@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 
 	"github.com/chainsafe/canton-middleware/pkg/keys"
@@ -31,9 +32,22 @@ type keyVector struct {
 	Signatures       []signatureVector `json:"signatures"`
 }
 
+// entropyVector cross-validates the one derivation step that has no Go
+// counterpart in production: canton-snap turns MetaMask entropy into a
+// secp256k1 private key with sha256 plus rejection sampling. The middleware
+// never does this, so without these vectors that step is only ever checked by
+// the TypeScript implementation against itself.
+type entropyVector struct {
+	Entropy          string `json:"entropy"`
+	PrivateKey       string `json:"private_key"`
+	CompressedPubKey string `json:"compressed_public_key"`
+	Fingerprint      string `json:"fingerprint"`
+}
+
 type vectorFile struct {
-	Description string      `json:"description"`
-	Vectors     []keyVector `json:"vectors"`
+	Description    string          `json:"description"`
+	Vectors        []keyVector     `json:"vectors"`
+	EntropyVectors []entropyVector `json:"entropy_vectors"`
 }
 
 // Test private keys — small, deterministic, easy to reproduce.
@@ -43,6 +57,17 @@ var testPrivateKeys = []string{
 	"0000000000000000000000000000000000000000000000000000000000000002",
 	"0000000000000000000000000000000000000000000000000000000000000003",
 	"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+}
+
+// Entropy values fed through canton-snap's derivation. The first matches the
+// FIXED_ENTROPY constant in packages/snap/test/stubSnap.ts, so the golden
+// values in derivation.test.ts are cross-validated here rather than pinned
+// against the TypeScript implementation alone.
+var testEntropy = []string{
+	"1111111111111111111111111111111111111111111111111111111111111111",
+	"0000000000000000000000000000000000000000000000000000000000000000",
+	"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
 	"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 }
 
@@ -114,6 +139,8 @@ func main() {
 		output.Vectors = append(output.Vectors, kv)
 	}
 
+	output.EntropyVectors = buildEntropyVectors()
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(output); err != nil {
@@ -121,3 +148,90 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// buildEntropyVectors derives a key from each test entropy value and returns
+// the resulting vectors. Exits the process on any failure, like the rest of
+// this generator: a vector file that is wrong is worse than none.
+func buildEntropyVectors() []entropyVector {
+	var out []entropyVector
+
+	for _, entHex := range testEntropy {
+		entBytes, err := hex.DecodeString(entHex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid entropy hex %q: %v\n", entHex, err)
+			os.Exit(1)
+		}
+
+		privBytes, err := entropyToPrivateKey(entBytes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "entropy derivation failed for %q: %v\n", entHex, err)
+			os.Exit(1)
+		}
+
+		kp, err := keys.CantonKeyPairFromPrivateKey(privBytes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "derived key invalid for entropy %q: %v\n", entHex, err)
+			os.Exit(1)
+		}
+
+		fp, err := kp.Fingerprint()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Fingerprint failed for entropy %q: %v\n", entHex, err)
+			os.Exit(1)
+		}
+
+		out = append(out, entropyVector{
+			Entropy:          entHex,
+			PrivateKey:       hex.EncodeToString(privBytes),
+			CompressedPubKey: hex.EncodeToString(kp.PublicKey),
+			Fingerprint:      fp,
+		})
+	}
+
+	return out
+}
+
+// entropyToPrivateKey mirrors deriveCantonKey in
+// canton-snap/packages/snap/src/keyDerivation.ts: sha256 the entropy, and if
+// the result is not a valid secp256k1 scalar, re-hash with an appended counter
+// byte rather than reducing modulo the curve order, which would bias the key.
+//
+// The rejection branch has probability around 2^-128 and is not expected to be
+// taken for any real input. It is implemented because the TypeScript side
+// implements it, and a vector generator that silently diverged on the edge case
+// would be worse than none.
+func entropyToPrivateKey(entropy []byte) ([]byte, error) {
+	sum := sha256.Sum256(entropy)
+	candidate := sum[:]
+
+	for counter := 0; counter <= 32; {
+		if isValidSecp256k1Scalar(candidate) {
+			return candidate, nil
+		}
+		counter++
+		extended := make([]byte, 0, len(candidate)+1)
+		extended = append(extended, candidate...)
+		extended = append(extended, byte(counter))
+		next := sha256.Sum256(extended)
+		candidate = next[:]
+	}
+
+	return nil, fmt.Errorf("could not derive valid private key from entropy")
+}
+
+// isValidSecp256k1Scalar reports whether d is in [1, n-1].
+func isValidSecp256k1Scalar(d []byte) bool {
+	k := new(big.Int).SetBytes(d)
+	if k.Sign() == 0 {
+		return false
+	}
+	return k.Cmp(secp256k1Order) < 0
+}
+
+// secp256k1Order is the order n of the secp256k1 group.
+var secp256k1Order = new(big.Int).SetBytes([]byte{
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+	0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
+	0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
+})
