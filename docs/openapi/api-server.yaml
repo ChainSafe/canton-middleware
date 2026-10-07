@@ -1,0 +1,1676 @@
+openapi: 3.1.0
+info:
+  title: Canton Middleware API Server
+  version: 0.9.0
+  summary: Ethereum JSON-RPC facade and REST API for CIP-56 tokens on Canton.
+  description: |
+    The API server exposes Canton Network CIP-56 tokens to Ethereum tooling. It provides:
+
+    - an Ethereum JSON-RPC endpoint (`/eth`) for wallets, dApps and libraries;
+    - user registration, which allocates a Canton external party for an EVM address;
+    - a transfer API for custodial and non-custodial (external-key) users;
+    - SIWE login, which issues JWTs for the read endpoints;
+    - a Splice Registry endpoint and an admin whitelist API.
+
+    ## Authentication
+
+    | Class | Endpoints | Mechanism |
+    |---|---|---|
+    | Public | `/health`, `/tokens`, `/eth`, `/registry/...`, `/auth/nonce`, `/.well-known/jwks.json` | None |
+    | Self-authenticating | `/register`, `/register/prepare-topology` | EIP-191 signature in the body (or the `X-Signature` / `X-Message` headers) |
+    | Signed request | Transfer writes under `/api/v2/transfer` | `X-Signature` and `X-Message` headers. The message must end with `:<unix-seconds>` and is accepted for 5 minutes |
+    | Bearer JWT | `/profile`, `/api/v2/transfer/{incoming,outgoing,completed}` | RS256 token from `/auth/login` |
+    | Admin token | `/admin/whitelist` | Static bearer token from configuration |
+
+    Some routes are mounted only when configured: `/auth/*` and the JWKS endpoint require the `auth`
+    block, `/admin/*` requires `admin.enabled`, and `/eth` requires `eth_rpc.enabled`. Without the `auth`
+    block the read endpoints are not access-controlled and identify the caller from the `address` query
+    parameter. See `docs/SECURITY_AND_PRIVACY_MODEL.md`.
+
+    ## Errors
+
+    REST endpoints return errors as `{"error": "<message>", "code": <http status>}`. The registry
+    endpoint returns `{"error": "<message>"}`. JSON-RPC errors are JSON-RPC 2.0 error objects returned
+    with HTTP 200.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8081
+    description: Local devstack (docker-compose default)
+  - url: '{baseUrl}'
+    description: Any deployment
+    variables:
+      baseUrl:
+        default: https://middleware.example.com
+tags:
+  - name: Health
+    description: Liveness.
+  - name: Tokens
+    description: Supported token metadata.
+  - name: Authentication
+    description: SIWE (EIP-4361) login and JWT key discovery.
+  - name: Registration
+    description: User registration and profile.
+  - name: Transfers
+    description: Custodial and non-custodial (external-key) token transfers, offers and history.
+  - name: Registry
+    description: Splice Registry transfer-factory discovery for Canton wallets.
+  - name: Admin
+    description: Registration whitelist management.
+  - name: JSON-RPC
+    description: Ethereum JSON-RPC facade.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      description: >-
+        Returns `OK` while the server is running. The path is configurable
+        (`monitoring.health_check_url`, default `/health`).
+      security: []
+      responses:
+        '200':
+          description: Server is running.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: OK
+  /tokens:
+    get:
+      tags: [Tokens]
+      operationId: listTokens
+      summary: List supported tokens
+      description: >-
+        Returns the ERC-20 view of every token the server is configured to support, sorted by
+        address, with cursor pagination.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CursorLimit'
+      responses:
+        '200':
+          description: A page of supported tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokensPage'
+              example:
+                items:
+                  - address: '0xDE30000000000000000000000000000000000001'
+                    name: Demo Token
+                    symbol: DEMO
+                    decimals: 18
+                  - address: '0xc1A0000000000000000000000000000000000001'
+                    name: USD Coin
+                    symbol: USDCx
+                    decimals: 6
+                has_more: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/nonce:
+    get:
+      tags: [Authentication]
+      operationId: getLoginNonce
+      summary: Issue a SIWE login nonce
+      description: >-
+        Issues a single-use nonce for the given address, to be embedded in a SIWE (EIP-4361)
+        message. Repeated requests for the same address return the same nonce while it is live; its lifetime
+        is `auth.nonce_ttl`. Mounted only when the `auth` block is configured.
+      security: []
+      parameters:
+        - name: address
+          in: query
+          required: true
+          description: EVM address that will sign the SIWE message.
+          schema:
+            $ref: '#/components/schemas/EvmAddress'
+      responses:
+        '200':
+          description: Nonce issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NonceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Exchange a signed SIWE message for a JWT
+      description: |
+        Verifies a SIWE (EIP-4361) message and its EIP-191 signature and returns an RS256 JWT for the read
+        endpoints. The message must:
+
+        - use the configured domain, URI and chain ID (`auth.domain`, `auth.uri`, `auth.chain_id`);
+        - carry a live nonce from `/auth/nonce`, which is consumed on use;
+        - be signed by a registered address.
+
+        The token's `sub` claim is the caller's Canton party ID; it also carries `evm_address` and
+        `canton_party_id`. Mounted only when the `auth` block is configured.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /.well-known/jwks.json:
+    get:
+      tags: [Authentication]
+      operationId: getJwks
+      summary: JWT signing keys
+      description: >-
+        Public keys for verifying tokens issued by `/auth/login`. Mounted only when the `auth` block
+        is configured.
+      security: []
+      responses:
+        '200':
+          description: JSON Web Key Set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+  /register:
+    post:
+      tags: [Registration]
+      operationId: register
+      summary: Register a user
+      description: |
+        Registers an EVM address and allocates a Canton external party for it. Three modes are supported:
+
+        - **Custodial (web3):** `signature` and `message` (EIP-191). The server generates and stores the
+          Canton key, encrypted at rest.
+        - **External (non-custodial):** step 2 of the two-step flow, after `/register/prepare-topology`. The
+          request adds `key_mode: external`, `canton_public_key`, `registration_token` and
+          `topology_signature`; the server never sees the private key.
+        - **Canton native:** `canton_party_id`, `canton_signature` and `message`, for an existing Canton
+          party (for example a Loop wallet).
+
+        For the web3 modes, `signature` and `message` may be sent in the `X-Signature` and `X-Message`
+        headers instead of the body. The address must be on the registration whitelist.
+      security:
+        - {}
+        - EIP191Signature: []
+          EIP191Message: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              custodial:
+                summary: Custodial (web3) registration
+                value:
+                  signature: '0xa1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d41b'
+                  message: Register for Canton EVM Middleware
+              external:
+                summary: External-key registration, step 2
+                value:
+                  signature: '0xa1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d41b'
+                  message: Register for Canton EVM Middleware
+                  key_mode: external
+                  canton_public_key: '024f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a4f3c2b1a'
+                  registration_token: 6b1f0c1e-3c0a-4d0e-9f0a-2d6f3c9b8e7a
+                  topology_signature: '30450221008a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a8a02203b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b'
+      responses:
+        '200':
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /register/prepare-topology:
+    post:
+      tags: [Registration]
+      operationId: prepareTopology
+      summary: Prepare external-party registration (step 1)
+      description: >-
+        Generates the Canton external-party topology for the supplied public key. Sign
+        `topology_hash` with the corresponding private key and submit it to `/register` with
+        `key_mode: external` and the returned `registration_token`. Requires an EIP-191 signature from a
+        whitelisted address.
+      security:
+        - {}
+        - EIP191Signature: []
+          EIP191Message: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrepareTopologyRequest'
+      responses:
+        '200':
+          description: Topology prepared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareTopologyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /profile:
+    get:
+      tags: [Registration]
+      operationId: getProfile
+      summary: Get the caller's profile
+      description: >-
+        With read authentication enabled, the caller is the token's identity, and an `address`
+        that does not match it is rejected with 403. With authentication disabled, `address` is required.
+      security:
+        - SiweJwt: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CallerAddress'
+      responses:
+        '200':
+          description: The caller's registration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v2/transfer/prepare:
+    post:
+      tags: [Transfers]
+      operationId: prepareTransfer
+      summary: Prepare a non-custodial transfer
+      description: |
+        Builds a transfer for an external-key user and returns the prepared transaction hash to sign. The
+        recipient is either a registered user's EVM address (`to`) or any Canton party (`to_party_id`); set
+        exactly one. Tokens that settle through offers create an offer valid for `validity_seconds`.
+
+        Sign `transaction_hash` with the user's registered key: ECDSA secp256k1 over SHA-256 of the hash
+        bytes, DER-encoded and hex-encoded. Then call `/api/v2/transfer/execute` before `expires_at`.
+        Custodial users receive 400.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrepareTransferRequest'
+            example:
+              to: '0x2222222222222222222222222222222222222222'
+              amount: '10.5'
+              token: DEMO
+              validity_seconds: 3600
+      responses:
+        '200':
+          description: Transfer prepared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/execute:
+    post:
+      tags: [Transfers]
+      operationId: executeTransfer
+      summary: Execute a prepared transfer
+      description: >-
+        Submits a prepared transfer with the client's signature. `signed_by` must be the
+        fingerprint of the key registered for the caller.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Transfer completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+              example:
+                status: completed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/custodial:
+    post:
+      tags: [Transfers]
+      operationId: sendCustodialTransfer
+      summary: Send a custodial transfer to a Canton party
+      description: >-
+        Single-call transfer for custodial users to any Canton party. The server signs with the
+        user's custodial key. External-key users receive 400.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustodialTransferRequest'
+      responses:
+        '200':
+          description: Transfer submitted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+              example:
+                status: submitted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/incoming:
+    get:
+      tags: [Transfers]
+      operationId: listIncomingTransfers
+      summary: List pending incoming offers
+      description: Offers sent to the caller that are waiting for acceptance.
+      security:
+        - SiweJwt: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CallerAddress'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: A page of incoming offers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncomingTransfersList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/outgoing:
+    get:
+      tags: [Transfers]
+      operationId: listOutgoingTransfers
+      summary: List outgoing offers
+      description: Offers the caller sent, optionally filtered by status.
+      security:
+        - SiweJwt: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CallerAddress'
+        - name: status
+          in: query
+          required: false
+          description: Status filter. `accepted` is an alias for `completed`.
+          schema:
+            type: string
+            enum: [all, pending, expired, completed, accepted, canceled, rejected]
+            default: all
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: A page of outgoing offers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutgoingTransfersList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/completed:
+    get:
+      tags: [Transfers]
+      operationId: listCompletedTransfers
+      summary: List completed transfers
+      description: The caller's settled transfers across all tokens, both direct and offer-based.
+      security:
+        - SiweJwt: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/CallerAddress'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: A page of completed transfers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletedTransfersList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/incoming/{contractID}/prepare:
+    post:
+      tags: [Transfers]
+      operationId: prepareAcceptOffer
+      summary: Prepare accepting an incoming offer
+      description: >-
+        For external-key receivers. Returns the hash to sign; complete with
+        `/api/v2/transfer/incoming/{contractID}/execute`. Custodial receivers' offers are accepted
+        automatically.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      parameters:
+        - $ref: '#/components/parameters/ContractID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrepareAcceptRequest'
+      responses:
+        '200':
+          description: Accept prepared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/incoming/{contractID}/execute:
+    post:
+      tags: [Transfers]
+      operationId: executeAcceptOffer
+      summary: Execute accepting an incoming offer
+      description: Submits a prepared accept. The prepared transaction is identified by `transfer_id`.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      parameters:
+        - $ref: '#/components/parameters/ContractID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Offer accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/outgoing/{contractID}/withdraw/prepare:
+    post:
+      tags: [Transfers]
+      operationId: prepareWithdrawOffer
+      summary: Prepare claiming back an outgoing offer
+      description: >-
+        For external-key senders. Reclaims a pending or expired offer the caller sent. Returns the
+        hash to sign; complete with `/api/v2/transfer/outgoing/{contractID}/withdraw/execute`.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      parameters:
+        - $ref: '#/components/parameters/ContractID'
+      responses:
+        '200':
+          description: Withdraw prepared.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrepareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/outgoing/{contractID}/withdraw/execute:
+    post:
+      tags: [Transfers]
+      operationId: executeWithdrawOffer
+      summary: Execute claiming back an outgoing offer
+      description: Submits a prepared withdraw. The prepared transaction is identified by `transfer_id`.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      parameters:
+        - $ref: '#/components/parameters/ContractID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Offer claimed back.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /api/v2/transfer/outgoing/{contractID}/withdraw/custodial:
+    post:
+      tags: [Transfers]
+      operationId: withdrawOfferCustodial
+      summary: Claim back an outgoing offer (custodial)
+      description: >-
+        Single-call claim-back of a pending or expired offer for custodial senders, signed by the
+        server.
+      security:
+        - EIP191Signature: []
+          EIP191Message: []
+      parameters:
+        - $ref: '#/components/parameters/ContractID'
+      responses:
+        '200':
+          description: Claim-back submitted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+              example:
+                status: submitted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+  /registry/transfer-instruction/v1/transfer-factory:
+    post:
+      tags: [Registry]
+      operationId: getTransferFactory
+      summary: Discover the active TransferFactory
+      description: >-
+        Returns the active CIP-56 `TransferFactory` contract and its created-event blob for
+        explicit disclosure. The request body is ignored. The response uses a middleware-specific shape
+        rather than the Splice `TransferFactoryWithChoiceContext` schema. Methods other than POST return 405.
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Active TransferFactory.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferFactoryResponse'
+        '404':
+          description: No active TransferFactory contract.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryError'
+        '405':
+          description: Method not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryError'
+        '500':
+          description: Lookup failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryError'
+  /admin/whitelist:
+    post:
+      tags: [Admin]
+      operationId: addWhitelistEntry
+      summary: Whitelist an address
+      description: >-
+        Adds an address to the registration whitelist, or updates its note. Idempotent. Mounted
+        only when `admin.enabled` is set.
+      security:
+        - AdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WhitelistAddRequest'
+      responses:
+        '200':
+          description: Address whitelisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example:
+                status: whitelisted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    get:
+      tags: [Admin]
+      operationId: listWhitelist
+      summary: List whitelisted addresses
+      security:
+        - AdminToken: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CursorLimit'
+      responses:
+        '200':
+          description: A page of whitelist entries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WhitelistPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/whitelist/{address}:
+    delete:
+      tags: [Admin]
+      operationId: removeWhitelistEntry
+      summary: Remove a whitelisted address
+      security:
+        - AdminToken: []
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/EvmAddress'
+      responses:
+        '200':
+          description: Address removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example:
+                status: removed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /eth:
+    post:
+      tags: [JSON-RPC]
+      operationId: ethJsonRpc
+      summary: Ethereum JSON-RPC
+      description: |
+        Ethereum JSON-RPC 2.0, single or batch, served by go-ethereum's RPC server. Responses are always HTTP
+        200; failures are JSON-RPC error objects. Mounted only when `eth_rpc.enabled` is set.
+
+        | Method | Params | Result |
+        |---|---|---|
+        | `eth_chainId` | none | Chain ID |
+        | `eth_blockNumber` | none | Latest facade block number |
+        | `eth_gasPrice` | none | `0x0` |
+        | `eth_maxPriorityFeePerGas` | none | Priority fee |
+        | `eth_estimateGas` | call object, block (optional) | Gas estimate |
+        | `eth_getBalance` | address, block | Native balance, which is zero; token balances use `eth_call` |
+        | `eth_getTransactionCount` | address, block | Next nonce for the address |
+        | `eth_getCode` | address, block | Non-empty code for supported token addresses, otherwise `0x` |
+        | `eth_syncing` | none | `false` |
+        | `eth_call` | call object, block | ERC-20 read result |
+        | `eth_sendRawTransaction` | signed transaction | Transaction hash |
+        | `eth_getTransactionReceipt` | transaction hash | Receipt or `null` |
+        | `eth_getTransactionByHash` | transaction hash | Transaction or `null` |
+        | `eth_getLogs` | filter | Logs |
+        | `eth_getBlockByNumber` | block, full transactions | Block |
+        | `eth_getBlockByHash` | block hash, full transactions | Block |
+        | `net_version` | none | Chain ID as a decimal string |
+        | `net_listening` | none | `true` |
+        | `net_peerCount` | none | `0x0` |
+        | `web3_clientVersion` | none | `canton-middleware/1.0.0` |
+        | `web3_sha3` | data | Keccak-256 of the data |
+        | `rpc_modules` | none | Enabled modules |
+
+        **ERC-20 reads (`eth_call`).** Supported on configured token addresses:
+
+        - `balanceOf(address)` (`0x70a08231`)
+        - `totalSupply()` (`0x18160ddd`)
+        - `decimals()` (`0x313ce567`)
+        - `symbol()` (`0x95d89b41`)
+        - `name()` (`0x06fdde03`)
+        - `allowance(address,address)` (`0xdd62ed3e`), which always returns zero
+
+        Other selectors return an error, and unknown token addresses return `-32602`. Balances and supply are
+        read from the indexer or the ledger, depending on `token_provider.mode`.
+
+        **Transfers (`eth_sendRawTransaction`).** The facade accepts only `transfer(address,uint256)`
+        (`0xa9059cbb`) to a configured token address, signed by a whitelisted, registered sender; the sender
+        is recovered from the signature.
+
+        - The call returns the hash immediately and the transfer executes on Canton asynchronously.
+        - Poll `eth_getTransactionReceipt` for the result.
+        - A failed transfer is mined with status `0x0`, and its receipt carries `revertReason`.
+        - `approve` and `transferFrom` are not supported.
+
+        **Block selectors.** They accept `latest`, `earliest`, `pending`, a hex number or a block hash,
+        except in `eth_getLogs`.
+
+        **Known limitations.**
+
+        - `eth_getLogs` needs hex `fromBlock` and `toBlock` (no tags), a single `address`, and exact-match
+          topics.
+        - Blocks returned by `eth_getBlockBy*` are synthetic: they have empty transaction lists, zero roots and
+          derived timestamps.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/JsonRpcRequest'
+                - type: array
+                  minItems: 1
+                  items:
+                    $ref: '#/components/schemas/JsonRpcRequest'
+            examples:
+              chainId:
+                summary: eth_chainId
+                value:
+                  jsonrpc: '2.0'
+                  id: 1
+                  method: eth_chainId
+                  params: []
+              balanceOf:
+                summary: ERC-20 balanceOf through eth_call
+                value:
+                  jsonrpc: '2.0'
+                  id: 2
+                  method: eth_call
+                  params:
+                    - to: '0xDE30000000000000000000000000000000000001'
+                      data: '0x70a082310000000000000000000000001111111111111111111111111111111111111111'
+                    - latest
+              sendRawTransaction:
+                summary: ERC-20 transfer
+                value:
+                  jsonrpc: '2.0'
+                  id: 3
+                  method: eth_sendRawTransaction
+                  params:
+                    - 0x02f8b0...
+              getLogs:
+                summary: Transfer logs for a token
+                value:
+                  jsonrpc: '2.0'
+                  id: 4
+                  method: eth_getLogs
+                  params:
+                    - fromBlock: '0x0'
+                      toBlock: '0x20'
+                      address: '0xc1A0000000000000000000000000000000000001'
+      responses:
+        '200':
+          description: JSON-RPC response (or array of responses for a batch).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/JsonRpcResponse'
+                  - type: array
+                    items:
+                      $ref: '#/components/schemas/JsonRpcResponse'
+              examples:
+                chainId:
+                  summary: eth_chainId result
+                  value:
+                    jsonrpc: '2.0'
+                    id: 1
+                    result: '0x7a69'
+                unsupportedToken:
+                  summary: Unknown token address
+                  value:
+                    jsonrpc: '2.0'
+                    id: 2
+                    error:
+                      code: -32602
+                      message: 'token not supported: 0x9000000000000000000000000000000000000001'
+    options:
+      tags: [JSON-RPC]
+      operationId: ethJsonRpcPreflight
+      summary: CORS preflight
+      security: []
+      responses:
+        '200':
+          description: Preflight accepted.
+components:
+  securitySchemes:
+    EIP191Signature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: >-
+        Hex EIP-191 (`personal_sign`) signature of the `X-Message` value. Always paired with
+        `X-Message`.
+    EIP191Message:
+      type: apiKey
+      in: header
+      name: X-Message
+      description: >-
+        The signed message. For transfer endpoints it must end with `:<unix-seconds>` (for example
+        `transfer:1760000000`) and is accepted for 5 minutes. The signer's recovered address identifies the
+        caller.
+    SiweJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 token from `/auth/login`, verifiable with `/.well-known/jwks.json`.
+    AdminToken:
+      type: http
+      scheme: bearer
+      description: Static admin token configured as `admin.api_key`.
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from the previous page's `next_cursor`.
+      schema:
+        type: string
+    CursorLimit:
+      name: limit
+      in: query
+      required: false
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Page number, starting at 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      description: Page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    CallerAddress:
+      name: address
+      in: query
+      required: false
+      description: >-
+        Caller's EVM address. Required when read authentication is disabled. When it is enabled the
+        caller comes from the token, and a non-matching value returns 403.
+      schema:
+        $ref: '#/components/schemas/EvmAddress'
+    ContractID:
+      name: contractID
+      in: path
+      required: true
+      description: Contract ID of the transfer offer.
+      schema:
+        type: string
+        minLength: 1
+  responses:
+    BadRequest:
+      description: The request is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: 'invalid amount: must be a positive decimal number'
+            code: 400
+    Unauthorized:
+      description: Authentication is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: signature and message required
+            code: 401
+    Forbidden:
+      description: The caller is not allowed to perform this action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: address query parameter does not match the authenticated identity
+            code: 403
+    NotFound:
+      description: The resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: user not found
+            code: 404
+    Conflict:
+      description: The resource already exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: user already registered
+            code: 409
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Unexpected Service Error
+            code: 500
+    BadGateway:
+      description: A dependency (Canton ledger, indexer or database) failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: ledger temporarily unavailable, try again later
+            code: 502
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Human-readable message.
+        code:
+          type: integer
+          description: HTTP status code.
+    RegistryError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    EvmAddress:
+      type: string
+      pattern: '^0x[0-9a-fA-F]{40}$'
+      examples: ['0x1111111111111111111111111111111111111111']
+    PartyId:
+      type: string
+      description: Canton party ID, `<hint>::<namespace fingerprint>`.
+      pattern: '^.+::1220[0-9a-f]{64}$'
+      examples: ['alice::1220aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']
+    TruncatedPartyId:
+      type: string
+      maxLength: 17
+      description: >-
+        A Canton party ID shortened to its first and last eight characters around an
+        ellipsis (`…`); IDs of 17 characters or fewer are returned unchanged. The value
+        is lossy: it identifies a party for display only and cannot be used as a
+        transfer recipient or anywhere else a `PartyId` is expected.
+      examples: ['alice::1…aaaaaaaa']
+    Fingerprint:
+      type: string
+      description: Canton key fingerprint (multihash, hex).
+      pattern: '^1220[0-9a-f]{64}$'
+    DecimalAmount:
+      type: string
+      description: Non-negative decimal amount as a string.
+      pattern: '^[0-9]+(\.[0-9]+)?$'
+      examples: ['10.5']
+    HexString:
+      type: string
+      pattern: '^(0x)?[0-9a-fA-F]+$'
+    TokenItem:
+      type: object
+      required: [address, name, symbol, decimals]
+      properties:
+        address:
+          $ref: '#/components/schemas/EvmAddress'
+        name:
+          type: string
+        symbol:
+          type: string
+        decimals:
+          type: integer
+    TokensPage:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenItem'
+        next_cursor:
+          type: string
+          description: Cursor for the next page; absent on the last page.
+        has_more:
+          type: boolean
+    NonceResponse:
+      type: object
+      required: [nonce]
+      properties:
+        nonce:
+          type: string
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [message, signature]
+      properties:
+        message:
+          type: string
+          description: Full SIWE (EIP-4361) message text.
+        signature:
+          $ref: '#/components/schemas/HexString'
+    LoginResponse:
+      type: object
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: RS256 JWT. Claims include `sub` (Canton party ID), `evm_address` and `canton_party_id`.
+        expires_at:
+          type: integer
+          format: int64
+          description: Expiry, in Unix seconds.
+    Jwk:
+      type: object
+      required: [kid, kty, alg, use, n, e]
+      properties:
+        kid:
+          type: string
+        kty:
+          type: string
+          const: RSA
+        alg:
+          type: string
+          const: RS256
+        use:
+          type: string
+          const: sig
+        n:
+          type: string
+          description: Modulus, base64url.
+        e:
+          type: string
+          description: Exponent, base64url.
+    Jwks:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/Jwk'
+    CustodialRegistration:
+      type: object
+      title: Custodial (web3)
+      required: [signature, message]
+      properties:
+        canton_party_id: false
+        key_mode:
+          type: string
+          enum: [custodial]
+          description: Optional; omit or set to `custodial`.
+        signature:
+          $ref: '#/components/schemas/HexString'
+        message:
+          type: string
+          description: Message signed with EIP-191.
+    ExternalRegistration:
+      type: object
+      title: External key (step 2)
+      required: [signature, message, key_mode, canton_public_key, registration_token, topology_signature]
+      properties:
+        signature:
+          $ref: '#/components/schemas/HexString'
+        message:
+          type: string
+        key_mode:
+          type: string
+          const: external
+        canton_public_key:
+          type: string
+          description: Hex compressed secp256k1 public key, the same one sent to `/register/prepare-topology`.
+        registration_token:
+          type: string
+          description: Token from `/register/prepare-topology`.
+        topology_signature:
+          type: string
+          description: Hex DER signature of `topology_hash` by the external key.
+    CantonNativeRegistration:
+      type: object
+      title: Canton native
+      required: [canton_party_id, canton_signature, message]
+      properties:
+        key_mode: false
+        canton_party_id:
+          $ref: '#/components/schemas/PartyId'
+        canton_signature:
+          type: string
+          description: Signature of `message` by the Canton party's key.
+        message:
+          type: string
+        canton_private_key:
+          type: string
+          description: >-
+            Optional hex 32-byte Canton signing key. When provided, the server stores it (encrypted)
+            so it can sign on the user's behalf, for example for `/eth` transfers.
+    RegisterRequest:
+      oneOf:
+        - $ref: '#/components/schemas/CustodialRegistration'
+        - $ref: '#/components/schemas/ExternalRegistration'
+        - $ref: '#/components/schemas/CantonNativeRegistration'
+    RegisterResponse:
+      type: object
+      required: [party, fingerprint]
+      properties:
+        party:
+          $ref: '#/components/schemas/PartyId'
+        fingerprint:
+          type: string
+          description: Keccak-256 of the EVM address bytes, 0x-prefixed.
+        mapping_cid:
+          type: string
+          description: Contract ID of the fingerprint mapping.
+        evm_address:
+          $ref: '#/components/schemas/EvmAddress'
+        private_key:
+          type: string
+          description: Returned to Canton native users only, for importing into MetaMask.
+        key_mode:
+          type: string
+          enum: [custodial, external]
+    PrepareTopologyRequest:
+      type: object
+      required: [canton_public_key]
+      properties:
+        signature:
+          $ref: '#/components/schemas/HexString'
+        message:
+          type: string
+        canton_public_key:
+          type: string
+          description: Hex compressed secp256k1 public key of the user's external key.
+    PrepareTopologyResponse:
+      type: object
+      required: [topology_hash, public_key_fingerprint, registration_token]
+      properties:
+        topology_hash:
+          type: string
+          description: Hex hash to sign with the external key.
+        public_key_fingerprint:
+          $ref: '#/components/schemas/Fingerprint'
+        registration_token:
+          type: string
+    Profile:
+      type: object
+      required: [evm_address, canton_party, fingerprint, mapping_cid, key_mode]
+      properties:
+        evm_address:
+          $ref: '#/components/schemas/EvmAddress'
+        canton_party:
+          $ref: '#/components/schemas/PartyId'
+        fingerprint:
+          type: string
+          description: Keccak-256 of the EVM address bytes, 0x-prefixed.
+        mapping_cid:
+          type: string
+        key_mode:
+          type: string
+          enum: [custodial, external]
+    PrepareTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [amount, token, validity_seconds]
+      oneOf:
+        - required: [to]
+        - required: [to_party_id]
+      properties:
+        to:
+          $ref: '#/components/schemas/EvmAddress'
+        to_party_id:
+          $ref: '#/components/schemas/PartyId'
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+        token:
+          type: string
+          description: Token symbol, for example `DEMO` or `USDCx`.
+        validity_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Offer validity window, in seconds.
+    CustodialTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [to_party_id, amount, token, validity_seconds]
+      properties:
+        to_party_id:
+          $ref: '#/components/schemas/PartyId'
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+        token:
+          type: string
+        validity_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+    PrepareResponse:
+      type: object
+      required: [transfer_id, transaction_hash, party_id, expires_at]
+      properties:
+        transfer_id:
+          type: string
+          description: Identifier to pass to the matching execute call.
+        transaction_hash:
+          type: string
+          description: Hex prepared-transaction hash to sign.
+        party_id:
+          $ref: '#/components/schemas/PartyId'
+        expires_at:
+          type: string
+          format: date-time
+          description: Deadline for executing the prepared transaction.
+    ExecuteRequest:
+      type: object
+      additionalProperties: false
+      required: [transfer_id, signature, signed_by]
+      properties:
+        transfer_id:
+          type: string
+        signature:
+          type: string
+          description: Hex DER ECDSA secp256k1 signature over SHA-256 of the `transaction_hash` bytes.
+        signed_by:
+          $ref: '#/components/schemas/Fingerprint'
+    ExecuteResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [completed, submitted]
+          description: '`completed` for executed prepared transactions; `submitted` for server-signed custodial
+            calls.'
+    PrepareAcceptRequest:
+      type: object
+      additionalProperties: false
+      required: [instrument_admin]
+      properties:
+        instrument_admin:
+          $ref: '#/components/schemas/PartyId'
+    TokenMetadataFields:
+      type: object
+      description: Token metadata, present when the instrument is a configured token.
+      properties:
+        symbol:
+          type: string
+        decimals:
+          type: integer
+        name:
+          type: string
+        contract_address:
+          $ref: '#/components/schemas/EvmAddress'
+    IncomingTransfer:
+      allOf:
+        - type: object
+          required: [contract_id, sender_party_id, receiver_party_id, amount, instrument_admin, instrument_id]
+          properties:
+            contract_id:
+              type: string
+            sender_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            receiver_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            amount:
+              $ref: '#/components/schemas/DecimalAmount'
+            instrument_admin:
+              $ref: '#/components/schemas/PartyId'
+            instrument_id:
+              type: string
+        - $ref: '#/components/schemas/TokenMetadataFields'
+    OutgoingTransfer:
+      allOf:
+        - type: object
+          required: [contract_id, sender_party_id, receiver_party_id, amount, instrument_admin, instrument_id,
+            status, created_at]
+          properties:
+            contract_id:
+              type: string
+            sender_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            receiver_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            amount:
+              $ref: '#/components/schemas/DecimalAmount'
+            instrument_admin:
+              $ref: '#/components/schemas/PartyId'
+            instrument_id:
+              type: string
+            status:
+              type: string
+              enum: [pending, expired, completed, canceled, rejected]
+            created_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+              description: Absent when the offer never expires.
+        - $ref: '#/components/schemas/TokenMetadataFields'
+    CompletedTransfer:
+      allOf:
+        - type: object
+          required: [contract_id, kind, status, from_party_id, to_party_id, amount, instrument_admin,
+            instrument_id, timestamp]
+          properties:
+            contract_id:
+              type: string
+            kind:
+              type: string
+              enum: [direct, offer]
+            status:
+              type: string
+              const: completed
+            from_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            to_party_id:
+              $ref: '#/components/schemas/TruncatedPartyId'
+            amount:
+              $ref: '#/components/schemas/DecimalAmount'
+            instrument_admin:
+              $ref: '#/components/schemas/PartyId'
+            instrument_id:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            tx_id:
+              type: string
+              description: Ledger update ID.
+        - $ref: '#/components/schemas/TokenMetadataFields'
+    PageEnvelope:
+      type: object
+      required: [total, page, limit, has_more]
+      properties:
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+    IncomingTransfersList:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/IncomingTransfer'
+    OutgoingTransfersList:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/OutgoingTransfer'
+    CompletedTransfersList:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompletedTransfer'
+    TemplateIdentifier:
+      type: object
+      required: [package_id, module_name, entity_name]
+      properties:
+        package_id:
+          type: string
+        module_name:
+          type: string
+        entity_name:
+          type: string
+    TransferFactoryResponse:
+      type: object
+      required: [contract_id, created_event_blob, template_id]
+      properties:
+        contract_id:
+          type: string
+        created_event_blob:
+          type: string
+          contentEncoding: base64
+          description: Created-event blob for explicit disclosure, base64.
+        template_id:
+          $ref: '#/components/schemas/TemplateIdentifier'
+    WhitelistAddRequest:
+      type: object
+      required: [evm_address]
+      properties:
+        evm_address:
+          $ref: '#/components/schemas/EvmAddress'
+        note:
+          type: string
+    WhitelistEntry:
+      type: object
+      required: [evm_address, created_at]
+      properties:
+        evm_address:
+          $ref: '#/components/schemas/EvmAddress'
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    WhitelistPage:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WhitelistEntry'
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+    StatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+    JsonRpcRequest:
+      type: object
+      required: [jsonrpc, method]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          type: [string, integer, 'null']
+        method:
+          type: string
+          enum: [eth_chainId, eth_blockNumber, eth_gasPrice, eth_maxPriorityFeePerGas, eth_estimateGas,
+            eth_getBalance, eth_getTransactionCount, eth_getCode, eth_syncing, eth_call,
+            eth_sendRawTransaction, eth_getTransactionReceipt, eth_getTransactionByHash, eth_getLogs,
+            eth_getBlockByNumber, eth_getBlockByHash, net_version, net_listening, net_peerCount,
+            web3_clientVersion, web3_sha3, rpc_modules]
+        params:
+          type: array
+          items: {}
+    JsonRpcError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data: {}
+    JsonRpcResponse:
+      type: object
+      required: [jsonrpc, id]
+      properties:
+        jsonrpc:
+          type: string
+          const: '2.0'
+        id:
+          type: [string, integer, 'null']
+        result:
+          description: Method result; present on success.
+        error:
+          $ref: '#/components/schemas/JsonRpcError'

@@ -1,0 +1,555 @@
+openapi: 3.1.0
+info:
+  title: Canton Middleware Indexer (private API)
+  version: 0.9.0
+  summary: Read API over indexed CIP-56 token state and transfer history.
+  description: |
+    The indexer streams token events from its Canton participant into PostgreSQL. It records:
+
+    - CIP-56 `TokenTransferEvent` (mint, burn, transfer);
+    - Utility Registry transfer offers;
+    - Utility Registry holdings.
+
+    This API serves balances, supply, events and transfers derived from that stream.
+
+    **Access.** These routes are unauthenticated and intended for trusted callers, such as the API server
+    and operational tooling. Restrict network access to this port; do not expose it publicly. A public,
+    authenticated read API is future work. See `docs/SECURITY_AND_PRIVACY_MODEL.md`.
+
+    **Visibility.** Each indexer sees only what its participant hosts or observes. Amounts are decimal
+    strings. Errors use `{"error": "<message>", "code": <http status>}`.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8082
+    description: Local devstack (docker-compose default)
+security: []
+tags:
+  - name: Health
+    description: Liveness.
+  - name: Tokens
+    description: Indexed tokens, supply and holders.
+  - name: Parties
+    description: Per-party balances.
+  - name: Transfers
+    description: Direct and offer-based transfers.
+  - name: Events
+    description: Mint, burn and transfer events.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      description: Path configurable as `monitoring.health_check_url` (default `/health`).
+      responses:
+        '200':
+          description: Indexer is running.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: OK
+  /indexer/v1/admin/tokens:
+    get:
+      tags: [Tokens]
+      operationId: listTokens
+      summary: List indexed tokens
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of tokens.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/tokens/{admin}/{id}:
+    get:
+      tags: [Tokens]
+      operationId: getToken
+      summary: Get a token
+      parameters:
+        - $ref: '#/components/parameters/InstrumentAdmin'
+        - $ref: '#/components/parameters/InstrumentId'
+      responses:
+        '200':
+          description: The token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /indexer/v1/admin/tokens/{admin}/{id}/supply:
+    get:
+      tags: [Tokens]
+      operationId: getTokenSupply
+      summary: Get a token's total supply
+      description: >-
+        Supply moves only with mint and burn events, so it is computed for CIP-56 tokens. Utility
+        Registry instruments issued by third parties report zero.
+      parameters:
+        - $ref: '#/components/parameters/InstrumentAdmin'
+        - $ref: '#/components/parameters/InstrumentId'
+      responses:
+        '200':
+          description: Total supply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplyResponse'
+              example:
+                total_supply: '1000.000000000000000000'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /indexer/v1/admin/tokens/{admin}/{id}/balances:
+    get:
+      tags: [Tokens]
+      operationId: listTokenBalances
+      summary: List holders' balances for a token
+      parameters:
+        - $ref: '#/components/parameters/InstrumentAdmin'
+        - $ref: '#/components/parameters/InstrumentId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalancePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/tokens/{admin}/{id}/events:
+    get:
+      tags: [Events]
+      operationId: listTokenEvents
+      summary: List a token's events
+      parameters:
+        - $ref: '#/components/parameters/InstrumentAdmin'
+        - $ref: '#/components/parameters/InstrumentId'
+        - $ref: '#/components/parameters/EventType'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/parties/{partyID}/balances:
+    get:
+      tags: [Parties]
+      operationId: listPartyBalances
+      summary: List a party's balances
+      parameters:
+        - $ref: '#/components/parameters/PartyID'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of balances.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalancePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/parties/{partyID}/balances/{admin}/{id}:
+    get:
+      tags: [Parties]
+      operationId: getPartyBalance
+      summary: Get a party's balance of one token
+      parameters:
+        - $ref: '#/components/parameters/PartyID'
+        - $ref: '#/components/parameters/InstrumentAdmin'
+        - $ref: '#/components/parameters/InstrumentId'
+      responses:
+        '200':
+          description: The balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Balance'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /indexer/v1/admin/parties/{partyID}/events:
+    get:
+      tags: [Events]
+      operationId: listPartyEvents
+      summary: List a party's events
+      parameters:
+        - $ref: '#/components/parameters/PartyID'
+        - $ref: '#/components/parameters/EventType'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/parties/{partyID}/transfers:
+    get:
+      tags: [Transfers]
+      operationId: listPartyTransfers
+      summary: List a party's transfers
+      description: Direct CIP-56 transfers and offer-based transfers involving the party.
+      parameters:
+        - $ref: '#/components/parameters/PartyID'
+        - name: role
+          in: query
+          required: false
+          description: The party's role in the transfer.
+          schema:
+            type: string
+            enum: [receiver, sender, any]
+            default: receiver
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, pending, expired, completed, canceled, rejected]
+            default: all
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of transfers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/pending-transfers:
+    get:
+      tags: [Transfers]
+      operationId: listPendingTransfers
+      summary: List all pending offers
+      description: >-
+        Pending offer-based transfers across all parties. The API server's custodial accept worker
+        uses this route.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of pending transfers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /indexer/v1/admin/events/{contractID}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get an event
+      parameters:
+        - name: contractID
+          in: path
+          required: true
+          description: Contract ID of the `TokenTransferEvent`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /indexer/v1/admin/transfers/{contractID}:
+    get:
+      tags: [Transfers]
+      operationId: getTransfer
+      summary: Get a transfer
+      parameters:
+        - name: contractID
+          in: path
+          required: true
+          description: Contract ID of the transfer (event or offer contract).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The transfer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    InstrumentAdmin:
+      name: admin
+      in: path
+      required: true
+      description: Instrument admin (issuer) party ID.
+      schema:
+        type: string
+    InstrumentId:
+      name: id
+      in: path
+      required: true
+      description: Instrument ID, for example `DEMO`.
+      schema:
+        type: string
+    PartyID:
+      name: partyID
+      in: path
+      required: true
+      description: Canton party ID.
+      schema:
+        type: string
+    EventType:
+      name: event_type
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [MINT, BURN, TRANSFER]
+  responses:
+    BadRequest:
+      description: Invalid query parameters.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: limit must be an integer between 1 and 200
+            code: 400
+    NotFound:
+      description: Not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: token not found
+            code: 404
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: integer
+    DecimalAmount:
+      type: string
+      pattern: '^[0-9]+(\.[0-9]+)?$'
+    Token:
+      type: object
+      required: [instrument_admin, instrument_id, issuer, total_supply, holder_count, first_seen_offset,
+        first_seen_at]
+      properties:
+        instrument_admin:
+          type: string
+        instrument_id:
+          type: string
+        issuer:
+          type: string
+          description: Issuer party on the token's events.
+        total_supply:
+          $ref: '#/components/schemas/DecimalAmount'
+        holder_count:
+          type: integer
+          format: int64
+          description: Number of parties with a non-zero balance.
+        first_seen_offset:
+          type: integer
+          format: int64
+        first_seen_at:
+          type: string
+          format: date-time
+    Balance:
+      type: object
+      required: [party_id, instrument_admin, instrument_id, amount]
+      properties:
+        party_id:
+          type: string
+        instrument_admin:
+          type: string
+        instrument_id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+    Event:
+      type: object
+      required: [instrument_id, instrument_admin, issuer, event_type, amount, contract_id, tx_id,
+        ledger_offset, timestamp, effective_time]
+      properties:
+        instrument_id:
+          type: string
+        instrument_admin:
+          type: string
+        issuer:
+          type: string
+        event_type:
+          type: string
+          enum: [MINT, BURN, TRANSFER]
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+        from_party_id:
+          type: string
+          description: Absent for mints.
+        to_party_id:
+          type: string
+          description: Absent for burns.
+        external_tx_id:
+          type: string
+          description: Ethereum transaction hash, for bridge events.
+        external_address:
+          type: string
+          description: Ethereum destination address, for bridge withdrawals.
+        fingerprint:
+          type: string
+          description: User fingerprint, for bridge events.
+        contract_id:
+          type: string
+          description: Contract ID of the `TokenTransferEvent`; the event's idempotency key.
+        tx_id:
+          type: string
+          description: Ledger update ID.
+        ledger_offset:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+          description: Time recorded on the event contract.
+        effective_time:
+          type: string
+          format: date-time
+          description: Ledger effective time of the transaction.
+    Transfer:
+      type: object
+      required: [contract_id, kind, status, from_party_id, to_party_id, instrument_admin, instrument_id,
+        amount, ledger_offset, created_at]
+      properties:
+        contract_id:
+          type: string
+        kind:
+          type: string
+          enum: [direct, offer]
+          description: '`direct` for atomic CIP-56 transfers; `offer` for two-step offer transfers.'
+        status:
+          type: string
+          enum: [pending, expired, completed, canceled, rejected]
+        from_party_id:
+          type: string
+        to_party_id:
+          type: string
+        instrument_admin:
+          type: string
+        instrument_id:
+          type: string
+        amount:
+          $ref: '#/components/schemas/DecimalAmount'
+        expires_at:
+          type: string
+          format: date-time
+          description: Offer deadline; absent for direct transfers.
+        tx_id:
+          type: string
+          description: Ledger update ID.
+        ledger_offset:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+    SupplyResponse:
+      type: object
+      required: [total_supply]
+      properties:
+        total_supply:
+          $ref: '#/components/schemas/DecimalAmount'
+    PageEnvelope:
+      type: object
+      required: [total, page, limit]
+      properties:
+        total:
+          type: integer
+          format: int64
+        page:
+          type: integer
+        limit:
+          type: integer
+    TokenPage:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Token'
+    BalancePage:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Balance'
+    EventPage:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Event'
+    TransferPage:
+      allOf:
+        - $ref: '#/components/schemas/PageEnvelope'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Transfer'
