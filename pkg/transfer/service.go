@@ -46,6 +46,7 @@ type PartyRegistry interface {
 type TransferCache interface {
 	Put(transfer *token.PreparedTransfer) error
 	GetAndDelete(transferID string) (*token.PreparedTransfer, error)
+	GetAndDeleteFor(transferID, partyID string) (*token.PreparedTransfer, error)
 }
 
 // IndexerReader is the slice of indexer/client.Client the transfer service uses
@@ -443,13 +444,25 @@ func (s *TransferService) Execute(ctx context.Context, senderEVMAddr string, req
 		return nil, apperrors.ForbiddenError(nil, "signature fingerprint does not match registered key")
 	}
 
-	pt, err := s.cache.GetAndDelete(req.TransferID)
+	// Owner-aware and atomic. The cache is keyed by transfer id alone, so
+	// without the ownership condition any authenticated caller who learned
+	// another user's in-flight transfer id could consume it. Not to steal,
+	// because Canton verifies the signature against the sending party's key,
+	// but to destroy: a plain retrieve-and-delete removes the entry before the
+	// signature is ever checked, so the owner's transfer is gone.
+	//
+	// The condition is evaluated under the cache's lock so a foreign id is
+	// refused without the entry ever leaving the cache.
+	pt, err := s.cache.GetAndDeleteFor(req.TransferID, sender.CantonPartyID)
 	if err != nil {
 		if errors.Is(err, ErrTransferNotFound) {
 			return nil, apperrors.ResourceNotFoundError(err, "transfer not found")
 		}
 		if errors.Is(err, ErrTransferExpired) {
 			return nil, apperrors.GoneError(err, "transfer expired")
+		}
+		if errors.Is(err, ErrTransferNotOwned) {
+			return nil, apperrors.ForbiddenError(err, "transfer does not belong to this user")
 		}
 		return nil, fmt.Errorf("retrieve prepared transfer: %w", err)
 	}

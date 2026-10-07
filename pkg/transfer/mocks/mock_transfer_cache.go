@@ -78,6 +78,65 @@ func (_c *TransferCache_GetAndDelete_Call) RunAndReturn(run func(string) (*token
 	return _c
 }
 
+// GetAndDeleteFor provides a mock function with given fields: transferID, partyID
+func (_m *TransferCache) GetAndDeleteFor(transferID string, partyID string) (*token.PreparedTransfer, error) {
+	ret := _m.Called(transferID, partyID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAndDeleteFor")
+	}
+
+	var r0 *token.PreparedTransfer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (*token.PreparedTransfer, error)); ok {
+		return rf(transferID, partyID)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) *token.PreparedTransfer); ok {
+		r0 = rf(transferID, partyID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*token.PreparedTransfer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(transferID, partyID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// TransferCache_GetAndDeleteFor_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAndDeleteFor'
+type TransferCache_GetAndDeleteFor_Call struct {
+	*mock.Call
+}
+
+// GetAndDeleteFor is a helper method to define mock.On call
+//   - transferID string
+//   - partyID string
+func (_e *TransferCache_Expecter) GetAndDeleteFor(transferID interface{}, partyID interface{}) *TransferCache_GetAndDeleteFor_Call {
+	return &TransferCache_GetAndDeleteFor_Call{Call: _e.mock.On("GetAndDeleteFor", transferID, partyID)}
+}
+
+func (_c *TransferCache_GetAndDeleteFor_Call) Run(run func(transferID string, partyID string)) *TransferCache_GetAndDeleteFor_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *TransferCache_GetAndDeleteFor_Call) Return(_a0 *token.PreparedTransfer, _a1 error) *TransferCache_GetAndDeleteFor_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *TransferCache_GetAndDeleteFor_Call) RunAndReturn(run func(string, string) (*token.PreparedTransfer, error)) *TransferCache_GetAndDeleteFor_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Put provides a mock function with given fields: _a0
 func (_m *TransferCache) Put(_a0 *token.PreparedTransfer) error {
 	ret := _m.Called(_a0)

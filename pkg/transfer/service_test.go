@@ -5,6 +5,7 @@ package transfer
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -926,7 +927,7 @@ func TestTransferService_Execute_Success(t *testing.T) {
 	}
 
 	cache := mocks.NewTransferCache(t)
-	cache.EXPECT().GetAndDelete("txn-456").Return(pt, nil).Once()
+	cache.EXPECT().GetAndDeleteFor("txn-456", sender.CantonPartyID).Return(pt, nil).Once()
 
 	tok := mocks.NewToken(t)
 	tok.EXPECT().ExecuteTransfer(ctx, mock.MatchedBy(func(req *token.ExecuteTransferRequest) bool {
@@ -953,7 +954,7 @@ func TestTransferService_Execute_TransferNotFound(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	cache := mocks.NewTransferCache(t)
-	cache.EXPECT().GetAndDelete("nonexistent").Return(nil, ErrTransferNotFound).Once()
+	cache.EXPECT().GetAndDeleteFor("nonexistent", sender.CantonPartyID).Return(nil, ErrTransferNotFound).Once()
 
 	svc := newTestService(t, mocks.NewToken(t), store, cache)
 
@@ -973,7 +974,7 @@ func TestTransferService_Execute_TransferExpired(t *testing.T) {
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
 	cache := mocks.NewTransferCache(t)
-	cache.EXPECT().GetAndDelete("expired-txn").Return(nil, ErrTransferExpired).Once()
+	cache.EXPECT().GetAndDeleteFor("expired-txn", sender.CantonPartyID).Return(nil, ErrTransferExpired).Once()
 
 	svc := newTestService(t, mocks.NewToken(t), store, cache)
 
@@ -992,9 +993,12 @@ func TestTransferService_Execute_InvalidSignature_ReturnsForbidden(t *testing.T)
 	store := mocks.NewUserStore(t)
 	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
 
-	pt := &token.PreparedTransfer{TransferID: "txn-sig-fail"}
+	// PartyID must be the sender's: the ownership guard in Execute now rejects
+	// a prepared transfer belonging to anyone else before reaching Canton, and
+	// this test is about signature verification, not ownership.
+	pt := &token.PreparedTransfer{TransferID: "txn-sig-fail", PartyID: sender.CantonPartyID}
 	cache := mocks.NewTransferCache(t)
-	cache.EXPECT().GetAndDelete("txn-sig-fail").Return(pt, nil).Once()
+	cache.EXPECT().GetAndDeleteFor("txn-sig-fail", sender.CantonPartyID).Return(pt, nil).Once()
 
 	cantonErr := grpcstatus.Error(codes.InvalidArgument, "signature verification failed")
 	tok := mocks.NewToken(t)
@@ -1255,7 +1259,7 @@ func TestTransferService_ExecuteAccept_DelegatesToExecute(t *testing.T) {
 	}
 
 	cache := mocks.NewTransferCache(t)
-	cache.EXPECT().GetAndDelete("accept-exec-1").Return(pt, nil).Once()
+	cache.EXPECT().GetAndDeleteFor("accept-exec-1", sender.CantonPartyID).Return(pt, nil).Once()
 
 	tok := mocks.NewToken(t)
 	tok.EXPECT().ExecuteTransfer(ctx, mock.MatchedBy(func(req *token.ExecuteTransferRequest) bool {
@@ -1537,4 +1541,68 @@ func TestTransferService_WithdrawCustodial_NotAnOffer(t *testing.T) {
 	svc := newTestServiceWithOffers(mocks.NewToken(t), store, mocks.NewTransferCache(t), offers)
 	_, err := svc.WithdrawCustodial(ctx, sender.EVMAddress, withdrawCID)
 	assertServiceErrorCategory(t, err, apperrors.CategoryDataError)
+}
+
+// TestTransferService_Execute_FingerprintMismatch_ReturnsForbidden covers the
+// check that the signing key named in the request is the one registered to the
+// authenticated user. Without it a caller could present somebody else's
+// fingerprint and let Canton decide, which leaks whether that key is valid.
+func TestTransferService_Execute_FingerprintMismatch_ReturnsForbidden(t *testing.T) {
+	ctx := context.Background()
+	sender := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, sender.EVMAddress).Return(sender, nil).Once()
+
+	// The cache must not be touched: the request is refused before the prepared
+	// transfer is looked up, so a wrong fingerprint cannot consume one.
+	cache := mocks.NewTransferCache(t)
+	tok := mocks.NewToken(t)
+
+	svc := newTestService(t, tok, store, cache)
+
+	resp, err := svc.Execute(ctx, sender.EVMAddress, &ExecuteRequest{
+		TransferID: "txn-456",
+		Signature:  "0xdeadbeef",
+		SignedBy:   "1220" + strings.Repeat("ff", 32),
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
+}
+
+// TestTransferService_Execute_ForeignTransfer_ReturnsForbiddenAndRestores covers
+// the ownership guard. The prepared transfer cache is keyed by transfer id
+// alone, so an authenticated caller who learns another user's in-flight id
+// could previously consume it. Funds were never at risk, because Canton
+// verifies the signature against the sending party's key, but GetAndDelete had
+// already removed the entry, so the owner's transfer was destroyed.
+func TestTransferService_Execute_ForeignTransfer_ReturnsForbiddenAndRestores(t *testing.T) {
+	ctx := context.Background()
+	attacker := senderUser()
+
+	store := mocks.NewUserStore(t)
+	store.EXPECT().GetUserByEVMAddress(ctx, attacker.EVMAddress).Return(attacker, nil).Once()
+
+	// The cache refuses under its own lock and leaves the entry in place, so
+	// there is nothing for the service to restore.
+	cache := mocks.NewTransferCache(t)
+	cache.EXPECT().GetAndDeleteFor("txn-victim", attacker.CantonPartyID).
+		Return(nil, ErrTransferNotOwned).Once()
+
+	// Never reaches Canton.
+	tok := mocks.NewToken(t)
+
+	svc := newTestService(t, tok, store, cache)
+
+	resp, err := svc.Execute(ctx, attacker.EVMAddress, &ExecuteRequest{
+		TransferID: "txn-victim",
+		Signature:  "0xdeadbeef",
+		SignedBy:   attacker.CantonPublicKeyFingerprint,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assertServiceErrorCategory(t, err, apperrors.CategoryForbidden)
 }

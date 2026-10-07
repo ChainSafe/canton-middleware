@@ -14,6 +14,7 @@ import (
 var (
 	ErrTransferNotFound = errors.New("transfer not found")
 	ErrTransferExpired  = errors.New("transfer expired")
+	ErrTransferNotOwned = errors.New("transfer belongs to another party")
 	ErrCacheFull        = errors.New("cache is full")
 )
 
@@ -60,6 +61,36 @@ func (c *PreparedTransferCache) GetAndDelete(transferID string) (*token.Prepared
 	entry, ok := c.entries[transferID]
 	if !ok {
 		return nil, ErrTransferNotFound
+	}
+	delete(c.entries, transferID)
+
+	if time.Now().After(entry.ExpiresAt) {
+		return nil, ErrTransferExpired
+	}
+
+	return entry, nil
+}
+
+// GetAndDeleteFor atomically retrieves and removes a prepared transfer, but only
+// when it belongs to partyID. A transfer belonging to someone else is left in
+// place and reported with ErrTransferNotOwned.
+//
+// This exists rather than a caller-side check after GetAndDelete because the
+// check-after-delete shape has two defects that cannot be fixed above the lock:
+// the entry is briefly absent, so the rightful owner's concurrent Execute sees
+// a spurious not-found, and putting it back resets its deadline, which lets a
+// stranger extend a transfer's life by probing it.
+func (c *PreparedTransferCache) GetAndDeleteFor(transferID, partyID string) (*token.PreparedTransfer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entry, ok := c.entries[transferID]
+	if !ok {
+		return nil, ErrTransferNotFound
+	}
+	if entry.PartyID != partyID {
+		// Deliberately not deleted: this caller does not own it.
+		return nil, ErrTransferNotOwned
 	}
 	delete(c.entries, transferID)
 
