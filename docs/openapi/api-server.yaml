@@ -1141,6 +1141,15 @@ components:
       description: Canton party ID, `<hint>::<namespace fingerprint>`.
       pattern: '^.+::1220[0-9a-f]{64}$'
       examples: ['alice::1220aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']
+    TruncatedPartyId:
+      type: string
+      maxLength: 17
+      description: >-
+        A Canton party ID shortened to its first and last eight characters around an
+        ellipsis (`…`); IDs of 17 characters or fewer are returned unchanged. The value
+        is lossy: it identifies a party for display only and cannot be used as a
+        transfer recipient or anywhere else a `PartyId` is expected.
+      examples: ['alice::1…aaaaaaaa']
     Fingerprint:
       type: string
       description: Canton key fingerprint (multihash, hex).
@@ -1452,9 +1461,9 @@ components:
             contract_id:
               type: string
             sender_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             receiver_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             amount:
               $ref: '#/components/schemas/DecimalAmount'
             instrument_admin:
@@ -1471,9 +1480,9 @@ components:
             contract_id:
               type: string
             sender_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             receiver_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             amount:
               $ref: '#/components/schemas/DecimalAmount'
             instrument_admin:
@@ -1506,9 +1515,9 @@ components:
               type: string
               const: completed
             from_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             to_party_id:
-              $ref: '#/components/schemas/PartyId'
+              $ref: '#/components/schemas/TruncatedPartyId'
             amount:
               $ref: '#/components/schemas/DecimalAmount'
             instrument_admin:
