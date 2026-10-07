@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/ChainSafe/canton-middleware/compare/v0.9.0...v0.9.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **ethrpc:** EVM-compatible block responses and eth_getLogs block tags ([#384](https://github.com/ChainSafe/canton-middleware/issues/384)) ([0e8aad0](https://github.com/ChainSafe/canton-middleware/commit/0e8aad08f6b52b388b16c6e9f9d9d1e82f8c1770))
+
 ## [0.9.0](https://github.com/ChainSafe/canton-middleware/compare/v0.8.0...v0.9.0) (2026-08-20)
 
 
