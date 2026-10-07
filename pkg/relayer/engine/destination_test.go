@@ -150,19 +150,8 @@ func TestEthereumDestination_SubmitTransfer_AlreadyProcessed(t *testing.T) {
 }
 
 // TestEthereumDestination_SubmitTransfer_ZeroNonceIsForwarded pins the shape a
-// real Canton withdrawal has. The Daml bridge contracts carry no nonce field, so
-// events from that direction always arrive with Nonce unset, and the relayer
-// forwards the zero unchanged.
-//
-// This is not a gap waiting to be filled. CantonBridge.withdrawFromCanton emits
-// the value and never reads it; replay protection is the processedCantonTxs
-// mapping keyed on cantonTxHash, covered by
-// TestEthereumDestination_SubmitTransfer_AlreadyProcessed here and by
-// test_WithdrawFromCanton_RevertOnAlreadyProcessedTx in the contract suite.
-//
-// The test exists so that a zero reaching the contract reads as intended rather
-// than as something to repair. See "Replay protection on the bridge contract" in
-// docs/ARCHITECTURE.md.
+// real Canton withdrawal has: no nonce upstream, so zero is forwarded. Replay
+// protection is the cantonTxHash, covered by the AlreadyProcessed test above.
 func TestEthereumDestination_SubmitTransfer_ZeroNonceIsForwarded(t *testing.T) {
 	ctx := context.Background()
 	ethClient := relayermocks.NewEthereumBridgeClient(t)
