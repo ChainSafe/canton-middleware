@@ -12,7 +12,10 @@ type CacheMetrics struct {
 	// PutsTotal counts Put calls by result: "ok" or "full".
 	PutsTotal *prometheus.CounterVec
 
-	// GetsTotal counts GetAndDelete calls by result: "ok", "not_found", or "expired".
+	// GetsTotal counts GetAndDelete and GetAndDeleteFor calls by result:
+	// "ok", "not_found", "expired", or "not_owned". Only the owner-aware
+	// retrieval can produce "not_owned"; a sustained rate of it means callers
+	// are submitting transfer ids they do not own.
 	GetsTotal *prometheus.CounterVec
 }
 
