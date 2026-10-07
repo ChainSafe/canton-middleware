@@ -755,7 +755,6 @@ func TestEthAPI_Call(t *testing.T) {
 
 func TestEthAPI_GetLogs(t *testing.T) {
 	contractAddr := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	// Use explicit block range to avoid "latest" string that can't decode into hexutil.Uint64.
 	filterQuery := geth.FilterQuery{
 		FromBlock: big.NewInt(0),
 		ToBlock:   big.NewInt(1000),
@@ -806,6 +805,19 @@ func TestEthAPI_GetLogs(t *testing.T) {
 
 		_, err := ethClient.FilterLogs(context.Background(), filterQuery)
 		require.Error(t, err)
+	})
+
+	t.Run("open range decodes as block 0 to latest", func(t *testing.T) {
+		svc := mocks.NewService(t)
+		svc.EXPECT().GetLogs(mock.Anything, mock.MatchedBy(func(q ethrpc.FilterQuery) bool {
+			return q.FromBlock != nil && q.FromBlock.Number != nil && *q.FromBlock.Number == 0 &&
+				q.ToBlock != nil && q.ToBlock.Number == nil
+		})).Return([]*types.Log{}, nil)
+		ethClient, _, cleanup := newTestServer(t, svc)
+		defer cleanup()
+
+		_, err := ethClient.FilterLogs(context.Background(), geth.FilterQuery{Addresses: []common.Address{contractAddr}})
+		require.NoError(t, err)
 	})
 }
 

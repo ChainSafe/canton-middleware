@@ -18,6 +18,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -674,17 +675,16 @@ func TestService_Call(t *testing.T) {
 
 func TestService_GetLogs(t *testing.T) {
 	contractAddr := common.HexToAddress("0x1000000000000000000000000000000000000001")
-	from := hexutil.Uint64(0)
-	to := hexutil.Uint64(100)
-	// Explicit FromBlock/ToBlock avoids the store.GetLatestEvmBlockNumber() branch.
+	from, to := uint64(0), uint64(100)
 	query := ethrpc.FilterQuery{
-		FromBlock: &from,
-		ToBlock:   &to,
+		FromBlock: &ethrpc.BlockTag{Number: &from},
+		ToBlock:   &ethrpc.BlockTag{Number: &to},
 		Address:   contractAddr,
 	}
 
 	t.Run("empty result", func(t *testing.T) {
 		store := mocks.NewStore(t)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
 		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
@@ -706,6 +706,7 @@ func TestService_GetLogs(t *testing.T) {
 		}
 
 		store := mocks.NewStore(t)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
 		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).
 			Return([]*ethrpc.EvmLog{dbLog}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
@@ -720,11 +721,44 @@ func TestService_GetLogs(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
 		store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, uint64(0), uint64(100)).
 			Return(nil, errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.GetLogs(context.Background(), query)
+		require.Error(t, err)
+		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
+	})
+
+	ten := uint64(10)
+	bounds := []struct {
+		name             string
+		query            ethrpc.FilterQuery
+		wantFrom, wantTo uint64
+	}{
+		{"omitted bounds cover the whole chain", ethrpc.FilterQuery{}, 0, 50},
+		{"latest tags resolve to the latest mined block", ethrpc.FilterQuery{FromBlock: &ethrpc.BlockTag{}, ToBlock: &ethrpc.BlockTag{}}, 50, 50},
+		{"explicit fromBlock up to latest", ethrpc.FilterQuery{FromBlock: &ethrpc.BlockTag{Number: &ten}, ToBlock: &ethrpc.BlockTag{}}, 10, 50},
+	}
+	for _, tc := range bounds {
+		t.Run(tc.name, func(t *testing.T) {
+			store := mocks.NewStore(t)
+			store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
+			store.EXPECT().GetEvmLogs(mock.Anything, mock.Anything, mock.Anything, tc.wantFrom, tc.wantTo).Return(nil, nil)
+			svc := newSvc(t, defaultCfg(), store, nil)
+
+			_, err := svc.GetLogs(context.Background(), tc.query)
+			require.NoError(t, err)
+		})
+	}
+
+	t.Run("latest block lookup error propagates", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		_, err := svc.GetLogs(context.Background(), ethrpc.FilterQuery{})
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
 	})
@@ -743,6 +777,13 @@ func TestService_GetBlockByNumber(t *testing.T) {
 		assert.Equal(t, hexutil.Uint64(42), got.Number)
 		// Hash must be non-zero and deterministic from chain+block
 		assert.NotEqual(t, common.Hash{}, got.Hash)
+		// go-ethereum clients reject blocks whose roots do not match their empty lists.
+		assert.Empty(t, got.Transactions)
+		assert.Empty(t, got.Uncles)
+		assert.Equal(t, types.EmptyUncleHash, got.Sha3Uncles)
+		assert.Equal(t, types.EmptyTxsHash, got.TransactionsRoot)
+		assert.Equal(t, types.EmptyReceiptsHash, got.ReceiptsRoot)
+		assert.Equal(t, types.EmptyRootHash, got.StateRoot)
 	})
 
 	t.Run("block zero returns nil", func(t *testing.T) {

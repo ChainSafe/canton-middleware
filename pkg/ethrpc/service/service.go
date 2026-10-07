@@ -494,19 +494,17 @@ func (s *ethService) callAllowance(ctx context.Context, data []byte, erc20 token
 }
 
 func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*types.Log, error) {
-	var fromBlock, toBlock uint64
+	latest, err := s.store.GetLatestEvmBlockNumber(ctx)
+	if err != nil {
+		return nil, apperr.DependencyError(err, "get latest EVM block number for logs")
+	}
+	// An omitted fromBlock covers the whole chain. Block tags and an omitted
+	// toBlock resolve to the latest mined block, the last one with logs.
+	var fromBlock uint64
 	if query.FromBlock != nil {
-		fromBlock = uint64(*query.FromBlock)
+		fromBlock = resolveBlockTag(query.FromBlock, latest)
 	}
-	if query.ToBlock != nil {
-		toBlock = uint64(*query.ToBlock)
-	} else {
-		var err error
-		toBlock, err = s.store.GetLatestEvmBlockNumber(ctx)
-		if err != nil {
-			return nil, apperr.DependencyError(err, "get latest EVM block number for logs")
-		}
-	}
+	toBlock := resolveBlockTag(query.ToBlock, latest)
 
 	var addressFilter []byte
 	if query.Address != nil {
@@ -554,6 +552,15 @@ func (s *ethService) GetLogs(ctx context.Context, query ethrpc.FilterQuery) ([]*
 	return logs, nil
 }
 
+// resolveBlockTag returns the block number of an eth_getLogs bound; tags and an
+// omitted bound resolve to latest.
+func resolveBlockTag(tag *ethrpc.BlockTag, latest uint64) uint64 {
+	if tag == nil || tag.Number == nil {
+		return latest
+	}
+	return *tag.Number
+}
+
 func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
 	var blockNum uint64
 	if block.BlockNumber != nil {
@@ -576,16 +583,18 @@ func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNum
 		parentHash = common.BytesToHash(ethereum.ComputeBlockHash(s.chainID.Uint64(), blockNum-1))
 	}
 
+	// Synthetic blocks list no transactions, so they carry the empty-list hashes
+	// that go-ethereum clients validate against.
 	return &ethrpc.RPCBlock{
 		Number:           hexutil.Uint64(blockNum),
 		Hash:             blockHash,
 		ParentHash:       parentHash,
 		Nonce:            types.BlockNonce{},
-		Sha3Uncles:       common.Hash{},
+		Sha3Uncles:       types.EmptyUncleHash,
 		LogsBloom:        types.Bloom{},
-		TransactionsRoot: common.Hash{},
-		StateRoot:        common.Hash{},
-		ReceiptsRoot:     common.Hash{},
+		TransactionsRoot: types.EmptyTxsHash,
+		StateRoot:        types.EmptyRootHash,
+		ReceiptsRoot:     types.EmptyReceiptsHash,
 		Miner:            common.Address{},
 		Difficulty:       (*hexutil.Big)(big.NewInt(0)),
 		TotalDifficulty:  (*hexutil.Big)(big.NewInt(0)),
