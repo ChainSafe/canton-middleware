@@ -1,0 +1,200 @@
+openapi: 3.1.0
+info:
+  title: Canton Middleware Relayer
+  version: 0.9.0
+  summary: Status API of the Ethereum↔Canton bridge relayer.
+  description: |
+    The relayer moves bridged assets between Ethereum and Canton. It exposes readiness and read-only views of
+    the transfers it has processed.
+
+    **Access.** These routes are unauthenticated and intended for operators. Restrict network access to this
+    port. Errors use `{"error": "<message>", "code": <http status>}`.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://localhost:8080
+    description: Local devstack (docker-compose default)
+security: []
+tags:
+  - name: Health
+    description: Liveness, readiness and status.
+  - name: Transfers
+    description: Bridge transfers processed by the relayer.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness check
+      description: Path configurable as `monitoring.health_check_url` (default `/health`).
+      responses:
+        '200':
+          description: Relayer is running.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: OK
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Readiness check
+      description: Ready once both the Canton and the Ethereum processors have caught up to the chain head.
+      responses:
+        '200':
+          description: Ready.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: READY
+        '503':
+          description: Not ready.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: NOT_READY
+  /api/v1/transfers:
+    get:
+      tags: [Transfers]
+      operationId: listTransfers
+      summary: List recent bridge transfers
+      description: Returns the 100 most recent transfers.
+      responses:
+        '200':
+          description: Recent transfers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transfers]
+                properties:
+                  transfers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transfer'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/transfers/{id}:
+    get:
+      tags: [Transfers]
+      operationId: getTransfer
+      summary: Get a bridge transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Transfer ID.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The transfer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '404':
+          description: Transfer not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: transfer not found
+                code: 404
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/status:
+    get:
+      tags: [Health]
+      operationId: getStatus
+      summary: Service status
+      responses:
+        '200':
+          description: Status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: running
+components:
+  responses:
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Unexpected Service Error
+            code: 500
+  schemas:
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+        code:
+          type: integer
+    Transfer:
+      type: object
+      required: [id, direction, status, source_chain, destination_chain, source_tx_hash, destination_tx_hash,
+        token_address, amount, sender, recipient, nonce, source_block_number, retry_count, created_at,
+        updated_at, completed_at, error_message]
+      properties:
+        id:
+          type: string
+        direction:
+          type: string
+          enum: [ethereum_to_canton, canton_to_ethereum]
+        status:
+          type: string
+          enum: [pending, completed, failed]
+        source_chain:
+          type: string
+        destination_chain:
+          type: string
+        source_tx_hash:
+          type: string
+          description: Ethereum transaction hash or Canton event ID that started the transfer.
+        destination_tx_hash:
+          type: [string, 'null']
+          description: Transaction on the destination chain; null until completed.
+        token_address:
+          type: string
+        amount:
+          type: string
+          description: Amount as a decimal string.
+        sender:
+          type: string
+        recipient:
+          type: string
+        nonce:
+          type: integer
+          format: int64
+        source_block_number:
+          type: integer
+          format: int64
+          minimum: 0
+        retry_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+        error_message:
+          type: [string, 'null']
