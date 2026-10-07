@@ -129,3 +129,91 @@ func TestPreparedTransferCache_StartStopsOnCancel(t *testing.T) {
 		t.Fatal("Start did not return after context cancellation")
 	}
 }
+
+// TestPreparedTransferCache_GetAndDeleteFor covers the owner-aware retrieval the
+// Execute path relies on. The property that matters is not just that a foreign
+// caller is refused, but that the refusal leaves the entry intact: the earlier
+// shape deleted first and asked questions afterwards, so probing a transfer id
+// destroyed it.
+func TestPreparedTransferCache_GetAndDeleteFor(t *testing.T) {
+	const owner = "alice::1220aa"
+	const stranger = "mallory::1220bb"
+
+	newCacheWith := func(t *testing.T, id string) *PreparedTransferCache {
+		t.Helper()
+		c := NewPreparedTransferCache(2*time.Minute, 10)
+		if err := c.Put(&token.PreparedTransfer{TransferID: id, PartyID: owner}); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+		return c
+	}
+
+	t.Run("owner retrieves and the entry is consumed", func(t *testing.T) {
+		c := newCacheWith(t, "t1")
+
+		pt, err := c.GetAndDeleteFor("t1", owner)
+		if err != nil {
+			t.Fatalf("owner retrieval failed: %v", err)
+		}
+		if pt.TransferID != "t1" {
+			t.Fatalf("got transfer %q, want t1", pt.TransferID)
+		}
+
+		if _, err := c.GetAndDeleteFor("t1", owner); !errors.Is(err, ErrTransferNotFound) {
+			t.Fatalf("second retrieval: got %v, want ErrTransferNotFound", err)
+		}
+	})
+
+	t.Run("stranger is refused and the entry survives", func(t *testing.T) {
+		c := newCacheWith(t, "t1")
+
+		if _, err := c.GetAndDeleteFor("t1", stranger); !errors.Is(err, ErrTransferNotOwned) {
+			t.Fatalf("stranger retrieval: got %v, want ErrTransferNotOwned", err)
+		}
+
+		// The whole point: the owner can still use it.
+		if _, err := c.GetAndDeleteFor("t1", owner); err != nil {
+			t.Fatalf("owner lost their transfer to a stranger's probe: %v", err)
+		}
+	})
+
+	t.Run("a refusal does not extend the deadline", func(t *testing.T) {
+		c := newCacheWith(t, "t2")
+		c.mu.Lock()
+		before := c.entries["t2"].ExpiresAt
+		c.mu.Unlock()
+
+		if _, err := c.GetAndDeleteFor("t2", stranger); !errors.Is(err, ErrTransferNotOwned) {
+			t.Fatalf("stranger retrieval: got %v, want ErrTransferNotOwned", err)
+		}
+
+		// Restoring through Put would have reset this, letting a stranger keep
+		// somebody else's transfer alive indefinitely by probing it.
+		c.mu.Lock()
+		after := c.entries["t2"].ExpiresAt
+		c.mu.Unlock()
+		if !after.Equal(before) {
+			t.Fatalf("deadline moved from %v to %v on a refused probe", before, after)
+		}
+	})
+
+	t.Run("unknown id is not found, whoever asks", func(t *testing.T) {
+		c := newCacheWith(t, "t1")
+
+		if _, err := c.GetAndDeleteFor("nope", stranger); !errors.Is(err, ErrTransferNotFound) {
+			t.Fatalf("unknown id: got %v, want ErrTransferNotFound", err)
+		}
+	})
+
+	t.Run("expired entry is reported expired to its owner", func(t *testing.T) {
+		c := NewPreparedTransferCache(time.Nanosecond, 10)
+		if err := c.Put(&token.PreparedTransfer{TransferID: "t3", PartyID: owner}); err != nil {
+			t.Fatalf("seed cache: %v", err)
+		}
+		time.Sleep(2 * time.Millisecond)
+
+		if _, err := c.GetAndDeleteFor("t3", owner); !errors.Is(err, ErrTransferExpired) {
+			t.Fatalf("expired entry: got %v, want ErrTransferExpired", err)
+		}
+	})
+}

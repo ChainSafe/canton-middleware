@@ -45,3 +45,24 @@ func (c *InstrumentedCache) GetAndDelete(transferID string) (*token.PreparedTran
 	}
 	return pt, err
 }
+
+// GetAndDeleteFor records the same metrics as GetAndDelete, plus a not_owned
+// outcome. That label is worth watching: a sustained rate of it means someone is
+// submitting transfer ids they do not own, which is either a client bug or a
+// probe.
+func (c *InstrumentedCache) GetAndDeleteFor(transferID, partyID string) (*token.PreparedTransfer, error) {
+	pt, err := c.inner.GetAndDeleteFor(transferID, partyID)
+	switch {
+	case err == nil:
+		c.metrics.GetsTotal.WithLabelValues("ok").Inc()
+	case errors.Is(err, ErrTransferNotFound):
+		c.metrics.GetsTotal.WithLabelValues("not_found").Inc()
+	case errors.Is(err, ErrTransferExpired):
+		c.metrics.GetsTotal.WithLabelValues("expired").Inc()
+	case errors.Is(err, ErrTransferNotOwned):
+		c.metrics.GetsTotal.WithLabelValues("not_owned").Inc()
+	default:
+		c.metrics.GetsTotal.WithLabelValues("error").Inc()
+	}
+	return pt, err
+}
