@@ -124,9 +124,9 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *relayer
 		tokenAddress,
 		recipientAddr,
 		amount,
-		// Use the nonce carried by the Canton event. It is currently 0 because the source
-		// does not populate it yet, but forwarding event.Nonce keeps us aligned with the
-		// source payload once nonce population is enabled upstream.
+		// Always zero here, by design: the contract emits this and never reads it.
+		// Replay protection is processedCantonTxs, keyed on cantonTxHash.
+		// See "Replay protection on the bridge contract" in docs/ARCHITECTURE.md.
 		big.NewInt(event.Nonce),
 		cantonTxHash,
 	)
