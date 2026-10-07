@@ -433,6 +433,30 @@ The middleware authenticates via OAuth2 to obtain JWT tokens. User transfers are
 - Eth→Canton: Hash of `(TxHash, LogIndex)`
 - Checked against `transfers` table before processing
 
+### Replay protection on the bridge contract
+
+The relayer's `transfers` table stops the relayer from acting twice. It does not stop anything else from
+calling the bridge, so the contract carries its own guard, and for Canton to Ethereum withdrawals that
+guard is keyed on the Canton transaction hash rather than on a nonce.
+
+`withdrawFromCanton` in `CantonBridge.sol` rejects a `cantonTxHash` it has already seen and records the
+hash before transferring any tokens. A replayed withdrawal reverts with `Already processed`. The call is
+additionally restricted to the relayer address. Before submitting, the relayer calls
+`IsWithdrawalProcessed` as a pre-flight check, which saves gas on a withdrawal the contract would reject
+but is not itself the protection.
+
+**The `nonce` parameter on that function is informational.** The contract emits it in the
+`WithdrawFromCanton` event and never reads it: no ordering, no uniqueness, no bound. The relayer forwards
+zero, because the Daml bridge contracts carry no nonce field and there is nothing upstream to forward.
+That is a property of the design rather than an unfinished piece of it. Replay safety in this direction
+does not depend on the value, and raising it to a real counter would add a second, weaker mechanism for a
+property the hash already enforces.
+
+The other direction is different and the symmetry is easy to assume. `depositToCanton` increments a
+contract-side `depositNonce` and emits it, so an Ethereum to Canton deposit does carry a genuine monotonic
+counter. The relayer records it on the event for audit and ordering. It is not used as the deduplication
+key there either; that remains the hash of the transaction and log index.
+
 ### Reconciliation
 
 Two distinct mechanisms share this name.

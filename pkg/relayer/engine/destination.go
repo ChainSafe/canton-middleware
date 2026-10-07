@@ -124,9 +124,18 @@ func (d *EthereumDestination) SubmitTransfer(ctx context.Context, event *relayer
 		tokenAddress,
 		recipientAddr,
 		amount,
-		// Use the nonce carried by the Canton event. It is currently 0 because the source
-		// does not populate it yet, but forwarding event.Nonce keeps us aligned with the
-		// source payload once nonce population is enabled upstream.
+		// Informational only, and always zero in this direction. The contract emits
+		// this value in WithdrawFromCanton and never reads it: it enforces no
+		// ordering, uniqueness or bound. Replay protection here is the
+		// processedCantonTxs mapping keyed on cantonTxHash, checked by the
+		// require above the token transfer, with the IsWithdrawalProcessed
+		// pre-flight call above as a gas saver rather than a guarantee.
+		//
+		// The Daml bridge contracts carry no nonce field, so there is nothing
+		// upstream to forward. That is the design rather than a gap: a counter
+		// here would be a second and weaker mechanism for a property the hash
+		// already enforces. See "Replay protection on the bridge contract" in
+		// docs/ARCHITECTURE.md.
 		big.NewInt(event.Nonce),
 		cantonTxHash,
 	)
