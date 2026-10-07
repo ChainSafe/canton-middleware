@@ -5,6 +5,8 @@ package ethrpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -55,11 +57,39 @@ type RPCBlock struct {
 
 // FilterQuery represents the filter for eth_getLogs
 type FilterQuery struct {
-	BlockHash *common.Hash    `json:"blockHash,omitempty"`
-	FromBlock *hexutil.Uint64 `json:"fromBlock,omitempty"`
-	ToBlock   *hexutil.Uint64 `json:"toBlock,omitempty"`
-	Address   any             `json:"address,omitempty"` // single address or array
-	Topics    []any           `json:"topics,omitempty"`
+	BlockHash *common.Hash `json:"blockHash,omitempty"`
+	FromBlock *BlockTag    `json:"fromBlock,omitempty"`
+	ToBlock   *BlockTag    `json:"toBlock,omitempty"`
+	Address   any          `json:"address,omitempty"` // single address or array
+	Topics    []any        `json:"topics,omitempty"`
+}
+
+// BlockTag is an eth_getLogs block bound: a hex block number or a block tag.
+// Number is nil for latest, pending, safe and finalized.
+type BlockTag struct {
+	Number *uint64
+}
+
+// UnmarshalJSON parses a hex block number or a block tag.
+func (b *BlockTag) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return errors.New("block number must be a hex string or a block tag")
+	}
+	switch str {
+	case "latest", "pending", "safe", "finalized":
+		return nil
+	case "earliest":
+		zero := uint64(0)
+		b.Number = &zero
+		return nil
+	}
+	num, err := hexutil.DecodeUint64(str)
+	if err != nil {
+		return fmt.Errorf("invalid block number or tag %q", str)
+	}
+	b.Number = &num
+	return nil
 }
 
 // CallArgs represents the arguments to eth_call and eth_estimateGas
