@@ -21,7 +21,7 @@ func newInstrumented(t *testing.T, ttl time.Duration) (*InstrumentedCache, *prom
 	return NewInstrumentedCache(NewPreparedTransferCache(ttl, 10), metrics), reg
 }
 
-// getCount reads one labelled value of the gets counter out of the registry.
+// getCount reads one labeled value of the gets counter out of the registry.
 // Gathering rather than reaching into the counter keeps the test honest about
 // what an operator would actually scrape.
 func getCount(t *testing.T, reg *prometheus.Registry, result string) float64 {
