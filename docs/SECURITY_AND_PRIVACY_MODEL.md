@@ -112,19 +112,27 @@ responsible for restricting access to its port. An authenticated public read API
 
 ## 4. Key material
 
-| Custody mode | Where the Canton signing key lives | Operator can sign on the user's behalf |
-|---|---|---|
-| Custodial | Server side, AES-256-GCM encrypted under a master key | Yes, by design |
-| Snap (non-custodial) | Derived inside MetaMask from `snap_getEntropy`, never persisted, never transmitted | No |
-| Institutional | Held by the custody provider behind the same signer interface | No |
+| Custody mode | Where the Canton signing key lives | Operator can sign on the user's behalf | Status |
+|---|---|---|---|
+| Custodial | Server side, AES-256-GCM encrypted under a master key | Yes, by design | Shipping |
+| Snap (non-custodial) | Derived inside MetaMask from `snap_getEntropy`, never persisted, never transmitted | No | Implemented, disabled by default |
+| Institutional | Held by the custody provider behind the same signer interface | No | Design target, not implemented |
+
+The status column is load-bearing, because two of these three rows describe something a user cannot reach
+today. The Snap is complete and tested, but the dApp gates it behind a build-time flag that is off unless
+`VITE_ENABLE_NON_CUSTODIAL` is set, so deployed images offer only the custodial path today. The institutional
+path has no implementation at all: there is no signer package, no KMS dependency, and no key-reference column
+in the schema. It is described here because the signer interface is designed to accept it, not because it
+exists. `docs/SIGNER_ARCHITECTURE.md` sets out all three in full.
 
 The Snap requests no `endowment:network-access` permission, which is enforced by the MetaMask platform and
 verifiable by inspecting the published package. It therefore cannot transmit key material anywhere,
 including to us.
 
 Custodial key custody is a real trust assumption and is stated as one. A custodial user is trusting the
-operator with authority over their assets, in exchange for not managing a Canton key. The Snap and
-institutional paths exist so that users who do not want to make that trade do not have to.
+operator with authority over their assets, in exchange for not managing a Canton key. The Snap exists so
+that users who do not want to make that trade do not have to, and the institutional path is intended to
+serve the same purpose for counterparties who cannot hold their own keys either.
 
 ---
 
