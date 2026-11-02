@@ -22,17 +22,17 @@ func (_m *Store) EXPECT() *Store_Expecter {
 	return &Store_Expecter{mock: &_m.Mock}
 }
 
-// CompleteMempoolEntry provides a mock function with given fields: ctx, txHash
-func (_m *Store) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
-	ret := _m.Called(ctx, txHash)
+// CompleteMempoolEntry provides a mock function with given fields: ctx, txHash, cantonUpdateID
+func (_m *Store) CompleteMempoolEntry(ctx context.Context, txHash []byte, cantonUpdateID string) error {
+	ret := _m.Called(ctx, txHash, cantonUpdateID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompleteMempoolEntry")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte) error); ok {
-		r0 = rf(ctx, txHash)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) error); ok {
+		r0 = rf(ctx, txHash, cantonUpdateID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -48,13 +48,14 @@ type Store_CompleteMempoolEntry_Call struct {
 // CompleteMempoolEntry is a helper method to define mock.On call
 //   - ctx context.Context
 //   - txHash []byte
-func (_e *Store_Expecter) CompleteMempoolEntry(ctx interface{}, txHash interface{}) *Store_CompleteMempoolEntry_Call {
-	return &Store_CompleteMempoolEntry_Call{Call: _e.mock.On("CompleteMempoolEntry", ctx, txHash)}
+//   - cantonUpdateID string
+func (_e *Store_Expecter) CompleteMempoolEntry(ctx interface{}, txHash interface{}, cantonUpdateID interface{}) *Store_CompleteMempoolEntry_Call {
+	return &Store_CompleteMempoolEntry_Call{Call: _e.mock.On("CompleteMempoolEntry", ctx, txHash, cantonUpdateID)}
 }
 
-func (_c *Store_CompleteMempoolEntry_Call) Run(run func(ctx context.Context, txHash []byte)) *Store_CompleteMempoolEntry_Call {
+func (_c *Store_CompleteMempoolEntry_Call) Run(run func(ctx context.Context, txHash []byte, cantonUpdateID string)) *Store_CompleteMempoolEntry_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte))
+		run(args[0].(context.Context), args[1].([]byte), args[2].(string))
 	})
 	return _c
 }
@@ -64,7 +65,7 @@ func (_c *Store_CompleteMempoolEntry_Call) Return(_a0 error) *Store_CompleteMemp
 	return _c
 }
 
-func (_c *Store_CompleteMempoolEntry_Call) RunAndReturn(run func(context.Context, []byte) error) *Store_CompleteMempoolEntry_Call {
+func (_c *Store_CompleteMempoolEntry_Call) RunAndReturn(run func(context.Context, []byte, string) error) *Store_CompleteMempoolEntry_Call {
 	_c.Call.Return(run)
 	return _c
 }

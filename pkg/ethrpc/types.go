@@ -179,6 +179,10 @@ type RPCReceipt struct {
 	// directly. Standard Ethereum clients ignore unknown fields; tools that
 	// care (Loop wallet, our own scripts) can render the cause to the user.
 	RevertReason string `json:"revertReason,omitempty"`
+	// CantonUpdateID is a non-standard, optional field with the Canton update ID
+	// that settled the transfer. Omitted when unknown (e.g. transfers made before
+	// it was recorded).
+	CantonUpdateID string `json:"cantonUpdateId,omitempty"`
 }
 
 // RPCTransaction represents a transaction in JSON-RPC format
@@ -215,6 +219,8 @@ type EvmTransaction struct {
 	TxIndex      uint
 	GasUsed      uint64
 	ErrorMessage string
+	// CantonUpdateID is the Canton update that settled the transfer; empty when unknown.
+	CantonUpdateID string
 }
 
 // EvmLog represents a synthetic EVM log persisted for JSON-RPC responses.

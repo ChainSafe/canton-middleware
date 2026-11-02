@@ -176,11 +176,11 @@ func (s *InstrumentedStore) InsertMempoolEntry(ctx context.Context, entry *ethrp
 	return err
 }
 
-func (s *InstrumentedStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+func (s *InstrumentedStore) CompleteMempoolEntry(ctx context.Context, txHash []byte, cantonUpdateID string) error {
 	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpCompleteMempoolEntry))
 	defer timer.ObserveDuration()
 
-	err := s.inner.CompleteMempoolEntry(ctx, txHash)
+	err := s.inner.CompleteMempoolEntry(ctx, txHash, cantonUpdateID)
 	if err != nil {
 		s.metrics.IncErrors(OpCompleteMempoolEntry)
 	}

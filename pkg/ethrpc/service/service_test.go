@@ -405,6 +405,20 @@ func TestService_GetTransactionReceipt(t *testing.T) {
 		assert.Empty(t, got.Logs)
 	})
 
+	t.Run("includes canton update id when known", func(t *testing.T) {
+		withUpdate := *row
+		withUpdate.CantonUpdateID = "canton-update-1"
+		store := mocks.NewStore(t)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(&withUpdate, nil)
+		store.EXPECT().GetEvmLogsByTxHash(mock.Anything, txHash.Bytes()).Return(nil, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetTransactionReceipt(context.Background(), txHash)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "canton-update-1", got.CantonUpdateID)
+	})
+
 	t.Run("not found returns nil", func(t *testing.T) {
 		store := mocks.NewStore(t)
 		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, nil)

@@ -77,13 +77,13 @@ func TestProcess_Success_MarksCompleted(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, common.HexToAddress(testFrom), common.HexToAddress(testRecipient), mock.Anything).
-		Return(nil)
+		Return("canton-update-1", nil)
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
 
 	store := mocks.NewStore(t)
-	store.EXPECT().CompleteMempoolEntry(mock.Anything, entry.TxHash).Return(nil)
+	store.EXPECT().CompleteMempoolEntry(mock.Anything, entry.TxHash, "canton-update-1").Return(nil)
 
 	s := newTestSubmitter(store, tokenSvc)
 	s.process(context.Background(), &entry)
@@ -99,7 +99,7 @@ func TestProcess_PermanentFailure_MarksFailed(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(transferErr)
+		Return("", transferErr)
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
@@ -121,7 +121,7 @@ func TestProcess_TransientFailure_LeavesPending(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(transferErr)
+		Return("", transferErr)
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
@@ -145,7 +145,7 @@ func TestProcess_UncategorizedError_LeavesPending(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(errors.New("connection refused"))
+		Return("", errors.New("connection refused"))
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)
@@ -189,12 +189,12 @@ func TestDrain_BatchSizePushedToStore(t *testing.T) {
 			samplePendingEntry(0x01, 1),
 			samplePendingEntry(0x02, 2),
 		}, nil)
-	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything).Return(nil).Times(2)
+	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(2)
 
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(nil).Times(2)
+		Return("", nil).Times(2)
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(mock.Anything).Return(erc20, nil).Times(2)
@@ -269,7 +269,7 @@ func TestDrain_RunsEntriesConcurrently(t *testing.T) {
 
 	store := mocks.NewStore(t)
 	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolPending, mock.Anything).Return(entries, nil)
-	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything).Return(nil).Times(concurrency)
+	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(concurrency)
 
 	// Counts goroutines that have entered TransferFrom; release() unblocks
 	// them once we've seen all `concurrency` arrive simultaneously.
@@ -279,12 +279,12 @@ func TestDrain_RunsEntriesConcurrently(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, _, _ common.Address, _ big.Int) error {
+		RunAndReturn(func(_ context.Context, _ string, _, _ common.Address, _ big.Int) (string, error) {
 			if atomic.AddInt32(&inFlight, 1) == int32(concurrency) {
 				close(allArrived)
 			}
 			<-release
-			return nil
+			return "", nil
 		}).Times(concurrency)
 
 	tokenSvc := mocks.NewTokenService(t)
@@ -328,7 +328,7 @@ func TestDrain_RespectsConcurrencyCap(t *testing.T) {
 
 	store := mocks.NewStore(t)
 	store.EXPECT().GetMempoolEntriesByStatus(mock.Anything, ethrpc.MempoolPending, mock.Anything).Return(entries, nil)
-	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything).Return(nil).Times(batch)
+	store.EXPECT().CompleteMempoolEntry(mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(batch)
 
 	var (
 		inFlight int32
@@ -337,7 +337,7 @@ func TestDrain_RespectsConcurrencyCap(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, _, _ common.Address, _ big.Int) error {
+		RunAndReturn(func(_ context.Context, _ string, _, _ common.Address, _ big.Int) (string, error) {
 			cur := atomic.AddInt32(&inFlight, 1)
 			// Track the high-water mark of concurrent workers.
 			for {
@@ -348,7 +348,7 @@ func TestDrain_RespectsConcurrencyCap(t *testing.T) {
 			}
 			time.Sleep(20 * time.Millisecond)
 			atomic.AddInt32(&inFlight, -1)
-			return nil
+			return "", nil
 		}).Times(batch)
 
 	tokenSvc := mocks.NewTokenService(t)
@@ -385,10 +385,10 @@ func TestProcess_CantonContextDone_LeavesPending(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, _ string, _, _ common.Address, _ big.Int) error {
+		RunAndReturn(func(ctx context.Context, _ string, _, _ common.Address, _ big.Int) (string, error) {
 			// Block until the per-process ctx fires (propagated from parent).
 			<-ctx.Done()
-			return ctx.Err()
+			return "", ctx.Err()
 		})
 
 	tokenSvc := mocks.NewTokenService(t)
@@ -427,9 +427,9 @@ func TestProcess_DBWriteUsesFreshContext_OnSuccess(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, _ string, _, _ common.Address, _ big.Int) error {
+		RunAndReturn(func(ctx context.Context, _ string, _, _ common.Address, _ big.Int) (string, error) {
 			cantonCtx = ctx
-			return nil
+			return "", nil
 		})
 
 	tokenSvc := mocks.NewTokenService(t)
@@ -448,7 +448,7 @@ func TestProcess_DBWriteUsesFreshContext_OnSuccess(t *testing.T) {
 			// dbWriteTimeout = 10s; allow a generous lower bound so test
 			// timing jitter doesn't flake the assertion.
 			return ok && time.Until(deadline) > 5*time.Second
-		}), entry.TxHash).
+		}), entry.TxHash, mock.Anything).
 		Return(nil)
 
 	s := New(store, tokenSvc, time.Second, 0, 1, NewNopMetrics(), zap.NewNop())
@@ -466,7 +466,7 @@ func TestFailEntry_UsesFreshContext(t *testing.T) {
 	erc20 := mocks.NewERC20(t)
 	erc20.EXPECT().
 		TransferFrom(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(apperr.BadRequestError(errors.New("nope"), "permanent"))
+		Return("", apperr.BadRequestError(errors.New("nope"), "permanent"))
 
 	tokenSvc := mocks.NewTokenService(t)
 	tokenSvc.EXPECT().ERC20(common.HexToAddress(testContract)).Return(erc20, nil)

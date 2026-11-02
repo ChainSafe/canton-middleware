@@ -205,7 +205,11 @@ func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc
 	dao := new(EvmTransactionDao)
 	err := s.db.NewSelect().
 		Model(dao).
-		Where("tx_hash = ?", txHash).
+		ColumnExpr("etx.*").
+		ColumnExpr("m.canton_update_id").
+		ModelTableExpr("evm_transactions AS etx").
+		Join("LEFT JOIN mempool AS m ON m.tx_hash = etx.tx_hash").
+		Where("etx.tx_hash = ?", txHash).
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -318,12 +322,13 @@ func (s *PGStore) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolE
 }
 
 // CompleteMempoolEntry transitions a mempool entry from pending → completed after
-// a successful Canton transfer.  Only entries with status=pending are affected;
-// entries already completed, failed, or mined are left untouched.
-func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+// a successful Canton transfer, recording the Canton update ID.  Only entries with
+// status=pending are affected; entries already completed, failed, or mined are left untouched.
+func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte, cantonUpdateID string) error {
 	_, err := s.db.NewUpdate().
 		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolCompleted)).
+		Set("canton_update_id = ?", stringPtrOrNil(cantonUpdateID)).
 		Set("updated_at = current_timestamp").
 		Where("tx_hash = ?", txHash).
 		Where("status = ?", string(ethrpc.MempoolPending)).

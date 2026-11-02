@@ -26,6 +26,8 @@ type EvmTransactionDao struct {
 	GasUsed       uint64    `bun:"gas_used,notnull,default:21000"`
 	ErrorMessage  *string   `bun:"error_message,type:text"`
 	CreatedAt     time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	// CantonUpdateID is read from the mempool row via join; not stored on evm_transactions.
+	CantonUpdateID *string `bun:"canton_update_id,scanonly"`
 }
 
 func toEvmTransactionDao(tx *ethrpc.EvmTransaction) *EvmTransactionDao {
@@ -69,6 +71,9 @@ func fromEvmTransactionDao(dao *EvmTransactionDao) *ethrpc.EvmTransaction {
 	}
 	if dao.ErrorMessage != nil {
 		tx.ErrorMessage = *dao.ErrorMessage
+	}
+	if dao.CantonUpdateID != nil {
+		tx.CantonUpdateID = *dao.CantonUpdateID
 	}
 
 	return tx
@@ -199,6 +204,7 @@ type MempoolEntryDao struct {
 	AmountData       []byte    `bun:"amount_data,notnull,type:bytea"`
 	Status           string    `bun:"status,notnull,default:'pending',type:text"`
 	ErrorMessage     *string   `bun:"error_message,type:text"`
+	CantonUpdateID   *string   `bun:"canton_update_id,type:text"`
 	CreatedAt        time.Time `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt        time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }

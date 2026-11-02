@@ -19,7 +19,8 @@ type ERC20 interface {
 	Decimals(ctx context.Context) uint8
 	TotalSupply(ctx context.Context) big.Int
 	BalanceOf(ctx context.Context, address common.Address) big.Int
-	TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) error
+	// TransferFrom executes the transfer on Canton and returns the Canton update ID.
+	TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) (string, error)
 	Approve(ctx context.Context, spender common.Address, amount big.Int) error
 	Allowance(ctx context.Context, owner, spender common.Address) big.Int
 }
@@ -85,7 +86,7 @@ func (e *erc20Impl) BalanceOf(ctx context.Context, address common.Address) big.I
 	return balance
 }
 
-func (e *erc20Impl) TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) error {
+func (e *erc20Impl) TransferFrom(ctx context.Context, idempotencyKey string, from, to common.Address, amount big.Int) (string, error) {
 	return e.svc.transfer(ctx, idempotencyKey, e.address, from, to, bigIntToDecimal(amount, e.Decimals(ctx)))
 }
 

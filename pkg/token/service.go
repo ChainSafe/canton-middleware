@@ -130,21 +130,21 @@ func (s *Service) Native() Native {
 // transfer executes a token transfer from one user to another using user-owned holdings.
 // idempotencyKey is forwarded to Canton as the commandId for idempotent submission.
 // Works for any CIP-56 whitelisted token.
-func (s *Service) transfer(ctx context.Context, idempotencyKey string, contract, from, to common.Address, amount string) error {
+func (s *Service) transfer(ctx context.Context, idempotencyKey string, contract, from, to common.Address, amount string) (string, error) {
 	tkn, err := s.cfg.getToken(contract)
 	if err != nil {
-		return apperr.BadRequestError(err, fmt.Sprintf("token not supported: %s", contract.Hex()))
+		return "", apperr.BadRequestError(err, fmt.Sprintf("token not supported: %s", contract.Hex()))
 	}
 	fromUser, err := s.userStore.GetUserByEVMAddress(ctx, from.Hex())
 	if err != nil {
-		return apperr.BadRequestError(fmt.Errorf("failed to get sender: %w", err), "failed to get sender")
+		return "", apperr.BadRequestError(fmt.Errorf("failed to get sender: %w", err), "failed to get sender")
 	}
 	toUser, err := s.userStore.GetUserByEVMAddress(ctx, to.Hex())
 	if err != nil {
-		return apperr.BadRequestError(fmt.Errorf("failed to get recipient: %w", err), "failed to get recipient")
+		return "", apperr.BadRequestError(fmt.Errorf("failed to get recipient: %w", err), "failed to get recipient")
 	}
 
-	err = s.cantonClient.TransferByFingerprint(ctx,
+	updateID, err := s.cantonClient.TransferByFingerprint(ctx,
 		idempotencyKey,
 		fromUser.Fingerprint,
 		toUser.Fingerprint,
@@ -154,12 +154,12 @@ func (s *Service) transfer(ctx context.Context, idempotencyKey string, contract,
 	)
 	if err != nil {
 		if errors.Is(err, canton.ErrInsufficientBalance) {
-			return apperr.BadRequestError(err, "insufficient balance")
+			return "", apperr.BadRequestError(err, "insufficient balance")
 		}
-		return apperr.DependencyError(fmt.Errorf("canton transfer failed: %w", err), "canton transfer failed")
+		return "", apperr.DependencyError(fmt.Errorf("canton transfer failed: %w", err), "canton transfer failed")
 	}
 
-	return nil
+	return updateID, nil
 }
 
 // getBalance returns the token balance for an EVM address.
