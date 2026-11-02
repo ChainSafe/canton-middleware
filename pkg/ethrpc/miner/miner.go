@@ -121,6 +121,8 @@ func (m *Miner) mine(ctx context.Context) (err error) {
 			BlockHash:   block.Hash(),
 			TxIndex:     txIndex,
 			GasUsed:     m.gasLimit,
+			// Set by the submitter on completed entries; empty for failures.
+			CantonUpdateID: e.CantonUpdateID,
 		}
 		if !succeeded {
 			evmTx.ErrorMessage = e.ErrorMessage

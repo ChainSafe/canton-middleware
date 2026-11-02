@@ -79,6 +79,7 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 		"0xdddddddddddddddddddddddddddddddddddddd",
 		0, 42,
 	)
+	entry.CantonUpdateID = "canton-update-1"
 
 	block := setupBlock(t, 5)
 	block.EXPECT().AddEvmTransaction(mock.Anything, mock.MatchedBy(func(tx *ethrpc.EvmTransaction) bool {
@@ -86,7 +87,8 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 			tx.FromAddress == entry.FromAddress &&
 			tx.ToAddress == entry.ContractAddress &&
 			tx.TxIndex == 0 &&
-			tx.GasUsed == testGasLimit
+			tx.GasUsed == testGasLimit &&
+			tx.CantonUpdateID == entry.CantonUpdateID
 	})).Return(nil).Once()
 	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()

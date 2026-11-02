@@ -375,11 +375,11 @@ func TestPGStore_FailedTransactionStatusPersists(t *testing.T) {
 	}
 }
 
-func TestPGStore_GetEvmTransaction_CantonUpdateID(t *testing.T) {
+func TestPGStore_CantonUpdateID_PersistsThroughMining(t *testing.T) {
 	ctx := context.Background()
 	store, _ := setupEVMStore(t)
 
-	withEntry := &ethrpc.MempoolEntry{
+	entry := &ethrpc.MempoolEntry{
 		TxHash:           []byte{0xcd, 0x01},
 		FromAddress:      "0x1111111111111111111111111111111111111111",
 		ContractAddress:  "0x3333333333333333333333333333333333333333",
@@ -387,10 +387,10 @@ func TestPGStore_GetEvmTransaction_CantonUpdateID(t *testing.T) {
 		Input:            []byte{0xaa},
 		AmountData:       []byte{0x01},
 	}
-	if err := store.InsertMempoolEntry(ctx, withEntry); err != nil {
+	if err := store.InsertMempoolEntry(ctx, entry); err != nil {
 		t.Fatalf("InsertMempoolEntry failed: %v", err)
 	}
-	if err := store.CompleteMempoolEntry(ctx, withEntry.TxHash, "canton-update-1"); err != nil {
+	if err := store.CompleteMempoolEntry(ctx, entry.TxHash, "canton-update-1"); err != nil {
 		t.Fatalf("CompleteMempoolEntry failed: %v", err)
 	}
 
@@ -398,42 +398,47 @@ func TestPGStore_GetEvmTransaction_CantonUpdateID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBlock failed: %v", err)
 	}
-	for _, hash := range [][]byte{withEntry.TxHash, {0xcd, 0x02}} {
-		if err = block.AddEvmTransaction(ctx, &ethrpc.EvmTransaction{
-			TxHash:      hash,
-			FromAddress: withEntry.FromAddress,
-			ToAddress:   withEntry.ContractAddress,
-			Input:       []byte{0xaa},
-			ValueWei:    "0",
-			Status:      1,
-			BlockNumber: block.Number(),
-			BlockHash:   block.Hash(),
-			GasUsed:     21000,
-		}); err != nil {
-			t.Fatalf("AddEvmTransaction(%x) failed: %v", hash, err)
+	claimed, err := block.ClaimMempoolEntries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimMempoolEntries failed: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].CantonUpdateID != "canton-update-1" {
+		t.Fatalf("claimed entry must carry the update ID, got %+v", claimed)
+	}
+	for _, tx := range []*ethrpc.EvmTransaction{
+		{TxHash: entry.TxHash, CantonUpdateID: claimed[0].CantonUpdateID},
+		{TxHash: []byte{0xcd, 0x02}},
+	} {
+		tx.FromAddress = entry.FromAddress
+		tx.ToAddress = entry.ContractAddress
+		tx.Input = []byte{0xaa}
+		tx.ValueWei = "0"
+		tx.Status = 1
+		tx.BlockNumber = block.Number()
+		tx.BlockHash = block.Hash()
+		tx.GasUsed = 21000
+		if err = block.AddEvmTransaction(ctx, tx); err != nil {
+			t.Fatalf("AddEvmTransaction(%x) failed: %v", tx.TxHash, err)
 		}
 	}
 	if err = block.Finalize(ctx); err != nil {
 		t.Fatalf("Finalize failed: %v", err)
 	}
 
-	got, err := store.GetEvmTransaction(ctx, withEntry.TxHash)
+	got, err := store.GetEvmTransaction(ctx, entry.TxHash)
 	if err != nil || got == nil {
-		t.Fatalf("GetEvmTransaction(with mempool row) = %v, %v", got, err)
+		t.Fatalf("GetEvmTransaction(with update ID) = %v, %v", got, err)
 	}
 	if got.CantonUpdateID != "canton-update-1" {
 		t.Fatalf("CantonUpdateID: got %q want %q", got.CantonUpdateID, "canton-update-1")
 	}
-	if got.Status != 1 || got.FromAddress != withEntry.FromAddress {
-		t.Fatalf("evm transaction fields not scanned through join: %+v", got)
-	}
 
 	got, err = store.GetEvmTransaction(ctx, []byte{0xcd, 0x02})
 	if err != nil || got == nil {
-		t.Fatalf("GetEvmTransaction(without mempool row) = %v, %v", got, err)
+		t.Fatalf("GetEvmTransaction(without update ID) = %v, %v", got, err)
 	}
 	if got.CantonUpdateID != "" {
-		t.Fatalf("CantonUpdateID without mempool row: got %q want empty", got.CantonUpdateID)
+		t.Fatalf("CantonUpdateID without one recorded: got %q want empty", got.CantonUpdateID)
 	}
 }
 

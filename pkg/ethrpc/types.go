@@ -262,8 +262,9 @@ type MempoolEntry struct {
 	// entries returned by ClaimMempoolEntries it reflects the value the entry
 	// held immediately before being sealed (completed or failed), so the miner
 	// can synthesize the correct EVM transaction status (1 vs 0).
-	Status       MempoolStatus
-	ErrorMessage string // populated for failed entries; surfaced via the receipt
+	Status         MempoolStatus
+	ErrorMessage   string // populated for failed entries; surfaced via the receipt
+	CantonUpdateID string // populated for completed entries; surfaced via the receipt
 }
 
 // SyncStatus represents the syncing status response

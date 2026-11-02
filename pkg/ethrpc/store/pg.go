@@ -134,6 +134,9 @@ func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock i
 		if dao.ErrorMessage != nil {
 			entry.ErrorMessage = *dao.ErrorMessage
 		}
+		if dao.CantonUpdateID != nil {
+			entry.CantonUpdateID = *dao.CantonUpdateID
+		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -200,20 +203,12 @@ func (s *PGStore) GetLatestEvmBlockNumber(ctx context.Context) (uint64, error) {
 	return state.LatestBlock, nil
 }
 
-// GetEvmTransaction retrieves a synthetic EVM transaction by hash, with the
-// Canton update ID from its mempool row when one exists.
+// GetEvmTransaction retrieves a synthetic EVM transaction by hash.
 func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error) {
-	row := new(struct {
-		EvmTransactionDao `bun:",extend"`
-		CantonUpdateID    *string `bun:"canton_update_id"`
-	})
+	dao := new(EvmTransactionDao)
 	err := s.db.NewSelect().
-		Model(row).
-		ColumnExpr("etx.*").
-		ColumnExpr("m.canton_update_id").
-		ModelTableExpr("evm_transactions AS etx").
-		Join("LEFT JOIN mempool AS m ON m.tx_hash = etx.tx_hash").
-		Where("etx.tx_hash = ?", txHash).
+		Model(dao).
+		Where("tx_hash = ?", txHash).
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -222,11 +217,7 @@ func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc
 		}
 		return nil, fmt.Errorf("get evm transaction: %w", err)
 	}
-	tx := fromEvmTransactionDao(&row.EvmTransactionDao)
-	if row.CantonUpdateID != nil {
-		tx.CantonUpdateID = *row.CantonUpdateID
-	}
-	return tx, nil
+	return fromEvmTransactionDao(dao), nil
 }
 
 // GetBlockNumberByHash returns the block number for a given block hash.
@@ -398,6 +389,9 @@ func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.M
 		}
 		if dao.ErrorMessage != nil {
 			entry.ErrorMessage = *dao.ErrorMessage
+		}
+		if dao.CantonUpdateID != nil {
+			entry.CantonUpdateID = *dao.CantonUpdateID
 		}
 		entries = append(entries, entry)
 	}

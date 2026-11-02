@@ -12,20 +12,21 @@ import (
 
 // EvmTransactionDao maps to the evm_transactions table.
 type EvmTransactionDao struct {
-	bun.BaseModel `bun:"table:evm_transactions"`
-	TxHash        []byte    `bun:"tx_hash,pk,notnull,type:bytea"`
-	FromAddress   string    `bun:"from_address,notnull,type:text"`
-	ToAddress     string    `bun:"to_address,notnull,type:text"`
-	Nonce         uint64    `bun:"nonce,notnull"`
-	Input         []byte    `bun:"input,notnull,type:bytea"`
-	ValueWei      string    `bun:"value_wei,notnull,default:'0',type:text"`
-	Status        uint8     `bun:"status,notnull,type:smallint"`
-	BlockNumber   uint64    `bun:"block_number,notnull"`
-	BlockHash     []byte    `bun:"block_hash,notnull,type:bytea"`
-	TxIndex       uint      `bun:"tx_index,notnull,default:0"`
-	GasUsed       uint64    `bun:"gas_used,notnull,default:21000"`
-	ErrorMessage  *string   `bun:"error_message,type:text"`
-	CreatedAt     time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	bun.BaseModel  `bun:"table:evm_transactions"`
+	TxHash         []byte    `bun:"tx_hash,pk,notnull,type:bytea"`
+	FromAddress    string    `bun:"from_address,notnull,type:text"`
+	ToAddress      string    `bun:"to_address,notnull,type:text"`
+	Nonce          uint64    `bun:"nonce,notnull"`
+	Input          []byte    `bun:"input,notnull,type:bytea"`
+	ValueWei       string    `bun:"value_wei,notnull,default:'0',type:text"`
+	Status         uint8     `bun:"status,notnull,type:smallint"`
+	BlockNumber    uint64    `bun:"block_number,notnull"`
+	BlockHash      []byte    `bun:"block_hash,notnull,type:bytea"`
+	TxIndex        uint      `bun:"tx_index,notnull,default:0"`
+	GasUsed        uint64    `bun:"gas_used,notnull,default:21000"`
+	ErrorMessage   *string   `bun:"error_message,type:text"`
+	CantonUpdateID *string   `bun:"canton_update_id,type:text"`
+	CreatedAt      time.Time `bun:"created_at,notnull,default:current_timestamp"`
 }
 
 func toEvmTransactionDao(tx *ethrpc.EvmTransaction) *EvmTransactionDao {
@@ -34,18 +35,19 @@ func toEvmTransactionDao(tx *ethrpc.EvmTransaction) *EvmTransactionDao {
 	}
 
 	return &EvmTransactionDao{
-		TxHash:       tx.TxHash,
-		FromAddress:  tx.FromAddress,
-		ToAddress:    tx.ToAddress,
-		Nonce:        tx.Nonce,
-		Input:        tx.Input,
-		ValueWei:     tx.ValueWei,
-		Status:       tx.Status,
-		BlockNumber:  tx.BlockNumber,
-		BlockHash:    tx.BlockHash,
-		TxIndex:      tx.TxIndex,
-		GasUsed:      tx.GasUsed,
-		ErrorMessage: stringPtrOrNil(tx.ErrorMessage),
+		TxHash:         tx.TxHash,
+		FromAddress:    tx.FromAddress,
+		ToAddress:      tx.ToAddress,
+		Nonce:          tx.Nonce,
+		Input:          tx.Input,
+		ValueWei:       tx.ValueWei,
+		Status:         tx.Status,
+		BlockNumber:    tx.BlockNumber,
+		BlockHash:      tx.BlockHash,
+		TxIndex:        tx.TxIndex,
+		GasUsed:        tx.GasUsed,
+		ErrorMessage:   stringPtrOrNil(tx.ErrorMessage),
+		CantonUpdateID: stringPtrOrNil(tx.CantonUpdateID),
 	}
 }
 
@@ -69,6 +71,9 @@ func fromEvmTransactionDao(dao *EvmTransactionDao) *ethrpc.EvmTransaction {
 	}
 	if dao.ErrorMessage != nil {
 		tx.ErrorMessage = *dao.ErrorMessage
+	}
+	if dao.CantonUpdateID != nil {
+		tx.CantonUpdateID = *dao.CantonUpdateID
 	}
 
 	return tx
