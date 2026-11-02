@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/ChainSafe/canton-middleware/compare/v0.9.1...v0.10.0) (2026-11-02)
+
+
+### Features
+
+* **ethrpc:** Canton update ID on receipts ([#392](https://github.com/ChainSafe/canton-middleware/issues/392)) ([a676e19](https://github.com/ChainSafe/canton-middleware/commit/a676e192c2c2a075123d3c6d231cb295fadde185))
+* **ethrpc:** report release version ([#391](https://github.com/ChainSafe/canton-middleware/issues/391)) ([00a42a3](https://github.com/ChainSafe/canton-middleware/commit/00a42a3b6a3456a300ebab7b40e2d01adaeaa1ad))
+
 ## [0.9.1](https://github.com/ChainSafe/canton-middleware/compare/v0.9.0...v0.9.1) (2026-10-07)
 
 
