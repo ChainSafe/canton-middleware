@@ -92,9 +92,10 @@ type Token interface {
 	// TransferByFingerprint transfers tokens by resolving fingerprints to parties.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
 	// validity sets the on-ledger transfer offer's executeBefore window and must be positive.
+	// Returns the Canton update ID of the executed transaction.
 	TransferByFingerprint(
 		ctx context.Context, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol string, validity time.Duration,
-	) error
+	) (string, error)
 
 	// TransferByPartyID transfers tokens by party IDs using Interactive Submission.
 	// idempotencyKey is used as the Canton CommandId for idempotent submission.
@@ -553,49 +554,56 @@ func (c *Client) TransferInternalByPartyID(
 }
 
 func (c *Client) TransferByFingerprint(ctx context.Context, idempotencyKey, fromFingerprint,
-	toFingerprint, amount, tokenSymbol string, validity time.Duration) error {
+	toFingerprint, amount, tokenSymbol string, validity time.Duration) (string, error) {
 	// Fail fast before the two identity-mapping lookups below.
 	if validity <= 0 {
-		return fmt.Errorf("transfer validity must be positive")
+		return "", fmt.Errorf("transfer validity must be positive")
 	}
 	fromMap, err := c.identity.GetFingerprintMapping(ctx, fromFingerprint)
 	if err != nil {
-		return fmt.Errorf("sender not found: %w", err)
+		return "", fmt.Errorf("sender not found: %w", err)
 	}
 	toMap, err := c.identity.GetFingerprintMapping(ctx, toFingerprint)
 	if err != nil {
-		return fmt.Errorf("recipient not found: %w", err)
+		return "", fmt.Errorf("recipient not found: %w", err)
 	}
 
-	return c.TransferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol, validity)
+	return c.transferByPartyID(ctx, idempotencyKey, fromMap.UserParty, toMap.UserParty, amount, tokenSymbol, validity)
 }
 
 func (c *Client) TransferByPartyID(
 	ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration,
 ) error {
+	_, err := c.transferByPartyID(ctx, idempotencyKey, fromParty, toParty, amount, tokenSymbol, validity)
+	return err
+}
+
+func (c *Client) transferByPartyID(
+	ctx context.Context, idempotencyKey, fromParty, toParty, amount, tokenSymbol string, validity time.Duration,
+) (string, error) {
 	if idempotencyKey == "" {
-		return fmt.Errorf("idempotencyKey is required")
+		return "", fmt.Errorf("idempotencyKey is required")
 	}
 	if fromParty == "" || toParty == "" {
-		return fmt.Errorf("from/to party is required")
+		return "", fmt.Errorf("from/to party is required")
 	}
 	if amount == "" {
-		return fmt.Errorf("amount is required")
+		return "", fmt.Errorf("amount is required")
 	}
 	if tokenSymbol == "" {
-		return fmt.Errorf("token symbol is required")
+		return "", fmt.Errorf("token symbol is required")
 	}
 	if validity <= 0 {
-		return fmt.Errorf("transfer validity must be positive")
+		return "", fmt.Errorf("transfer validity must be positive")
 	}
 
 	holdings, err := c.GetHoldings(ctx, fromParty, tokenSymbol)
 	if err != nil {
-		return err
+		return "", err
 	}
 	selected, err := selectHoldingsForTransfer(holdings, amount)
 	if err != nil {
-		return fmt.Errorf("select holdings for transfer: %w", err)
+		return "", fmt.Errorf("select holdings for transfer: %w", err)
 	}
 
 	req := &transferFactoryRequest{
@@ -610,7 +618,7 @@ func (c *Client) TransferByPartyID(
 	}
 
 	if err := c.resolveTransferFactory(ctx, req); err != nil {
-		return err
+		return "", err
 	}
 
 	return c.transferViaFactory(ctx, req)
@@ -645,19 +653,19 @@ type transferFactoryRequest struct {
 	Validity time.Duration
 }
 
-func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) error {
+func (c *Client) transferViaFactory(ctx context.Context, req *transferFactoryRequest) (string, error) {
 	if c.keyResolver == nil {
-		return fmt.Errorf("transfer failed: no key resolver configured (required for Interactive Submission)")
+		return "", fmt.Errorf("transfer failed: no key resolver configured (required for Interactive Submission)")
 	}
 
 	signerKey, err := c.keyResolver(req.FromPartyID)
 	if err != nil {
-		return fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
+		return "", fmt.Errorf("transfer failed: cannot resolve signing key for party %s: %w", req.FromPartyID, err)
 	}
 
 	cmd, err := c.buildTransferCommand(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	readAs := []string{c.cfg.IssuerParty}
@@ -1035,7 +1043,7 @@ func (c *Client) GetTransferFactory(ctx context.Context) (*TransferFactoryInfo, 
 // prepareAndExecuteAsUser uses the Interactive Submission API to submit a
 // transaction on behalf of an external party. It prepares the transaction,
 // signs the hash with the party's private key, and executes it.
-func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.Commands, signerKey Signer, partyID string) error {
+func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.Commands, signerKey Signer, partyID string) (string, error) {
 	authCtx := c.ledger.AuthContext(ctx)
 
 	prepResp, err := c.ledger.Interactive().PrepareSubmission(authCtx, &interactivev2.PrepareSubmissionRequest{
@@ -1048,17 +1056,17 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 		DisclosedContracts: commands.DisclosedContracts,
 	})
 	if err != nil {
-		return fmt.Errorf("prepare submission: %w", err)
+		return "", fmt.Errorf("prepare submission: %w", err)
 	}
 
 	derSig, err := signerKey.SignDER(prepResp.PreparedTransactionHash)
 	if err != nil {
-		return fmt.Errorf("sign prepared transaction: %w", err)
+		return "", fmt.Errorf("sign prepared transaction: %w", err)
 	}
 
 	fingerprint, err := signerKey.Fingerprint()
 	if err != nil {
-		return fmt.Errorf("get signer fingerprint: %w", err)
+		return "", fmt.Errorf("get signer fingerprint: %w", err)
 	}
 
 	partySigs := &interactivev2.PartySignatures{
@@ -1077,7 +1085,7 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 		},
 	}
 
-	_, err = c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
+	resp, err := c.ledger.Interactive().ExecuteSubmissionAndWait(authCtx, &interactivev2.ExecuteSubmissionAndWaitRequest{
 		PreparedTransaction:  prepResp.PreparedTransaction,
 		PartySignatures:      partySigs,
 		SubmissionId:         uuid.NewString(),
@@ -1085,10 +1093,10 @@ func (c *Client) prepareAndExecuteAsUser(ctx context.Context, commands *lapiv2.C
 		HashingSchemeVersion: prepResp.HashingSchemeVersion,
 	})
 	if err != nil {
-		return fmt.Errorf("execute submission: %w", err)
+		return "", fmt.Errorf("execute submission: %w", err)
 	}
 
-	return nil
+	return resp.GetUpdateId(), nil
 }
 
 type selectedHoldings struct {
@@ -1422,7 +1430,8 @@ func (c *Client) exerciseInstructionAsCustodial(
 		Commands:           []*lapiv2.Command{cmd},
 		DisclosedContracts: disclosed,
 	}
-	return c.prepareAndExecuteAsUser(ctx, commands, signerKey, partyID)
+	_, err = c.prepareAndExecuteAsUser(ctx, commands, signerKey, partyID)
+	return err
 }
 
 func (c *Client) PrepareAcceptTransfer(

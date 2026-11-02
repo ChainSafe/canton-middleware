@@ -989,21 +989,31 @@ func (_c *Token_PrepareWithdrawTransfer_Call) RunAndReturn(run func(context.Cont
 }
 
 // TransferByFingerprint provides a mock function with given fields: ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity
-func (_m *Token) TransferByFingerprint(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string, validity time.Duration) error {
+func (_m *Token) TransferByFingerprint(ctx context.Context, idempotencyKey string, fromFingerprint string, toFingerprint string, amount string, tokenSymbol string, validity time.Duration) (string, error) {
 	ret := _m.Called(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransferByFingerprint")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, time.Duration) error); ok {
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, time.Duration) (string, error)); ok {
+		return rf(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, time.Duration) string); ok {
 		r0 = rf(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(string)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, string, time.Duration) error); ok {
+		r1 = rf(ctx, idempotencyKey, fromFingerprint, toFingerprint, amount, tokenSymbol, validity)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // Token_TransferByFingerprint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferByFingerprint'
@@ -1030,12 +1040,12 @@ func (_c *Token_TransferByFingerprint_Call) Run(run func(ctx context.Context, id
 	return _c
 }
 
-func (_c *Token_TransferByFingerprint_Call) Return(_a0 error) *Token_TransferByFingerprint_Call {
-	_c.Call.Return(_a0)
+func (_c *Token_TransferByFingerprint_Call) Return(_a0 string, _a1 error) *Token_TransferByFingerprint_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, time.Duration) error) *Token_TransferByFingerprint_Call {
+func (_c *Token_TransferByFingerprint_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, time.Duration) (string, error)) *Token_TransferByFingerprint_Call {
 	_c.Call.Return(run)
 	return _c
 }

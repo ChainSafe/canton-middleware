@@ -352,21 +352,31 @@ func (_c *ERC20_TotalSupply_Call) RunAndReturn(run func(context.Context) big.Int
 }
 
 // TransferFrom provides a mock function with given fields: ctx, idempotencyKey, from, to, amount
-func (_m *ERC20) TransferFrom(ctx context.Context, idempotencyKey string, from common.Address, to common.Address, amount big.Int) error {
+func (_m *ERC20) TransferFrom(ctx context.Context, idempotencyKey string, from common.Address, to common.Address, amount big.Int) (string, error) {
 	ret := _m.Called(ctx, idempotencyKey, from, to, amount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TransferFrom")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, common.Address, common.Address, big.Int) error); ok {
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, common.Address, common.Address, big.Int) (string, error)); ok {
+		return rf(ctx, idempotencyKey, from, to, amount)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, common.Address, common.Address, big.Int) string); ok {
 		r0 = rf(ctx, idempotencyKey, from, to, amount)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(string)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, common.Address, common.Address, big.Int) error); ok {
+		r1 = rf(ctx, idempotencyKey, from, to, amount)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // ERC20_TransferFrom_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransferFrom'
@@ -391,12 +401,12 @@ func (_c *ERC20_TransferFrom_Call) Run(run func(ctx context.Context, idempotency
 	return _c
 }
 
-func (_c *ERC20_TransferFrom_Call) Return(_a0 error) *ERC20_TransferFrom_Call {
-	_c.Call.Return(_a0)
+func (_c *ERC20_TransferFrom_Call) Return(_a0 string, _a1 error) *ERC20_TransferFrom_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *ERC20_TransferFrom_Call) RunAndReturn(run func(context.Context, string, common.Address, common.Address, big.Int) error) *ERC20_TransferFrom_Call {
+func (_c *ERC20_TransferFrom_Call) RunAndReturn(run func(context.Context, string, common.Address, common.Address, big.Int) (string, error)) *ERC20_TransferFrom_Call {
 	_c.Call.Return(run)
 	return _c
 }

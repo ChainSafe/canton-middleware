@@ -878,6 +878,8 @@ paths:
         - The call returns the hash immediately and the transfer executes on Canton asynchronously.
         - Poll `eth_getTransactionReceipt` for the result.
         - A failed transfer is mined with status `0x0`, and its receipt carries `revertReason`.
+        - A successful transfer's receipt carries `cantonUpdateId`, the Canton update that settled it.
+          It is omitted for transfers made before the field was introduced.
         - `approve` and `transferFrom` are not supported.
 
         **Block selectors.** They accept `latest`, `earliest`, `pending`, a hex number or a block hash,

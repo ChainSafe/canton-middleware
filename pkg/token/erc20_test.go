@@ -268,13 +268,14 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT", 30*24*time.Hour).Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, promptUser().Fingerprint, demoUser().Fingerprint, "1", "PROMPT", 30*24*time.Hour).Return("canton-update-1", nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		updateID, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.NoError(t, err)
+		require.Equal(t, "canton-update-1", updateID)
 	})
 
 	t.Run("success: transfer does not require local balance sync", func(t *testing.T) {
@@ -283,12 +284,12 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return(nil)
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return("", nil)
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		_, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.NoError(t, err)
 	})
 
@@ -296,7 +297,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, nil, nil)
 		erc20 := token.NewERC20(unsupportedAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		_, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "token not supported")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -309,7 +310,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		_, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get sender")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -323,7 +324,7 @@ func TestERC20_TransferFrom(t *testing.T) {
 		svc := token.NewTokenService(newCfg(), nil, userStore, nil)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		_, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get recipient")
 		assert.True(t, apperr.Is(err, apperr.CategoryDataError))
@@ -335,12 +336,12 @@ func TestERC20_TransferFrom(t *testing.T) {
 		userStore.EXPECT().GetUserByEVMAddress(mock.Anything, toAddr.Hex()).Return(demoUser(), nil)
 
 		cantonToken := mocks.NewToken(t)
-		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return(errors.New("ledger down"))
+		cantonToken.EXPECT().TransferByFingerprint(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, "PROMPT", 30*24*time.Hour).Return("", errors.New("ledger down"))
 
 		svc := token.NewTokenService(newCfg(), nil, userStore, cantonToken)
 		erc20 := token.NewERC20(promptAddr, svc)
 
-		err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
+		_, err := erc20.TransferFrom(ctx, "test-cmd", fromAddr, toAddr, amount)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "canton transfer failed")
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))

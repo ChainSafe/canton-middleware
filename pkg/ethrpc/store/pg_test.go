@@ -375,6 +375,73 @@ func TestPGStore_FailedTransactionStatusPersists(t *testing.T) {
 	}
 }
 
+func TestPGStore_CantonUpdateID_PersistsThroughMining(t *testing.T) {
+	ctx := context.Background()
+	store, _ := setupEVMStore(t)
+
+	entry := &ethrpc.MempoolEntry{
+		TxHash:           []byte{0xcd, 0x01},
+		FromAddress:      "0x1111111111111111111111111111111111111111",
+		ContractAddress:  "0x3333333333333333333333333333333333333333",
+		RecipientAddress: "0x2222222222222222222222222222222222222222",
+		Input:            []byte{0xaa},
+		AmountData:       []byte{0x01},
+	}
+	if err := store.InsertMempoolEntry(ctx, entry); err != nil {
+		t.Fatalf("InsertMempoolEntry failed: %v", err)
+	}
+	if err := store.CompleteMempoolEntry(ctx, entry.TxHash, "canton-update-1"); err != nil {
+		t.Fatalf("CompleteMempoolEntry failed: %v", err)
+	}
+
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock failed: %v", err)
+	}
+	claimed, err := block.ClaimMempoolEntries(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimMempoolEntries failed: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].CantonUpdateID != "canton-update-1" {
+		t.Fatalf("claimed entry must carry the update ID, got %+v", claimed)
+	}
+	for _, tx := range []*ethrpc.EvmTransaction{
+		{TxHash: entry.TxHash, CantonUpdateID: claimed[0].CantonUpdateID},
+		{TxHash: []byte{0xcd, 0x02}},
+	} {
+		tx.FromAddress = entry.FromAddress
+		tx.ToAddress = entry.ContractAddress
+		tx.Input = []byte{0xaa}
+		tx.ValueWei = "0"
+		tx.Status = 1
+		tx.BlockNumber = block.Number()
+		tx.BlockHash = block.Hash()
+		tx.GasUsed = 21000
+		if err = block.AddEvmTransaction(ctx, tx); err != nil {
+			t.Fatalf("AddEvmTransaction(%x) failed: %v", tx.TxHash, err)
+		}
+	}
+	if err = block.Finalize(ctx); err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+
+	got, err := store.GetEvmTransaction(ctx, entry.TxHash)
+	if err != nil || got == nil {
+		t.Fatalf("GetEvmTransaction(with update ID) = %v, %v", got, err)
+	}
+	if got.CantonUpdateID != "canton-update-1" {
+		t.Fatalf("CantonUpdateID: got %q want %q", got.CantonUpdateID, "canton-update-1")
+	}
+
+	got, err = store.GetEvmTransaction(ctx, []byte{0xcd, 0x02})
+	if err != nil || got == nil {
+		t.Fatalf("GetEvmTransaction(without update ID) = %v, %v", got, err)
+	}
+	if got.CantonUpdateID != "" {
+		t.Fatalf("CantonUpdateID without one recorded: got %q want empty", got.CantonUpdateID)
+	}
+}
+
 func TestPGStore_Logs(t *testing.T) {
 	ctx := context.Background()
 	store, db := setupEVMStore(t)
@@ -579,7 +646,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 
 	// Transition entry1 → completed, entry3 → failed with error message.
-	if err = store.CompleteMempoolEntry(ctx, entry1.TxHash); err != nil {
+	if err = store.CompleteMempoolEntry(ctx, entry1.TxHash, "canton-update-1"); err != nil {
 		t.Fatalf("CompleteMempoolEntry(entry1) failed: %v", err)
 	}
 	if err = store.FailMempoolEntry(ctx, entry3.TxHash, "canton error: insufficient funds"); err != nil {
@@ -640,7 +707,7 @@ func TestPGStore_Mempool(t *testing.T) {
 	}
 
 	// ClaimMempoolEntries inside an aborted block must NOT persist the status change.
-	if err = store.CompleteMempoolEntry(ctx, entry2.TxHash); err != nil {
+	if err = store.CompleteMempoolEntry(ctx, entry2.TxHash, ""); err != nil {
 		t.Fatalf("CompleteMempoolEntry(entry2) failed: %v", err)
 	}
 	abortBlock, err := store.NewBlock(ctx, testChainID)

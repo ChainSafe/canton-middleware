@@ -55,7 +55,7 @@ type Store interface {
 	// submitter passes its batch size so a backlog never loads the entire
 	// pending queue into memory.
 	GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.MempoolStatus, limit int) ([]ethrpc.MempoolEntry, error)
-	CompleteMempoolEntry(ctx context.Context, txHash []byte) error
+	CompleteMempoolEntry(ctx context.Context, txHash []byte, cantonUpdateID string) error
 	FailMempoolEntry(ctx context.Context, txHash []byte, errMsg string) error
 }
 
@@ -243,12 +243,12 @@ func (s *Submitter) process(parent context.Context, entry *ethrpc.MempoolEntry) 
 	cantonStart := time.Now()
 	cantonCtx, cancel := context.WithTimeout(parent, cantonCallTimeout)
 	defer cancel()
-	transferErr := erc20.TransferFrom(cantonCtx, txHash.Hex(), fromAddr, toAddr, *amount)
+	updateID, transferErr := erc20.TransferFrom(cantonCtx, txHash.Hex(), fromAddr, toAddr, *amount)
 	cantonDur := time.Since(cantonStart).Seconds()
 
 	if transferErr == nil {
 		s.metrics.CantonTransferDuration.WithLabelValues("ok").Observe(cantonDur)
-		s.completeEntry(parent, entry, txHash)
+		s.completeEntry(parent, entry, txHash, updateID)
 		outcome = "completed"
 		return
 	}
@@ -273,10 +273,10 @@ func (s *Submitter) process(parent context.Context, entry *ethrpc.MempoolEntry) 
 
 // completeEntry writes the pending → completed transition under its own short
 // deadline derived from parent (see dbWriteTimeout doc).
-func (s *Submitter) completeEntry(parent context.Context, entry *ethrpc.MempoolEntry, txHash common.Hash) {
+func (s *Submitter) completeEntry(parent context.Context, entry *ethrpc.MempoolEntry, txHash common.Hash, cantonUpdateID string) {
 	ctx, cancel := context.WithTimeout(parent, dbWriteTimeout)
 	defer cancel()
-	if err := s.store.CompleteMempoolEntry(ctx, entry.TxHash); err != nil {
+	if err := s.store.CompleteMempoolEntry(ctx, entry.TxHash, cantonUpdateID); err != nil {
 		s.metrics.DBWriteErrorsTotal.WithLabelValues("complete").Inc()
 		s.logger.Error("ethrpc submitter: complete mempool entry failed",
 			zap.String("tx", txHash.Hex()),

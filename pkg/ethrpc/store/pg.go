@@ -134,6 +134,9 @@ func (b *pendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock i
 		if dao.ErrorMessage != nil {
 			entry.ErrorMessage = *dao.ErrorMessage
 		}
+		if dao.CantonUpdateID != nil {
+			entry.CantonUpdateID = *dao.CantonUpdateID
+		}
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -318,12 +321,13 @@ func (s *PGStore) InsertMempoolEntry(ctx context.Context, entry *ethrpc.MempoolE
 }
 
 // CompleteMempoolEntry transitions a mempool entry from pending → completed after
-// a successful Canton transfer.  Only entries with status=pending are affected;
-// entries already completed, failed, or mined are left untouched.
-func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte) error {
+// a successful Canton transfer, recording the Canton update ID.  Only entries with
+// status=pending are affected; entries already completed, failed, or mined are left untouched.
+func (s *PGStore) CompleteMempoolEntry(ctx context.Context, txHash []byte, cantonUpdateID string) error {
 	_, err := s.db.NewUpdate().
 		Model((*MempoolEntryDao)(nil)).
 		Set("status = ?", string(ethrpc.MempoolCompleted)).
+		Set("canton_update_id = ?", stringPtrOrNil(cantonUpdateID)).
 		Set("updated_at = current_timestamp").
 		Where("tx_hash = ?", txHash).
 		Where("status = ?", string(ethrpc.MempoolPending)).
@@ -385,6 +389,9 @@ func (s *PGStore) GetMempoolEntriesByStatus(ctx context.Context, status ethrpc.M
 		}
 		if dao.ErrorMessage != nil {
 			entry.ErrorMessage = *dao.ErrorMessage
+		}
+		if dao.CantonUpdateID != nil {
+			entry.CantonUpdateID = *dao.CantonUpdateID
 		}
 		entries = append(entries, entry)
 	}

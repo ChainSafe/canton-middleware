@@ -366,7 +366,8 @@ func (s *ethService) GetTransactionReceipt(ctx context.Context, hash common.Hash
 		Type:              hexutil.Uint64(2),
 		// RevertReason is omitted when empty (omitempty), so successful
 		// receipts keep the standard JSON shape.
-		RevertReason: row.ErrorMessage,
+		RevertReason:   row.ErrorMessage,
+		CantonUpdateID: row.CantonUpdateID,
 	}, nil
 }
 
