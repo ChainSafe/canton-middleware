@@ -200,11 +200,15 @@ func (s *PGStore) GetLatestEvmBlockNumber(ctx context.Context) (uint64, error) {
 	return state.LatestBlock, nil
 }
 
-// GetEvmTransaction retrieves a synthetic EVM transaction by hash.
+// GetEvmTransaction retrieves a synthetic EVM transaction by hash, with the
+// Canton update ID from its mempool row when one exists.
 func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc.EvmTransaction, error) {
-	dao := new(EvmTransactionDao)
+	row := new(struct {
+		EvmTransactionDao `bun:",extend"`
+		CantonUpdateID    *string `bun:"canton_update_id"`
+	})
 	err := s.db.NewSelect().
-		Model(dao).
+		Model(row).
 		ColumnExpr("etx.*").
 		ColumnExpr("m.canton_update_id").
 		ModelTableExpr("evm_transactions AS etx").
@@ -218,7 +222,11 @@ func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc
 		}
 		return nil, fmt.Errorf("get evm transaction: %w", err)
 	}
-	return fromEvmTransactionDao(dao), nil
+	tx := fromEvmTransactionDao(&row.EvmTransactionDao)
+	if row.CantonUpdateID != nil {
+		tx.CantonUpdateID = *row.CantonUpdateID
+	}
+	return tx, nil
 }
 
 // GetBlockNumberByHash returns the block number for a given block hash.
