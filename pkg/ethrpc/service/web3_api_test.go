@@ -14,7 +14,7 @@ import (
 
 func TestWeb3API_ClientVersion(t *testing.T) {
 	api := service.NewWeb3API()
-	assert.Equal(t, "canton-middleware/1.0.0", api.ClientVersion())
+	assert.Equal(t, "canton-middleware/dev", api.ClientVersion())
 }
 
 func TestWeb3API_Sha3(t *testing.T) {

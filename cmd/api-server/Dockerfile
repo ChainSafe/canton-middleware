@@ -16,9 +16,13 @@ RUN go mod download
 # Copy source code (this layer changes frequently but deps are already cached)
 COPY . .
 
+ARG VERSION=dev
+
 # Build binaries
 # CGO_ENABLED=0 creates static binaries compatible with alpine
-RUN CGO_ENABLED=0 go build -o /app/bin/api-server ./cmd/api-server && \
+RUN CGO_ENABLED=0 go build \
+      -ldflags "-X github.com/chainsafe/canton-middleware/pkg/ethrpc/service.Version=${VERSION}" \
+      -o /app/bin/api-server ./cmd/api-server && \
     CGO_ENABLED=0 go build -o /app/bin/api-server-migrate ./cmd/api-server/migrate
 
 # Runtime stage
