@@ -855,7 +855,7 @@ paths:
         | `net_version` | none | Chain ID as a decimal string |
         | `net_listening` | none | `true` |
         | `net_peerCount` | none | `0x0` |
-        | `web3_clientVersion` | none | `canton-middleware/1.0.0` |
+        | `web3_clientVersion` | none | `canton-middleware/<release tag>-<commit sha>` (`dev` for local builds) |
         | `web3_sha3` | data | Keccak-256 of the data |
         | `rpc_modules` | none | Enabled modules |
 
