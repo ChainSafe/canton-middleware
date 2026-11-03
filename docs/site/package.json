@@ -1,0 +1,18 @@
+{
+  "name": "canton-middleware-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync.mjs",
+    "api": "redocly build-docs ../openapi/api-server.yaml -o public/api/api-server.html && redocly build-docs ../openapi/indexer.yaml -o public/api/indexer.html && redocly build-docs ../openapi/relayer.yaml -o public/api/relayer.html",
+    "docs:dev": "npm run sync && npm run api && vitepress dev",
+    "docs:build": "npm run sync && npm run api && vitepress build",
+    "docs:preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "@redocly/cli": "1.34.3",
+    "mermaid": "11.4.1",
+    "vitepress": "1.6.3",
+    "vitepress-plugin-mermaid": "2.0.17"
+  }
+}

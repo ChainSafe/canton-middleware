@@ -1,0 +1,83 @@
+name: Docs
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'contracts/canton-erc20'
+      - '.github/workflows/docs.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Released Snap version whose docs are published.
+  SNAP_REF: snap-v1.0.1
+
+jobs:
+  build:
+    name: Build docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # canton-erc20 is public, so its SSH submodule URL is rewritten to plain HTTPS (no token).
+      # Only this submodule is needed; the Foundry ones are skipped.
+      - name: Checkout canton-erc20 docs
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init contracts/canton-erc20
+
+      - name: Checkout canton-snap docs
+        uses: actions/checkout@v4
+        with:
+          repository: ChainSafe/canton-snap
+          ref: ${{ env.SNAP_REF }}
+          path: .snap
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/site/package-lock.json
+
+      - name: Install
+        working-directory: docs/site
+        run: npm ci
+
+      - name: Build
+        working-directory: docs/site
+        env:
+          SNAP_DIR: ${{ github.workspace }}/.snap
+        run: npm run docs:build
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site/.vitepress/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
