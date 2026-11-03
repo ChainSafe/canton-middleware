@@ -174,10 +174,12 @@ jobs:
       # have it deployed on every main push; keep in sync with SERVICES in
       # .github/scripts/detect-config-changes.sh.
       - name: Update image tags for all services
+        id: images
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+          ANY_CHANGED=false
           while IFS='|' read -r svc dep imgrepo; do
             [ -z "$svc" ] && continue
             f="${DIR}/${svc}/values.yaml"
@@ -188,17 +190,25 @@ jobs:
             # migration hooks. Allow an already-current tag on an idempotent re-run.
             CHANGED=$(git diff --numstat -- "${f}" | awk '{print $1"/"$2}')
             if [ -n "${CHANGED}" ] && [ "${CHANGED}" != "1/1" ]; then
-              echo "::error::expected exactly one line changed in ${f}, got ${CHANGED:-nothing}"
+              echo "::error::expected exactly one line changed in ${f}, got ${CHANGED}"
               git diff -- "${f}"
               exit 1
+            fi
+            if [ -n "${CHANGED}" ]; then
+              ANY_CHANGED=true
             fi
           done <<'EOF'
           canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api
           canton-indexer|canton-indexer|ghcr.io/chainsafe/canton-indexer
           canton-middleware|canton-bridge-relayer|ghcr.io/chainsafe/canton-middleware
           EOF
+          echo "changed=${ANY_CHANGED}" >> "${GITHUB_OUTPUT}"
+          if [ "${ANY_CHANGED}" = "false" ]; then
+            echo "devnet already at ${VERSION}; skipping deploy PR"
+          fi
 
       - name: Create signed commit and open PR
+        if: steps.images.outputs.changed == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
