@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Update one deployment image without reserializing the surrounding YAML."""
+
+import argparse
+import json
+from pathlib import Path
+import re
+import subprocess
+
+
+TAG_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
+
+
+def read_image(contents: bytes, deployment: str) -> str:
+    # Pass the key as a string, never as executable yq expression text.
+    expression = (
+        f'.deployments[{json.dumps(deployment)}]'
+        '.spec.template.spec.containers[0].image'
+    )
+    result = subprocess.run(
+        ["yq", "eval", "-e", "-r", expression, "-"],
+        input=contents, stdout=subprocess.PIPE, check=True,
+    )
+    return result.stdout.decode().strip()
+
+
+def update_image(contents: bytes, deployment: str, repository: str, tag: str) -> bytes:
+    if not TAG_RE.fullmatch(tag):
+        raise ValueError("Invalid Docker image tag")
+    old_image = read_image(contents, deployment)
+    if not old_image.startswith(repository + ":") or not TAG_RE.fullmatch(
+        old_image[len(repository) + 1:]
+    ):
+        raise ValueError(f"Expected a tagged image from {repository}, got {old_image!r}")
+    new_image = f"{repository}:{tag}"
+    # Match only a whole image scalar. Preserve quoting, comments, newlines,
+    # literal config blocks and all other bytes. Ambiguous occurrences fail closed.
+    pattern = re.compile(
+        rb"(?m)^([ \t]*(?:-[ \t]+)?image:[ \t]*)([\"']?)" + re.escape(old_image.encode())
+        + rb"\2(?=[ \t]*(?:#[^\r\n]*)?\r?$)"
+    )
+    updated, count = pattern.subn(
+        lambda match: match[1] + match[2] + new_image.encode() + match[2], contents
+    )
+    if count != 1:
+        raise ValueError("Expected exactly one unambiguous image line")
+    if read_image(updated, deployment) != new_image:
+        raise ValueError("Updated YAML does not contain the expected deployment image")
+    return updated
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("file", type=Path)
+    parser.add_argument("deployment")
+    parser.add_argument("repository")
+    parser.add_argument("tag")
+    args = parser.parse_args()
+    original = args.file.read_bytes()
+    updated = update_image(original, args.deployment, args.repository, args.tag)
+    if updated != original:
+        args.file.write_bytes(updated)
+
+
+if __name__ == "__main__":
+    main()

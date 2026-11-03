@@ -10,6 +10,18 @@ permissions:
   pull-requests: write
 
 jobs:
+  dev-deploy-tests:
+    name: Dev deploy updater regression tests
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify yq v4
+        run: yq --version | tee /dev/stderr | grep -E 'version v4\.'
+      - name: Test formatting-preserving image updates
+        run: python3 -m unittest discover -s .github/scripts -p 'test_update_image_tag.py' -v
+
   test:
     name: PR Test
     runs-on: ubuntu-22.04

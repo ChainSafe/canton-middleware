@@ -174,31 +174,41 @@ jobs:
       # have it deployed on every main push; keep in sync with SERVICES in
       # .github/scripts/detect-config-changes.sh.
       - name: Update image tags for all services
+        id: images
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+          ANY_CHANGED=false
           while IFS='|' read -r svc dep imgrepo; do
             [ -z "$svc" ] && continue
             f="${DIR}/${svc}/values.yaml"
             echo "Bumping ${svc} (${dep}) -> ${imgrepo}:${VERSION}"
-            yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image = \"${imgrepo}:${VERSION}\"" -i "${f}"
+            python3 .src/.github/scripts/update_image_tag.py "${f}" "${dep}" "${imgrepo}" "${VERSION}"
 
-            # These files embed a config file verbatim inside an ExternalSecret, and a yq
-            # reformat of it would pass the infra repo's linters. Fail instead.
+            # Preserve embedded config and formatting, including blank lines before
+            # migration hooks. Allow an already-current tag on an idempotent re-run.
             CHANGED=$(git diff --numstat -- "${f}" | awk '{print $1"/"$2}')
-            if [ "${CHANGED}" != "1/1" ]; then
-              echo "::error::expected exactly one line changed in ${f}, got ${CHANGED:-nothing}"
+            if [ -n "${CHANGED}" ] && [ "${CHANGED}" != "1/1" ]; then
+              echo "::error::expected exactly one line changed in ${f}, got ${CHANGED}"
               git diff -- "${f}"
               exit 1
+            fi
+            if [ -n "${CHANGED}" ]; then
+              ANY_CHANGED=true
             fi
           done <<'EOF'
           canton-middleware-api|canton-middleware-api|ghcr.io/chainsafe/canton-erc20-api
           canton-indexer|canton-indexer|ghcr.io/chainsafe/canton-indexer
           canton-middleware|canton-bridge-relayer|ghcr.io/chainsafe/canton-middleware
           EOF
+          echo "changed=${ANY_CHANGED}" >> "${GITHUB_OUTPUT}"
+          if [ "${ANY_CHANGED}" = "false" ]; then
+            echo "devnet already at ${VERSION}; skipping deploy PR"
+          fi
 
       - name: Create signed commit and open PR
+        if: steps.images.outputs.changed == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           GH_TOKEN: ${{ secrets.INFRA_GH_TOKEN }}
