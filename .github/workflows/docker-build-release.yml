@@ -182,12 +182,12 @@ jobs:
             [ -z "$svc" ] && continue
             f="${DIR}/${svc}/values.yaml"
             echo "Bumping ${svc} (${dep}) -> ${imgrepo}:${VERSION}"
-            yq e ".deployments[\"${dep}\"].spec.template.spec.containers[0].image = \"${imgrepo}:${VERSION}\"" -i "${f}"
+            python3 .src/.github/scripts/update_image_tag.py "${f}" "${dep}" "${imgrepo}" "${VERSION}"
 
-            # These files embed a config file verbatim inside an ExternalSecret, and a yq
-            # reformat of it would pass the infra repo's linters. Fail instead.
+            # Preserve embedded config and formatting, including blank lines before
+            # migration hooks. Allow an already-current tag on an idempotent re-run.
             CHANGED=$(git diff --numstat -- "${f}" | awk '{print $1"/"$2}')
-            if [ "${CHANGED}" != "1/1" ]; then
+            if [ -n "${CHANGED}" ] && [ "${CHANGED}" != "1/1" ]; then
               echo "::error::expected exactly one line changed in ${f}, got ${CHANGED:-nothing}"
               git diff -- "${f}"
               exit 1
