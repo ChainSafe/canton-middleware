@@ -62,17 +62,20 @@ done
 # =============================================================================
 # Extract package IDs and update local config files
 # =============================================================================
-# All packages currently use version 2.0.0. Update here if versions change.
+# Each package's version is read from its daml.yaml, so a version bump needs no change here.
 
-PKG_VERSION="2.0.0"
+pkg_version() {
+    sed -n 's/^version:[[:space:]]*//p' "$DAML_DIR/$1/daml.yaml" | head -1
+}
 
 extract_package_id() {
     local dar_path="$1"
     local pkg_name="$2"
+    local pkg_ver="$3"
     daml damlc inspect-dar "$dar_path" 2>/dev/null \
-        | grep "^${pkg_name}-${PKG_VERSION}-" \
+        | grep "^${pkg_name}-${pkg_ver}-" \
         | head -1 \
-        | sed "s|${pkg_name}-${PKG_VERSION}-\([a-f0-9]*\)/.*|\1|"
+        | sed "s|${pkg_name}-${pkg_ver}-\([a-f0-9]*\)/.*|\1|"
 }
 
 echo ""
@@ -80,13 +83,14 @@ echo ">>> Extracting package IDs from built DARs..."
 
 all_extracted=true
 for pkg in "${PACKAGES[@]}"; do
-    dar_path="$DAML_DIR/$pkg/.daml/dist/${pkg}-${PKG_VERSION}.dar"
+    pkg_ver=$(pkg_version "$pkg")
+    dar_path="$DAML_DIR/$pkg/.daml/dist/${pkg}-${pkg_ver}.dar"
     if [ ! -f "$dar_path" ]; then
         echo "    [WARN] DAR not found: $dar_path"
         all_extracted=false
         continue
     fi
-    pkg_id=$(extract_package_id "$dar_path" "$pkg")
+    pkg_id=$(extract_package_id "$dar_path" "$pkg" "$pkg_ver")
     if [ -z "$pkg_id" ]; then
         echo "    [WARN] Could not extract package ID from $dar_path"
         all_extracted=false

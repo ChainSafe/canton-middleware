@@ -50,15 +50,15 @@ canton:
       expiry_leeway: "60s"
 
   identity:
-    package_id: "c4d8bc62b74dfb93c0feda15cbceb5db16aef37d0e7ee37c17887faa9cbd33b9"
+    package_id: "774bfc61c2fe7d5f472106a2539518a5d4d8093dd90456355783500f330ca1f4"
 
   token:
-    cip56_package_id: "c8c6fe7c34d96b88d6471769aae85063c8045783b2a226fd24f8c573603d17c2"
+    cip56_package_id: "b17adfeb9c93c73cbf914314751ce3a994974b629e5d425dd623775e8e6d35df"
     splice_transfer_package_id: "55ba4deb0ad4662c4168b39859738a0e91388d252286480c7331b3f71a517281"
     splice_holding_package_id: "placeholder-updated-by-bootstrap"
 
   bridge:
-    package_id: "6fac182df4943e7e2f70360b413b6e3ab10e65289ba0d971978b6d861a860d72"
+    package_id: "ab8f35674c9502b3b85a44ddbc61082479327d24269b8eb08e6db44754f8404d"
     module: "Wayfinder.Bridge"
 
 token_provider:
