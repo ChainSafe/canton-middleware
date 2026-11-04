@@ -15,5 +15,3 @@ Each page lists:
 - **Criterion**: quoted from the claim issue.
 - **Evidence**: what was delivered, with links pinned to commits.
 - **Verify it yourself**: commands and their expected output.
-
-Items marked _pending_ are being prepared and will be added here.
