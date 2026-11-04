@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/ChainSafe/canton-middleware/compare/v0.10.0...v0.10.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **ci:** restore formatting-safe dev autodeploy PRs ([#394](https://github.com/ChainSafe/canton-middleware/issues/394)) ([bf14ec9](https://github.com/ChainSafe/canton-middleware/commit/bf14ec9882844aee71773b8382c7cda34bbfb378))
+
 ## [0.10.0](https://github.com/ChainSafe/canton-middleware/compare/v0.9.1...v0.10.0) (2026-11-02)
 
 
