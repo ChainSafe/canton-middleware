@@ -46,8 +46,3 @@ features:
 
 canton-middleware pins canton-erc20 and canton-wayfinder as submodules, so the contract docs on this site match
 the commits the middleware release was built against.
-
-## Related projects
-
-- [canton-x402-sdk](https://chainsafe.github.io/canton-x402-sdk/): x402 payments on Canton
-- [canton-extending-mainnet](https://github.com/ChainSafe/canton-extending-mainnet)
