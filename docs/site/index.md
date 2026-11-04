@@ -44,5 +44,5 @@ features:
 | [canton-wayfinder](https://github.com/ChainSafe/canton-wayfinder) | Ethereum bridge contracts (Foundry) |
 | [canton-snap](https://github.com/ChainSafe/canton-snap) | MetaMask Snap for non-custodial signing, and the reference dApp |
 
-canton-middleware pins canton-erc20 and canton-wayfinder as submodules, so the contract docs on this site match
-the commits the middleware release was built against.
+canton-middleware pins canton-erc20 and canton-wayfinder as submodules. The Daml contract docs on this site come
+from the pinned canton-erc20 commit.

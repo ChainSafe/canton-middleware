@@ -40,7 +40,6 @@ export default withMermaid(
             { text: 'Package diagram', link: '/contracts/architecture/diagram' },
             { text: 'Startup flow', link: '/contracts/startup-flow' },
             { text: 'Development setup', link: '/contracts/dev-setup' },
-            { text: 'TestNet end-to-end setup', link: '/contracts/E2E-TESTNET-SETUP' },
           ],
         },
         {
@@ -58,7 +57,6 @@ export default withMermaid(
           items: [
             { text: 'Wayfinder deployment', link: '/middleware/WAYFINDER_DEPLOYMENT_REQUIREMENTS' },
             { text: 'End-to-end tests', link: '/middleware/E2E_TEST_ARCHITECTURE' },
-            { text: 'DevNet interop testing', link: '/middleware/DEVNET_INTEROP_TESTING' },
             { text: 'Local interop testing', link: '/middleware/LOCAL_INTEROP_TESTING' },
             { text: 'dApp and Snap testing', link: '/middleware/DAPP_SNAP_TESTING' },
           ],
