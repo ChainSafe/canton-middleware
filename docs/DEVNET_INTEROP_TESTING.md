@@ -248,6 +248,6 @@ This stops all local containers and removes volumes (database data). Canton stat
 ## Related Documentation
 
 - [Local Interop Testing](LOCAL_INTEROP_TESTING.md) -- Full local testing with PROMPT bridge
-- [DevNet Setup](DEVNET_SETUP.md) -- Initial DevNet deployment and configuration
-- [Architecture Design](architecture_design.md) -- System architecture overview
+- [Deployment Requirements](WAYFINDER_DEPLOYMENT_REQUIREMENTS.md) -- Deployment and configuration
+- [Architecture](ARCHITECTURE.md) -- System architecture overview
 - [API Documentation](API_DOCUMENTATION.md) -- API server endpoints

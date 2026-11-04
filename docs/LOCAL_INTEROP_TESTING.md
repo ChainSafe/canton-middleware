@@ -286,7 +286,7 @@ These are set automatically by `bootstrap-local.sh` and `docker-bootstrap.sh`. Y
 ## Related Documentation
 
 - [DevNet Interop Testing](DEVNET_INTEROP_TESTING.md) -- DEMO token testing against ChainSafe DevNet
-- [Architecture Design](architecture_design.md) -- System architecture and component overview
-- [Bridge Testing Guide](BRIDGE_TESTING_GUIDE.md) -- DAML contract-level testing
-- [Devnet Setup](DEVNET_SETUP.md) -- Deploying to a Canton devnet
+- [Architecture](ARCHITECTURE.md) -- System architecture and component overview
+- [E2E Test Architecture](E2E_TEST_ARCHITECTURE.md) -- End-to-end test suite
+- [Deployment Requirements](WAYFINDER_DEPLOYMENT_REQUIREMENTS.md) -- Deployment and configuration
 - [API Documentation](API_DOCUMENTATION.md) -- API server endpoints
