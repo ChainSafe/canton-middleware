@@ -4,6 +4,7 @@ package api_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -12,6 +13,29 @@ import (
 	"github.com/chainsafe/canton-middleware/pkg/transfer"
 	"github.com/chainsafe/canton-middleware/tests/e2e/devstack/presets"
 )
+
+// issuerFundMu serializes minting to and funding from the shared P2 USDCx issuer.
+// Parallel tests otherwise pick the same issuer holdings and one fails with
+// archived contracts.
+var issuerFundMu sync.Mutex
+
+type issuerShim interface {
+	MintToken(ctx context.Context, recipientParty, tokenSymbol, amount string) error
+	TransferToken(ctx context.Context, senderParty, recipientParty, tokenSymbol, amount string) error
+}
+
+// fundFromIssuer mints mint USDCx to the issuer, then transfers send USDCx from it to party.
+func fundFromIssuer(ctx context.Context, t *testing.T, c2 issuerShim, issuer, party, mint, send string) {
+	t.Helper()
+	issuerFundMu.Lock()
+	defer issuerFundMu.Unlock()
+	if err := c2.MintToken(ctx, issuer, "USDCx", mint); err != nil {
+		t.Fatalf("mint USDCx to issuer: %v", err)
+	}
+	if err := c2.TransferToken(ctx, issuer, party, "USDCx", send); err != nil {
+		t.Fatalf("fund %s from issuer: %v", party, err)
+	}
+}
 
 // statusCompleted is the api-server's terminal status for a settled transfer.
 const statusCompleted = "completed"
@@ -53,15 +77,9 @@ func TestUSDCx_CrossParticipantTransfer_CustodialReceiver(t *testing.T) {
 	regResp := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
 	// Self-mint 20 USDCx to the P2 issuer party.
-	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "20"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-
 	// Cross-participant transfer: P2 issuer → User1's P1 party (10 USDCx).
 	// Creates a TransferOffer; the accept worker auto-accepts for custodial parties.
-	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "USDCx", "10"); err != nil {
-		t.Fatalf("transfer USDCx P2→P1: %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "20", "10")
 
 	// The accept worker polls the indexer and auto-accepts the offer — just wait.
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "10")
@@ -87,15 +105,9 @@ func TestUSDCx_CrossParticipantTransfer_NonCustodialReceiver(t *testing.T) {
 	regResp, kp := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
 
 	// Self-mint 15 USDCx to the P2 issuer so there is enough to fund the receiver.
-	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "15"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-
 	// Cross-participant transfer: P2 issuer → User1's P1 party (10 USDCx).
 	// Creates a TransferOffer that User1 must accept manually.
-	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "USDCx", "10"); err != nil {
-		t.Fatalf("transfer USDCx P2→P1: %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, sys.Manifest.USDCxInstrumentAdmin, regResp.Party, "15", "10")
 
 	// User1 sees the inbound offer (indexer must surface it cross-participant).
 	cid := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
@@ -137,15 +149,9 @@ func TestUSDCx_InternalTransfer_P1HolderToP1Holder(t *testing.T) {
 	_, kp2 := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User2)
 
 	// Self-mint 20 USDCx to the P2 issuer so there is enough to fund User1.
-	if err := sys.Canton2.MintToken(ctx, sys.Manifest.USDCxInstrumentAdmin, "USDCx", "20"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-
 	// Cross-participant transfer: P2 issuer → User1's P1 party (15 USDCx).
 	// Creates a TransferOffer that User1 must accept via the incoming accept API.
-	if err := sys.Canton2.TransferToken(ctx, sys.Manifest.USDCxInstrumentAdmin, regResp1.Party, "USDCx", "15"); err != nil {
-		t.Fatalf("transfer USDCx P2→P1 (User1): %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, sys.Manifest.USDCxInstrumentAdmin, regResp1.Party, "20", "15")
 
 	// User1 accepts the inbound offer via the api-server incoming accept flow.
 	cid1 := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
@@ -230,12 +236,7 @@ func TestUSDCx_CustodialTransfer_ByPartyID_ToExternalParty(t *testing.T) {
 
 	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
-	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "30"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "20"); err != nil {
-		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, external, reg.Party, "30", "20")
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "20")
 
 	resp, err := sys.APIServer.SendCustodial(ctx, &sys.Accounts.User1, &transfer.CustodialTransferRequest{
@@ -292,12 +293,7 @@ func TestUSDCx_NonCustodialTransfer_ByPartyID_ToExternalParty(t *testing.T) {
 	// Register User1 with an external key so it can sign the prepared transfers.
 	reg, kp := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
 
-	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "20"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "15"); err != nil {
-		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, external, reg.Party, "20", "15")
 
 	// A non-custodial receiver must accept the inbound funding offer manually.
 	fundCID := sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
@@ -366,12 +362,7 @@ func TestUSDCx_OutgoingOffer_ExpiresAfterValidity(t *testing.T) {
 
 	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
-	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "5"); err != nil {
-		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, external, reg.Party, "10", "5")
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
 
 	const shortValiditySeconds = 15
@@ -412,12 +403,7 @@ func TestUSDCx_ClaimBackExpiredOffer_ToExternalParty(t *testing.T) {
 
 	reg := sys.DSL.RegisterUser(ctx, t, sys.Accounts.User1)
 
-	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "5"); err != nil {
-		t.Fatalf("fund User1 (P2 issuer → P1): %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, external, reg.Party, "10", "5")
 	sys.DSL.WaitForAPIBalance(ctx, t, &sys.Tokens.USDCx, sys.Accounts.User1.Address, "5")
 
 	// Offer 2 USDCx to the external party with a short validity — it is never accepted
@@ -491,12 +477,7 @@ func TestUSDCx_ListIncoming_PendingOffer(t *testing.T) {
 
 	reg, _ := sys.DSL.RegisterExternalUser(ctx, t, sys.Accounts.User1)
 
-	if err := sys.Canton2.MintToken(ctx, external, "USDCx", "10"); err != nil {
-		t.Fatalf("mint USDCx to issuer: %v", err)
-	}
-	if err := sys.Canton2.TransferToken(ctx, external, reg.Party, "USDCx", "10"); err != nil {
-		t.Fatalf("transfer USDCx P2→P1: %v", err)
-	}
+	fundFromIssuer(ctx, t, sys.Canton2, external, reg.Party, "10", "10")
 
 	// Wait for the offer to be indexed, then assert the incoming list reflects it.
 	sys.DSL.WaitForIncomingTransferOffer(ctx, t, sys.Accounts.User1)
