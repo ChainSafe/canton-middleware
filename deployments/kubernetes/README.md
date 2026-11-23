@@ -34,7 +34,8 @@ Every pod does the following:
   - an Ethereum RPC endpoint (HTTP and WebSocket)
   - the deployed `CantonBridge` and token contracts
   - the key of the account that holds the relayer role on the bridge
-- Pull access to the images at `ghcr.io/chainsafe`. If your cluster needs credentials for the registry, add an
+- Pull access to the images at `ghcr.io/chainsafe`, or your own builds of them (see
+  [Building the images](#building-the-images)). If your cluster needs credentials for the registry, add an
   `imagePullSecrets` entry to each Deployment.
 
 ## Deploy
@@ -71,6 +72,46 @@ Every pod does the following:
    ```
 
    `eth_chainId` returns the `eth_rpc.chain_id` from `config/api-server.yaml`, in hex.
+
+## Building the images
+
+To run images from your own registry, build them from the release tag the same way CI does, then point the
+kustomization at them. The context is the repository root:
+
+| Image in `kustomization.yaml` | Service | Dockerfile |
+|---|---|---|
+| `ghcr.io/chainsafe/canton-erc20-api` | API server | `cmd/api-server/Dockerfile` |
+| `ghcr.io/chainsafe/canton-indexer` | Indexer | `cmd/indexer/Dockerfile` |
+| `ghcr.io/chainsafe/canton-middleware` | Bridge relayer | `cmd/relayer/Dockerfile` |
+
+```sh
+git checkout v0.10.0
+REGISTRY=registry.example.com/canton-middleware
+# VERSION is what the API server reports in web3_clientVersion.
+docker build -f cmd/api-server/Dockerfile --build-arg VERSION="v0.10.0-$(git rev-parse HEAD)" \
+  -t "$REGISTRY/api-server:v0.10.0" .
+docker build -f cmd/indexer/Dockerfile -t "$REGISTRY/indexer:v0.10.0" .
+docker build -f cmd/relayer/Dockerfile -t "$REGISTRY/relayer:v0.10.0" .
+docker push "$REGISTRY/api-server:v0.10.0"
+docker push "$REGISTRY/indexer:v0.10.0"
+docker push "$REGISTRY/relayer:v0.10.0"
+```
+
+Add `--platform linux/amd64` when building on an ARM machine for an amd64 cluster. Then replace the `images`
+block in `kustomization.yaml`:
+
+```yaml
+images:
+  - name: ghcr.io/chainsafe/canton-erc20-api
+    newName: registry.example.com/canton-middleware/api-server
+    newTag: v0.10.0
+  - name: ghcr.io/chainsafe/canton-indexer
+    newName: registry.example.com/canton-middleware/indexer
+    newTag: v0.10.0
+  - name: ghcr.io/chainsafe/canton-middleware
+    newName: registry.example.com/canton-middleware/relayer
+    newTag: v0.10.0
+```
 
 ## Upgrades
 
