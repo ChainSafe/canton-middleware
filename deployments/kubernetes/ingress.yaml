@@ -1,0 +1,25 @@
+# Public endpoint for the API server (JSON-RPC at /eth, REST and registration).
+# The indexer and relayer stay internal to the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canton-middleware-api
+  labels:
+    app: canton-middleware-api
+spec:
+  ingressClassName: nginx # CHANGE ME: your ingress controller's class
+  tls:
+    - hosts:
+        - middleware.example.com # CHANGE ME
+      secretName: canton-middleware-api-tls # CHANGE ME: TLS certificate Secret
+  rules:
+    - host: middleware.example.com # CHANGE ME
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: canton-middleware-api
+                port:
+                  name: http

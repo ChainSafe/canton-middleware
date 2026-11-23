@@ -1,0 +1,90 @@
+# Kubernetes deployment
+
+Manifests for running the API server, indexer and bridge relayer on Kubernetes. They describe the same
+workloads ChainSafe runs on its own clusters, with environment-specific values replaced by placeholders.
+For a single-host setup, use the Docker Compose files in the repository root instead.
+
+## Contents
+
+| File | Contents |
+|---|---|
+| `api-server.yaml` | ServiceAccount, Service and Deployment for the API server (JSON-RPC at `/eth`, REST API) |
+| `indexer.yaml` | ServiceAccount, Service and Deployment for the indexer |
+| `relayer.yaml` | ServiceAccount, Service and Deployment for the bridge relayer |
+| `ingress.yaml` | Ingress for the API server. The indexer and relayer stay internal |
+| `config/*.yaml` | Service configuration, generated into ConfigMaps by the kustomization |
+| `secrets.example.yaml` | Template for the three Secrets |
+| `kustomization.yaml` | Ties the manifests together and pins the image release |
+
+Every pod does the following:
+- Runs its database migrations in an init container before the service starts. The migrations are
+  idempotent.
+- Runs as a non-root user with all capabilities dropped and no service account token.
+- Exposes Prometheus metrics on port 9090 at `/metrics`, with `prometheus.io/*` scrape annotations.
+
+## Prerequisites
+
+- Kubernetes 1.27 or later, and `kubectl`, which includes kustomize.
+- A Canton participant whose Ledger API is reachable from the cluster:
+  - The canton-erc20 packages must be uploaded and vetted. See `deployments/canton-config/deploy-dars.canton`.
+  - The issuer party must be allocated.
+- OAuth2 client-credentials clients for the participant's Ledger API, one per service.
+- PostgreSQL with three databases: `erc20_api`, `canton_indexer` and `relayer`.
+- For the relayer:
+  - an Ethereum RPC endpoint (HTTP and WebSocket)
+  - the deployed `CantonBridge` and token contracts
+  - the key of the account that holds the relayer role on the bridge
+- Pull access to the images at `ghcr.io/chainsafe`. If your cluster needs credentials for the registry, add an
+  `imagePullSecrets` entry to each Deployment.
+
+## Deploy
+
+1. Fill in every value marked `CHANGE ME` in `config/api-server.yaml`, `config/indexer.yaml`,
+   `config/relayer.yaml` and `ingress.yaml`.
+2. Create the namespace and the Secrets:
+
+   ```sh
+   kubectl apply -f deployments/kubernetes/namespace.yaml
+   cp deployments/kubernetes/secrets.example.yaml deployments/kubernetes/secrets.yaml
+   # edit secrets.yaml, then:
+   kubectl apply -f deployments/kubernetes/secrets.yaml
+   ```
+
+   `secrets.yaml` is git-ignored. Each key becomes an environment variable that fills a `${VAR}` placeholder
+   in the config files. `CANTON_MASTER_KEY` encrypts custodial user keys at rest: store it somewhere durable,
+   because losing it makes those keys unrecoverable.
+3. Apply the manifests:
+
+   ```sh
+   kubectl apply -k deployments/kubernetes
+   ```
+
+4. Check that the services are up:
+
+   ```sh
+   kubectl -n canton-middleware rollout status deployment/canton-indexer
+   kubectl -n canton-middleware rollout status deployment/canton-middleware-api
+   kubectl -n canton-middleware rollout status deployment/canton-bridge-relayer
+   curl -s https://middleware.example.com/health
+   curl -s https://middleware.example.com/eth -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+   ```
+
+   `eth_chainId` returns the `eth_rpc.chain_id` from `config/api-server.yaml`, in hex.
+
+## Upgrades
+
+- **New release:** set `newTag` for all three images in `kustomization.yaml` to the new release, keeping them
+  on the same version. Check the release notes for config changes, then apply again with
+  `kubectl apply -k`. The init containers apply any new migrations before the services start.
+- **Config changes:** ConfigMap names carry a hash of their content, so editing a config file and applying
+  again rolls the Deployment that mounts it.
+
+## Notes
+
+- **One replica each.** The manifests run one replica of each service. The indexer and relayer use the
+  `Recreate` strategy, so two copies never process the same ledger or Ethereum events at once.
+- **Visibility.** The indexer sees only what this participant's parties can see, so each operator runs its
+  own indexer against its own participant.
+- **Config tested in CI.** `pkg/config/kubernetes_test.go` loads the files in `config/` with the services'
+  strict config loaders, so a config key that no longer exists fails CI.

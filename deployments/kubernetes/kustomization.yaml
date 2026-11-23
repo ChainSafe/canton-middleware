@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: canton-middleware
+
+resources:
+  - namespace.yaml
+  - api-server.yaml
+  - indexer.yaml
+  - relayer.yaml
+  - ingress.yaml
+
+# Config files become ConfigMaps with a content hash in the name, so editing a config
+# rolls the Deployment that mounts it.
+configMapGenerator:
+  - name: canton-middleware-api-config
+    files:
+      - config.yaml=config/api-server.yaml
+  - name: canton-indexer-config
+    files:
+      - config.yaml=config/indexer.yaml
+  - name: canton-bridge-relayer-config
+    files:
+      - config.yaml=config/relayer.yaml
+
+# Pin every service to the same release.
+images:
+  - name: ghcr.io/chainsafe/canton-erc20-api
+    newTag: v0.10.0
+  - name: ghcr.io/chainsafe/canton-indexer
+    newTag: v0.10.0
+  - name: ghcr.io/chainsafe/canton-middleware
+    newTag: v0.10.0
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: canton-middleware
