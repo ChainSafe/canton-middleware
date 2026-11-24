@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
@@ -53,12 +54,17 @@ func (s *PGStore) NewBlock(ctx context.Context, chainID uint64) (ethrpc.PendingB
 
 	// Pre-compute the next block number and hash. The counter is written to
 	// evm_state only in Finalize, so a rolled-back block never consumes a number.
-	nextBlock := state.LatestBlock + 1
+	// The block takes the head's current number so its number and seal time agree
+	// with the blocks around it.
+	now := uint64(time.Now().Unix()) //nolint:gosec // time.Now() is always positive
+	head := ethrpc.ChainHead{LatestBlock: state.LatestBlock, AnchorBlock: state.AnchorBlock, AnchorTime: state.AnchorTime}
+	nextBlock := max(state.LatestBlock+1, head.TimeHead(now))
 	blockHash := ethereum.ComputeBlockHash(chainID, nextBlock)
 	return &pendingBlock{
 		tx:          tx,
 		blockNumber: nextBlock,
 		blockHash:   blockHash,
+		timestamp:   now,
 	}, nil
 }
 
@@ -67,11 +73,13 @@ type pendingBlock struct {
 	tx          bun.Tx
 	blockNumber uint64
 	blockHash   []byte
+	timestamp   uint64
 	done        bool // guards against double-commit/rollback
 }
 
-func (b *pendingBlock) Number() uint64 { return b.blockNumber }
-func (b *pendingBlock) Hash() []byte   { return b.blockHash }
+func (b *pendingBlock) Number() uint64    { return b.blockNumber }
+func (b *pendingBlock) Hash() []byte      { return b.blockHash }
+func (b *pendingBlock) Timestamp() uint64 { return b.timestamp }
 
 // ClaimMempoolEntries atomically claims up to maxTxsPerBlock terminal mempool
 // entries (status = completed or failed) and flips them to mined within the
@@ -171,8 +179,15 @@ func (b *pendingBlock) Finalize(ctx context.Context) error {
 		return nil
 	}
 	b.done = true
+	if _, err := b.tx.NewInsert().
+		Model(&EvmBlockDao{Number: b.blockNumber, Timestamp: b.timestamp}).
+		Exec(ctx); err != nil {
+		_ = b.tx.Rollback()
+		return fmt.Errorf("save evm block: %w", err)
+	}
 	if _, err := b.tx.NewUpdate().
-		Model(&EvmStateDao{ID: 1, LatestBlock: b.blockNumber}).
+		Model((*EvmStateDao)(nil)).
+		Set("latest_block = ?", b.blockNumber).
 		Where("id = 1").
 		Exec(ctx); err != nil {
 		_ = b.tx.Rollback()
@@ -218,6 +233,83 @@ func (s *PGStore) GetEvmTransaction(ctx context.Context, txHash []byte) (*ethrpc
 		return nil, fmt.Errorf("get evm transaction: %w", err)
 	}
 	return fromEvmTransactionDao(dao), nil
+}
+
+// GetChainHead returns the latest sealed block and the anchor the head advances from.
+func (s *PGStore) GetChainHead(ctx context.Context) (*ethrpc.ChainHead, error) {
+	state := new(EvmStateDao)
+	if err := s.db.NewSelect().Model(state).Where("id = 1").Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &ethrpc.ChainHead{}, nil
+		}
+		return nil, fmt.Errorf("get chain head: %w", err)
+	}
+	return &ethrpc.ChainHead{
+		LatestBlock: state.LatestBlock,
+		AnchorBlock: state.AnchorBlock,
+		AnchorTime:  state.AnchorTime,
+	}, nil
+}
+
+// GetEvmBlock returns a sealed block with its transactions and logs, or nil if
+// the number was never sealed.
+func (s *PGStore) GetEvmBlock(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	block := new(EvmBlockDao)
+	if err := s.db.NewSelect().Model(block).Where("number = ?", number).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get evm block: %w", err)
+	}
+
+	var txDaos []EvmTransactionDao
+	if err := s.db.NewSelect().
+		Model(&txDaos).
+		Where("block_number = ?", number).
+		OrderExpr("tx_index ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("get evm block transactions: %w", err)
+	}
+	var logDaos []EvmLogDao
+	if err := s.db.NewSelect().
+		Model(&logDaos).
+		Where("block_number = ?", number).
+		OrderExpr("log_index ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("get evm block logs: %w", err)
+	}
+
+	out := &ethrpc.EvmBlock{
+		Number:       block.Number,
+		Timestamp:    block.Timestamp,
+		Transactions: make([]*ethrpc.EvmTransaction, 0, len(txDaos)),
+		Logs:         make([]*ethrpc.EvmLog, 0, len(logDaos)),
+	}
+	for i := range txDaos {
+		out.Transactions = append(out.Transactions, fromEvmTransactionDao(&txDaos[i]))
+	}
+	for i := range logDaos {
+		out.Logs = append(out.Logs, fromEvmLogDao(&logDaos[i]))
+	}
+	return out, nil
+}
+
+// GetSealedBlockBefore returns the number and timestamp of the last sealed block
+// below number, or nil if there is none. Transactions and logs are not loaded.
+func (s *PGStore) GetSealedBlockBefore(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	block := new(EvmBlockDao)
+	if err := s.db.NewSelect().
+		Model(block).
+		Where("number < ?", number).
+		OrderExpr("number DESC").
+		Limit(1).
+		Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get sealed block before %d: %w", number, err)
+	}
+	return &ethrpc.EvmBlock{Number: block.Number, Timestamp: block.Timestamp}, nil
 }
 
 // GetBlockNumberByHash returns the block number for a given block hash.

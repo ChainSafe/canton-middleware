@@ -4,12 +4,14 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"testing"
 	"time"
 
 	apperr "github.com/chainsafe/canton-middleware/pkg/app/errors"
+	"github.com/chainsafe/canton-middleware/pkg/ethereum"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service"
 	"github.com/chainsafe/canton-middleware/pkg/ethrpc/service/mocks"
@@ -19,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -63,19 +66,44 @@ func TestService_ChainID(t *testing.T) {
 // ─── BlockNumber ──────────────────────────────────────────────────────────────
 
 func TestService_BlockNumber(t *testing.T) {
-	t.Run("adds 12-block confirmation buffer to latest", func(t *testing.T) {
+	t.Run("unanchored head is latest sealed plus confirmation buffer", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(100), nil)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		got, err := svc.BlockNumber(context.Background())
 		require.NoError(t, err)
-		assert.GreaterOrEqual(t, uint64(got), uint64(112)) // 100 + confirmationBufferBlocks
+		assert.Equal(t, hexutil.Uint64(112), got)
+	})
+
+	t.Run("anchored head advances one block per second", func(t *testing.T) {
+		now := nowUnix()
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).
+			Return(&ethrpc.ChainHead{LatestBlock: 100, AnchorBlock: 5000, AnchorTime: now - 10}, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.BlockNumber(context.Background())
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, uint64(got), uint64(5010))
+		assert.Less(t, uint64(got), uint64(5020))
+	})
+
+	t.Run("head stays ahead of the latest sealed block", func(t *testing.T) {
+		now := nowUnix()
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).
+			Return(&ethrpc.ChainHead{LatestBlock: 9000, AnchorBlock: 5000, AnchorTime: now}, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.BlockNumber(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, hexutil.Uint64(9012), got)
 	})
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
+		store.EXPECT().GetChainHead(mock.Anything).Return(nil, errors.New("db down"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
 		_, err := svc.BlockNumber(context.Background())
@@ -111,7 +139,10 @@ func TestService_MaxPriorityFeePerGas(t *testing.T) {
 // make MetaMask reject transfers with "insufficient funds for gas".
 func TestService_ZeroGas(t *testing.T) {
 	blockNum := hexutil.Uint64(42)
-	got, err := newSvc(t, defaultCfg(), nil, nil).
+	store := mocks.NewStore(t)
+	store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
+	store.EXPECT().GetEvmBlock(mock.Anything, uint64(42)).Return(nil, nil)
+	got, err := newSvc(t, defaultCfg(), store, nil).
 		GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{BlockNumber: &blockNum}, false)
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -517,6 +548,24 @@ func TestService_GetTransactionByHash(t *testing.T) {
 		assert.Equal(t, &to, got.To)
 	})
 
+	t.Run("decodes as a go-ethereum transaction", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(row, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetTransactionByHash(context.Background(), txHash)
+		require.NoError(t, err)
+		raw, err := json.Marshal(got)
+		require.NoError(t, err)
+
+		var tx types.Transaction
+		require.NoError(t, json.Unmarshal(raw, &tx))
+		assert.Equal(t, uint8(types.DynamicFeeTxType), tx.Type())
+		assert.Equal(t, uint64(7), tx.Nonce())
+		assert.Equal(t, &to, tx.To())
+		assert.Equal(t, []byte{0x01, 0x02, 0x03}, tx.Data())
+	})
+
 	t.Run("not found returns nil", func(t *testing.T) {
 		store := mocks.NewStore(t)
 		store.EXPECT().GetEvmTransaction(mock.Anything, txHash.Bytes()).Return(nil, nil)
@@ -780,52 +829,202 @@ func TestService_GetLogs(t *testing.T) {
 
 // ─── GetBlockByNumber ─────────────────────────────────────────────────────────
 
-func TestService_GetBlockByNumber(t *testing.T) {
-	t.Run("specific block number returns synthetic block", func(t *testing.T) {
-		blockNum := hexutil.Uint64(42)
-		svc := newSvc(t, defaultCfg(), nil, nil)
+const testChainID = 31337
 
-		got, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{BlockNumber: &blockNum}, false)
+func nowUnix() uint64 {
+	return uint64(time.Now().Unix()) //nolint:gosec // time is always positive
+}
+
+func blockHashOf(n uint64) common.Hash {
+	return common.BytesToHash(ethereum.ComputeBlockHash(testChainID, n))
+}
+
+// sealedBlock is block 40 with a successful transfer (one log) and a failed one.
+func sealedBlock() *ethrpc.EvmBlock {
+	token := common.HexToAddress("0xc1A0000000000000000000000000000000000001")
+	tx1 := common.HexToHash("0x01")
+	tx2 := common.HexToHash("0x02")
+	return &ethrpc.EvmBlock{
+		Number:    40,
+		Timestamp: 1_790_000_000,
+		Transactions: []*ethrpc.EvmTransaction{
+			{TxHash: tx1.Bytes(), FromAddress: token.Hex(), ToAddress: token.Hex(), Status: 1,
+				BlockNumber: 40, BlockHash: blockHashOf(40).Bytes(), TxIndex: 0, GasUsed: 21000},
+			{TxHash: tx2.Bytes(), FromAddress: token.Hex(), ToAddress: token.Hex(), Status: 0,
+				BlockNumber: 40, BlockHash: blockHashOf(40).Bytes(), TxIndex: 1, GasUsed: 21000},
+		},
+		Logs: []*ethrpc.EvmLog{
+			{TxHash: tx1.Bytes(), LogIndex: 0, Address: token.Bytes(),
+				Topics: [][]byte{common.HexToHash("0xddf252ad").Bytes()}, Data: []byte{0x01},
+				BlockNumber: 40, BlockHash: blockHashOf(40).Bytes(), TxIndex: 0, BlockTimestamp: 1_790_000_000},
+		},
+	}
+}
+
+func TestService_GetBlockByNumber(t *testing.T) {
+	ctx := context.Background()
+	num := func(n uint64) ethrpc.BlockNumberOrHash {
+		h := hexutil.Uint64(n)
+		return ethrpc.BlockNumberOrHash{BlockNumber: &h}
+	}
+
+	t.Run("unsealed block is empty", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(42)).Return(nil, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(42), false)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		assert.Equal(t, hexutil.Uint64(42), got.Number)
-		// Hash must be non-zero and deterministic from chain+block
-		assert.NotEqual(t, common.Hash{}, got.Hash)
-		// go-ethereum clients reject blocks whose roots do not match their empty lists.
+		assert.Equal(t, blockHashOf(42), got.Hash)
+		assert.Equal(t, blockHashOf(41), got.ParentHash)
+		// go-ethereum clients reject blocks whose roots do not match their lists.
 		assert.Empty(t, got.Transactions)
 		assert.Empty(t, got.Uncles)
 		assert.Equal(t, types.EmptyUncleHash, got.Sha3Uncles)
 		assert.Equal(t, types.EmptyTxsHash, got.TransactionsRoot)
 		assert.Equal(t, types.EmptyReceiptsHash, got.ReceiptsRoot)
 		assert.Equal(t, types.EmptyRootHash, got.StateRoot)
+		assert.Equal(t, types.Bloom{}, got.LogsBloom)
+	})
+
+	t.Run("sealed block lists its transactions", func(t *testing.T) {
+		b := sealedBlock()
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 40}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(40)).Return(b, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(40), false)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, hexutil.Uint64(1_790_000_000), got.Timestamp)
+		assert.Equal(t, []any{common.HexToHash("0x01"), common.HexToHash("0x02")}, got.Transactions)
+		assert.Equal(t, hexutil.Uint64(42000), got.GasUsed)
+		assert.NotEqual(t, types.EmptyTxsHash, got.TransactionsRoot)
+		assert.True(t, got.LogsBloom.Test(b.Logs[0].Address))
+		assert.True(t, got.LogsBloom.Test(b.Logs[0].Topics[0]))
+
+		// The receipts root is the one a client derives from eth_getTransactionReceipt.
+		r1 := &types.Receipt{Type: types.DynamicFeeTxType, Status: 1, CumulativeGasUsed: 21000,
+			Logs: []*types.Log{{Address: common.BytesToAddress(b.Logs[0].Address),
+				Topics: []common.Hash{common.BytesToHash(b.Logs[0].Topics[0])}, Data: b.Logs[0].Data}}}
+		r1.Bloom = types.CreateBloom(r1)
+		r2 := &types.Receipt{Type: types.DynamicFeeTxType, Status: 0, CumulativeGasUsed: 42000}
+		r2.Bloom = types.CreateBloom(r2)
+		assert.Equal(t, types.DeriveSha(types.Receipts{r1, r2}, trie.NewStackTrie(nil)), got.ReceiptsRoot)
+	})
+
+	t.Run("sealed block with full transactions", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 40}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(40)).Return(sealedBlock(), nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(40), true)
+		require.NoError(t, err)
+		require.Len(t, got.Transactions, 2)
+		tx, ok := got.Transactions[1].(*ethrpc.RPCTransaction)
+		require.True(t, ok)
+		assert.Equal(t, common.HexToHash("0x02"), tx.Hash)
+		assert.Equal(t, hexutil.Uint(1), *tx.TransactionIndex)
+		assert.Equal(t, blockHashOf(40), *tx.BlockHash)
+	})
+
+	t.Run("unsealed block above the anchor is timed from it", func(t *testing.T) {
+		now := nowUnix()
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).
+			Return(&ethrpc.ChainHead{LatestBlock: 10, AnchorBlock: 1000, AnchorTime: now - 100}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(1050)).Return(nil, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(1050), false)
+		require.NoError(t, err)
+		assert.Equal(t, hexutil.Uint64(now-50), got.Timestamp)
+	})
+
+	t.Run("unsealed block below the anchor is interpolated", func(t *testing.T) {
+		now := nowUnix()
+		anchorTime := now - 100
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).
+			Return(&ethrpc.ChainHead{LatestBlock: 10, AnchorBlock: 1000, AnchorTime: anchorTime}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(505)).Return(nil, nil)
+		store.EXPECT().GetSealedBlockBefore(mock.Anything, uint64(505)).
+			Return(&ethrpc.EvmBlock{Number: 10, Timestamp: anchorTime - 1980}, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(505), false)
+		require.NoError(t, err)
+		assert.Equal(t, hexutil.Uint64(anchorTime-990), got.Timestamp) // halfway
+	})
+
+	t.Run("unsealed block below the anchor with no sealed block before it", func(t *testing.T) {
+		now := nowUnix()
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).
+			Return(&ethrpc.ChainHead{AnchorBlock: 1000, AnchorTime: now}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(900)).Return(nil, nil)
+		store.EXPECT().GetSealedBlockBefore(mock.Anything, uint64(900)).Return(nil, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByNumber(ctx, num(900), false)
+		require.NoError(t, err)
+		assert.Equal(t, hexutil.Uint64(now-100), got.Timestamp)
 	})
 
 	t.Run("block zero returns nil", func(t *testing.T) {
-		zero := hexutil.Uint64(0)
-		svc := newSvc(t, defaultCfg(), nil, nil)
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
 
-		got, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{BlockNumber: &zero}, false)
+		got, err := svc.GetBlockByNumber(ctx, num(0), false)
 		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
 
-	t.Run("nil block number resolves to latest with confirmation buffer", func(t *testing.T) {
+	t.Run("block past the head returns nil", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(77), nil)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		got, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{}, false)
+		got, err := svc.GetBlockByNumber(ctx, num(113), false)
 		require.NoError(t, err)
-		require.NotNil(t, got)
-		assert.GreaterOrEqual(t, uint64(got.Number), uint64(89)) // 77 + 12
+		assert.Nil(t, got)
 	})
 
-	t.Run("store error when resolving latest", func(t *testing.T) {
+	t.Run("nil block number resolves to the head", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(0), errors.New("db down"))
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 77}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(89)).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		_, err := svc.GetBlockByNumber(context.Background(), ethrpc.BlockNumberOrHash{}, false)
+		got, err := svc.GetBlockByNumber(ctx, ethrpc.BlockNumberOrHash{}, false)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, hexutil.Uint64(89), got.Number) // 77 + 12
+	})
+
+	t.Run("chain head error propagates", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(nil, errors.New("db down"))
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		_, err := svc.GetBlockByNumber(ctx, ethrpc.BlockNumberOrHash{}, false)
+		require.Error(t, err)
+		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
+	})
+
+	t.Run("block load error propagates", func(t *testing.T) {
+		store := mocks.NewStore(t)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 100}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(42)).Return(nil, errors.New("db down"))
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		_, err := svc.GetBlockByNumber(ctx, num(42), false)
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
 	})
@@ -834,38 +1033,55 @@ func TestService_GetBlockByNumber(t *testing.T) {
 // ─── GetBlockByHash ───────────────────────────────────────────────────────────
 
 func TestService_GetBlockByHash(t *testing.T) {
-	blockHash := common.HexToHash("0x6666000000000000000000000000000000000000000000000000000000000001")
+	ctx := context.Background()
 
-	t.Run("found returns block for stored number", func(t *testing.T) {
+	t.Run("hash of a sealed block", func(t *testing.T) {
+		b := sealedBlock()
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(55), nil)
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHashOf(40).Bytes()).Return(uint64(40), nil)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 40}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(40)).Return(b, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		got, err := svc.GetBlockByHash(context.Background(), blockHash, false)
+		got, err := svc.GetBlockByHash(ctx, blockHashOf(40), false)
 		require.NoError(t, err)
 		require.NotNil(t, got)
-		assert.Equal(t, hexutil.Uint64(55), got.Number)
+		assert.Equal(t, hexutil.Uint64(40), got.Number)
+		assert.Len(t, got.Transactions, 2)
 	})
 
-	t.Run("hash not in store falls back to latest block", func(t *testing.T) {
-		// blockNum=0 means not found; service falls back to GetBlockByNumber("latest")
+	t.Run("hash of a recent unsealed block", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(0), nil)
-		store.EXPECT().GetLatestEvmBlockNumber(mock.Anything).Return(uint64(50), nil)
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHashOf(60).Bytes()).Return(uint64(0), nil)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 50}, nil)
+		store.EXPECT().GetEvmBlock(mock.Anything, uint64(60)).Return(nil, nil)
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		got, err := svc.GetBlockByHash(context.Background(), blockHash, false)
+		got, err := svc.GetBlockByHash(ctx, blockHashOf(60), false)
 		require.NoError(t, err)
-		require.NotNil(t, got)                                   // returns latest, not nil
-		assert.GreaterOrEqual(t, uint64(got.Number), uint64(62)) // 50 + 12
+		require.NotNil(t, got)
+		assert.Equal(t, hexutil.Uint64(60), got.Number)
+		assert.Equal(t, blockHashOf(60), got.Hash)
+	})
+
+	t.Run("unknown hash returns nil", func(t *testing.T) {
+		unknown := common.HexToHash("0x6666000000000000000000000000000000000000000000000000000000000001")
+		store := mocks.NewStore(t)
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, unknown.Bytes()).Return(uint64(0), nil)
+		store.EXPECT().GetChainHead(mock.Anything).Return(&ethrpc.ChainHead{LatestBlock: 50}, nil)
+		svc := newSvc(t, defaultCfg(), store, nil)
+
+		got, err := svc.GetBlockByHash(ctx, unknown, false)
+		require.NoError(t, err)
+		assert.Nil(t, got)
 	})
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := mocks.NewStore(t)
-		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHash.Bytes()).Return(uint64(0), errors.New("db error"))
+		store.EXPECT().GetBlockNumberByHash(mock.Anything, blockHashOf(40).Bytes()).Return(uint64(0), errors.New("db error"))
 		svc := newSvc(t, defaultCfg(), store, nil)
 
-		_, err := svc.GetBlockByHash(context.Background(), blockHash, false)
+		_, err := svc.GetBlockByHash(ctx, blockHashOf(40), false)
 		require.Error(t, err)
 		assert.True(t, apperr.Is(err, apperr.CategoryDependencyFailure))
 	})

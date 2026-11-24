@@ -79,6 +79,123 @@ func (_c *Store_GetBlockNumberByHash_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// GetChainHead provides a mock function with given fields: ctx
+func (_m *Store) GetChainHead(ctx context.Context) (*ethrpc.ChainHead, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetChainHead")
+	}
+
+	var r0 *ethrpc.ChainHead
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*ethrpc.ChainHead, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *ethrpc.ChainHead); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*ethrpc.ChainHead)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetChainHead_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChainHead'
+type Store_GetChainHead_Call struct {
+	*mock.Call
+}
+
+// GetChainHead is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Store_Expecter) GetChainHead(ctx interface{}) *Store_GetChainHead_Call {
+	return &Store_GetChainHead_Call{Call: _e.mock.On("GetChainHead", ctx)}
+}
+
+func (_c *Store_GetChainHead_Call) Run(run func(ctx context.Context)) *Store_GetChainHead_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Store_GetChainHead_Call) Return(_a0 *ethrpc.ChainHead, _a1 error) *Store_GetChainHead_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetChainHead_Call) RunAndReturn(run func(context.Context) (*ethrpc.ChainHead, error)) *Store_GetChainHead_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetEvmBlock provides a mock function with given fields: ctx, number
+func (_m *Store) GetEvmBlock(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	ret := _m.Called(ctx, number)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetEvmBlock")
+	}
+
+	var r0 *ethrpc.EvmBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (*ethrpc.EvmBlock, error)); ok {
+		return rf(ctx, number)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) *ethrpc.EvmBlock); ok {
+		r0 = rf(ctx, number)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*ethrpc.EvmBlock)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
+		r1 = rf(ctx, number)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetEvmBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetEvmBlock'
+type Store_GetEvmBlock_Call struct {
+	*mock.Call
+}
+
+// GetEvmBlock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - number uint64
+func (_e *Store_Expecter) GetEvmBlock(ctx interface{}, number interface{}) *Store_GetEvmBlock_Call {
+	return &Store_GetEvmBlock_Call{Call: _e.mock.On("GetEvmBlock", ctx, number)}
+}
+
+func (_c *Store_GetEvmBlock_Call) Run(run func(ctx context.Context, number uint64)) *Store_GetEvmBlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *Store_GetEvmBlock_Call) Return(_a0 *ethrpc.EvmBlock, _a1 error) *Store_GetEvmBlock_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetEvmBlock_Call) RunAndReturn(run func(context.Context, uint64) (*ethrpc.EvmBlock, error)) *Store_GetEvmBlock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetEvmLogs provides a mock function with given fields: ctx, address, topic0, fromBlock, toBlock
 func (_m *Store) GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock uint64, toBlock uint64) ([]*ethrpc.EvmLog, error) {
 	ret := _m.Called(ctx, address, topic0, fromBlock, toBlock)
@@ -368,6 +485,65 @@ func (_c *Store_GetLatestEvmBlockNumber_Call) Return(_a0 uint64, _a1 error) *Sto
 }
 
 func (_c *Store_GetLatestEvmBlockNumber_Call) RunAndReturn(run func(context.Context) (uint64, error)) *Store_GetLatestEvmBlockNumber_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSealedBlockBefore provides a mock function with given fields: ctx, number
+func (_m *Store) GetSealedBlockBefore(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	ret := _m.Called(ctx, number)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSealedBlockBefore")
+	}
+
+	var r0 *ethrpc.EvmBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (*ethrpc.EvmBlock, error)); ok {
+		return rf(ctx, number)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) *ethrpc.EvmBlock); ok {
+		r0 = rf(ctx, number)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*ethrpc.EvmBlock)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
+		r1 = rf(ctx, number)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Store_GetSealedBlockBefore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSealedBlockBefore'
+type Store_GetSealedBlockBefore_Call struct {
+	*mock.Call
+}
+
+// GetSealedBlockBefore is a helper method to define mock.On call
+//   - ctx context.Context
+//   - number uint64
+func (_e *Store_Expecter) GetSealedBlockBefore(ctx interface{}, number interface{}) *Store_GetSealedBlockBefore_Call {
+	return &Store_GetSealedBlockBefore_Call{Call: _e.mock.On("GetSealedBlockBefore", ctx, number)}
+}
+
+func (_c *Store_GetSealedBlockBefore_Call) Run(run func(ctx context.Context, number uint64)) *Store_GetSealedBlockBefore_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *Store_GetSealedBlockBefore_Call) Return(_a0 *ethrpc.EvmBlock, _a1 error) *Store_GetSealedBlockBefore_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Store_GetSealedBlockBefore_Call) RunAndReturn(run func(context.Context, uint64) (*ethrpc.EvmBlock, error)) *Store_GetSealedBlockBefore_Call {
 	_c.Call.Return(run)
 	return _c
 }

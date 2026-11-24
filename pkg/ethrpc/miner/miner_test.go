@@ -42,16 +42,19 @@ func sampleEntry(txHash byte, from, contract, recipient string, nonce uint64, am
 	}
 }
 
-// blockHash is the deterministic hash returned by all test PendingBlock mocks.
+// blockHash and blockTime are returned by all test PendingBlock mocks.
 var blockHash = []byte{0xaa, 0xbb, 0xcc}
 
-// setupBlock creates a PendingBlock mock preconfigured with Number() and Hash()
+const blockTime = uint64(1_790_000_000)
+
+// setupBlock creates a PendingBlock mock preconfigured with Number(), Hash() and Timestamp()
 // and a deferred Abort expectation (safe no-op after Finalize).
 func setupBlock(t *testing.T, number uint64) *mocks.PendingBlock {
 	t.Helper()
 	block := mocks.NewPendingBlock(t)
 	block.EXPECT().Number().Return(number).Maybe()
 	block.EXPECT().Hash().Return(blockHash).Maybe()
+	block.EXPECT().Timestamp().Return(blockTime).Maybe()
 	block.EXPECT().Abort(mock.Anything).Return(nil).Maybe()
 	return block
 }
@@ -90,7 +93,9 @@ func TestMine_SingleEntry_CommitsBlock(t *testing.T) {
 			tx.GasUsed == testGasLimit &&
 			tx.CantonUpdateID == entry.CantonUpdateID
 	})).Return(nil).Once()
-	block.EXPECT().AddEvmLog(mock.Anything, mock.Anything).Return(nil).Once()
+	block.EXPECT().AddEvmLog(mock.Anything, mock.MatchedBy(func(log *ethrpc.EvmLog) bool {
+		return log.BlockTimestamp == blockTime
+	})).Return(nil).Once()
 	block.EXPECT().Finalize(mock.Anything).Return(nil).Once()
 	block.EXPECT().ClaimMempoolEntries(mock.Anything, testMaxTxsPerBlock).Return([]ethrpc.MempoolEntry{entry}, nil)
 

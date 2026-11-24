@@ -84,6 +84,17 @@ type EvmStateDao struct {
 	bun.BaseModel `bun:"table:evm_state"`
 	ID            int    `bun:"id,pk"`
 	LatestBlock   uint64 `bun:"latest_block,notnull,default:0"`
+	// AnchorBlock and AnchorTime pin the synthetic head: it advances one block
+	// per second from AnchorBlock at AnchorTime (Unix seconds).
+	AnchorBlock uint64 `bun:"anchor_block,notnull,default:0"`
+	AnchorTime  uint64 `bun:"anchor_time,notnull,default:0"`
+}
+
+// EvmBlockDao maps to the evm_blocks table: one row per sealed block.
+type EvmBlockDao struct {
+	bun.BaseModel `bun:"table:evm_blocks"`
+	Number        uint64 `bun:"number,pk"`
+	Timestamp     uint64 `bun:"timestamp,notnull"`
 }
 
 // EvmLogDao maps to the evm_logs table.
