@@ -22,6 +22,8 @@ Every pod does the following:
   The migrations are idempotent.
 - Runs as a non-root user with all capabilities dropped and no service account token.
 - Exposes Prometheus metrics on port 9090 at `/metrics`, with `prometheus.io/*` scrape annotations.
+- Reports ready at `/ready` only once its dependencies respond. `/health` is the liveness check and only
+  shows the process is up.
 
 ## Prerequisites
 
@@ -124,18 +126,14 @@ pin an exact build rather than a tag, add `digest: sha256:…` to each entry.
    kubectl -n canton-middleware rollout status deployment/canton-bridge-relayer
    ```
 
-   A finished rollout only shows that the processes started and their migrations ran: `/health` doesn't
-   check the ledger. The relayer's readiness probe (`/ready`) is the only one that reflects its connections.
-5. Check that the indexer is reading the ledger. Its log shouldn't repeat `canton stream disconnected`, and
-   once any token exists on the participant, the indexer lists it:
+   A rollout finishes only when every pod is ready:
+   - **API server:** its database answers, and the Ledger API answers `GetLedgerEnd` with its credentials.
+   - **Indexer:** its database answers, and its update stream is connected. A missing `CanReadAsAnyParty`
+     right keeps it unready.
+   - **Relayer:** it has caught up with both Canton and Ethereum.
 
-   ```sh
-   kubectl -n canton-middleware logs deployment/canton-indexer --since=5m | grep -c "canton stream disconnected"
-   kubectl -n canton-middleware port-forward svc/canton-indexer 8082:8082 &
-   curl -s localhost:8082/indexer/v1/admin/tokens
-   ```
-
-6. Allowlist your users. With `skip_whitelist_check: false`, registration and every
+   If a rollout doesn't finish, the pod's log names the failing check (`readiness check failed`).
+5. Allowlist your users. With `skip_whitelist_check: false`, registration and every
    `eth_sendRawTransaction` are refused for addresses that aren't on the whitelist:
 
    ```sh
@@ -144,9 +142,9 @@ pin an exact build rather than a tag, add `digest: sha256:…` to each entry.
      -H 'Content-Type: application/json' -d '{"evm_address":"0x…","note":"first user"}'
    ```
 
-7. Register an allowlisted address through the dApp. Registration allocates a Canton party, so it is the
-   first step that proves the API server can reach the ledger with the right permissions. Then check the
-   public endpoint:
+6. Register an allowlisted address through the dApp. Registration allocates a Canton party, so it is the
+   first step that proves the API server has the right Ledger API permissions, not only a connection. Then
+   check the public endpoint:
 
    ```sh
    curl -s https://middleware.example.com/eth -H 'Content-Type: application/json' \
@@ -172,7 +170,7 @@ pin an exact build rather than a tag, add `digest: sha256:…` to each entry.
   `networkpolicy.yaml` keeps them away from other pods. Don't expose either service outside the cluster.
 - **`/admin` on the Ingress.** The Ingress routes every path to the API server, including
   `/admin/whitelist`. It requires `ADMIN_API_KEY`, but you can also block `/admin` at your ingress
-  controller or WAF and manage the whitelist through `kubectl port-forward` as in step 6.
+  controller or WAF and manage the whitelist through `kubectl port-forward` as in step 5.
 - **Visibility.** The indexer sees only what this participant's parties can see, so each operator runs its
   own indexer against its own participant.
 - **Resources.** Requests and limits follow ChainSafe's production API server (100m CPU and 128Mi requested,

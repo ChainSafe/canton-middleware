@@ -14,6 +14,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -131,7 +132,16 @@ func (s *Server) Run() error {
 	// ── Service / Router (read path) ──────────────────────────────────────────
 
 	svc := indexerservice.NewService(store, logger)
-	router := s.newRouter(svc, httpMetrics, logger)
+	ready := apphttp.ReadyHandler(logger,
+		apphttp.ReadinessCheck{Name: "database", Check: db.PingContext},
+		apphttp.ReadinessCheck{Name: "ledger stream", Check: func(context.Context) error {
+			if !streamClient.Healthy() {
+				return errors.New("canton stream not connected")
+			}
+			return nil
+		}},
+	)
+	router := s.newRouter(svc, ready, httpMetrics, logger)
 
 	// ── Run processor and HTTP servers under one errgroup ─────────────────────
 	// The write-path processor and the read-path HTTP server(s) all share gCtx:
@@ -212,7 +222,9 @@ func indexerTemplateIDs(cfg *indexer.Config) []streaming.TemplateID {
 // with JWT authentication will be added in a future iteration on a separate
 // route group. Until then, restrict network access to this port at the
 // infrastructure level (firewall, private VPC, etc.).
-func (s *Server) newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetrics, logger *zap.Logger) http.Handler {
+func (s *Server) newRouter(
+	svc indexerservice.Service, ready http.HandlerFunc, metrics *apphttp.HTTPMetrics, logger *zap.Logger,
+) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -224,6 +236,7 @@ func (s *Server) newRouter(svc indexerservice.Service, metrics *apphttp.HTTPMetr
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
+	r.Get(apphttp.ReadyPath, ready)
 
 	indexerservice.RegisterPrivateRoutes(r, svc, logger)
 
