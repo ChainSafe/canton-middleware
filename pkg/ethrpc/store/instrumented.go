@@ -39,8 +39,9 @@ type instrumentedPendingBlock struct {
 	metrics *StoreMetrics
 }
 
-func (b *instrumentedPendingBlock) Number() uint64 { return b.inner.Number() }
-func (b *instrumentedPendingBlock) Hash() []byte   { return b.inner.Hash() }
+func (b *instrumentedPendingBlock) Number() uint64    { return b.inner.Number() }
+func (b *instrumentedPendingBlock) Hash() []byte      { return b.inner.Hash() }
+func (b *instrumentedPendingBlock) Timestamp() uint64 { return b.inner.Timestamp() }
 
 func (b *instrumentedPendingBlock) ClaimMempoolEntries(ctx context.Context, maxTxsPerBlock int) ([]ethrpc.MempoolEntry, error) {
 	timer := prometheus.NewTimer(b.metrics.ObserveQueryDuration(OpClaimMempoolEntries))
@@ -152,6 +153,39 @@ func (s *InstrumentedStore) GetEvmLogs(
 		s.metrics.IncErrors(OpGetEvmLogs)
 	}
 	return logs, err
+}
+
+func (s *InstrumentedStore) GetChainHead(ctx context.Context) (*ethrpc.ChainHead, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetChainHead))
+	defer timer.ObserveDuration()
+
+	head, err := s.inner.GetChainHead(ctx)
+	if err != nil {
+		s.metrics.IncErrors(OpGetChainHead)
+	}
+	return head, err
+}
+
+func (s *InstrumentedStore) GetEvmBlock(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetEvmBlock))
+	defer timer.ObserveDuration()
+
+	block, err := s.inner.GetEvmBlock(ctx, number)
+	if err != nil {
+		s.metrics.IncErrors(OpGetEvmBlock)
+	}
+	return block, err
+}
+
+func (s *InstrumentedStore) GetSealedBlockBefore(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error) {
+	timer := prometheus.NewTimer(s.metrics.ObserveQueryDuration(OpGetSealedBlockBefore))
+	defer timer.ObserveDuration()
+
+	block, err := s.inner.GetSealedBlockBefore(ctx, number)
+	if err != nil {
+		s.metrics.IncErrors(OpGetSealedBlockBefore)
+	}
+	return block, err
 }
 
 func (s *InstrumentedStore) GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error) {

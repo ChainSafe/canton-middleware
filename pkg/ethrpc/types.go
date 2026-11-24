@@ -21,6 +21,8 @@ import (
 type PendingBlock interface {
 	Number() uint64
 	Hash() []byte
+	// Timestamp is the block's seal time in Unix seconds.
+	Timestamp() uint64
 	// ClaimMempoolEntries atomically marks up to maxTxsPerBlock completed
 	// mempool entries as mined and returns them. This caps block size to
 	// prevent excessively large blocks after traffic spikes or Canton downtime.
@@ -203,6 +205,10 @@ type RPCTransaction struct {
 	S                *hexutil.Big    `json:"s"`
 	Type             hexutil.Uint64  `json:"type"`
 	ChainID          *hexutil.Big    `json:"chainId,omitempty"`
+	// Fee and access-list fields required to decode a type-2 transaction.
+	MaxFeePerGas         *hexutil.Big     `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas *hexutil.Big     `json:"maxPriorityFeePerGas"`
+	AccessList           types.AccessList `json:"accessList"`
 }
 
 // EvmTransaction represents a synthetic EVM transaction persisted for JSON-RPC responses.
@@ -221,6 +227,31 @@ type EvmTransaction struct {
 	ErrorMessage string
 	// CantonUpdateID is the Canton update that settled the transfer; empty when unknown.
 	CantonUpdateID string
+}
+
+// EvmBlock is a sealed synthetic block with the transactions and logs it contains.
+type EvmBlock struct {
+	Number       uint64
+	Timestamp    uint64 // Unix seconds
+	Transactions []*EvmTransaction
+	Logs         []*EvmLog
+}
+
+// ChainHead is the persisted state the synthetic chain head is derived from.
+// The head advances one block per second from AnchorBlock at AnchorTime.
+type ChainHead struct {
+	LatestBlock uint64 // last sealed block
+	AnchorBlock uint64
+	AnchorTime  uint64 // Unix seconds; 0 when unset
+}
+
+// TimeHead is the block number the head has reached by now (Unix seconds),
+// ignoring sealed blocks.
+func (h ChainHead) TimeHead(now uint64) uint64 {
+	if h.AnchorTime == 0 || now < h.AnchorTime {
+		return h.AnchorBlock
+	}
+	return h.AnchorBlock + (now - h.AnchorTime)
 }
 
 // EvmLog represents a synthetic EVM log persisted for JSON-RPC responses.

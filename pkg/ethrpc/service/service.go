@@ -3,6 +3,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
@@ -19,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/trie"
 )
 
 // Store is the narrow data-access interface consumed by the EthRPC service.
@@ -33,6 +35,9 @@ type Store interface {
 	GetEvmLogsByTxHash(ctx context.Context, txHash []byte) ([]*ethrpc.EvmLog, error)
 	GetEvmLogs(ctx context.Context, address []byte, topic0 []byte, fromBlock, toBlock uint64) ([]*ethrpc.EvmLog, error)
 	GetBlockNumberByHash(ctx context.Context, blockHash []byte) (uint64, error)
+	GetChainHead(ctx context.Context) (*ethrpc.ChainHead, error)
+	GetEvmBlock(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error)
+	GetSealedBlockBefore(ctx context.Context, number uint64) (*ethrpc.EvmBlock, error)
 
 	// InsertMempoolEntry records a new transfer intent with status=pending.
 	// SendRawTransaction returns immediately after this insert; the submitter
@@ -81,13 +86,15 @@ type ethService struct {
 	whitelist    whitelist.Checker
 	chainID      *big.Int
 	erc20ABI     abi.ABI
-	startTime    time.Time
 }
 
 const (
 	functionSelectorSize      = 4
 	confirmationBufferBlocks  = uint64(12)
 	syntheticBlockTimeSeconds = uint64(12)
+	// recentBlockHashWindow is how many blocks below the head eth_getBlockByHash
+	// searches for an unsealed block, as the EVM's BLOCKHASH does.
+	recentBlockHashWindow = uint64(256)
 	// DefaultGasLimit is the cosmetic gas limit the facade reports (eth_estimateGas,
 	// block gasLimit, tx gas, synthetic block gasUsed). The facade executes
 	// transfers on Canton rather than an EVM, so gas is never metered — and the
@@ -123,7 +130,6 @@ func NewService(
 		tokenService: tokenSvc,
 		whitelist:    whitelist,
 		erc20ABI:     parsedABI,
-		startTime:    time.Now(),
 		chainID:      new(big.Int).SetUint64(cfg.ChainID),
 	}
 }
@@ -133,21 +139,19 @@ func (s *ethService) ChainID(_ context.Context) hexutil.Uint64 {
 }
 
 func (s *ethService) BlockNumber(ctx context.Context) (hexutil.Uint64, error) {
-	n, err := s.store.GetLatestEvmBlockNumber(ctx)
+	head, err := s.store.GetChainHead(ctx)
 	if err != nil {
-		return 0, apperr.DependencyError(err, "get latest EVM block number")
+		return 0, apperr.DependencyError(err, "get chain head")
 	}
-	// Add time-based block progression to simulate block production
-	// This ensures MetaMask sees confirmations accumulating over time
-	// Simulates ~1 block per second since we don't have real block production
-	timeSinceStart := time.Since(s.startTime).Seconds()
-	timeBasedBlocks := uint64(timeSinceStart)
+	return hexutil.Uint64(s.headNumber(head)), nil
+}
 
-	// Return max of: (latest tx block + 12) or (time-based blocks)
-	// This ensures both old transactions and new ones appear confirmed
-	baseBlock := n + confirmationBufferBlocks
-
-	return hexutil.Uint64(max(baseBlock, timeBasedBlocks)), nil
+// headNumber is the reported head: at least 12 blocks above the last sealed one
+// so transfers show confirmations, and advancing one block per second from the
+// persisted anchor so it is stable across restarts and replicas.
+func (s *ethService) headNumber(head *ethrpc.ChainHead) uint64 {
+	now := uint64(time.Now().Unix()) //nolint:gosec // time is always positive
+	return max(head.LatestBlock+confirmationBufferBlocks, head.TimeHead(now))
 }
 
 // GasPrice always reports 0, and so do maxPriorityFeePerGas, block
@@ -379,29 +383,39 @@ func (s *ethService) GetTransactionByHash(ctx context.Context, hash common.Hash)
 	if row == nil {
 		return nil, nil
 	}
+	return s.rpcTransaction(row), nil
+}
 
-	from := common.HexToAddress(row.FromAddress)
+// rpcTransaction renders a stored transaction. The facade keeps no signed
+// transaction, so fees and the signature are zero.
+func (s *ethService) rpcTransaction(row *ethrpc.EvmTransaction) *ethrpc.RPCTransaction {
 	to := common.HexToAddress(row.ToAddress)
 	blockHash := common.BytesToHash(row.BlockHash)
 	blockNum := hexutil.Uint64(row.BlockNumber)
 	txIndex := hexutil.Uint(row.TxIndex)
-	gasPrice := big.NewInt(0)
+	zero := func() *hexutil.Big { return (*hexutil.Big)(big.NewInt(0)) }
 
 	return &ethrpc.RPCTransaction{
-		Hash:             hash,
-		Nonce:            hexutil.Uint64(row.Nonce),
-		BlockHash:        &blockHash,
-		BlockNumber:      &blockNum,
-		TransactionIndex: &txIndex,
-		From:             from,
-		To:               &to,
-		Value:            (*hexutil.Big)(big.NewInt(0)),
-		GasPrice:         (*hexutil.Big)(gasPrice),
-		Gas:              hexutil.Uint64(DefaultGasLimit),
-		Input:            row.Input,
-		Type:             hexutil.Uint64(2),
-		ChainID:          (*hexutil.Big)(new(big.Int).Set(s.chainID)),
-	}, nil
+		Hash:                 common.BytesToHash(row.TxHash),
+		Nonce:                hexutil.Uint64(row.Nonce),
+		BlockHash:            &blockHash,
+		BlockNumber:          &blockNum,
+		TransactionIndex:     &txIndex,
+		From:                 common.HexToAddress(row.FromAddress),
+		To:                   &to,
+		Value:                zero(),
+		GasPrice:             zero(),
+		Gas:                  hexutil.Uint64(DefaultGasLimit),
+		Input:                row.Input,
+		V:                    zero(),
+		R:                    zero(),
+		S:                    zero(),
+		Type:                 hexutil.Uint64(types.DynamicFeeTxType),
+		ChainID:              (*hexutil.Big)(new(big.Int).Set(s.chainID)),
+		MaxFeePerGas:         zero(),
+		MaxPriorityFeePerGas: zero(),
+		AccessList:           types.AccessList{},
+	}
 }
 
 func (s *ethService) Call(ctx context.Context, args *ethrpc.CallArgs) (hexutil.Bytes, error) {
@@ -562,31 +576,66 @@ func resolveBlockTag(tag *ethrpc.BlockTag, latest uint64) uint64 {
 	return *tag.Number
 }
 
-func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNumberOrHash, _ bool) (*ethrpc.RPCBlock, error) {
-	var blockNum uint64
+func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNumberOrHash, fullTx bool) (*ethrpc.RPCBlock, error) {
+	head, err := s.store.GetChainHead(ctx)
+	if err != nil {
+		return nil, apperr.DependencyError(err, "get chain head")
+	}
+	headNum := s.headNumber(head)
+
+	blockNum := headNum
 	if block.BlockNumber != nil {
 		blockNum = uint64(*block.BlockNumber)
-	} else {
-		latestBlockNum, err := s.BlockNumber(ctx)
-		if err != nil {
-			return nil, err
-		}
-		blockNum = uint64(latestBlockNum)
 	}
-
-	if blockNum == 0 {
+	if blockNum == 0 || blockNum > headNum {
 		return nil, nil
 	}
+	return s.buildBlock(ctx, head, blockNum, fullTx)
+}
 
+func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
+	blockNum, err := s.store.GetBlockNumberByHash(ctx, hash.Bytes())
+	if err != nil {
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get block number by hash %s", hash.Hex()))
+	}
+
+	head, err := s.store.GetChainHead(ctx)
+	if err != nil {
+		return nil, apperr.DependencyError(err, "get chain head")
+	}
+	if blockNum == 0 {
+		// Unsealed blocks are not stored; their hashes derive from the number,
+		// so match against the recent ones.
+		blockNum = s.recentBlockNumberByHash(hash, s.headNumber(head))
+		if blockNum == 0 {
+			return nil, nil
+		}
+	}
+	return s.buildBlock(ctx, head, blockNum, fullTx)
+}
+
+func (s *ethService) recentBlockNumberByHash(hash common.Hash, headNum uint64) uint64 {
+	for n := headNum; n > 0 && headNum-n < recentBlockHashWindow; n-- {
+		if common.BytesToHash(ethereum.ComputeBlockHash(s.chainID.Uint64(), n)) == hash {
+			return n
+		}
+	}
+	return 0
+}
+
+// buildBlock renders block blockNum. A sealed block lists its transactions, with
+// roots and bloom derived from them and the time it was sealed. Any other block
+// is empty, timed from the chain head anchor.
+func (s *ethService) buildBlock(
+	ctx context.Context, head *ethrpc.ChainHead, blockNum uint64, fullTx bool,
+) (*ethrpc.RPCBlock, error) {
 	blockHash := common.BytesToHash(ethereum.ComputeBlockHash(s.chainID.Uint64(), blockNum))
 	parentHash := common.Hash{}
 	if blockNum > 1 {
 		parentHash = common.BytesToHash(ethereum.ComputeBlockHash(s.chainID.Uint64(), blockNum-1))
 	}
 
-	// Synthetic blocks list no transactions, so they carry the empty-list hashes
-	// that go-ethereum clients validate against.
-	return &ethrpc.RPCBlock{
+	out := &ethrpc.RPCBlock{
 		Number:           hexutil.Uint64(blockNum),
 		Hash:             blockHash,
 		ParentHash:       parentHash,
@@ -603,25 +652,115 @@ func (s *ethService) GetBlockByNumber(ctx context.Context, block ethrpc.BlockNum
 		Size:             hexutil.Uint64(0),
 		GasLimit:         hexutil.Uint64(DefaultGasLimit),
 		GasUsed:          hexutil.Uint64(0),
-		Timestamp:        hexutil.Uint64(blockNum * syntheticBlockTimeSeconds),
 		Transactions:     []any{},
 		Uncles:           []common.Hash{},
 		BaseFeePerGas:    (*hexutil.Big)(big.NewInt(0)),
-	}, nil
+	}
+
+	sealed, err := s.store.GetEvmBlock(ctx, blockNum)
+	if err != nil {
+		return nil, apperr.DependencyError(err, fmt.Sprintf("get block %d", blockNum))
+	}
+	if sealed == nil {
+		ts, err := s.unsealedBlockTime(ctx, head, blockNum)
+		if err != nil {
+			return nil, err
+		}
+		out.Timestamp = hexutil.Uint64(ts)
+		return out, nil
+	}
+
+	out.Timestamp = hexutil.Uint64(sealed.Timestamp)
+	if len(sealed.Transactions) == 0 {
+		return out, nil
+	}
+
+	logsByTx := make(map[common.Hash][]*types.Log, len(sealed.Transactions))
+	for _, l := range sealed.Logs {
+		h := common.BytesToHash(l.TxHash)
+		logsByTx[h] = append(logsByTx[h], toTypesLog(l))
+	}
+
+	hashes := make(txHashList, 0, len(sealed.Transactions))
+	receipts := make(types.Receipts, 0, len(sealed.Transactions))
+	var gasUsed uint64
+	for _, tx := range sealed.Transactions {
+		h := common.BytesToHash(tx.TxHash)
+		hashes = append(hashes, h)
+		if fullTx {
+			out.Transactions = append(out.Transactions, s.rpcTransaction(tx))
+		} else {
+			out.Transactions = append(out.Transactions, h)
+		}
+		gasUsed += tx.GasUsed
+		r := &types.Receipt{
+			Type:              types.DynamicFeeTxType,
+			Status:            uint64(tx.Status),
+			CumulativeGasUsed: gasUsed,
+			Logs:              logsByTx[h],
+		}
+		r.Bloom = types.CreateBloom(r)
+		receipts = append(receipts, r)
+	}
+
+	// The transactions root is a trie over the transaction hashes: the facade keeps
+	// no signed transactions to build the canonical one from.
+	out.TransactionsRoot = types.DeriveSha(hashes, trie.NewStackTrie(nil))
+	out.ReceiptsRoot = types.DeriveSha(receipts, trie.NewStackTrie(nil))
+	out.LogsBloom = types.MergeBloom(receipts)
+	out.GasUsed = hexutil.Uint64(gasUsed)
+	return out, nil
 }
 
-func (s *ethService) GetBlockByHash(ctx context.Context, hash common.Hash, fullTx bool) (*ethrpc.RPCBlock, error) {
-	blockNum, err := s.store.GetBlockNumberByHash(ctx, hash.Bytes())
+// unsealedBlockTime dates an empty block. Above the anchor the head advances one
+// block per second. Below it, blocks fill the gap left by the upgrade between the
+// last sealed block before them and the anchor, spread evenly.
+func (s *ethService) unsealedBlockTime(ctx context.Context, head *ethrpc.ChainHead, blockNum uint64) (uint64, error) {
+	if head.AnchorTime == 0 {
+		return blockNum * syntheticBlockTimeSeconds, nil
+	}
+	if blockNum >= head.AnchorBlock {
+		return head.AnchorTime + (blockNum - head.AnchorBlock), nil
+	}
+
+	prev, err := s.store.GetSealedBlockBefore(ctx, blockNum)
 	if err != nil {
-		return nil, apperr.DependencyError(err, fmt.Sprintf("get block number by hash %s", hash.Hex()))
+		return 0, apperr.DependencyError(err, fmt.Sprintf("get sealed block before %d", blockNum))
 	}
-
-	if blockNum > 0 {
-		blockNumHex := hexutil.Uint64(blockNum)
-		return s.GetBlockByNumber(ctx, ethrpc.BlockNumberOrHash{BlockNumber: &blockNumHex}, fullTx)
+	if prev == nil {
+		return head.AnchorTime - min(head.AnchorTime, head.AnchorBlock-blockNum), nil
 	}
+	if prev.Timestamp >= head.AnchorTime {
+		return prev.Timestamp, nil
+	}
+	span := head.AnchorTime - prev.Timestamp
+	return prev.Timestamp + (blockNum-prev.Number)*span/(head.AnchorBlock-prev.Number), nil
+}
 
-	return s.GetBlockByNumber(ctx, ethrpc.BlockNumberOrHash{}, fullTx)
+// txHashList lets types.DeriveSha build a trie over transaction hashes.
+type txHashList []common.Hash
+
+func (l txHashList) Len() int { return len(l) }
+
+func (l txHashList) EncodeIndex(i int, w *bytes.Buffer) { w.Write(l[i].Bytes()) }
+
+func toTypesLog(l *ethrpc.EvmLog) *types.Log {
+	topics := make([]common.Hash, 0, len(l.Topics))
+	for _, t := range l.Topics {
+		topics = append(topics, common.BytesToHash(t))
+	}
+	return &types.Log{
+		Address:        common.BytesToAddress(l.Address),
+		Topics:         topics,
+		Data:           l.Data,
+		BlockNumber:    l.BlockNumber,
+		BlockTimestamp: l.BlockTimestamp,
+		TxHash:         common.BytesToHash(l.TxHash),
+		TxIndex:        l.TxIndex,
+		BlockHash:      common.BytesToHash(l.BlockHash),
+		Index:          l.LogIndex,
+		Removed:        l.Removed,
+	}
 }
 
 func encodeUint256(v *big.Int) (hexutil.Bytes, error) {

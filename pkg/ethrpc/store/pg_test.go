@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/uptrace/bun"
 
@@ -30,7 +31,7 @@ func setupEVMStore(t *testing.T) (*PGStore, *bun.DB) {
 	db, cleanup := pgutil.SetupTestDB(t)
 	t.Cleanup(cleanup)
 
-	if err := mghelper.CreateSchema(ctx, db, &EvmTransactionDao{}, &EvmStateDao{}, &EvmLogDao{}, &MempoolEntryDao{}); err != nil {
+	if err := mghelper.CreateSchema(ctx, db, &EvmTransactionDao{}, &EvmStateDao{}, &EvmLogDao{}, &MempoolEntryDao{}, &EvmBlockDao{}); err != nil {
 		t.Fatalf("failed to create schema: %v", err)
 	}
 
@@ -145,6 +146,105 @@ func TestPGStore_BlockRollback(t *testing.T) {
 	}
 	if latest != 0 {
 		t.Fatalf("aborted block should not advance counter: got %d want 0", latest)
+	}
+}
+
+func TestPGStore_SealedBlocks(t *testing.T) {
+	ctx := context.Background()
+	store, db := setupEVMStore(t)
+
+	head, err := store.GetChainHead(ctx)
+	if err != nil {
+		t.Fatalf("GetChainHead(initial) failed: %v", err)
+	}
+	if *head != (ethrpc.ChainHead{}) {
+		t.Fatalf("unexpected initial head: %+v", head)
+	}
+
+	// Anchor the chain 10 seconds ago at block 1000.
+	start := uint64(time.Now().Unix()) //nolint:gosec // time is always positive
+	if _, err = db.NewUpdate().Model((*EvmStateDao)(nil)).
+		Set("anchor_block = ?", 1000).Set("anchor_time = ?", start-10).
+		Where("id = 1").Exec(ctx); err != nil {
+		t.Fatalf("set anchor: %v", err)
+	}
+
+	block, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock failed: %v", err)
+	}
+	n := block.Number()
+	if n < 1010 || n > 1020 {
+		t.Fatalf("block should be sealed at the anchor clock: got %d want ~1010", n)
+	}
+	if block.Timestamp() < start {
+		t.Fatalf("block timestamp %d before test start %d", block.Timestamp(), start)
+	}
+
+	txHash := bytes.Repeat([]byte{0x01}, 32)
+	if err = block.AddEvmTransaction(ctx, &ethrpc.EvmTransaction{
+		TxHash: txHash, FromAddress: "0xaa", ToAddress: "0xbb", Status: 1,
+		BlockNumber: n, BlockHash: block.Hash(), TxIndex: 0, GasUsed: 21000, Input: []byte{},
+	}); err != nil {
+		t.Fatalf("AddEvmTransaction failed: %v", err)
+	}
+	if err = block.AddEvmLog(ctx, &ethrpc.EvmLog{
+		TxHash: txHash, LogIndex: 0, Address: bytes.Repeat([]byte{0xbb}, 20),
+		Topics: [][]byte{bytes.Repeat([]byte{0xdd}, 32)}, BlockNumber: n, BlockHash: block.Hash(),
+		BlockTimestamp: block.Timestamp(),
+	}); err != nil {
+		t.Fatalf("AddEvmLog failed: %v", err)
+	}
+	if err = block.Finalize(ctx); err != nil {
+		t.Fatalf("Finalize failed: %v", err)
+	}
+
+	head, err = store.GetChainHead(ctx)
+	if err != nil {
+		t.Fatalf("GetChainHead failed: %v", err)
+	}
+	want := ethrpc.ChainHead{LatestBlock: n, AnchorBlock: 1000, AnchorTime: start - 10}
+	if *head != want {
+		t.Fatalf("Finalize must keep the anchor: got %+v want %+v", head, want)
+	}
+
+	got, err := store.GetEvmBlock(ctx, n)
+	if err != nil {
+		t.Fatalf("GetEvmBlock failed: %v", err)
+	}
+	if got == nil || got.Number != n || got.Timestamp != block.Timestamp() {
+		t.Fatalf("unexpected sealed block: %+v", got)
+	}
+	if len(got.Transactions) != 1 || !bytes.Equal(got.Transactions[0].TxHash, txHash) {
+		t.Fatalf("unexpected block transactions: %+v", got.Transactions)
+	}
+	if len(got.Logs) != 1 || !bytes.Equal(got.Logs[0].TxHash, txHash) {
+		t.Fatalf("unexpected block logs: %+v", got.Logs)
+	}
+
+	if got, err = store.GetEvmBlock(ctx, n-1); err != nil || got != nil {
+		t.Fatalf("unsealed block should be nil: got %+v, err %v", got, err)
+	}
+
+	before, err := store.GetSealedBlockBefore(ctx, n+5)
+	if err != nil {
+		t.Fatalf("GetSealedBlockBefore failed: %v", err)
+	}
+	if before == nil || before.Number != n || before.Timestamp != block.Timestamp() {
+		t.Fatalf("unexpected sealed block before %d: %+v", n+5, before)
+	}
+	if before, err = store.GetSealedBlockBefore(ctx, n); err != nil || before != nil {
+		t.Fatalf("no sealed block before %d expected: got %+v, err %v", n, before, err)
+	}
+
+	// The next block seals above the last one even if the anchor clock is behind.
+	next, err := store.NewBlock(ctx, testChainID)
+	if err != nil {
+		t.Fatalf("NewBlock(next) failed: %v", err)
+	}
+	defer func() { _ = next.Abort(ctx) }()
+	if next.Number() <= n {
+		t.Fatalf("next block %d not above %d", next.Number(), n)
 	}
 }
 

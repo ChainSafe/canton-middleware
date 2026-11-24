@@ -98,7 +98,7 @@ func (m *Miner) mine(ctx context.Context) (err error) {
 		return nil // Abort via defer; block number is not consumed.
 	}
 
-	blockTimestamp := uint64(time.Now().Unix()) //nolint:gosec // time.Now() is always positive
+	blockTimestamp := block.Timestamp()
 	// logIndex is block-relative and contiguous across all logs in the block —
 	// it must not skip when a failed tx emits zero logs. Track it separately
 	// from txIndex so go-ethereum tooling that relies on contiguous indices
