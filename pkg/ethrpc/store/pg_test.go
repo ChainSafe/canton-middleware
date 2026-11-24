@@ -184,7 +184,7 @@ func TestPGStore_SealedBlocks(t *testing.T) {
 	txHash := bytes.Repeat([]byte{0x01}, 32)
 	if err = block.AddEvmTransaction(ctx, &ethrpc.EvmTransaction{
 		TxHash: txHash, FromAddress: "0xaa", ToAddress: "0xbb", Status: 1,
-		BlockNumber: n, BlockHash: block.Hash(), TxIndex: 0, GasUsed: 21000,
+		BlockNumber: n, BlockHash: block.Hash(), TxIndex: 0, GasUsed: 21000, Input: []byte{},
 	}); err != nil {
 		t.Fatalf("AddEvmTransaction failed: %v", err)
 	}
