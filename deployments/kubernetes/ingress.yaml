@@ -1,5 +1,6 @@
 # Public endpoint for the API server (JSON-RPC at /eth, REST and registration).
-# The indexer and relayer stay internal to the cluster.
+# The indexer and relayer stay internal to the cluster. This routes every path, including the
+# bearer-protected /admin/whitelist; see the README's notes to block it.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

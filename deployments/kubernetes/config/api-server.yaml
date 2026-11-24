@@ -51,6 +51,11 @@ canton:
     splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
     splice_holding_package_id: "#splice-api-token-holding-v1"
     utility_registry_app_package_id: "#utility-registry-app-v0"
+    # Tokens issued by another party (e.g. USDCx) are transferred through their issuer's registry.
+    # Uncomment together with the USDCx entries under token_provider and token below.
+    # external_tokens:
+    #   "usdcx-admin::1220CHANGEME": # CHANGE ME: the USDCx instrument admin party
+    #     registry_url: "https://registry.example.com" # CHANGE ME: the issuer's registry API
 
   bridge:
     package_id: "#bridge-wayfinder"
@@ -64,6 +69,7 @@ token_provider:
     url: "http://canton-indexer:8082"
     instruments:
       DEMO: "issuer::1220CHANGEME" # CHANGE ME: instrument ID -> instrument admin party
+      # USDCx: "usdcx-admin::1220CHANGEME" # CHANGE ME: same party as in external_tokens
 
 # EVM address that MetaMask uses for each token, mapped to its Canton instrument.
 token:
@@ -73,6 +79,13 @@ token:
       symbol: "DEMO"
       decimals: 18
       instrument_id: "DEMO"
+    # USDCx. external_transfer lets it be sent to Canton parties not registered with the middleware.
+    # "0xC1A0000000000000000000000000000000000001": # CHANGE ME
+    #   name: "USD Coin"
+    #   symbol: "USDCx"
+    #   decimals: 6
+    #   instrument_id: "USDCx"
+    #   external_transfer: true
 
 eth_rpc:
   enabled: true

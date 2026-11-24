@@ -9,6 +9,7 @@ resources:
   - indexer.yaml
   - relayer.yaml
   - ingress.yaml
+  - networkpolicy.yaml
 
 # Config files become ConfigMaps with a content hash in the name, so editing a config
 # rolls the Deployment that mounts it.

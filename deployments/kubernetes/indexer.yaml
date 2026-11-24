@@ -57,37 +57,11 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
-      initContainers:
-        - name: migrate
-          image: ghcr.io/chainsafe/canton-indexer
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              /app/indexer-migrate -config /app/config.yaml init || echo "migration table already present"
-              exec /app/indexer-migrate -config /app/config.yaml up
-          envFrom:
-            - secretRef:
-                name: canton-indexer-secrets
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-          volumeMounts:
-            - name: config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
-              readOnly: true
       containers:
         - name: indexer
           image: ghcr.io/chainsafe/canton-indexer
-          command: ["/app/indexer"]
+          # The image entrypoint runs the database migrations, exits if they fail, then starts
+          # the service with these arguments.
           args: ["-config", "/app/config.yaml"]
           envFrom:
             - secretRef:
@@ -97,11 +71,16 @@ spec:
               containerPort: 8082
             - name: metrics
               containerPort: 9090
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
@@ -109,7 +88,6 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
@@ -119,11 +97,11 @@ spec:
               drop: ["ALL"]
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 100m
+              memory: 128Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "1"
+              memory: 1Gi
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml
