@@ -74,6 +74,7 @@ export default withMermaid(
             { text: 'Overview', link: '/grant/' },
             { text: 'M1: Architecture and contracts', link: '/grant/m1' },
             { text: 'M2: Middleware service', link: '/grant/m2' },
+            { text: 'M2: MainNet RPC transcript', link: '/grant/m2-rpc-transcript' },
           ],
         },
       ],

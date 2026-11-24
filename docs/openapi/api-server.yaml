@@ -889,8 +889,8 @@ paths:
 
         - `eth_getLogs` needs hex `fromBlock` and `toBlock` (no tags), a single `address`, and exact-match
           topics.
-        - Blocks returned by `eth_getBlockBy*` are synthetic: they have empty transaction lists, zero roots and
-          derived timestamps.
+        - Blocks returned by `eth_getBlockBy*` are synthetic: they have empty transaction lists, empty-list
+          roots and a timestamp of block number × 12 seconds. Receipts and logs carry the real block and time.
       security: []
       requestBody:
         required: true
