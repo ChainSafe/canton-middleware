@@ -16,7 +16,7 @@ info:
 
     | Class | Endpoints | Mechanism |
     |---|---|---|
-    | Public | `/health`, `/tokens`, `/eth`, `/registry/...`, `/auth/nonce`, `/.well-known/jwks.json` | None |
+    | Public | `/health`, `/ready`, `/tokens`, `/eth`, `/registry/...`, `/auth/nonce`, `/.well-known/jwks.json` | None |
     | Self-authenticating | `/register`, `/register/prepare-topology` | EIP-191 signature in the body (or the `X-Signature` / `X-Message` headers) |
     | Signed request | Transfer writes under `/api/v2/transfer` | `X-Signature` and `X-Message` headers. The message must end with `:<unix-seconds>` and is accepted for 5 minutes |
     | Bearer JWT | `/profile`, `/api/v2/transfer/{incoming,outgoing,completed}` | RS256 token from `/auth/login` |
@@ -78,6 +78,30 @@ paths:
               schema:
                 type: string
                 const: OK
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Readiness check
+      description: >-
+        Ready when the database answers a ping and the Canton Ledger API answers
+        `GetLedgerEnd` with the configured credentials.
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: READY
+        '503':
+          description: Not ready. The body names the first failing check; the error is logged.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: 'NOT_READY: ledger'
   /tokens:
     get:
       tags: [Tokens]

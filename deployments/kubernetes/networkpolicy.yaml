@@ -1,0 +1,43 @@
+# The indexer and relayer HTTP APIs are unauthenticated: the indexer's /indexer/v1/admin routes
+# return balances, transfers and events for every party, and the relayer serves /api/v1/transfers.
+# These policies admit only the API server to the indexer, and only Prometheus to the metrics ports.
+# They take effect only if the cluster's CNI enforces NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: canton-indexer
+spec:
+  podSelector:
+    matchLabels:
+      app: canton-indexer
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: canton-middleware-api
+      ports:
+        - port: 8082
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring # CHANGE ME: namespace of your Prometheus
+      ports:
+        - port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: canton-bridge-relayer
+spec:
+  podSelector:
+    matchLabels:
+      app: canton-bridge-relayer
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring # CHANGE ME: namespace of your Prometheus
+      ports:
+        - port: 9090

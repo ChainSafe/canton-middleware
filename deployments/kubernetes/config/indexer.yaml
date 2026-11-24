@@ -1,0 +1,58 @@
+# Indexer configuration, mounted into the pod as /app/config.yaml.
+# ${VAR} values come from the canton-indexer-secrets Secret (see secrets.example.yaml).
+# Replace every value marked CHANGE ME before deploying.
+
+server:
+  host: "0.0.0.0"
+  port: 8082
+  read_timeout: "15s"
+  write_timeout: "15s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${INDEXER_DATABASE_URL}"
+  ssl_mode: "require"
+  timeout: 10
+  pool_size: 10
+
+canton_ledger:
+  rpc_url: "participant.canton.svc.cluster.local:5001" # CHANGE ME: participant Ledger API (gRPC)
+  ledger_id: ""
+  max_inbound_message_size: 52428800
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    insecure_skip_verify: false
+  auth:
+    client_id: "${CANTON_AUTH_CLIENT_ID}"
+    client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+    audience: "https://ledger-api.example.com" # CHANGE ME
+    token_url: "https://auth.example.com/oauth/token" # CHANGE ME
+    expiry_leeway: "60s"
+
+# The indexer sees only what the participant's parties can see, so each operator runs its own.
+indexer:
+  cip56_package_id: "#cip56-token"
+  filter_mode: "all"
+  # Needed to track USDCx-style registry transfer offers and holdings.
+  utility_registry_package_id: "#utility-registry-app-v0"
+  utility_registry_holding_package_id: "#utility-registry-holding-v0"
+
+logging:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9090
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"

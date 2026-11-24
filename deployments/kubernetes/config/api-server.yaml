@@ -1,0 +1,136 @@
+# API server configuration, mounted into the pod as /app/config.yaml.
+# ${VAR} values come from the canton-middleware-api-secrets Secret (see secrets.example.yaml).
+# Replace every value marked CHANGE ME before deploying.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "60s"
+  write_timeout: "60s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+# Whitelist management API (POST/DELETE/GET /admin/whitelist), gated by a bearer token.
+admin:
+  enabled: true
+  api_key: "${ADMIN_API_KEY}"
+
+database:
+  url: "${API_SERVER_DATABASE_URL}"
+  ssl_mode: "require"
+  timeout: 10
+  pool_size: 10
+
+canton:
+  domain_id: "global-domain::1220CHANGEME" # CHANGE ME: synchronizer ID
+  issuer_party: "issuer::1220CHANGEME" # CHANGE ME: party that issues the CIP-56 tokens
+
+  ledger:
+    rpc_url: "participant.canton.svc.cluster.local:5001" # CHANGE ME: participant Ledger API (gRPC)
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "https://ledger-api.example.com" # CHANGE ME
+      token_url: "https://auth.example.com/oauth/token" # CHANGE ME
+      expiry_leeway: "60s"
+
+  # Package-name references (#<name>) match every vetted version of a package.
+  identity:
+    package_id: "#common"
+
+  token:
+    cip56_package_id: "#cip56-token"
+    splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
+    splice_holding_package_id: "#splice-api-token-holding-v1"
+    utility_registry_app_package_id: "#utility-registry-app-v0"
+    # Tokens issued by another party (e.g. USDCx) are transferred through their issuer's registry.
+    # Uncomment together with the USDCx entries under token_provider and token below.
+    # external_tokens:
+    #   "usdcx-admin::1220CHANGEME": # CHANGE ME: the USDCx instrument admin party
+    #     registry_url: "https://registry.example.com" # CHANGE ME: the issuer's registry API
+
+  bridge:
+    package_id: "#bridge-wayfinder"
+    core_package_id: "#bridge-core"
+    module: "Wayfinder.Bridge"
+
+# Balances and holdings are served by the indexer in the same namespace.
+token_provider:
+  mode: indexer
+  indexer:
+    url: "http://canton-indexer:8082"
+    instruments:
+      DEMO: "issuer::1220CHANGEME" # CHANGE ME: instrument ID -> instrument admin party
+      # USDCx: "usdcx-admin::1220CHANGEME" # CHANGE ME: same party as in external_tokens
+
+# EVM address that MetaMask uses for each token, mapped to its Canton instrument.
+token:
+  supported_tokens:
+    "0xDE30000000000000000000000000000000000001": # CHANGE ME
+      name: "Demo Token"
+      symbol: "DEMO"
+      decimals: 18
+      instrument_id: "DEMO"
+    # USDCx. external_transfer lets it be sent to Canton parties not registered with the middleware.
+    # "0xC1A0000000000000000000000000000000000001": # CHANGE ME
+    #   name: "USD Coin"
+    #   symbol: "USDCx"
+    #   decimals: 6
+    #   instrument_id: "USDCx"
+    #   external_transfer: true
+
+eth_rpc:
+  enabled: true
+  chain_id: 1337 # CHANGE ME: an EVM chain ID unique to this deployment
+  request_timeout: "60s"
+
+# Sign-In with Ethereum (EIP-4361) sessions for the reference dApp.
+auth:
+  private_key: "${JWT_PRIVATE_KEY}"
+  kid: "default"
+  issuer: "canton-middleware"
+  audience: "canton-middleware-api"
+  token_ttl: "6h"
+  nonce_ttl: "1m"
+  domain: "dapp.example.com" # CHANGE ME: dApp domain shown in the signing request
+  uri: "https://dapp.example.com" # CHANGE ME
+  chain_id: 1337 # CHANGE ME: same as eth_rpc.chain_id
+
+# Accepts pending transfer offers for custodial users by polling the indexer.
+accept_worker:
+  indexer_url: "http://canton-indexer:8082"
+  poll_interval: "5s"
+
+# Custodial user keys are encrypted with the master key from CANTON_MASTER_KEY.
+key_management:
+  master_key_env: "CANTON_MASTER_KEY"
+  key_derivation: "generate"
+
+logging:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+skip_whitelist_check: false
+
+cors:
+  - "https://dapp.example.com" # CHANGE ME
+
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9090
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"

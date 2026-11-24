@@ -10,7 +10,17 @@
   "packages": {
     ".": {
       "package-name": "canton-middleware",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "deployments/kubernetes/kustomization.yaml"
+        },
+        {
+          "type": "generic",
+          "path": "deployments/kubernetes/README.md"
+        }
+      ]
     }
   }
 }

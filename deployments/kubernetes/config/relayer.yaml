@@ -1,0 +1,97 @@
+# Bridge relayer configuration, mounted into the pod as /app/config.yaml.
+# ${VAR} values come from the canton-bridge-relayer-secrets Secret (see secrets.example.yaml).
+# Replace every value marked CHANGE ME before deploying.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "60s"
+  write_timeout: "60s"
+  idle_timeout: "60s"
+  shutdown_timeout: "30s"
+
+database:
+  url: "${RELAYER_DATABASE_URL}"
+  ssl_mode: "require"
+  timeout: 10
+  pool_size: 10
+
+ethereum:
+  rpc_url: "${ETHEREUM_RPC_URL}"
+  ws_url: "${ETHEREUM_WS_URL}"
+  chain_id: 1 # CHANGE ME: 1 for Ethereum mainnet, 11155111 for Sepolia
+  bridge_contract: "0x0000000000000000000000000000000000000000" # CHANGE ME: deployed CantonBridge
+  token_contract: "0x0000000000000000000000000000000000000000" # CHANGE ME: bridged ERC-20
+  relayer_private_key: "${ETHEREUM_RELAYER_PRIVATE_KEY}"
+  confirmation_blocks: 12
+  gas_limit: 300000
+  max_gas_price: "100000000000"
+  polling_interval: "5s"
+  start_block: 0 # CHANGE ME: block the bridge contract was deployed at
+  lookback_blocks: 200
+
+canton:
+  domain_id: "global-domain::1220CHANGEME" # CHANGE ME: synchronizer ID
+  issuer_party: "issuer::1220CHANGEME" # CHANGE ME: party that issues the bridged token
+
+  ledger:
+    rpc_url: "participant.canton.svc.cluster.local:5001" # CHANGE ME: participant Ledger API (gRPC)
+    ledger_id: ""
+    max_inbound_message_size: 52428800
+    tls:
+      enabled: false
+      cert_file: ""
+      key_file: ""
+      ca_file: ""
+      insecure_skip_verify: false
+    auth:
+      client_id: "${CANTON_AUTH_CLIENT_ID}"
+      client_secret: "${CANTON_AUTH_CLIENT_SECRET}"
+      audience: "https://ledger-api.example.com" # CHANGE ME
+      token_url: "https://auth.example.com/oauth/token" # CHANGE ME
+      expiry_leeway: "60s"
+
+  # Package-name references (#<name>) match every vetted version of a package.
+  identity:
+    package_id: "#common"
+
+  token:
+    cip56_package_id: "#cip56-token"
+    splice_transfer_package_id: "#splice-api-token-transfer-instruction-v1"
+    splice_holding_package_id: "#splice-api-token-holding-v1"
+
+  bridge:
+    package_id: "#bridge-wayfinder"
+    core_package_id: "#bridge-core"
+    module: "Wayfinder.Bridge"
+
+bridge:
+  max_transfer_amount: "1000000000000000000000" # CHANGE ME: keep in line with the bridge contract
+  min_transfer_amount: "1000000000000000" # CHANGE ME: keep in line with the bridge contract
+  rate_limit_per_hour: 100
+  max_retries: 5
+  retry_delay: "10s"
+  processing_interval: "5s"
+  canton_chain_id: "canton"
+  canton_start_block: 0
+  canton_lookback_blocks: 100
+  eth_chain_id: "1" # CHANGE ME: same as ethereum.chain_id
+  eth_start_block: 0 # CHANGE ME: same as ethereum.start_block
+  eth_lookback_blocks: 200
+  eth_token_contract: "0x0000000000000000000000000000000000000000" # CHANGE ME: same as ethereum.token_contract
+
+logging:
+  level: "info"
+  format: "json"
+  output_path: "stdout"
+
+monitoring:
+  enabled: true
+  server:
+    host: "0.0.0.0"
+    port: 9090
+    read_timeout: "5s"
+    write_timeout: "10s"
+    idle_timeout: "30s"
+    shutdown_timeout: "5s"
+  health_check_url: "/health"

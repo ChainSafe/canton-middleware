@@ -51,6 +51,29 @@ paths:
               schema:
                 type: string
                 const: OK
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Readiness check
+      description: >-
+        Ready when the database answers a ping and the Canton update stream is
+        connected: it has delivered a response, or stayed open for 10 seconds without error.
+      responses:
+        '200':
+          description: Ready.
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: READY
+        '503':
+          description: Not ready. The body names the first failing check; the error is logged.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: 'NOT_READY: ledger'
   /indexer/v1/admin/tokens:
     get:
       tags: [Tokens]
