@@ -24,14 +24,14 @@ configMapGenerator:
     files:
       - config.yaml=config/relayer.yaml
 
-# Pin every service to the same release.
+# Pin every service to the same release. Release PRs bump these tags (release-please-config.json).
 images:
   - name: ghcr.io/chainsafe/canton-erc20-api
-    newTag: v0.10.0
+    newTag: v0.10.0 # x-release-please-version
   - name: ghcr.io/chainsafe/canton-indexer
-    newTag: v0.10.0
+    newTag: v0.10.0 # x-release-please-version
   - name: ghcr.io/chainsafe/canton-middleware
-    newTag: v0.10.0
+    newTag: v0.10.0 # x-release-please-version
 
 labels:
   - pairs:

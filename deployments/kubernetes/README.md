@@ -62,6 +62,7 @@ context is the repository root:
 | `ghcr.io/chainsafe/canton-indexer` | Indexer | `cmd/indexer/Dockerfile` |
 | `ghcr.io/chainsafe/canton-middleware` | Bridge relayer | `cmd/relayer/Dockerfile` |
 
+<!-- x-release-please-start-version -->
 ```sh
 git checkout v0.10.0
 REGISTRY=registry.example.com/canton-middleware
@@ -90,6 +91,7 @@ images:
     newName: registry.example.com/canton-middleware/relayer
     newTag: v0.10.0
 ```
+<!-- x-release-please-end -->
 
 If your cluster needs credentials for the registry, add an `imagePullSecrets` entry to each Deployment. To
 pin an exact build rather than a tag, add `digest: sha256:…` to each entry.
