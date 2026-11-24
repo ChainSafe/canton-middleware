@@ -403,7 +403,7 @@ Three namespaces are registered by the middleware. Anything outside them fails, 
 
 Blocks are synthetic. A miner seals accepted transfers into blocks on a timer, and `eth_blockNumber`
 advances with wall-clock time so that wallets see confirmations accumulate (`pkg/ethrpc/service/service.go`).
-Blocks do not yet match receipts:
+Blocks do not yet match receipts ([#401](https://github.com/ChainSafe/canton-middleware/pull/401) fixes this):
 
 - `eth_getBlockByNumber` and `eth_getBlockByHash` return an empty `transactions` list and empty-list roots,
   even for a block that a receipt points to.
