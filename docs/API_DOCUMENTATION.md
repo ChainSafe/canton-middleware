@@ -403,6 +403,16 @@ Three namespaces are registered by the middleware. Anything outside them fails, 
 
 Blocks are synthetic. A miner seals accepted transfers into blocks on a timer, and `eth_blockNumber`
 advances with wall-clock time so that wallets see confirmations accumulate (`pkg/ethrpc/service/service.go`).
+Blocks do not yet match receipts ([#401](https://github.com/ChainSafe/canton-middleware/pull/401) fixes this):
+
+- `eth_getBlockByNumber` and `eth_getBlockByHash` return an empty `transactions` list and empty-list roots,
+  even for a block that a receipt points to.
+- A block's `timestamp` is its number × 12 seconds, not the time it was sealed.
+- `eth_blockNumber` is the larger of the last sealed block + 12 and the API server's uptime in seconds, so it
+  restarts from a low value when the server restarts and can differ between replicas.
+
+Receipts and logs carry the real block number, block hash and time (`blockTimestamp`), so use
+`eth_getTransactionReceipt` and `eth_getLogs` to locate a transfer.
 `eth_sendRawTransaction` returns as soon as the intent is queued; the Canton submission happens
 asynchronously, so poll `eth_getTransactionReceipt` for the terminal status.
 
