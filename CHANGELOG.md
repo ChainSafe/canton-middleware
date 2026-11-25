@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/ChainSafe/canton-middleware/compare/v0.10.0...v0.11.0) (2026-11-25)
+
+
+### Features
+
+* **deploy:** Kubernetes manifests for the API server, indexer and relayer ([#399](https://github.com/ChainSafe/canton-middleware/issues/399)) ([8673cf2](https://github.com/ChainSafe/canton-middleware/commit/8673cf2e7a1cdc9df785a795dc2a5565a49dc175))
+
+
+### Bug Fixes
+
+* **ci:** restore formatting-safe dev autodeploy PRs ([#394](https://github.com/ChainSafe/canton-middleware/issues/394)) ([bf14ec9](https://github.com/ChainSafe/canton-middleware/commit/bf14ec9882844aee71773b8382c7cda34bbfb378))
+
 ## [0.10.0](https://github.com/ChainSafe/canton-middleware/compare/v0.9.1...v0.10.0) (2026-11-02)
 
 

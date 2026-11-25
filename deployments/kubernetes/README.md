@@ -64,16 +64,16 @@ context is the repository root:
 
 <!-- x-release-please-start-version -->
 ```sh
-git checkout v0.10.0
+git checkout v0.11.0
 REGISTRY=registry.example.com/canton-middleware
 # VERSION is what the API server reports in web3_clientVersion.
-docker build -f cmd/api-server/Dockerfile --build-arg VERSION="v0.10.0-$(git rev-parse HEAD)" \
-  -t "$REGISTRY/api-server:v0.10.0" .
-docker build -f cmd/indexer/Dockerfile -t "$REGISTRY/indexer:v0.10.0" .
-docker build -f cmd/relayer/Dockerfile -t "$REGISTRY/relayer:v0.10.0" .
-docker push "$REGISTRY/api-server:v0.10.0"
-docker push "$REGISTRY/indexer:v0.10.0"
-docker push "$REGISTRY/relayer:v0.10.0"
+docker build -f cmd/api-server/Dockerfile --build-arg VERSION="v0.11.0-$(git rev-parse HEAD)" \
+  -t "$REGISTRY/api-server:v0.11.0" .
+docker build -f cmd/indexer/Dockerfile -t "$REGISTRY/indexer:v0.11.0" .
+docker build -f cmd/relayer/Dockerfile -t "$REGISTRY/relayer:v0.11.0" .
+docker push "$REGISTRY/api-server:v0.11.0"
+docker push "$REGISTRY/indexer:v0.11.0"
+docker push "$REGISTRY/relayer:v0.11.0"
 ```
 
 Add `--platform linux/amd64` when building on an ARM machine for an amd64 cluster. Then replace the `images`
@@ -83,13 +83,13 @@ block in `kustomization.yaml`:
 images:
   - name: ghcr.io/chainsafe/canton-erc20-api
     newName: registry.example.com/canton-middleware/api-server
-    newTag: v0.10.0
+    newTag: v0.11.0
   - name: ghcr.io/chainsafe/canton-indexer
     newName: registry.example.com/canton-middleware/indexer
-    newTag: v0.10.0
+    newTag: v0.11.0
   - name: ghcr.io/chainsafe/canton-middleware
     newName: registry.example.com/canton-middleware/relayer
-    newTag: v0.10.0
+    newTag: v0.11.0
 ```
 <!-- x-release-please-end -->
 
