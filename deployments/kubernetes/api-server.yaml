@@ -1,0 +1,110 @@
+# API server: Ethereum JSON-RPC facade, registration and REST API.
+# The image entrypoint runs database migrations before the service starts.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: canton-middleware-api
+  labels:
+    app: canton-middleware-api
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canton-middleware-api
+  labels:
+    app: canton-middleware-api
+spec:
+  type: ClusterIP
+  selector:
+    app: canton-middleware-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canton-middleware-api
+  labels:
+    app: canton-middleware-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: canton-middleware-api
+  template:
+    metadata:
+      labels:
+        app: canton-middleware-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: canton-middleware-api
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api-server
+          image: ghcr.io/chainsafe/canton-erc20-api
+          # The image entrypoint runs the database migrations, exits if they fail, then starts
+          # the service with these arguments.
+          args: ["-config", "/app/config.yaml"]
+          envFrom:
+            - secretRef:
+                name: canton-middleware-api-secrets
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: canton-middleware-api-config

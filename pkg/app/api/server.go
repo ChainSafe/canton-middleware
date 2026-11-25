@@ -172,12 +172,24 @@ func (s *Server) Run() error {
 
 	router := s.setupRouter(
 		svcs.evmStore, wl, cantonClient, svcs.tokenService, svcs.regSvc, svcs.transferSvc,
-		loginSvc, readAuth, metrics, logger,
+		loginSvc, readAuth, readyHandler(dbBun, cantonClient, logger), metrics, logger,
 	)
 
 	s.registerServers(g, gCtx, router, logger)
 
 	return g.Wait()
+}
+
+// readyHandler reports ready once the database answers and the Ledger API answers GetLedgerEnd
+// with this server's credentials.
+func readyHandler(db *bun.DB, cantonClient *canton.Client, logger *zap.Logger) http.HandlerFunc {
+	return apphttp.ReadyHandler(logger,
+		apphttp.ReadinessCheck{Name: "database", Check: db.PingContext},
+		apphttp.ReadinessCheck{Name: "ledger", Check: func(ctx context.Context) error {
+			_, err := cantonClient.Ledger.GetLedgerEnd(ctx)
+			return err
+		}},
+	)
 }
 
 // buildIndexerClient creates the single indexer HTTP client used by every
@@ -432,6 +444,7 @@ func (s *Server) setupRouter(
 	transferSvc transfer.Service,
 	loginSvc authservice.Service,
 	readAuth func(http.Handler) http.Handler,
+	ready http.HandlerFunc,
 	metrics *apphttp.HTTPMetrics,
 	logger *zap.Logger,
 ) chi.Router {
@@ -450,6 +463,7 @@ func (s *Server) setupRouter(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
 	})
+	r.Get(apphttp.ReadyPath, ready)
 
 	// Supported tokens metadata
 	token.RegisterRoutes(r, tokenService, logger)

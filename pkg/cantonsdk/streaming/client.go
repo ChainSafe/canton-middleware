@@ -37,6 +37,14 @@ type Client struct {
 	ledger ledger.Ledger
 	party  *string // nil = FiltersForAnyParty (wildcard); non-nil = FiltersByParty
 	logger *zap.Logger
+	health streamHealth
+}
+
+// Healthy reports whether the current stream is connected: it has delivered a response, or
+// stayed open for streamHealthyAfter without error. False before the first connection and
+// while reconnecting, so a missing right or an unreachable participant shows here.
+func (c *Client) Healthy() bool {
+	return c.health.get()
 }
 
 // New creates a new streaming Client for the given ledger.
@@ -165,6 +173,13 @@ func (c *Client) runStream(
 		return fmt.Errorf("open canton stream: %w", err)
 	}
 
+	gen := c.health.begin()
+	healthyTimer := time.AfterFunc(streamHealthyAfter, func() { c.health.markHealthy(gen) })
+	defer func() {
+		healthyTimer.Stop()
+		c.health.end(gen)
+	}()
+
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
@@ -173,6 +188,7 @@ func (c *Client) runStream(
 			}
 			return err
 		}
+		c.health.markHealthy(gen)
 
 		tx := resp.GetTransaction()
 		if tx == nil {
